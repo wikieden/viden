@@ -217,6 +217,21 @@ pub(super) struct TuiEntry {
     pub(super) body: String,
 }
 
+impl TuiEntry {
+    /// The entry's kind: the leading segment of its label.
+    ///
+    /// A label may qualify its kind after a `·` — a settled ACP reply names the
+    /// session it came from and whether that session failed — so anything
+    /// classifying entries by kind must read the segment rather than compare
+    /// the whole label, or a qualified reply stops counting as a reply.
+    pub(super) fn kind(&self) -> &str {
+        self.label
+            .split_once(" · ")
+            .map(|(kind, _)| kind)
+            .unwrap_or(self.label.as_str())
+    }
+}
+
 /// Local navigation only. Runtime facts and side effects remain Core-owned;
 /// changing a lens never confirms project, lane, session, or approval state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -329,6 +344,16 @@ pub(super) struct TuiUiState {
     pub(super) idle_ctrl_c_armed: bool,
     pub(super) color_depth: ColorDepth,
     pub(super) preference_diagnostics: Vec<String>,
+    /// Agent sessions this client already knew had finished.
+    ///
+    /// Seeded from every authoritative snapshot and added to as terminal facts
+    /// are observed, it is what separates a turn the operator just watched from
+    /// replayed history. The distinction cannot be drawn from the event alone:
+    /// Core prefixes its whole persisted runtime state to every turn's event
+    /// batch, so a session that finished weeks ago re-delivers its terminal
+    /// fact on any later turn. A session already terminal in the snapshot this
+    /// client started from is history, whatever event carries it.
+    pub(super) settled_agent_sessions: std::collections::BTreeSet<String>,
     /// Animation phase for the live-activity pulse. The render model must stay a
     /// pure function of state, so the frame is sampled from the clock once per
     /// draw in the event loop instead of being read inside `render_frame`.
@@ -363,6 +388,7 @@ impl Default for TuiUiState {
             idle_ctrl_c_armed: false,
             color_depth: ColorDepth::Auto,
             preference_diagnostics: Vec::new(),
+            settled_agent_sessions: std::collections::BTreeSet::new(),
             pulse_frame: 0,
         }
     }

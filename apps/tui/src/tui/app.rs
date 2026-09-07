@@ -2,8 +2,9 @@ use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 #[cfg(test)]
 use viden_core::ApprovalResponse;
 use viden_core::{
-    AgentSessionRequest, AgentStartability, AuditObjectRef, CoreClient, EventCursor,
-    RuntimeCommand, RuntimeOwner, RuntimeViewState, StarterLanePreset, TuiColorDepth,
+    AgentSessionRequest, AgentSessionStatus, AgentSessionView, AgentStartability, AuditObjectRef,
+    CoreClient, EventCursor, RuntimeCommand, RuntimeOwner, RuntimeViewState, StarterLanePreset,
+    TuiColorDepth,
 };
 
 use super::audit_panel::AuditPanel;
@@ -37,6 +38,7 @@ use super::state::{
     PendingNativeLane, SupervisionInput, SupervisionPanel, TuiEntry, TuiState,
 };
 use super::terminal::TerminalGuard;
+use super::text::truncate_tail;
 use super::workspace_files::WORKSPACE_FILES_CAPABILITY;
 
 const PROJECT_ONBOARDING_CAPABILITY: &str = "runtime.project_onboarding";
@@ -116,7 +118,8 @@ pub fn run_tui<C: CoreClient>(client: C, options: TuiOptions) -> Result<(), TuiE
     terminal.draw(&state).map_err(TuiError::Terminal)?;
 
     loop {
-        apply_pump_outcome(&mut state, driver.pump()?);
+        let outcome = driver.pump()?;
+        apply_pump_outcome(&mut state, &driver, outcome);
         project_driver_view(&mut state, &driver);
         observe_driver_events(&mut state, &mut driver)?;
         terminal.refresh_appearance(
@@ -161,8 +164,103 @@ fn state_from_driver<C: CoreClient>(driver: &TuiClientDriver<C>, options: &TuiOp
         label: "system".to_string(),
         body: options.startup_summary.clone(),
     });
+    seed_settled_agent_sessions(&mut state, driver.view());
     project_driver_view(&mut state, driver);
     state
+}
+
+/// Records every session the authoritative snapshot already shows as finished.
+///
+/// The snapshot is this client's baseline of settled history: Core reduces the
+/// persisted `.viden` log into it before the driver pumps a single event, so a
+/// session terminal here finished before the operator was watching. Recording
+/// them is what keeps replayed history out of the transcript when Core later
+/// re-delivers their terminal facts on the live stream.
+fn seed_settled_agent_sessions(state: &mut TuiState, view: &RuntimeViewState) {
+    for session in &view.agent_sessions {
+        if is_terminal_session_status(session.status) {
+            state
+                .ui
+                .settled_agent_sessions
+                .insert(session.session_id.clone());
+        }
+    }
+}
+
+/// The transcript entry a live-observed terminal agent-session fact leaves
+/// behind, or `None` when the fact carries no reply worth showing.
+///
+/// Core settles the unscoped `assistant_stream` on this fact, and that stream
+/// was the only surface rendering an ACP reply — the TUI reads neither
+/// `agent_conversation` nor `session.output` anywhere else. Without this the
+/// reply an operator just watched stream in would vanish at the instant it
+/// completed. Replayed history must still vanish, which is why the caller
+/// gates on whether this client had already seen the session finish.
+/// The session an event settles, with the status that settled it.
+///
+/// The terminal set mirrors [`RuntimeViewState::apply_event`]'s own rule for
+/// settling the unscoped assistant stream, so the transcript gains an entry
+/// exactly where the stream loses its text. An `AgentSessionUpdated` counts
+/// only when the session it carries reads terminal.
+fn terminal_agent_session(
+    kind: &viden_core::RuntimeEventKind,
+) -> Option<(&AgentSessionView, AgentSessionStatus)> {
+    match kind {
+        viden_core::RuntimeEventKind::AgentSessionCompleted { session } => {
+            Some((session, AgentSessionStatus::Completed))
+        }
+        viden_core::RuntimeEventKind::AgentSessionFailed { session } => {
+            Some((session, AgentSessionStatus::Failed))
+        }
+        viden_core::RuntimeEventKind::AgentSessionUpdated { session }
+            if is_terminal_session_status(session.status) =>
+        {
+            Some((session, session.status))
+        }
+        _ => None,
+    }
+}
+
+fn is_terminal_session_status(status: AgentSessionStatus) -> bool {
+    matches!(
+        status,
+        AgentSessionStatus::Completed | AgentSessionStatus::Failed | AgentSessionStatus::Cancelled
+    )
+}
+
+fn settled_session_entry(
+    session: &AgentSessionView,
+    status: AgentSessionStatus,
+) -> Option<TuiEntry> {
+    let output = session.output.as_deref().unwrap_or_default().trim_end();
+    if output.is_empty() {
+        return None;
+    }
+    // The label keeps `assistant` as its leading kind so the entry reads and
+    // classifies as a reply, and names the session tail-first because ACP
+    // session ids differ only at their end.
+    let label = match status {
+        AgentSessionStatus::Completed => {
+            format!("assistant · {}", truncate_tail(&session.session_id, 13))
+        }
+        AgentSessionStatus::Cancelled => format!(
+            "assistant · {} · cancelled",
+            truncate_tail(&session.session_id, 13)
+        ),
+        _ => format!(
+            "assistant · {} · failed",
+            truncate_tail(&session.session_id, 13)
+        ),
+    };
+    // A failure's diagnostic is the reason the reply stops where it does, so it
+    // travels with the reply rather than being dropped on the floor.
+    let body = match session.diagnostic.as_deref().map(str::trim) {
+        Some(diagnostic) if !diagnostic.is_empty() && status != AgentSessionStatus::Completed => {
+            format!("{output}\n\n{diagnostic}")
+        }
+        _ => output.to_string(),
+    };
+    Some(TuiEntry { label, body })
 }
 
 fn ui_profile_label(preferences: &viden_core::ResolvedUiPreferences) -> String {
@@ -1758,6 +1856,23 @@ fn observe_driver_events<C: CoreClient>(
         if let Some(InteractionPanel::Settings(panel)) = state.ui.interaction_panel.as_mut() {
             panel.observe_event(event);
         }
+        // A terminal fact settles Core's unscoped `assistant_stream`, which was
+        // the only surface rendering this reply. Copying the settled text into
+        // the transcript is what keeps a turn the operator just watched from
+        // vanishing the moment it completes. It is gated on this client not
+        // already knowing the session as finished, because Core prefixes its
+        // whole persisted runtime state to every turn's event batch: without
+        // the gate, the first prompt in a workspace with history would replay
+        // every old session's reply back into the transcript.
+        if let Some((session, status)) = terminal_agent_session(&event.kind)
+            && state
+                .ui
+                .settled_agent_sessions
+                .insert(session.session_id.clone())
+            && let Some(entry) = settled_session_entry(session, status)
+        {
+            state.ui.entries.push(entry);
+        }
         if let viden_core::RuntimeEventKind::AgentSessionStarted { session } = &event.kind
             && state.ui.pending_acp_start.as_ref().is_some_and(|pending| {
                 pending.lane_id == session.lane_id && pending.agent_id == session.agent_id
@@ -1915,9 +2030,18 @@ fn approval_command(view: &RuntimeViewState, allow: bool) -> Option<RuntimeComma
     })
 }
 
-fn apply_pump_outcome(_state: &mut TuiState, outcome: PumpOutcome) {
+fn apply_pump_outcome<C: CoreClient>(
+    state: &mut TuiState,
+    driver: &TuiClientDriver<C>,
+    outcome: PumpOutcome,
+) {
     match outcome {
-        PumpOutcome::Idle | PumpOutcome::Applied(_) | PumpOutcome::Recovered(_) => {}
+        // A replacement snapshot is a new baseline of settled history, exactly
+        // like the startup one. Anything already terminal in it finished
+        // outside this client's view of the stream, so it must not arrive in
+        // the transcript as a completion the operator watched.
+        PumpOutcome::Recovered(_) => seed_settled_agent_sessions(state, driver.view()),
+        PumpOutcome::Idle | PumpOutcome::Applied(_) => {}
     }
 }
 
@@ -5147,7 +5271,7 @@ mod tests {
         });
 
         let outcome = driver.pump().expect("command receipt");
-        apply_pump_outcome(&mut state, outcome);
+        apply_pump_outcome(&mut state, &driver, outcome);
 
         assert_eq!(
             state.ui.entries.len(),
@@ -6998,5 +7122,234 @@ mod tests {
             Some(RuntimeCommand::RespondToApproval { request_id, response })
                 if request_id == "approval_allow" && response.is_allowed()
         ));
+    }
+
+    fn agent_session(
+        session_id: &str,
+        status: viden_core::AgentSessionStatus,
+        output: Option<&str>,
+    ) -> AgentSessionView {
+        AgentSessionView {
+            session_id: session_id.to_string(),
+            lane_id: "lane-a".to_string(),
+            agent_id: "codex".to_string(),
+            model: None,
+            status,
+            owner: Default::default(),
+            task: "review the gate".to_string(),
+            diagnostic: None,
+            output: output.map(str::to_string),
+        }
+    }
+
+    fn view_with_sessions(sessions: Vec<AgentSessionView>) -> RuntimeViewState {
+        let mut view = RuntimeViewState::new(RuntimeSnapshot {
+            cwd: PathBuf::from("/workspace"),
+            provider_family: "fallback".to_string(),
+            model_label: "test-local".to_string(),
+            work_mode: WorkMode::Build,
+            permission_mode: PermissionMode::Default,
+            permission_level: PermissionLevel::Ask,
+            config_summary: "fixture".to_string(),
+            loaded_config_files: Vec::new(),
+            startup_overrides: Vec::new(),
+            ui_preferences: Default::default(),
+        });
+        view.agent_sessions = sessions;
+        view
+    }
+
+    fn drive_events(
+        view: RuntimeViewState,
+        events: Vec<RuntimeEventEnvelope>,
+    ) -> Vec<crate::tui::state::TuiEntry> {
+        let (mut driver, mut state, _sent) = supervision_driver(view, events.clone());
+        seed_settled_agent_sessions(&mut state, driver.view());
+        for _ in 0..events.len() {
+            let outcome = driver.pump().expect("pump");
+            apply_pump_outcome(&mut state, &driver, outcome);
+            project_driver_view(&mut state, &driver);
+            observe_driver_events(&mut state, &mut driver).expect("observe");
+        }
+        state.ui.entries
+    }
+
+    /// The regression this fix exists for: Core settles the unscoped
+    /// `assistant_stream` when a turn ends, and that stream was the only
+    /// surface rendering an ACP reply, so a turn the operator just watched
+    /// would otherwise vanish at the instant it completed.
+    #[test]
+    fn a_live_observed_completion_keeps_its_settled_reply_in_the_transcript() {
+        let session = agent_session(
+            "agent-session_1785486260041818000",
+            viden_core::AgentSessionStatus::Completed,
+            Some("the merge gate needs a second reviewer\n"),
+        );
+        // The session is absent from the startup snapshot: it started and
+        // finished while this client was watching.
+        let entries = drive_events(
+            view_with_sessions(Vec::new()),
+            vec![event(
+                1,
+                RuntimeEventKind::AgentSessionCompleted {
+                    session: session.clone(),
+                },
+            )],
+        );
+
+        let replies: Vec<_> = entries
+            .iter()
+            .filter(|entry| entry.kind() == "assistant")
+            .collect();
+        assert_eq!(replies.len(), 1, "exactly one settled reply is kept");
+        assert_eq!(replies[0].body, "the merge gate needs a second reviewer");
+        assert!(
+            replies[0].label.starts_with("assistant · "),
+            "the reply names its session: {}",
+            replies[0].label
+        );
+        // Tail-first, because ACP session ids differ only at their end.
+        assert!(
+            replies[0].label.ends_with("260041818000"),
+            "the session tail must survive: {}",
+            replies[0].label
+        );
+        // Registered glyphs only: the separator is the same middle dot the
+        // rest of the TUI uses, and nothing else non-ASCII appears.
+        assert!(
+            replies[0]
+                .label
+                .chars()
+                .all(|ch| ch.is_ascii() || ch == '·' || ch == '…'),
+            "no unregistered glyph in {}",
+            replies[0].label
+        );
+    }
+
+    /// Core re-delivers a terminal fact whenever it re-publishes runtime
+    /// state, so the transcript must not gain a second copy of the same reply.
+    #[test]
+    fn a_repeated_terminal_fact_does_not_duplicate_the_reply() {
+        let session = agent_session(
+            "agent-session_1785486260041818000",
+            viden_core::AgentSessionStatus::Completed,
+            Some("done"),
+        );
+        let entries = drive_events(
+            view_with_sessions(Vec::new()),
+            vec![
+                event(
+                    1,
+                    RuntimeEventKind::AgentSessionCompleted {
+                        session: session.clone(),
+                    },
+                ),
+                event(
+                    2,
+                    RuntimeEventKind::AgentSessionCompleted {
+                        session: session.clone(),
+                    },
+                ),
+            ],
+        );
+        assert_eq!(
+            entries
+                .iter()
+                .filter(|entry| entry.kind() == "assistant")
+                .count(),
+            1,
+            "the same session settles once"
+        );
+    }
+
+    /// The critical gate. Core prefixes its whole persisted runtime state to
+    /// every turn's event batch, so sessions that finished weeks ago
+    /// re-deliver their terminal facts on the live stream. They are already
+    /// terminal in the snapshot this client started from, and replayed history
+    /// must stay out of the transcript — that is the whole point of settling
+    /// the stream.
+    #[test]
+    fn startup_replayed_history_never_reaches_the_transcript() {
+        let historical = vec![
+            agent_session(
+                "agent-session_1785486260041818000",
+                viden_core::AgentSessionStatus::Completed,
+                Some("Warning: an old reply from weeks ago"),
+            ),
+            agent_session(
+                "agent-session_1785487371561133000",
+                viden_core::AgentSessionStatus::Failed,
+                Some("another old reply"),
+            ),
+        ];
+        let events = historical
+            .iter()
+            .enumerate()
+            .map(|(index, session)| {
+                let kind = if session.status == viden_core::AgentSessionStatus::Failed {
+                    RuntimeEventKind::AgentSessionFailed {
+                        session: session.clone(),
+                    }
+                } else {
+                    RuntimeEventKind::AgentSessionCompleted {
+                        session: session.clone(),
+                    }
+                };
+                event(index as u64 + 1, kind)
+            })
+            .collect();
+
+        let entries = drive_events(view_with_sessions(historical), events);
+        assert!(
+            entries.iter().all(|entry| entry.kind() != "assistant"),
+            "replayed history must not be rendered as a watched reply"
+        );
+    }
+
+    /// A failed turn's reply is still the reply, and the diagnostic that ended
+    /// it travels with it instead of being dropped.
+    #[test]
+    fn a_failed_session_keeps_its_reply_and_names_the_failure() {
+        let mut session = agent_session(
+            "agent-session_1785486260041818000",
+            viden_core::AgentSessionStatus::Failed,
+            Some("partial answer"),
+        );
+        session.diagnostic = Some("adapter closed the stream".to_string());
+        let entries = drive_events(
+            view_with_sessions(Vec::new()),
+            vec![event(
+                1,
+                RuntimeEventKind::AgentSessionFailed {
+                    session: session.clone(),
+                },
+            )],
+        );
+        let reply = entries
+            .iter()
+            .find(|entry| entry.kind() == "assistant")
+            .expect("failed session keeps its reply");
+        assert!(reply.label.ends_with(" · failed"), "{}", reply.label);
+        assert!(reply.body.contains("partial answer"));
+        assert!(reply.body.contains("adapter closed the stream"));
+    }
+
+    /// A terminal fact carrying no reply leaves no empty row behind.
+    #[test]
+    fn a_terminal_session_without_output_pushes_nothing() {
+        let entries = drive_events(
+            view_with_sessions(Vec::new()),
+            vec![event(
+                1,
+                RuntimeEventKind::AgentSessionCompleted {
+                    session: agent_session(
+                        "agent-session_1",
+                        viden_core::AgentSessionStatus::Completed,
+                        None,
+                    ),
+                },
+            )],
+        );
+        assert!(entries.iter().all(|entry| entry.kind() != "assistant"));
     }
 }

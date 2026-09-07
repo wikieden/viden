@@ -253,7 +253,7 @@ fn composer_actions(state: &TuiState, width: usize) -> String {
 }
 
 fn is_session_entry(entry: &super::state::TuiEntry) -> bool {
-    match entry.label.as_str() {
+    match entry.kind() {
         "user" => !entry.body.trim_start().starts_with('/'),
         "command" => is_work_command_entry(&entry.body),
         "assistant" | "tool-call" | "tool-result" | "approval" => true,

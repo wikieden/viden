@@ -546,7 +546,7 @@ fn live_activity_status(state: &TuiState) -> LiveActivityStatus {
 
     if let Some(entry) = state.ui.entries.last() {
         return LiveActivityStatus {
-            summary: compact_activity_label(entry.label.as_str()).to_string(),
+            summary: compact_activity_label(entry.kind()).to_string(),
             evidence: "latest transcript event".to_string(),
             details: vec![compact_activity_detail(&entry.body)],
             phase: None,
