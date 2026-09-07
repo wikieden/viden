@@ -214,6 +214,7 @@
   "overlay.title.supervision": "SUPERVISION DECISION",
   "supervision.hint": "Esc back · arrows/number select · Enter confirm",
   "decisions.row.gate": "{marker} {glyph} GATE {gate} · {status} · {decision}",
+  "decisions.row.dormant_separator": "  {glyph} DORMANT · {count} gates from finished sessions",
   "decisions.row.review": "{marker} {glyph} REVIEW {review} · gate {gate} · {requester} -> {reviewer}",
   "decisions.row.conflict": "{marker} {glyph} CONFLICT {bounce} · gate {gate} · origin {lane}",
   "supervision.header.gate": "{glyph} GATE {gate} · {status} · task {task}",

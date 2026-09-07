@@ -6870,10 +6870,10 @@ mod tests {
             "tokens_css = \"826826ee6ddab845897472701add67ee9f55aff25af539651e6089553b7e6398\""
         ));
         assert!(manifest.contains(
-            "catalog_en = \"867a334a9e8504cd7a320919a00e22e781546a778eefac0a47a9053e5801751c\""
+            "catalog_en = \"4f4914dfa3356b1f37af11e5b905ca55daf0eacc9ee4e46d81446a8e3c2fa0f6\""
         ));
         assert!(manifest.contains(
-            "catalog_zh_cn = \"543c4675419474e9ec18301a332c3020d54a57a5366dc3ef7e8bce312975bc42\""
+            "catalog_zh_cn = \"5a96354a494899536acddaecfc8d5488a14dc3ac448507df4a9bee98e3706ae5\""
         ));
         assert!(manifest.contains("min_core_version = \"0.3.4\""));
         assert!(

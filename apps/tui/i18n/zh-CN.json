@@ -214,6 +214,7 @@
   "overlay.title.supervision": "SUPERVISION DECISION · 监督决策",
   "supervision.hint": "Esc 返回 · 方向键/数字选择 · Enter 确认",
   "decisions.row.gate": "{marker} {glyph} GATE 合并门 {gate} · {status} · {decision}",
+  "decisions.row.dormant_separator": "  {glyph} DORMANT 休眠 · {count} 个来自已结束会话的合并门",
   "decisions.row.review": "{marker} {glyph} REVIEW 复审 {review} · 合并门 {gate} · {requester} -> {reviewer}",
   "decisions.row.conflict": "{marker} {glyph} CONFLICT 冲突 {bounce} · 合并门 {gate} · 源 Lane {lane}",
   "supervision.header.gate": "{glyph} GATE 合并门 {gate} · {status} · 任务 {task}",

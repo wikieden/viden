@@ -44,6 +44,30 @@ pub(super) fn truncate(value: &str, width: usize) -> String {
     output
 }
 
+/// Truncates keeping the DISTINCTIVE END of a label, marking the cut with `…`.
+///
+/// Head truncation collides whenever items differ only after the cut: two
+/// `.github/workflows/*` paths both render as `.github/workflow`, and gate ids
+/// sharing a long `gate-acp-session-…` prefix all render as `Merge gate gate-`.
+/// Keeping the tail instead preserves exactly the part that distinguishes
+/// them — a path's filename and an id's random suffix — so two different items
+/// never render as the same row while the width allows any distinction.
+///
+/// The suffix is taken by display width rather than by path component: snapping
+/// to a `/` boundary would drop the parent directory, which is the only thing
+/// separating two files that share a filename.
+pub(super) fn truncate_tail(value: &str, width: usize) -> String {
+    if char_width(value) <= width {
+        return value.to_string();
+    }
+    // Below two columns there is no room for both the marker and any content,
+    // so fall back to a plain head cut rather than rendering just a marker.
+    if width < 2 {
+        return truncate(value, width);
+    }
+    format!("…{}", suffix_by_width(value, width - 1))
+}
+
 #[allow(dead_code)]
 pub(super) fn compact_middle(value: &str, width: usize) -> String {
     if char_width(value) <= width {
@@ -180,5 +204,65 @@ mod tests {
 
         assert!(char_width(&compacted) <= 12);
         assert!(compacted.contains('~'));
+    }
+}
+
+#[cfg(test)]
+mod tail_truncation_tests {
+    use super::*;
+
+    /// The exact live collision: two workflow files rendering as one label.
+    #[test]
+    fn two_long_sibling_paths_never_render_the_same_label() {
+        let left = ".github/workflows/ci.yml";
+        let right = ".github/workflows/release.yml";
+        assert_eq!(
+            truncate(left, 16),
+            truncate(right, 16),
+            "head truncation collides"
+        );
+        assert_ne!(truncate_tail(left, 16), truncate_tail(right, 16));
+        // The filename is the part that must survive.
+        assert!(truncate_tail(left, 16).ends_with("ci.yml"));
+        assert!(truncate_tail(right, 16).ends_with("release.yml"));
+    }
+
+    /// Gate ids differ only at the end, so a head cut renders them identically.
+    #[test]
+    fn two_same_prefix_gate_ids_never_render_the_same_label() {
+        let left = "Merge gate gate-acp-session-019fb746-46bc-7641-91ff-ba2e4ac51cdc";
+        let right = "Merge gate gate-acp-session-019fb769-b057-7861-b523-d2aff89ca6b8";
+        assert_eq!(
+            truncate(left, 16),
+            truncate(right, 16),
+            "head truncation collides"
+        );
+        assert_ne!(truncate_tail(left, 16), truncate_tail(right, 16));
+        // At least the last twelve characters of an id survive.
+        assert!(truncate_tail(left, 16).ends_with("ba2e4ac51cdc"));
+        assert!(truncate_tail(right, 16).ends_with("d2aff89ca6b8"));
+    }
+
+    #[test]
+    fn a_label_that_fits_is_returned_unchanged_without_a_marker() {
+        assert_eq!(truncate_tail("short", 16), "short");
+        assert_eq!(truncate_tail("exactly-sixteen!", 16), "exactly-sixteen!");
+    }
+
+    #[test]
+    fn tail_truncation_never_exceeds_the_requested_width() {
+        for width in 0..24 {
+            let rendered = truncate_tail(".github/workflows/release.yml", width);
+            assert!(char_width(&rendered) <= width, "width {width} overflowed");
+        }
+    }
+
+    /// CJK graphemes are two columns wide; the cut must respect that.
+    #[test]
+    fn tail_truncation_respects_wide_graphemes() {
+        let value = "报告/最终/结论.md";
+        let rendered = truncate_tail(value, 10);
+        assert!(char_width(&rendered) <= 10);
+        assert!(rendered.starts_with('…'));
     }
 }

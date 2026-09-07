@@ -31,7 +31,7 @@ use viden_core::{
     ReviewRequestRecord, ReviewRequestStatus, ReviewedEvidenceBinding, RuntimeCommand,
     RuntimeOwner, RuntimeViewState,
 };
-use viden_types::ReviewVerdict;
+use viden_types::{AgentSessionStatus, ReviewVerdict};
 
 use super::pending::SupervisionExpectation;
 use super::supervision::{
@@ -159,11 +159,16 @@ pub(super) fn decision_picks(
             request_id: approval.id.clone(),
         })
         .collect();
-    picks.extend(view.merge_gates.iter().map(|gate| {
-        DecisionPick::Supervision(SupervisionTarget::Gate {
-            gate_id: gate.gate_id.clone(),
-        })
-    }));
+    picks.extend(
+        view.merge_gates
+            .iter()
+            .filter(|gate| !is_dormant_gate(view, gate))
+            .map(|gate| {
+                DecisionPick::Supervision(SupervisionTarget::Gate {
+                    gate_id: gate.gate_id.clone(),
+                })
+            }),
+    );
     picks.extend(
         view.review_requests
             .iter()
@@ -184,6 +189,19 @@ pub(super) fn decision_picks(
                 })
             }),
     );
+    // Dormant gates come after every actionable decision. They stay pickable
+    // and fully decidable — this is grouping, never hiding — but a gate whose
+    // session finished days ago must not sit above a live approval.
+    picks.extend(
+        view.merge_gates
+            .iter()
+            .filter(|gate| is_dormant_gate(view, gate))
+            .map(|gate| {
+                DecisionPick::Supervision(SupervisionTarget::Gate {
+                    gate_id: gate.gate_id.clone(),
+                })
+            }),
+    );
     if has_pending_command {
         picks.push(DecisionPick::DismissSupervision);
     }
@@ -191,6 +209,46 @@ pub(super) fn decision_picks(
     // never shift the index of a real Core decision.
     picks.push(DecisionPick::AuditTimeline);
     picks
+}
+
+/// Whether a gate is dormant: still awaiting a decision, while the Agent
+/// session it belongs to has already finished.
+///
+/// A finished session cannot produce the evidence its gate is waiting for, so
+/// such a gate is residue rather than actionable work. Eight of them, from
+/// sessions terminal for weeks, were burying every live decision in the
+/// Decision Center. Dormancy changes only ordering and labelling: the row stays
+/// selectable and every action stays available, so nothing is hidden.
+///
+/// The join is `gate.owner.session_id` — the Agent session Core published, not
+/// the ACP protocol handle the gate id is keyed on. A gate that names no
+/// session, or names one this view has never seen, is never dormant: an unknown
+/// session is not a finished one.
+pub(super) fn is_dormant_gate(view: &RuntimeViewState, gate: &MergeGateRecord) -> bool {
+    // A decided gate is settled, not dormant, whatever its session is doing.
+    if gate.decision.is_some() || !gate.status.is_open() {
+        return false;
+    }
+    let Some(session_id) = gate.owner.session_id.as_deref() else {
+        return false;
+    };
+    view.agent_sessions.iter().any(|session| {
+        session.session_id == session_id
+            && matches!(
+                session.status,
+                AgentSessionStatus::Completed
+                    | AgentSessionStatus::Failed
+                    | AgentSessionStatus::Cancelled
+            )
+    })
+}
+
+/// How many gates the Decision Center will group as dormant.
+pub(super) fn dormant_gate_count(view: &RuntimeViewState) -> usize {
+    view.merge_gates
+        .iter()
+        .filter(|gate| is_dormant_gate(view, gate))
+        .count()
 }
 
 /// The audit object one supervision target's timeline is scoped to.
@@ -626,7 +684,7 @@ mod tests {
         WorkMode,
     };
 
-    fn view() -> RuntimeViewState {
+    pub(super) fn view() -> RuntimeViewState {
         RuntimeViewState::new(RuntimeSnapshot {
             cwd: PathBuf::from("/workspace"),
             provider_family: "fallback".to_string(),
@@ -1249,6 +1307,146 @@ mod tests {
                 review_id: "review-1".to_string()
             }),
             AuditObjectRef::new(AuditObjectRef::KIND_REVIEW_REQUEST, "review-1")
+        );
+    }
+}
+
+#[cfg(test)]
+mod dormant_gate_tests {
+    use super::tests::{gate, view};
+    use super::*;
+    use viden_core::{AgentSessionView, MergeGateStatus};
+    use viden_types::{MergeGateDecision, MergeGateDecisionOutcome};
+
+    fn session(session_id: &str, status: AgentSessionStatus) -> AgentSessionView {
+        AgentSessionView {
+            session_id: session_id.to_string(),
+            lane_id: "lane-a".to_string(),
+            agent_id: "codex".to_string(),
+            model: None,
+            status,
+            owner: Default::default(),
+            task: "work".to_string(),
+            diagnostic: None,
+            output: None,
+        }
+    }
+
+    /// Builds a view holding one gate bound to one session.
+    fn view_with(
+        gate_status: MergeGateStatus,
+        session_status: AgentSessionStatus,
+    ) -> RuntimeViewState {
+        let mut view = view();
+        let mut record = gate(gate_status);
+        record.owner.session_id = Some("session-a".to_string());
+        view.merge_gates.push(record);
+        view.agent_sessions
+            .push(session("session-a", session_status));
+        view
+    }
+
+    /// The classification table: pending + terminal session is dormant, and
+    /// nothing else is.
+    #[test]
+    fn dormancy_requires_a_pending_decision_and_a_finished_session() {
+        for terminal in [
+            AgentSessionStatus::Completed,
+            AgentSessionStatus::Failed,
+            AgentSessionStatus::Cancelled,
+        ] {
+            let view = view_with(MergeGateStatus::Proposed, terminal);
+            assert!(
+                is_dormant_gate(&view, &view.merge_gates[0]),
+                "pending gate on a {terminal:?} session is dormant"
+            );
+        }
+        for live in [
+            AgentSessionStatus::Starting,
+            AgentSessionStatus::Running,
+            AgentSessionStatus::WaitingApproval,
+        ] {
+            let view = view_with(MergeGateStatus::Proposed, live);
+            assert!(
+                !is_dormant_gate(&view, &view.merge_gates[0]),
+                "pending gate on a {live:?} session is actionable, not dormant"
+            );
+        }
+    }
+
+    /// A decided gate is settled history, never dormant residue.
+    #[test]
+    fn a_decided_gate_on_a_finished_session_is_settled_not_dormant() {
+        let mut view = view_with(MergeGateStatus::Proposed, AgentSessionStatus::Completed);
+        view.merge_gates[0].decision = Some(MergeGateDecision::decided_now(
+            MergeGateDecisionOutcome::Accepted,
+            "looks right".to_string(),
+            Default::default(),
+            Vec::new(),
+            "audit-1".to_string(),
+        ));
+        assert!(!is_dormant_gate(&view, &view.merge_gates[0]));
+
+        // A closed status is settled too, even with no decision record.
+        let mut view = view_with(MergeGateStatus::Merged, AgentSessionStatus::Completed);
+        view.merge_gates[0].decision = None;
+        assert!(!is_dormant_gate(&view, &view.merge_gates[0]));
+    }
+
+    /// An unknown session is not a finished one: without a session this view
+    /// has actually seen, the gate stays first-class.
+    #[test]
+    fn a_gate_whose_session_is_unknown_is_never_dormant() {
+        let mut view = view_with(MergeGateStatus::Proposed, AgentSessionStatus::Completed);
+        view.agent_sessions.clear();
+        assert!(!is_dormant_gate(&view, &view.merge_gates[0]));
+
+        let mut view = view_with(MergeGateStatus::Proposed, AgentSessionStatus::Completed);
+        view.merge_gates[0].owner.session_id = None;
+        assert!(!is_dormant_gate(&view, &view.merge_gates[0]));
+    }
+
+    /// Dormant gates are ordered after every actionable decision, and stay
+    /// pickable so the operator can still decide them.
+    #[test]
+    fn dormant_gates_are_ordered_after_active_decisions_and_stay_pickable() {
+        let mut view = view();
+        view.agent_sessions
+            .push(session("session-live", AgentSessionStatus::Running));
+        view.agent_sessions
+            .push(session("session-done", AgentSessionStatus::Completed));
+        // Source order deliberately puts the dormant gate first.
+        for (gate_id, session_id) in [
+            ("gate-dormant", "session-done"),
+            ("gate-active", "session-live"),
+        ] {
+            let mut record = gate(MergeGateStatus::Proposed);
+            record.gate_id = gate_id.to_string();
+            record.owner.session_id = Some(session_id.to_string());
+            view.merge_gates.push(record);
+        }
+
+        let picks = decision_picks(&view, false);
+        let gate_order = picks
+            .iter()
+            .filter_map(|pick| match pick {
+                DecisionPick::Supervision(SupervisionTarget::Gate { gate_id }) => {
+                    Some(gate_id.as_str())
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            gate_order,
+            vec!["gate-active", "gate-dormant"],
+            "the active gate must come first even though the dormant one is listed first"
+        );
+        assert_eq!(dormant_gate_count(&view), 1);
+        // Grouping, never hiding: the dormant gate is still a pick.
+        assert!(
+            picks.contains(&DecisionPick::Supervision(SupervisionTarget::Gate {
+                gate_id: "gate-dormant".to_string(),
+            }))
         );
     }
 }

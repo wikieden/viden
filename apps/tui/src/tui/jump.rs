@@ -37,6 +37,15 @@ pub(super) struct JumpItem {
     pub(super) parent_id: Option<String>,
     pub(super) enabled: bool,
     pub(super) disabled_reason: Option<String>,
+    /// Whether this row's title is an identifier or a path, whose distinctive
+    /// part sits at its END.
+    ///
+    /// Ids and paths share long prefixes — every `gate-acp-session-…` gate,
+    /// every `.github/workflows/…` file — so a head cut renders them all as the
+    /// same row. Those titles are truncated tail-first. Human-authored titles
+    /// (a command, an approval, an empty-state sentence) read from the front
+    /// and keep the plain head cut.
+    pub(super) tail_distinctive: bool,
 }
 
 impl JumpItem {
@@ -57,6 +66,7 @@ impl JumpItem {
             parent_id: None,
             enabled: true,
             disabled_reason: None,
+            tail_distinctive: false,
         }
     }
 
@@ -77,6 +87,8 @@ impl JumpItem {
             parent_id: None,
             enabled: false,
             disabled_reason: Some(reason.into()),
+            // Empty-state sentences read from the front.
+            tail_distinctive: false,
         }
     }
 }
@@ -127,16 +139,41 @@ impl JumpIndex {
     /// index never discovers a path any other way.
     pub(super) fn from_view(view: &RuntimeViewState, files: &WorkspaceFileIndex) -> Self {
         let mut items = Vec::new();
-        items.extend(view.merge_gates.iter().map(|gate| JumpItem {
+        // Gates are listed active-first. A dormant gate — one still awaiting a
+        // decision whose Agent session already finished — is tagged and ordered
+        // last so it never buries an actionable gate. `Self::new` sorts by kind
+        // with a stable sort, so this order survives grouping.
+        let gate_item = |gate: &viden_core::MergeGateRecord, dormant: bool| JumpItem {
             kind: JumpKind::Gate,
             id: gate.gate_id.to_string(),
             title: format!("Merge gate {}", gate.gate_id),
-            context: format!("{} · {:?}", gate.task_id, gate.status),
-            keywords: gate.required_evidence.join(" "),
+            context: if dormant {
+                format!("{} · {:?} · dormant", gate.task_id, gate.status)
+            } else {
+                format!("{} · {:?}", gate.task_id, gate.status)
+            },
+            keywords: if dormant {
+                format!("dormant {}", gate.required_evidence.join(" "))
+            } else {
+                gate.required_evidence.join(" ")
+            },
             parent_id: None,
             enabled: true,
             disabled_reason: None,
-        }));
+            tail_distinctive: true,
+        };
+        items.extend(
+            view.merge_gates
+                .iter()
+                .filter(|gate| !super::decision::is_dormant_gate(view, gate))
+                .map(|gate| gate_item(gate, false)),
+        );
+        items.extend(
+            view.merge_gates
+                .iter()
+                .filter(|gate| super::decision::is_dormant_gate(view, gate))
+                .map(|gate| gate_item(gate, true)),
+        );
         items.extend(view.pending_approvals.iter().map(|approval| JumpItem {
             kind: JumpKind::Ask,
             id: approval.id.clone(),
@@ -151,6 +188,7 @@ impl JumpIndex {
             parent_id: None,
             enabled: true,
             disabled_reason: None,
+            tail_distinctive: false,
         }));
         items.extend(view.lanes.iter().map(|lane| JumpItem {
             kind: JumpKind::Lane,
@@ -161,6 +199,7 @@ impl JumpIndex {
             parent_id: None,
             enabled: true,
             disabled_reason: None,
+            tail_distinctive: true,
         }));
         items.extend(view.lanes.iter().flat_map(|lane| {
             lane.active_session_ids
@@ -174,6 +213,7 @@ impl JumpIndex {
                     parent_id: Some(lane.id.clone()),
                     enabled: true,
                     disabled_reason: None,
+                    tail_distinctive: true,
                 })
         }));
         items.extend(
@@ -188,6 +228,7 @@ impl JumpIndex {
                     parent_id: None,
                     enabled: true,
                     disabled_reason: None,
+                    tail_distinctive: false,
                 }),
         );
         items.extend(workspace_file_items(files));
@@ -284,6 +325,7 @@ fn workspace_file_items(files: &WorkspaceFileIndex) -> Vec<JumpItem> {
             parent_id: None,
             enabled: true,
             disabled_reason: None,
+            tail_distinctive: true,
         })
         .collect()
 }
@@ -339,6 +381,89 @@ mod tests {
             },
         );
         index
+    }
+
+    /// The jump GATES section orders active gates before dormant ones and
+    /// tags the dormant rows, matching the Decision Center.
+    #[test]
+    fn gate_rows_list_active_before_dormant_and_tag_the_dormant_ones() {
+        use viden_core::{AgentSessionStatus, AgentSessionView, MergeGateRecord, MergeGateStatus};
+
+        let session = |id: &str, status: AgentSessionStatus| AgentSessionView {
+            session_id: id.to_string(),
+            lane_id: "lane-a".to_string(),
+            agent_id: "codex".to_string(),
+            model: None,
+            status,
+            owner: Default::default(),
+            task: "work".to_string(),
+            diagnostic: None,
+            output: None,
+        };
+        let gate = |gate_id: &str, session_id: &str| MergeGateRecord {
+            gate_id: gate_id.to_string(),
+            task_id: format!("acp-session-{gate_id}"),
+            status: MergeGateStatus::Proposed,
+            required_evidence: Vec::new(),
+            evidence_ids: Vec::new(),
+            gate_type: Default::default(),
+            owner: viden_core::RuntimeOwner {
+                session_id: Some(session_id.to_string()),
+                ..Default::default()
+            },
+            validator: None,
+            policy_snapshot: Default::default(),
+            decision: None,
+            conflict: None,
+            applied_change_id: None,
+            recovery_snapshot: None,
+            audit_ids: Vec::new(),
+            updated_at: Some(1),
+        };
+
+        let mut state = TuiState::default();
+        state
+            .runtime
+            .agent_sessions
+            .push(session("session-done", AgentSessionStatus::Completed));
+        state
+            .runtime
+            .agent_sessions
+            .push(session("session-live", AgentSessionStatus::Running));
+        // Source order deliberately puts the dormant gate first.
+        state
+            .runtime
+            .merge_gates
+            .push(gate("gate-dormant", "session-done"));
+        state
+            .runtime
+            .merge_gates
+            .push(gate("gate-active", "session-live"));
+
+        let index = JumpIndex::from_view(&state.runtime, &WorkspaceFileIndex::default());
+        let gates = index
+            .items()
+            .iter()
+            .filter(|item| item.kind == JumpKind::Gate)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            gates
+                .iter()
+                .map(|item| item.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["gate-active", "gate-dormant"],
+            "the active gate must be listed first"
+        );
+        assert!(
+            !gates[0].context.contains("dormant"),
+            "an active gate carries no dormant tag: {:?}",
+            gates[0].context
+        );
+        assert!(
+            gates[1].context.contains("dormant"),
+            "a dormant gate must carry the dormant context tag: {:?}",
+            gates[1].context
+        );
     }
 
     /// With the capability advertised and a page loaded, the `~` scope lists

@@ -4,7 +4,8 @@ use super::{
     command_palette::render_command_suggestions,
     decision::{
         DecisionPick, MAX_TRUST_TEXT_CHARS, SupervisionTarget, TextRequirement, available_actions,
-        decision_picks, find_gate, find_review, overlay_actions, pending_conflict,
+        decision_picks, dormant_gate_count, find_gate, find_review, is_dormant_gate,
+        overlay_actions, pending_conflict,
     },
     glyphs::Glyph,
     jump::JumpIndex,
@@ -17,7 +18,7 @@ use super::{
     },
     projection::CockpitProjection,
     state::{AcpPickerPhase, InteractionPanel, TuiState, has_active_work},
-    text::truncate,
+    text::{truncate, truncate_tail},
 };
 
 pub(super) const DEFAULT_APPROVAL_FOCUS: usize = 3;
@@ -341,14 +342,34 @@ fn decision_center_rows(state: &TuiState) -> Vec<String> {
         .as_ref()
         .filter(|overlay| overlay.kind == OverlayKind::Decisions)
         .map_or(0, |overlay| overlay.selected);
-    let mut rows = decision_picks(&state.runtime, state.supervision.pending().is_some())
-        .into_iter()
-        .enumerate()
-        .map(|(index, pick)| {
-            let marker = if index == selected { ">" } else { " " };
-            decision_pick_row(state, &projection, marker, &pick)
-        })
-        .collect::<Vec<_>>();
+    let picks = decision_picks(&state.runtime, state.supervision.pending().is_some());
+    // Dormant gates are ordered last by `decision_picks`. One separator row is
+    // rendered before the first of them so the operator can see where the
+    // actionable list ends; it carries no action and no pick index, so it
+    // cannot shift the selection.
+    let dormant = dormant_gate_count(&state.runtime);
+    let first_dormant = picks.iter().position(|pick| match pick {
+        DecisionPick::Supervision(SupervisionTarget::Gate { gate_id }) => {
+            find_gate(&state.runtime, gate_id)
+                .is_some_and(|gate| is_dormant_gate(&state.runtime, gate))
+        }
+        _ => false,
+    });
+    let mut rows = Vec::new();
+    for (index, pick) in picks.iter().enumerate() {
+        if first_dormant == Some(index) {
+            rows.push(super::i18n::translate(
+                state,
+                "decisions.row.dormant_separator",
+                &[
+                    ("glyph", Glyph::Gate.unicode()),
+                    ("count", &dormant.to_string()),
+                ],
+            ));
+        }
+        let marker = if index == selected { ">" } else { " " };
+        rows.push(decision_pick_row(state, &projection, marker, pick));
+    }
     rows.extend(projection.recovery_actions.iter().map(|recovery| {
         format!(
             "RECOVERY {} · {} · {}",
@@ -724,8 +745,19 @@ fn global_jump_rows(state: &TuiState, filter: &str) -> Vec<String> {
             format!(
                 "{} {:<16} {}{}",
                 if marker { ">" } else { " " },
-                truncate(&item.title, 16),
-                truncate(detail, 42),
+                // An id or path differs at its END, so a head cut renders
+                // every `.github/workflows/*` file and every
+                // `gate-acp-session-…` gate as the same row.
+                if item.tail_distinctive {
+                    truncate_tail(&item.title, 16)
+                } else {
+                    truncate(&item.title, 16)
+                },
+                if item.tail_distinctive {
+                    truncate_tail(detail, 42)
+                } else {
+                    truncate(detail, 42)
+                },
                 if item.enabled { "" } else { " · unavailable" },
             ),
             Some(position),
@@ -1491,6 +1523,191 @@ mod tests {
         assert_eq!(rows[0], "[FILES]");
         assert!(rows[1].starts_with("> Files unavailabl"));
         assert!(rows[1].contains("Core file inventory is unavailable."));
+    }
+
+    /// Builds a view with one live gate and `dormant` gates whose sessions
+    /// have finished.
+    fn view_with_dormant_gates(dormant: usize) -> TuiState {
+        let mut state = TuiState::default();
+        let session =
+            |id: &str, status: viden_types::AgentSessionStatus| viden_types::AgentSessionView {
+                session_id: id.to_string(),
+                lane_id: "lane-a".to_string(),
+                agent_id: "codex".to_string(),
+                model: None,
+                status,
+                owner: Default::default(),
+                task: "work".to_string(),
+                diagnostic: None,
+                output: None,
+            };
+        state.runtime.agent_sessions.push(session(
+            "session-live",
+            viden_types::AgentSessionStatus::Running,
+        ));
+        let mut live = acp_gate_fixture("live");
+        live.owner.session_id = Some("session-live".to_string());
+        state.runtime.merge_gates.push(live);
+        for index in 0..dormant {
+            let id = format!("session-done-{index}");
+            state
+                .runtime
+                .agent_sessions
+                .push(session(&id, viden_types::AgentSessionStatus::Completed));
+            let mut gate = acp_gate_fixture(&format!("done-{index}"));
+            gate.owner.session_id = Some(id);
+            state.runtime.merge_gates.push(gate);
+        }
+        state
+    }
+
+    /// Dormant gates are grouped under one separator, after the actionable
+    /// rows, and remain visible rather than being hidden.
+    #[test]
+    fn decision_center_groups_dormant_gates_under_one_separator() {
+        let state = view_with_dormant_gates(3);
+        let rows = decision_center_rows(&state);
+
+        let separator = rows
+            .iter()
+            .position(|row| row.contains("DORMANT"))
+            .expect("a dormant separator row must be rendered");
+        assert!(
+            rows[separator].contains("3 gates from finished sessions"),
+            "the separator must count the dormant gates: {:?}",
+            rows[separator]
+        );
+        assert!(
+            rows[separator].contains(Glyph::Gate.unicode()),
+            "the separator must use the registered gate glyph: {:?}",
+            rows[separator]
+        );
+
+        let live_row = rows
+            .iter()
+            .position(|row| row.contains("gate-acp-session-live"))
+            .expect("the live gate must still be listed");
+        assert!(
+            live_row < separator,
+            "the actionable gate must render above the dormant group: {rows:?}"
+        );
+        // Grouping, never hiding: every dormant gate still has its own row.
+        for index in 0..3 {
+            let needle = format!("gate-acp-session-done-{index}");
+            let position = rows
+                .iter()
+                .position(|row| row.contains(&needle))
+                .unwrap_or_else(|| panic!("dormant gate {needle} must stay visible: {rows:?}"));
+            assert!(position > separator);
+        }
+    }
+
+    /// With nothing dormant the separator never appears.
+    #[test]
+    fn decision_center_renders_no_separator_without_dormant_gates() {
+        let state = view_with_dormant_gates(0);
+        let rows = decision_center_rows(&state);
+        assert!(
+            !rows.iter().any(|row| row.contains("DORMANT")),
+            "no dormant gates means no separator: {rows:?}"
+        );
+    }
+
+    /// Two workflow files whose paths differ only in the filename must not
+    /// render as the same jump row. This is the exact live collision: both
+    /// `.github/workflows/*` entries rendered as `.github/workflow`.
+    #[test]
+    fn jump_rows_keep_the_filename_of_two_long_sibling_paths() {
+        use crate::tui::workspace_files::WorkspaceFileIndex;
+        use viden_core::{WorkspaceFileEntry, WorkspaceFileKind, WorkspaceFilePage};
+
+        let mut files = WorkspaceFileIndex::default();
+        files.mark_available(true);
+        files.begin("files-1");
+        files.apply_page(
+            "files-1",
+            &WorkspaceFilePage {
+                entries: [".github/workflows/ci.yml", ".github/workflows/release.yml"]
+                    .iter()
+                    .map(|path| WorkspaceFileEntry {
+                        path: (*path).to_string(),
+                        kind: WorkspaceFileKind::File,
+                        size_bytes: Some(64),
+                    })
+                    .collect(),
+                next_after: None,
+                complete: true,
+            },
+        );
+        let mut state = TuiState::default();
+        state.ui.workspace_files = files;
+        state.ui.overlay = Some(OverlayState::global_jump(None));
+
+        let rows = global_jump_rows(&state, "~");
+        let file_rows = rows
+            .iter()
+            .filter(|row| !row.starts_with('['))
+            .collect::<Vec<_>>();
+        assert_eq!(file_rows.len(), 2, "both files must be listed: {rows:?}");
+        assert_ne!(
+            file_rows[0], file_rows[1],
+            "two different files must never render as the same row: {rows:?}"
+        );
+        assert!(
+            file_rows[0].contains("ci.yml") && file_rows[1].contains("release.yml"),
+            "each row must keep the filename that identifies it: {rows:?}"
+        );
+    }
+
+    /// An ACP-shaped gate: the id is keyed on the protocol session, so several
+    /// gates share a long prefix and differ only in the trailing handle.
+    fn acp_gate_fixture(session_suffix: &str) -> viden_types::MergeGateRecord {
+        viden_types::MergeGateRecord {
+            gate_id: format!("gate-acp-session-{session_suffix}"),
+            task_id: format!("acp-session-{session_suffix}"),
+            status: viden_types::MergeGateStatus::Proposed,
+            required_evidence: Vec::new(),
+            evidence_ids: Vec::new(),
+            gate_type: Default::default(),
+            owner: Default::default(),
+            validator: None,
+            policy_snapshot: Default::default(),
+            decision: None,
+            conflict: None,
+            applied_change_id: None,
+            recovery_snapshot: None,
+            audit_ids: Vec::new(),
+            updated_at: Some(1),
+        }
+    }
+
+    /// Two gates whose ids differ only after a long shared prefix must not
+    /// render as the same jump row.
+    #[test]
+    fn jump_rows_keep_the_distinctive_tail_of_same_prefix_gate_ids() {
+        let mut state = TuiState::default();
+        for suffix in [
+            "019fb746-46bc-7641-91ff-ba2e4ac51cdc",
+            "019fb769-b057-7861-b523-d2aff89ca6b8",
+        ] {
+            state.runtime.merge_gates.push(acp_gate_fixture(suffix));
+        }
+        state.ui.overlay = Some(OverlayState::global_jump(None));
+
+        let rows = global_jump_rows(&state, "#");
+        let gate_rows = rows
+            .iter()
+            .filter(|row| !row.starts_with('['))
+            .collect::<Vec<_>>();
+        assert_eq!(gate_rows.len(), 2, "both gates must be listed: {rows:?}");
+        assert_ne!(
+            gate_rows[0], gate_rows[1],
+            "two different gates must never render as the same row: {rows:?}"
+        );
+        assert!(
+            gate_rows[0].contains("ba2e4ac51cdc") && gate_rows[1].contains("d2aff89ca6b8"),
+            "each row must keep the id tail that identifies it: {rows:?}"
+        );
     }
 
     #[test]
