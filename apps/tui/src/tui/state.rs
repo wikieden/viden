@@ -232,6 +232,12 @@ pub(super) fn agent_lanes(state: &TuiState) -> Vec<AgentLane> {
         .collect()
 }
 
+/// Presentation-level "something is happening" signal.
+///
+/// Like [`super::app::runtime_has_active_work`] this treats a non-empty
+/// `assistant_stream` as in-flight work, which holds because Core settles the
+/// stream on a terminal agent-session fact. It deliberately checks fewer facts
+/// than that predicate: it drives status text, not command routing.
 pub(super) fn has_active_work(state: &TuiState) -> bool {
     !state.runtime.active_tool_calls.is_empty()
         || !state.runtime.pending_approvals.is_empty()

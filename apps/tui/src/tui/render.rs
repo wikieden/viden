@@ -11,7 +11,7 @@ use super::{
     side_screen::render_side_body,
     state::{AgentTask, Lens, TuiState, agent_tasks},
     statusbar::{BOTTOM_BAR_HEIGHT, render_bottom_bar},
-    text::truncate,
+    text::{truncate, truncate_tail},
     topbar::{render_ops_top_bar, render_side_top_bar, render_top_bar},
     transcript::transcript_rows,
 };
@@ -535,7 +535,9 @@ fn live_activity_status(state: &TuiState) -> LiveActivityStatus {
         return LiveActivityStatus {
             summary: "Viden working".to_string(),
             evidence: "live provider request".to_string(),
-            details: vec![truncate(&state.runtime.assistant_stream, 72)],
+            // The newest text is what an operator watching a live turn needs;
+            // a head cut pins the display to the opening words forever.
+            details: vec![truncate_tail(&state.runtime.assistant_stream, 72)],
             phase: Some("streaming".to_string()),
             next_action: Some("type next step anytime".to_string()),
             is_live: true,

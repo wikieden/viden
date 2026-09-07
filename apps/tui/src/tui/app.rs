@@ -1875,6 +1875,16 @@ fn command_for_composer(state: &TuiState, content: &str) -> RuntimeCommand {
     }
 }
 
+/// Whether Core is busy enough that new input must be queued rather than
+/// submitted.
+///
+/// `assistant_stream` reads as a live signal here because Core settles it when
+/// a turn's terminal agent-session fact arrives; while it was append-only this
+/// disjunct latched true after the first delta and queued every later message
+/// forever. A turn with no agent session — the built-in local provider — still
+/// emits no terminal fact, so its text stays in the stream and this predicate
+/// stays true after that turn ends. That residue is Core's recorded limitation,
+/// not something the client may paper over by guessing a turn ended.
 fn runtime_has_active_work(view: &RuntimeViewState) -> bool {
     !view.active_tool_calls.is_empty()
         || !view.pending_approvals.is_empty()
