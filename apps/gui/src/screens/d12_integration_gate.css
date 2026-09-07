@@ -51,6 +51,25 @@
   font: var(--fs-xs)/var(--lh-ui) var(--font-mono);
 }
 
+/*
+ * Separator marking where gates left behind by a finished session begin.
+ * Muted, because what follows it is real but not urgent — the chips after it
+ * stay fully interactive, so this must read as a label, never as a disabled
+ * region.
+ */
+.d12-gdormant {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--sp-1) var(--sp-2);
+  color: var(--fg-muted);
+  border-left: 1px solid var(--border-soft);
+  font: var(--fs-xs)/var(--lh-ui) var(--font-mono);
+}
+
+.d12-gchip[data-d12-gate-dormant="true"] {
+  color: var(--fg-muted);
+}
+
 .d12-gchip[aria-pressed="true"] {
   color: var(--fg-primary);
   border-color: var(--border-active);

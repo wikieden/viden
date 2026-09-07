@@ -114,7 +114,13 @@ export interface PaletteItem {
  * `d12_integration_gate` Core reads — no new Core capability is involved.
  */
 export interface PaletteCrossLane {
-  gates: Array<{ gateId: string; taskId: string; status: string }>;
+  /**
+   * Ordered by the D12 projection, which puts gates awaiting a live session
+   * ahead of `dormant` ones left behind by a finished session. The palette
+   * preserves that order and tags the dormant tail rather than dropping it:
+   * every gate stays reachable from `#`.
+   */
+  gates: Array<{ gateId: string; taskId: string; status: string; dormant: boolean }>;
   asks: Array<{ id: string; title: string; kind: string; laneId: string | null }>;
   /** Core's own words for a read that failed, or null when it succeeded. */
   unavailable: string | null;
@@ -325,8 +331,13 @@ export function paletteItems(
           section: "jump",
           id: `gate:${gate.gateId}`,
           title: translate(locale, "d1.palette.gate", { gate: gate.gateId }),
-          context: `${gate.taskId} · ${gate.status}`,
-          keywords: `${gate.taskId} ${gate.status}`,
+          // A dormant gate stays in the `#` scope and stays activatable; the
+          // tag says why it is at the bottom, so the operator is never left
+          // wondering where a gate went.
+          context: gate.dormant
+            ? `${gate.taskId} · ${gate.status} · ${translate(locale, "d1.palette.gate.dormant", {})}`
+            : `${gate.taskId} · ${gate.status}`,
+          keywords: `${gate.taskId} ${gate.status}${gate.dormant ? " dormant" : ""}`,
           hint: null,
           icon: "worktree",
           // D12 owns the gate; the palette hands it the exact Core gate id and

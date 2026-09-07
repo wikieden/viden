@@ -12,7 +12,8 @@
       "requiredEvidence": [
         "replay-regression"
       ],
-      "evidenceIds": []
+      "evidenceIds": [],
+      "dormant": false
     }
   ],
   "selectedGateId": "gate_merge",
@@ -29,7 +30,8 @@
       "requiredEvidence": [
         "replay-regression"
       ],
-      "evidenceIds": []
+      "evidenceIds": [],
+      "dormant": false
     },
     "missingEvidence": [
       "replay-regression"

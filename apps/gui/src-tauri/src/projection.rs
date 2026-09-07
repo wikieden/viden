@@ -7,10 +7,11 @@ use viden_core::{
     ApprovalRequestView, ApprovalRisk, ApprovalScope, AuditObjectRef, COCKPIT_CONTEXT_CAPABILITY,
     CheckRunStatus, ConflictBounceStatus, ContextScope, ContractDecision, ContractRecord,
     CostMeterability, CredentialHandle, DependencyState, EventCursor, GateStrength, LaneStatus,
-    LocaleId, MergeGateStatus, MergeGateType, MutationPolicy, ProjectConfigPreview, ProjectProbe,
-    ProviderHealthView, ReviewRequestRecord, ReviewRequestStatus, RuntimeOwner, RuntimeServiceKind,
-    RuntimeServiceStatus, RuntimeSnapshotEnvelope, RuntimeViewState, UiColorMode, UiDensity,
-    UiMotion, UiSkin, WorkMode, WorkspaceChangeKind, WorkspaceSourceStatus,
+    LocaleId, MergeGateRecord, MergeGateStatus, MergeGateType, MutationPolicy,
+    ProjectConfigPreview, ProjectProbe, ProviderHealthView, ReviewRequestRecord,
+    ReviewRequestStatus, RuntimeOwner, RuntimeServiceKind, RuntimeServiceStatus,
+    RuntimeSnapshotEnvelope, RuntimeViewState, UiColorMode, UiDensity, UiMotion, UiSkin, WorkMode,
+    WorkspaceChangeKind, WorkspaceSourceStatus,
 };
 
 use crate::d1::{
@@ -703,7 +704,7 @@ impl RuntimeProjection {
         selected: Option<&str>,
     ) -> Option<D12IntegrationGateProjection> {
         let view = self.view()?;
-        let gates: Vec<D12GateProjection> = view
+        let mut gates: Vec<D12GateProjection> = view
             .merge_gates
             .iter()
             .map(|gate| D12GateProjection {
@@ -717,13 +718,28 @@ impl RuntimeProjection {
                 has_validator: gate.validator.is_some(),
                 required_evidence: gate.required_evidence.clone(),
                 evidence_ids: gate.evidence_ids.clone(),
+                dormant: is_dormant_gate(view, gate),
             })
             .collect();
+        // Active gates first, dormant ones grouped after them. The sort is
+        // stable, so Core's own order survives inside each group: this reorders
+        // nothing an operator could act on relative to anything else.
+        gates.sort_by_key(|gate| gate.dormant);
 
         let selected_gate_id = selected
             .filter(|id| gates.iter().any(|gate| gate.gate_id == *id))
             .map(str::to_string)
-            .or_else(|| gates.first().map(|gate| gate.gate_id.clone()));
+            // With nothing chosen the detail pane opens on work the operator
+            // can still act on. A dormant gate is the fallback, never the
+            // default: opening D12 onto a gate whose session finished weeks ago
+            // is exactly the burial this grouping exists to undo.
+            .or_else(|| {
+                gates
+                    .iter()
+                    .find(|gate| !gate.dormant)
+                    .or_else(|| gates.first())
+                    .map(|gate| gate.gate_id.clone())
+            });
 
         let detail = selected_gate_id.as_deref().and_then(|gate_id| {
             let gate = gates.iter().find(|gate| gate.gate_id == gate_id)?.clone();
@@ -933,7 +949,11 @@ impl RuntimeProjection {
             .provider
             .as_ref()
             .is_some_and(|provider| provider.error_count > 0);
-        let open_merge_gate = view.merge_gates.iter().any(|gate| gate.status.is_open());
+        // `GateQueueClear` says the operator has no decision left to make.
+        // A gate abandoned by a finished session is not such a decision, so
+        // letting it hold the queue open leaves the cockpit permanently
+        // claiming work that no longer exists.
+        let open_merge_gate = has_actionable_merge_gate(view);
         let missing_capabilities = (!supports_approvals)
             .then(|| "runtime.approvals".to_string())
             .into_iter()
@@ -1409,11 +1429,17 @@ impl RuntimeProjection {
                     request_count: provider.request_count,
                     error_count: provider.error_count,
                 }),
+            // The badge must match what its navigation target can act on:
+            // it takes the operator to the decision surfaces, so counting
+            // gates whose session finished weeks ago sends them to a screen
+            // with nothing live in it. Dormant gates are still listed there —
+            // they are grouped, not hidden — but they are not a count of work
+            // waiting on the operator.
             pending_gate_count: view.pending_approvals.len() as u64
                 + view
                     .merge_gates
                     .iter()
-                    .filter(|gate| gate.status.is_open())
+                    .filter(|gate| gate.status.is_open() && !is_dormant_gate(view, gate))
                     .count() as u64,
         };
         // The titlebar git block is a workspace-level read, not a Lane-scoped
@@ -1920,6 +1946,52 @@ fn agent_dag_status(status: AgentDagStatus) -> &'static str {
         AgentDagStatus::Completed => "completed",
         AgentDagStatus::Cancelled => "cancelled",
     }
+}
+
+/// Whether a gate is dormant: still awaiting a decision, while the Agent
+/// session it belongs to has already finished.
+///
+/// A finished session cannot produce the evidence its gate is waiting for, so
+/// such a gate is residue rather than actionable work. Eight of them, from
+/// sessions terminal for weeks, were rendering as first-class pending gates —
+/// burying live work in D12's list, inflating the statusbar badge, and holding
+/// D6 out of its clear state.
+///
+/// Dormancy changes ordering, labelling, and counting only. Every dormant gate
+/// stays in the list, stays selectable, and keeps every action Core allows: this
+/// is grouping, never hiding.
+///
+/// The join is `gate.owner.session_id` — the Agent session Core publishes, not
+/// the ACP protocol handle a merge gate's id is keyed on. A gate that names no
+/// session, or names one this view has never seen, is never dormant: an unknown
+/// session is not a finished one. This is the single definition the D12 list,
+/// the D1 statusbar badge, the D6 state machine, and the command palette all
+/// read; four private copies would drift apart.
+pub(crate) fn is_dormant_gate(view: &RuntimeViewState, gate: &MergeGateRecord) -> bool {
+    // A decided gate is settled, not dormant, whatever its session is doing.
+    if gate.decision.is_some() || !gate.status.is_open() {
+        return false;
+    }
+    let Some(session_id) = gate.owner.session_id.as_deref() else {
+        return false;
+    };
+    view.agent_sessions.iter().any(|session| {
+        session.session_id == session_id
+            && matches!(
+                session.status,
+                AgentSessionStatus::Completed
+                    | AgentSessionStatus::Failed
+                    | AgentSessionStatus::Cancelled
+            )
+    })
+}
+
+/// Whether any gate is both open and still attached to a live session — the
+/// only kind of gate an operator can actually act on right now.
+fn has_actionable_merge_gate(view: &RuntimeViewState) -> bool {
+    view.merge_gates
+        .iter()
+        .any(|gate| gate.status.is_open() && !is_dormant_gate(view, gate))
 }
 
 fn merge_gate_status(status: MergeGateStatus) -> &'static str {

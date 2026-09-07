@@ -389,10 +389,13 @@ export async function hydrateShellFromCore(
           core.d12IntegrationGate(null),
         ]);
         return {
+          // The projection already orders active gates ahead of dormant ones;
+          // this preserves that order and carries the flag the palette tags.
           gates: (gate?.gates ?? []).map((entry) => ({
             gateId: entry.gateId,
             taskId: entry.taskId,
             status: entry.status,
+            dormant: entry.dormant,
           })),
           asks: (decisions?.groups ?? []).flatMap((group) =>
             group.items.map((item) => ({

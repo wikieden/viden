@@ -20,6 +20,7 @@ const GATE = {
   hasValidator: false,
   requiredEvidence: ["replay-regression"],
   evidenceIds: [] as string[],
+  dormant: false,
 };
 
 const PROJECTION: D12IntegrationGateProjection = {
@@ -112,6 +113,45 @@ function result(
 }
 
 describe("D12 integration gate", () => {
+  test("groups dormant gates under one separator without removing any of them", () => {
+    // The projection hands the screen active gates first with the dormant tail
+    // flagged; the screen marks where that tail starts. Nothing is filtered:
+    // every chip below the separator stays a live button.
+    const dormant = { ...GATE, gateId: "gate-old", dormant: true };
+    const dormantTwo = { ...GATE, gateId: "gate-older", dormant: true };
+    const { root, onSelect } = setup({
+      ...PROJECTION,
+      gates: [GATE, dormant, dormantTwo],
+    });
+
+    const separator = root.querySelector<HTMLElement>("[data-d12-dormant-separator]");
+    expect(separator).not.toBeNull();
+    expect(separator!.dataset.d12DormantSeparator).toBe("2");
+    expect(separator!.textContent).toContain("session finished");
+
+    const chips = [...root.querySelectorAll<HTMLElement>("[data-d12-gate]")];
+    expect(chips.map((chip) => chip.dataset.d12Gate)).toEqual([
+      "gate-1",
+      "gate-old",
+      "gate-older",
+    ]);
+    expect(chips[0]!.dataset.d12GateDormant).toBeUndefined();
+    expect(chips[1]!.dataset.d12GateDormant).toBe("true");
+
+    // The separator sits before the first dormant chip, not anywhere else.
+    const nodes = [...root.querySelector(".d12-gates")!.children];
+    expect(nodes.indexOf(separator!)).toBe(1);
+
+    // Grouping, never hiding: a dormant chip still selects its gate.
+    chips[1]!.click();
+    expect(onSelect).toHaveBeenCalledWith("gate-old");
+  });
+
+  test("renders no dormant separator when every gate is still live", () => {
+    const { root } = setup();
+    expect(root.querySelector("[data-d12-dormant-separator]")).toBeNull();
+  });
+
   test("shows the conflict banner and the strong-gate policy", () => {
     const { root } = setup();
     expect(root.querySelector<HTMLElement>("[data-d12-banner]")?.dataset.d12Banner).toBe(

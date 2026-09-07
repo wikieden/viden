@@ -229,6 +229,7 @@
   "d1.palette.action.d13": "Open the fleet board",
   "d1.palette.action.d14": "Open the audit timeline",
   "d1.palette.gate": "Merge gate {gate}",
+  "d1.palette.gate.dormant": "dormant · session finished",
   "d1.palette.crossLane.pending": "Reading cross-Lane gates and decisions…",
   "d1.palette.crossLane.unavailable": "Cross-Lane gates and decisions are unavailable.",
   "d1.palette.files.unavailable": "Files unavailable",

@@ -94,6 +94,11 @@ pub struct D12GateProjection {
     pub has_validator: bool,
     pub required_evidence: Vec<String>,
     pub evidence_ids: Vec<String>,
+    /// The gate awaits a decision its Agent session can no longer feed: the
+    /// session is Completed, Failed, or Cancelled. Presentation only — the gate
+    /// stays listed, selectable, and decidable; the flag exists so the screen
+    /// can group it below live work instead of burying live work under it.
+    pub dormant: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]

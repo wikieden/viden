@@ -229,6 +229,7 @@
   "d1.palette.action.d13": "打开机队看板",
   "d1.palette.action.d14": "打开审计时间线",
   "d1.palette.gate": "合并闸 {gate}",
+  "d1.palette.gate.dormant": "休眠 · 会话已结束",
   "d1.palette.crossLane.pending": "正在读取跨 Lane 的闸与决策…",
   "d1.palette.crossLane.unavailable": "跨 Lane 的闸与决策不可用。",
   "d1.palette.files.unavailable": "文件不可用",

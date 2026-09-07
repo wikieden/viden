@@ -291,6 +291,20 @@ base fixture 发生移动：九个 base fixture 都没有把终态 agent-session
 agent-session facts——没有终态事件，其文本照旧留在 stream 中。这是本次修复已记录的
 限制，而非疏漏：没有为本地路径发明新事件。
 
+2026-09-07 延后的评审跟进项。在审计上述修复时确认了三处不一致，并有意留给后续独立改动
+处理：三者都是客户端内部清理，不影响契约。记录于此，以免被当作新发现重新提出：
+
+1. `CockpitProjection.assistant_stream`（`apps/tui/src/tui/projection.rs:26`，
+   构建于 `:77`）是死字段：无人读取。TUI 直接从 `RuntimeViewState` 渲染该 stream，
+   因此该字段是一份会与原件各自独立结算的副本。
+2. TUI 中存在两套"是否有活跃工作"的定义——`apps/tui/src/tui/app.rs:1878` 用于
+   命令路由，`apps/tui/src/tui/state.rs:234` 用于状态文本。二者读取的 fact 集合
+   重叠但不相等，因此 composer 与状态行可能对"回合是否在进行"给出不同判断。
+3. ACP merge gate 被两种标识键控：`crates/agents/src/acp.rs:1126` 发出协议会话句柄，
+   而 `crates/agents/src/glue.rs` 用已发布的 Agent session 为同一个 gate 划定范围。
+   Gate 自身的 id 为保持连续性仍沿用协议句柄，2026-09-07 加入的 owner 绑定才使其可
+   join；这两个键仍须一并读取。
+
 `context-budgets` fixture 为 `ContextScope` 与 `ContextBudgetRecord` 的 frontend-neutral
 facade 导出提供依据。Budget 只能通过该 Lane 精确绑定的 runtime owner 所指名的 typed task
 scope 归属到 Lane；"取最近一条 budget" 永远不是有效归属，fixture 中两个 scope 刻意互不相交。

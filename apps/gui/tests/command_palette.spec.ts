@@ -28,7 +28,7 @@ import type { D1CockpitProjection } from "../src/screens/d1_cockpit";
 import { D1_PROJECTION } from "./support/d1_projection";
 
 const CROSS_LANE: PaletteCrossLane = {
-  gates: [{ gateId: "gate-1", taskId: "task-core", status: "blocked" }],
+  gates: [{ gateId: "gate-1", taskId: "task-core", status: "blocked", dormant: false }],
   asks: [{ id: "approval-shell", title: "Allow test", kind: "approval", laneId: "lane-core" }],
   unavailable: null,
 };
@@ -224,6 +224,30 @@ describe("palette index", () => {
   test("cross-Lane gates and asks come from the eager read, scoped by #", () => {
     const list = items();
     expect(ids(searchPalette(list, "#"))).toEqual(["gate:gate-1", "ask:approval-shell"]);
+  });
+
+  test("dormant gates stay in the # scope, tagged and ordered last", () => {
+    // The D12 projection orders active gates first and flags the dormant tail;
+    // the palette must preserve that and tag it rather than dropping a gate an
+    // operator may still want to decide.
+    const list = items({
+      crossLane: {
+        gates: [
+          { gateId: "gate-live", taskId: "task-core", status: "proposed", dormant: false },
+          { gateId: "gate-old", taskId: "task-old", status: "proposed", dormant: true },
+        ],
+        asks: [],
+        unavailable: null,
+      },
+    });
+    const gates = searchPalette(list, "#");
+    expect(ids(gates)).toEqual(["gate:gate-live", "gate:gate-old"]);
+    const dormant = gates.find((item) => item.id === "gate:gate-old")!;
+    expect(dormant.context).toContain("dormant");
+    // Grouping, never hiding: the dormant gate is still activatable.
+    expect(dormant.enabled).toBe(true);
+    expect(dormant.disabledReason).toBeNull();
+    expect(gates.find((item) => item.id === "gate:gate-live")!.context).not.toContain("dormant");
   });
 
   test("a failed cross-Lane read renders a note instead of hiding the section", () => {

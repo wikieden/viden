@@ -25,6 +25,13 @@ export interface D12Gate {
   hasValidator: boolean;
   requiredEvidence: string[];
   evidenceIds: string[];
+  /**
+   * The gate awaits a decision its Agent session can no longer feed. Purely a
+   * grouping signal: a dormant gate is listed, selectable, and decidable
+   * exactly like any other, it just sits below the gates still attached to a
+   * live session instead of on top of them.
+   */
+  dormant: boolean;
 }
 
 export interface D12Bounce {
@@ -119,6 +126,7 @@ const COPY: Record<Locale, Copy> = {
   en: {
     title: "Integration gate",
     gates: "gates",
+    dormant: "dormant · session finished",
     conflict: "Merge conflict · bounce to the origin Lane",
     resolved: "Gate passed",
     strong: "strong gate · cannot be bypassed",
@@ -149,6 +157,7 @@ const COPY: Record<Locale, Copy> = {
   "zh-CN": {
     title: "集成闸",
     gates: "个闸",
+    dormant: "休眠 · 会话已结束",
     conflict: "合并冲突 · 退回原 Lane",
     resolved: "闸已通过",
     strong: "强闸 · 不可绕过",
@@ -250,13 +259,30 @@ export function renderD12IntegrationGate(
 
     const list = document.createElement("div");
     list.className = "d12-gates";
+    // The projection orders active gates first and flags the dormant tail. One
+    // separator marks where that tail begins, so a gate left behind by a
+    // finished session is grouped and labelled rather than removed: every chip
+    // below the separator stays clickable and fully decidable.
+    const dormantCount = projection.gates.filter((gate) => gate.dormant).length;
+    let separated = false;
     for (const gate of projection.gates) {
+      if (gate.dormant && !separated) {
+        separated = true;
+        const divider = document.createElement("span");
+        divider.className = "d12-gdormant";
+        divider.dataset.d12DormantSeparator = String(dormantCount);
+        divider.textContent = `${copy.dormant} · ${dormantCount}`;
+        list.append(divider);
+      }
       const chip = document.createElement("button");
       chip.type = "button";
       chip.className = "d12-gchip";
       chip.dataset.d12Gate = gate.gateId;
+      if (gate.dormant) chip.dataset.d12GateDormant = "true";
       chip.setAttribute("aria-pressed", String(projection.selectedGateId === gate.gateId));
-      chip.textContent = `${gate.gateId} · ${gate.status}`;
+      chip.textContent = gate.dormant
+        ? `${gate.gateId} · ${gate.status} · ${copy.dormant}`
+        : `${gate.gateId} · ${gate.status}`;
       if (onSelect) chip.addEventListener("click", () => onSelect(gate.gateId));
       list.append(chip);
     }

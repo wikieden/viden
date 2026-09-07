@@ -361,6 +361,27 @@ agent-session facts at all — has no terminal event, so its text stays in the
 stream exactly as before. That is a recorded limitation of this fix, not an
 oversight: no new event was invented for the local path.
 
+Deferred review follow-ups 2026-09-07. Three inconsistencies were confirmed
+while auditing the fix above and deliberately left for a separate change,
+because each is a client-internal cleanup with no contract effect. Recorded
+here so they are not rediscovered as new findings:
+
+1. `CockpitProjection.assistant_stream` (`apps/tui/src/tui/projection.rs:26`,
+   built at `:77`) is dead: nothing reads it. The TUI renders the stream
+   straight from `RuntimeViewState`, so this field is a second copy that
+   settles independently of the first.
+2. The TUI carries two definitions of "active work" —
+   `apps/tui/src/tui/app.rs:1878` gates command routing, and
+   `apps/tui/src/tui/state.rs:234` drives status text. They read overlapping
+   but unequal fact sets, so the composer and the status line can disagree
+   about whether a turn is running.
+3. An ACP merge gate is keyed on two different identifiers:
+   `crates/agents/src/acp.rs:1126` emits the protocol session handle while
+   `crates/agents/src/glue.rs` scopes the same gate by the published Agent
+   session. The gate's own id keeps the protocol handle for continuity, and
+   the owner binding added on 2026-09-07 is what makes it joinable; the two
+   keys still have to be read together.
+
 The `context-budgets` fixture backs the frontend-neutral facade export of
 `ContextScope` and `ContextBudgetRecord`. A budget belongs to a Lane only
 through the typed task scope named by that Lane's exact bound runtime owner;

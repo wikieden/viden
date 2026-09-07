@@ -34,7 +34,7 @@ interface MountOptions {
   onNavigate?: (route: string, arg?: string) => void;
   send?: (intent: unknown) => Promise<D1IntentResult>;
   loadPaletteCrossLane?: () => Promise<{
-    gates: Array<{ gateId: string; taskId: string; status: string }>;
+    gates: Array<{ gateId: string; taskId: string; status: string; dormant: boolean }>;
     asks: Array<{ id: string; title: string; kind: string; laneId: string | null }>;
   }>;
   preferences?: boolean;
@@ -204,7 +204,7 @@ describe("cockpit command palette", () => {
     mount({
       onNavigate,
       loadPaletteCrossLane: async () => ({
-        gates: [{ gateId: "gate-7", taskId: "task-core", status: "blocked" }],
+        gates: [{ gateId: "gate-7", taskId: "task-core", status: "blocked", dormant: false }],
         asks: [],
       }),
     });

@@ -296,7 +296,7 @@ function mountCockpit(options: CockpitOptions): void {
  * shows a populated `Jump to` section without inventing a decision.
  */
 const PALETTE_CROSS_LANE = {
-  gates: [{ gateId: "gate-core", taskId: "task-core", status: "blocked" }],
+  gates: [{ gateId: "gate-core", taskId: "task-core", status: "blocked", dormant: false }],
   asks: [
     { id: "approval-shell", title: "Allow test", kind: "approval", laneId: "lane-core" },
   ],

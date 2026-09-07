@@ -235,6 +235,7 @@ export const MESSAGE_ARGUMENT_NAMES = {
   "d1.palette.action.d13": [],
   "d1.palette.action.d14": [],
   "d1.palette.gate": ["gate"],
+  "d1.palette.gate.dormant": [],
   "d1.palette.crossLane.pending": [],
   "d1.palette.crossLane.unavailable": [],
   "d1.palette.files.unavailable": [],
