@@ -2470,7 +2470,7 @@ fn read_acp_runtime_events_heals_a_duplicated_completion_block() {
         RuntimeEvent::new(
             1,
             RuntimeEventKind::MergeGateUpdated {
-                gate: acp_session_merge_gate("session_heal", MergeGateStatus::Proposed, &[]),
+                gate: acp_session_merge_gate("session_heal", None, MergeGateStatus::Proposed, &[]),
             },
         ),
         RuntimeEvent::new(
@@ -3101,3 +3101,101 @@ fn make_executable(path: &Path) {
 
 #[cfg(not(unix))]
 fn make_executable(_path: &Path) {}
+
+/// A gate must name the Agent session Core published, not only the ACP
+/// protocol handle its id is keyed on. Without this a frontend cannot tell
+/// whether a pending gate belongs to a session that is still running.
+#[test]
+fn an_acp_merge_gate_carries_the_published_owner_session() {
+    let owner = viden_types::RuntimeOwner {
+        workspace_id: "workspace-viden".to_string(),
+        project_id: "project-viden".to_string(),
+        lane_id: Some("lane_1".to_string()),
+        session_id: Some("agent-session_1".to_string()),
+        ..Default::default()
+    };
+    let gate = acp_session_merge_gate(
+        "019fbc5a-1e63-7e41-8df7-81a43556838a",
+        Some(&owner),
+        MergeGateStatus::Proposed,
+        &[],
+    );
+    // The gate's own identity is unchanged: it stays keyed on the ACP
+    // protocol session so already-persisted gates keep the same id.
+    assert_eq!(
+        gate.gate_id,
+        "gate-acp-session-019fbc5a-1e63-7e41-8df7-81a43556838a"
+    );
+    assert_eq!(
+        gate.task_id,
+        "acp-session-019fbc5a-1e63-7e41-8df7-81a43556838a"
+    );
+    // The owner is what makes the gate joinable to `agent_sessions`.
+    assert_eq!(gate.owner.session_id.as_deref(), Some("agent-session_1"));
+    assert_eq!(gate.owner.lane_id.as_deref(), Some("lane_1"));
+    assert_eq!(gate.owner.workspace_id, "workspace-viden");
+    assert_eq!(gate.owner.project_id, "project-viden");
+}
+
+/// Without a published owner the gate stays exactly the bytes it was, so a
+/// gate emitted where Core knows no owner never invents one.
+#[test]
+fn an_acp_merge_gate_without_an_owner_invents_none() {
+    let gate = acp_session_merge_gate("session_x", None, MergeGateStatus::Proposed, &[]);
+    assert_eq!(gate.owner.session_id, None);
+    assert_eq!(gate.owner.lane_id, None);
+    assert_eq!(gate.owner.task_id.as_deref(), Some("acp-session-session_x"));
+}
+
+/// Logs written before gates carried their owner still replay into joinable
+/// gates: the session artifact that produced the gate names the session, and a
+/// later follow-up turn of the same gate inherits that binding.
+#[test]
+fn replay_binds_legacy_gates_to_the_session_artifact_that_produced_them() {
+    let root = temp_root("acp_gate_owner_backfill");
+    let agents = root.join(".viden").join("agents");
+    fs::create_dir_all(&agents).expect("create agents dir");
+
+    // A gate written by the session's own first turn, with no owner at all.
+    let legacy_gate = acp_session_merge_gate("019fb746", None, MergeGateStatus::Proposed, &[]);
+    let first_turn = [RuntimeEvent::new(
+        1,
+        RuntimeEventKind::MergeGateUpdated {
+            gate: legacy_gate.clone(),
+        },
+    )];
+    write_acp_runtime_events(
+        &agents.join("agent-session_1785486260041818000.runtime-events.jsonl"),
+        &first_turn,
+    )
+    .expect("write first turn log");
+
+    // The same gate re-emitted by a later follow-up turn, whose artifact id is
+    // an input id and therefore names no session by itself.
+    write_acp_runtime_events(
+        &agents.join("agent-input_1785487371561133000.runtime-events.jsonl"),
+        &first_turn,
+    )
+    .expect("write follow-up turn log");
+
+    let events = tracked_agent_job_runtime_events(&root);
+    let gates = events
+        .iter()
+        .filter_map(|event| match &event.kind {
+            RuntimeEventKind::MergeGateUpdated { gate } => Some(gate),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(gates.len(), 2, "both turns replay their gate");
+    for gate in gates {
+        assert_eq!(
+            gate.gate_id, "gate-acp-session-019fb746",
+            "the gate id must not change while backfilling its owner"
+        );
+        assert_eq!(
+            gate.owner.session_id.as_deref(),
+            Some("agent-session_1785486260041818000"),
+            "a legacy gate must be bound to the session artifact that produced it"
+        );
+    }
+}

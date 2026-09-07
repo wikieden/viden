@@ -1125,6 +1125,7 @@ where
         RuntimeEventKind::MergeGateUpdated {
             gate: acp_session_merge_gate(
                 &session_id,
+                owner.as_ref(),
                 MergeGateStatus::Proposed,
                 &acp_gate_evidence_ids,
             ),

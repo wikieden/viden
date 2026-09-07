@@ -1094,10 +1094,46 @@ pub fn tracked_agent_job_runtime_events(cwd: &Path) -> Vec<RuntimeEvent> {
             .cmp(&acp_artifact_ordinal(right))
             .then_with(|| left.cmp(right))
     });
-    paths
-        .into_iter()
-        .flat_map(|path| read_acp_runtime_events(&path))
-        .collect()
+    // Gates written before they carried their owner name only the ACP protocol
+    // handle their id is keyed on, so they join to nothing in the rebuilt view.
+    // The artifact that produced them does name the session: a first turn is
+    // logged under the Agent session id itself, while a follow-up turn is
+    // logged under a fresh input id and re-emits the same gate. Binding a gate
+    // once from a session-named artifact and carrying that binding to the same
+    // gate id in later turns restores provenance the file layout already
+    // records, without rewriting a single persisted byte. A gate that arrives
+    // with an owner is authoritative and is never overwritten.
+    let mut gate_owner_sessions: BTreeMap<String, String> = BTreeMap::new();
+    let mut events = Vec::new();
+    for path in paths {
+        let artifact_session = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .and_then(|name| name.strip_suffix(".runtime-events.jsonl"))
+            .filter(|artifact| artifact.starts_with("agent-session_"))
+            .map(str::to_string);
+        for mut event in read_acp_runtime_events(&path) {
+            if let RuntimeEventKind::MergeGateUpdated { gate } = &mut event.kind {
+                match gate.owner.session_id.as_deref() {
+                    Some(session_id) => {
+                        gate_owner_sessions.insert(gate.gate_id.clone(), session_id.to_string());
+                    }
+                    None => {
+                        if let Some(session_id) = gate_owner_sessions
+                            .get(&gate.gate_id)
+                            .cloned()
+                            .or_else(|| artifact_session.clone())
+                        {
+                            gate_owner_sessions.insert(gate.gate_id.clone(), session_id.clone());
+                            gate.owner.session_id = Some(session_id);
+                        }
+                    }
+                }
+            }
+            events.push(event);
+        }
+    }
+    events
 }
 
 pub(super) fn acp_artifact_ordinal(path: &Path) -> Option<u128> {
@@ -1316,6 +1352,7 @@ pub(super) fn append_acp_update_runtime_events(
                 RuntimeEventKind::MergeGateUpdated {
                     gate: acp_session_merge_gate(
                         session_id,
+                        owner,
                         MergeGateStatus::CollectingEvidence,
                         gate_evidence_ids,
                     ),
@@ -1357,6 +1394,7 @@ pub(super) fn append_acp_update_runtime_events(
                     RuntimeEventKind::MergeGateUpdated {
                         gate: acp_session_merge_gate(
                             session_id,
+                            owner,
                             MergeGateStatus::CollectingEvidence,
                             gate_evidence_ids,
                         ),
@@ -1392,6 +1430,7 @@ pub(super) fn append_acp_update_runtime_events(
                 RuntimeEventKind::MergeGateUpdated {
                     gate: acp_session_merge_gate(
                         session_id,
+                        owner,
                         MergeGateStatus::CollectingEvidence,
                         gate_evidence_ids,
                     ),
@@ -1402,8 +1441,18 @@ pub(super) fn append_acp_update_runtime_events(
     }
 }
 
+/// Builds the merge gate for one ACP session turn.
+///
+/// The gate id stays keyed on the ACP protocol session handle so an
+/// already-persisted gate keeps its identity across turns. That handle is not
+/// the Agent session Core publishes, so the gate would otherwise be joinable to
+/// nothing in `RuntimeViewState`: `owner` carries the published session, which
+/// is what lets a frontend tell a gate awaiting a live session from one left
+/// behind by a session that already finished. `None` stays `None` rather than
+/// becoming an owner derived from the protocol handle alone (GUI-CORE-010).
 pub(super) fn acp_session_merge_gate(
     session_id: &str,
+    owner: Option<&RuntimeOwner>,
     status: MergeGateStatus,
     evidence_ids: &[String],
 ) -> MergeGateRecord {
@@ -1419,7 +1468,7 @@ pub(super) fn acp_session_merge_gate(
         gate_type: MergeGateType::Artifact,
         owner: RuntimeOwner {
             task_id: Some(task_id),
-            ..RuntimeOwner::default()
+            ..owner.cloned().unwrap_or_default()
         },
         validator: None,
         policy_snapshot: MergeGatePolicySnapshot {
