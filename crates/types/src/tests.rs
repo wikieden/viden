@@ -5185,3 +5185,145 @@ fn a_workspace_files_query_rejects_a_prefix_that_leaves_the_workspace() {
         assert!(query.validate().is_ok(), "prefix `{prefix}` must be legal");
     }
 }
+
+/// Builds a session view in one status for the assistant-stream lifecycle tests.
+fn stream_lifecycle_session(session_id: &str, status: AgentSessionStatus) -> AgentSessionView {
+    AgentSessionView {
+        session_id: session_id.to_string(),
+        lane_id: "lane-stream".to_string(),
+        agent_id: "codex".to_string(),
+        model: None,
+        status,
+        owner: RuntimeOwner {
+            workspace_id: "workspace-viden".to_string(),
+            project_id: "project-viden".to_string(),
+            lane_id: Some("lane-stream".to_string()),
+            session_id: Some(session_id.to_string()),
+            ..Default::default()
+        },
+        task: "settle the stream".to_string(),
+        diagnostic: None,
+        output: Some("the settled reply".to_string()),
+    }
+}
+
+/// Streams one delta into the unscoped stream, then applies `terminal`.
+fn stream_then_terminal(terminal: RuntimeEventKind) -> RuntimeViewState {
+    let mut view = RuntimeViewState::new(runtime_snapshot_for_contract());
+    view.apply_event(&RuntimeEvent::new(
+        1,
+        RuntimeEventKind::AgentSessionStarted {
+            session: stream_lifecycle_session("agent-session-1", AgentSessionStatus::Running),
+        },
+    ));
+    view.apply_event(&RuntimeEvent::new(
+        2,
+        RuntimeEventKind::AssistantDelta {
+            message_id: "acp-message-agent-session-1-turn-1".to_string(),
+            task_id: None,
+            session_id: Some("agent-session-1".to_string()),
+            content: "in-flight text".to_string(),
+        },
+    ));
+    assert_eq!(
+        view.assistant_stream, "in-flight text",
+        "the unscoped stream must hold the reply while the turn is in flight"
+    );
+    view.apply_event(&RuntimeEvent::new(3, terminal));
+    view
+}
+
+/// A completed turn settles the unscoped stream: the reply is carried onward by
+/// the completion fact and the owner-scoped conversation.
+#[test]
+fn a_completed_agent_session_settles_the_unscoped_assistant_stream() {
+    let view = stream_then_terminal(RuntimeEventKind::AgentSessionCompleted {
+        session: stream_lifecycle_session("agent-session-1", AgentSessionStatus::Completed),
+    });
+    assert!(
+        view.assistant_stream.is_empty(),
+        "a settled turn must not leave its reply in the unscoped stream"
+    );
+    // The reply survives on the facts a client is meant to read after settlement.
+    assert_eq!(
+        view.agent_sessions[0].output.as_deref(),
+        Some("the settled reply")
+    );
+    assert!(
+        view.agent_conversation.iter().any(|message| {
+            message.role == AgentConversationRole::Assistant && message.content == "in-flight text"
+        }),
+        "the owner-scoped conversation must still carry the streamed reply"
+    );
+}
+
+/// A failed turn settles the stream too; its diagnostic is the durable fact.
+#[test]
+fn a_failed_agent_session_settles_the_unscoped_assistant_stream() {
+    let view = stream_then_terminal(RuntimeEventKind::AgentSessionFailed {
+        session: stream_lifecycle_session("agent-session-1", AgentSessionStatus::Failed),
+    });
+    assert!(view.assistant_stream.is_empty());
+}
+
+/// Cancellation arrives as an update carrying the cancelled status.
+#[test]
+fn a_cancelled_agent_session_update_settles_the_unscoped_assistant_stream() {
+    let view = stream_then_terminal(RuntimeEventKind::AgentSessionUpdated {
+        session: stream_lifecycle_session("agent-session-1", AgentSessionStatus::Cancelled),
+    });
+    assert!(view.assistant_stream.is_empty());
+}
+
+/// A non-terminal update is not settlement: the in-flight display must survive.
+#[test]
+fn a_running_agent_session_update_keeps_the_in_flight_assistant_stream() {
+    let view = stream_then_terminal(RuntimeEventKind::AgentSessionUpdated {
+        session: stream_lifecycle_session("agent-session-1", AgentSessionStatus::Running),
+    });
+    assert_eq!(
+        view.assistant_stream, "in-flight text",
+        "clearing must not eat an in-progress turn"
+    );
+}
+
+/// Replaying many settled sessions must not concatenate their replies: each
+/// session's terminal event ends its own stream segment.
+#[test]
+fn replayed_settled_sessions_do_not_concatenate_into_one_unattributed_blob() {
+    let mut view = RuntimeViewState::new(runtime_snapshot_for_contract());
+    let mut sequence = 0u64;
+    let mut next = || {
+        sequence += 1;
+        sequence
+    };
+    for index in 0..3 {
+        let session_id = format!("agent-session-{index}");
+        view.apply_event(&RuntimeEvent::new(
+            next(),
+            RuntimeEventKind::AgentSessionStarted {
+                session: stream_lifecycle_session(&session_id, AgentSessionStatus::Running),
+            },
+        ));
+        view.apply_event(&RuntimeEvent::new(
+            next(),
+            RuntimeEventKind::AssistantDelta {
+                message_id: format!("message-{index}"),
+                task_id: None,
+                session_id: Some(session_id.clone()),
+                content: format!("reply {index}. "),
+            },
+        ));
+        view.apply_event(&RuntimeEvent::new(
+            next(),
+            RuntimeEventKind::AgentSessionCompleted {
+                session: stream_lifecycle_session(&session_id, AgentSessionStatus::Completed),
+            },
+        ));
+    }
+    assert!(
+        view.assistant_stream.is_empty(),
+        "replay must not leave a historical blob in the unscoped stream, got {:?}",
+        view.assistant_stream
+    );
+}

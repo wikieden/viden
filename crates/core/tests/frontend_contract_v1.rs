@@ -739,9 +739,37 @@ fn streamed_turn_fixture_reconstructs_exactly_the_final_message() {
     assert_eq!(reply.content, reconstructed);
     assert_eq!(terminal_output.as_deref(), Some(reply.content.as_str()));
 
-    // The unscoped assistant stream stays the same bytes, so a client that
-    // predates owner-scoped conversation still renders the identical reply.
-    assert_eq!(first_view.assistant_stream, reconstructed);
+    // GUI-CORE-016, amended 2026-09-07: the unscoped assistant stream is the
+    // in-flight surface. DURING the turn it holds the identical reply, so a
+    // client that predates owner-scoped conversation still renders it live.
+    let terminal_index = fixture
+        .events
+        .iter()
+        .position(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(event)
+                    if matches!(event.kind, RuntimeEventKind::AgentSessionCompleted { .. })
+            )
+        })
+        .expect("the streamed turn fixture must carry a completion fact");
+    let mut mid_turn_view = RuntimeViewState::new(fixture.initial_snapshot.clone());
+    for envelope in fixture.events.iter().take(terminal_index) {
+        if let RuntimeWireEvent::Known(event) = &envelope.event {
+            mid_turn_view.apply_event(event);
+        }
+    }
+    assert_eq!(
+        mid_turn_view.assistant_stream, reconstructed,
+        "the unscoped stream must hold the whole reply while the turn is in flight"
+    );
+
+    // AFTER settlement the stream is cleared: the reply is carried by the
+    // completion fact and by the owner-scoped conversation asserted above.
+    assert!(
+        first_view.assistant_stream.is_empty(),
+        "a settled turn must not leave its reply in the unscoped stream"
+    );
 }
 
 #[test]

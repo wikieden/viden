@@ -337,12 +337,29 @@ registered schema-1 extension fixtures are:
 | `interaction-closed-loop` | Folder binding without implicit setup, reviewed Lane creation, built-in and ACP adapters/sessions, shared approval, evidence/gate, apply conflict, typed recovery, reconnect replay, and completion | `31b71bf154d42c8c7923fe9c64763a5245f785a2cd953913124f30a981589b51` | `596e82efa03d21b1f9645f40cf500ca8c4c1b86b2aa78be85a6bea0184822bff` |
 | `review-decision` | Independent review verdict: `ReviewRequestStatus` `Pending -> Accepted` with reviewer feedback and the stamped gate validator, while the gate decision stays separate | `38f81bbc1966fbf5742b0087bdd9e871eb11d58cdee747628ed3f4ca1323713c` | `b8e0b5389c3f21be4b4f28cfeba8d902917a304c6b9252cf9911dcccb6146a2b` |
 | `context-budgets` | Two concurrent Lanes with their exact bound owners and distinct task-scoped budgets, one under soft pressure and one over its hard limit | `1b251b312b05ef950cdfc8190347e848a38d92bdaf26fe7d196e1ba053fc667b` | `7fcbde9edc5aa1a40a5cd41b0a8442403c6424903cc754cbe64d45980389029f` |
-| `streamed-turn` | Ordered `AssistantDelta` chunks under one session and message id reconstruct exactly the final reply, and the terminal completion fact does not duplicate it | `bd918bb10398a598c71ed2c787155140106e7c8e7953bab36b0b00ef09280dae` | `819b125211d14de998dd9ce1e049a4d7a76f951ee5b971d58972466b0ce78001` |
-| `message-parts` | An ACP turn returning an image part alongside text: typed parts attach to their own message, the reference is an immutable parts-directory digest path, and an unmodeled kind round-trips losslessly | `d7de155865ef9308b88c338530a754fd27d565dee9d6f56dfe9f47f883eec4ee` | `b4ffe6f432e9a69dea125e9f11d213b97456a7336ac84e71cdc7b9e934dfe2e1` |
+| `streamed-turn` | Ordered `AssistantDelta` chunks under one session and message id reconstruct exactly the final reply, and the terminal completion fact does not duplicate it | `2567d9709e6ec96d621fa281acc205ba5a8fe0b8a08f5868b70ca386f70e3a7d` | `3b1129fb57860aa337c571a9f70be2eacca432c4419bfbb1f4c2943dd371b8e2` |
+| `message-parts` | An ACP turn returning an image part alongside text: typed parts attach to their own message, the reference is an immutable parts-directory digest path, and an unmodeled kind round-trips losslessly | `0162e39121f8f9f4543970fdc8098580bc5e01e43786de56d50cc520baed32fe` | `2e7f430cf1694baedd4615c0b60faf9b5614475e52b3c1b365b69a22d0f3d0c2` |
 | `audit-reads` | Two concurrent audit reads answered out of order, each page naming its own `command_id`, plus a filtered read whose `complete` describes the filtered timeline while older unfiltered records remain | `389739e9f28cfaf1e1cc9632316760e60fc43495f3702a21d2944874027bb28e` | `a1bdc24b45fc015b9601cf30ae7916dedd5ee0d5bcd2bbc1b5792e2964ef07d2` |
 | `owner-scoped-live-work` | Two concurrent Lanes with interleaved task, tool-call, queued-input, and evidence facts under their exact bound owners, plus the same four fact kinds published with no owner | `6972686f93d9d2653fa3510a0f74c50d4b7905426ac0554362a07945ac2541d4` | `87dc66790932f819f84903b3efd457dca1c85e3992c862a44919d0fe5bdeefc2` |
 | `audit-ordering` | One newest-first audit page over two interleaved projects, with a cross-project timestamp tie broken by the descending audit id | `4da28fdd43503046033cf65b5362c2cdd482c42ade083bb32f45a014b942c842` | `6c7de7344afb54cf58793c5878672c435da848aea426e5e0a89253ee98d9c3e4` |
 | `workspace-files` | Two concurrent inventory reads on one project answered out of order, each page naming the required `command_id`, the scoped read `complete` for its subtree while the unscoped read is not, plus a second attached project with lane facts and no inventory read at all | `9f1c95e59ff5c4a172791d8c0c862f6286326311853b228cc5b83674e4775c37` | `f907b793d2817372fc71c95122e4e33152755682fff5fe46aa20150704bcb949` |
+
+Semantics fix 2026-09-07 (review finding 4): `RuntimeViewState.assistant_stream`
+had no lifecycle — it was append-only for the life of the view, so startup
+replay concatenated every historical session's reply into one unattributed blob.
+A terminal agent-session fact (`AgentSessionCompleted`, `AgentSessionFailed`, or
+an `AgentSessionUpdated` carrying a terminal status) now clears it. The stream
+still holds the whole reply during the turn; after settlement the reply is
+carried by the terminal fact's `session.output` and by the owner-scoped
+`agent_conversation`. This moved the recorded final-view digest of the two
+extension fixtures whose events place a terminal fact after their deltas —
+`streamed-turn` and `message-parts` — and their canonical bytes with them, since
+each fixture records its own expected view digest. No frozen base fixture moved:
+none of the nine places a terminal agent-session fact after an `AssistantDelta`.
+A turn with no agent session — the built-in local provider emits no
+agent-session facts at all — has no terminal event, so its text stays in the
+stream exactly as before. That is a recorded limitation of this fix, not an
+oversight: no new event was invented for the local path.
 
 The `context-budgets` fixture backs the frontend-neutral facade export of
 `ContextScope` and `ContextBudgetRecord`. A budget belongs to a Lane only

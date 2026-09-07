@@ -203,5 +203,5 @@
     "stream_id": "fixture:streamed-turn",
     "sequence": 5
   },
-  "expected_view_sha256": "bd918bb10398a598c71ed2c787155140106e7c8e7953bab36b0b00ef09280dae"
+  "expected_view_sha256": "2567d9709e6ec96d621fa281acc205ba5a8fe0b8a08f5868b70ca386f70e3a7d"
 }

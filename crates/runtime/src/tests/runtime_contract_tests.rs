@@ -4920,7 +4920,15 @@ fn runtime_view_state_emits_tracked_acp_session_jobs() {
             .and_then(|action| action.command.as_deref()),
         Some("/agent result acp-1")
     );
-    assert!(view.assistant_stream.contains("implemented adapter"));
+    // Replaying a settled session must not leave its reply in the unscoped
+    // stream: startup replays every tracked job, so retaining the text there
+    // concatenated every historical session into one unattributed blob. The
+    // reply is asserted below on the owner-scoped conversation instead.
+    assert!(
+        view.assistant_stream.is_empty(),
+        "a replayed settled session must leave the unscoped stream empty, got {:?}",
+        view.assistant_stream
+    );
     assert!(view.latest_evidence.iter().any(|evidence| {
         evidence.kind == "acp_turn_end" && evidence.summary.contains("completed")
     }));

@@ -1,22 +1,23 @@
 use crate::{
     AgentAdapterView, AgentContentPart, AgentConversationMessageView, AgentConversationRole,
     AgentDagRecord, AgentDagTaskSpec, AgentLaneId, AgentLaneRecord, AgentSessionInput,
-    AgentSessionInputView, AgentSessionRequest, AgentSessionView, AgentTaskId, AgentTaskRecord,
-    ApprovalDecision, ApprovalDefaultAction, ApprovalResponse, ApprovalRisk, ApprovalScope,
-    ApprovalTarget, AuditPage, AuditQuery, CheckRunView, ConflictBounce, ContextBudgetRecord,
-    ContextBundleRecord, ContextBundleSummaryRecord, ContextHandleRecord, ContextItemRecord,
-    ContextQualityRecord, ContextReductionRecord, ContextRetrievalRecord, ContextScope,
-    ContextViewRecord, ContractDecision, ContractRecord, CostLedgerTotals, CostUsageRecord,
-    CredentialHandle, DependencyRecord, DependencyState, EvidenceCanonicalizationRecord,
-    EvidenceId, HandoffAcceptance, HandoffRecord, LaneStatus, MergeGateId, MergeGateRecord,
-    MessageId, PermissionLevel, ProjectConfigPreview, ProjectProbe, ProviderCacheObservationRecord,
-    RecentProjectSummary, RecentSessionSummary, RecentWorkQuery, ResolvedUiPreferences,
-    RevertRecord, ReviewRequestRecord, ReviewVerdict, ReviewedEvidenceBinding, RuntimeOwner,
-    RuntimeServiceHealthView, RuntimeSnapshot, SessionId, StarterLanePreset, StarterLanePreview,
-    StarterLanePreviewInvalidationReason, StarterLaneReceipt, StarterLaneRequest, ToolCallId,
-    TranscriptPage, TranscriptPageRequest, UiPreferenceDiagnostic, UiPreferencePatch,
-    UiPreferences, WorkMode, WorkspaceChangeView, WorkspaceEligibility, WorkspaceFilePage,
-    WorkspaceFilesQuery, WorkspaceSourceView, now_timestamp,
+    AgentSessionInputView, AgentSessionRequest, AgentSessionStatus, AgentSessionView, AgentTaskId,
+    AgentTaskRecord, ApprovalDecision, ApprovalDefaultAction, ApprovalResponse, ApprovalRisk,
+    ApprovalScope, ApprovalTarget, AuditPage, AuditQuery, CheckRunView, ConflictBounce,
+    ContextBudgetRecord, ContextBundleRecord, ContextBundleSummaryRecord, ContextHandleRecord,
+    ContextItemRecord, ContextQualityRecord, ContextReductionRecord, ContextRetrievalRecord,
+    ContextScope, ContextViewRecord, ContractDecision, ContractRecord, CostLedgerTotals,
+    CostUsageRecord, CredentialHandle, DependencyRecord, DependencyState,
+    EvidenceCanonicalizationRecord, EvidenceId, HandoffAcceptance, HandoffRecord, LaneStatus,
+    MergeGateId, MergeGateRecord, MessageId, PermissionLevel, ProjectConfigPreview, ProjectProbe,
+    ProviderCacheObservationRecord, RecentProjectSummary, RecentSessionSummary, RecentWorkQuery,
+    ResolvedUiPreferences, RevertRecord, ReviewRequestRecord, ReviewVerdict,
+    ReviewedEvidenceBinding, RuntimeOwner, RuntimeServiceHealthView, RuntimeSnapshot, SessionId,
+    StarterLanePreset, StarterLanePreview, StarterLanePreviewInvalidationReason,
+    StarterLaneReceipt, StarterLaneRequest, ToolCallId, TranscriptPage, TranscriptPageRequest,
+    UiPreferenceDiagnostic, UiPreferencePatch, UiPreferences, WorkMode, WorkspaceChangeView,
+    WorkspaceEligibility, WorkspaceFilePage, WorkspaceFilesQuery, WorkspaceSourceView,
+    now_timestamp,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -1068,6 +1069,38 @@ impl RuntimeViewState {
             | RuntimeEventKind::AgentSessionUpdated { session }
             | RuntimeEventKind::AgentSessionCompleted { session }
             | RuntimeEventKind::AgentSessionFailed { session } => {
+                // A terminal turn settles the unscoped assistant stream.
+                //
+                // That stream is the in-flight display surface only. Once a
+                // turn ends its reply is carried by the terminal fact's
+                // `session.output` and by the owner-scoped
+                // `agent_conversation`, so retaining the text here only grows
+                // an unattributable blob across turns, sessions, and replays.
+                //
+                // Concurrency caveat: the stream carries no session identity,
+                // so with concurrent sessions it was already interleaved text
+                // from every producer. Clearing on any terminal event is
+                // therefore no less attributable than keeping it.
+                //
+                // This runs outside the lane-owner guard below because the
+                // unscoped stream is not part of that per-lane session
+                // projection: a delta reached it without any ownership check,
+                // so its settlement must not require one either.
+                let settles_turn =
+                    matches!(
+                        event.kind,
+                        RuntimeEventKind::AgentSessionCompleted { .. }
+                            | RuntimeEventKind::AgentSessionFailed { .. }
+                    ) || (matches!(event.kind, RuntimeEventKind::AgentSessionUpdated { .. })
+                        && matches!(
+                            session.status,
+                            AgentSessionStatus::Completed
+                                | AgentSessionStatus::Failed
+                                | AgentSessionStatus::Cancelled
+                        ));
+                if settles_turn {
+                    self.assistant_stream.clear();
+                }
                 let existing_session_owner_matches = self
                     .agent_sessions
                     .iter()

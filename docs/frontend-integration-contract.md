@@ -216,6 +216,15 @@ flowchart LR
 - `SnapshotUpdated` replaces the baseline snapshot.
 - `AssistantDelta` appends to `assistant_stream`; clients may also render
   deltas in transcript order.
+- `assistant_stream` is the in-flight surface for the turn being streamed, not
+  a durable transcript. A terminal agent-session fact —
+  `AgentSessionCompleted`, `AgentSessionFailed`, or an `AgentSessionUpdated`
+  carrying a terminal status — clears it. After settlement the reply is carried
+  by the terminal fact's `session.output` and by the owner-scoped
+  `agent_conversation`; read those, not the stream, for a finished turn.
+  A turn with no agent session (the built-in local provider emits no
+  agent-session facts) has no terminal event, so its text stays in the stream
+  as before.
 - `ToolCallStarted` inserts an active tool call; `ToolCallFinished` removes it
   and may append evidence.
 - Facts derived from an executed provider tool are emitted in causal order:

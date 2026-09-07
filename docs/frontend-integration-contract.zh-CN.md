@@ -191,6 +191,12 @@ flowchart LR
 - `SnapshotUpdated` 替换 baseline snapshot。
 - `AssistantDelta` 追加到 `assistant_stream`；客户端也可以按 transcript 顺序渲染
   deltas。
+- `assistant_stream` 是当前流式回合的 in-flight 表面，而不是持久 transcript。终态
+  agent-session fact——`AgentSessionCompleted`、`AgentSessionFailed`，或携带终态
+  status 的 `AgentSessionUpdated`——会清空它。结算之后，回复由该终态 fact 的
+  `session.output` 和 owner-scoped `agent_conversation` 承载；读取已完成回合时请
+  读这两者，而不是该 stream。没有 agent session 的回合（内置本地 provider 不发出
+  agent-session facts）没有终态事件，其文本照旧留在 stream 中。
 - `ToolCallStarted` 插入 active tool call；`ToolCallFinished` 移除 active tool
   call，并可能追加 evidence。
 - 由已执行 provider tool 产生的 facts 按因果顺序发出：

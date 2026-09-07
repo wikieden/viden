@@ -271,12 +271,25 @@ Fixture 文件位于 `crates/types/tests/fixtures/frontend-contract-v1/`。下�
 | `interaction-closed-loop` | 文件夹绑定但不隐式配置、reviewed Lane 创建、built-in 与 ACP adapter/session、共享审批、evidence/gate、apply conflict、typed recovery、重连 replay 与完成态 | `31b71bf154d42c8c7923fe9c64763a5245f785a2cd953913124f30a981589b51` | `596e82efa03d21b1f9645f40cf500ca8c4c1b86b2aa78be85a6bea0184822bff` |
 | `review-decision` | 独立评审结论：`ReviewRequestStatus` 由 `Pending` 迁移到 `Accepted`，携带 reviewer feedback 与被打戳的 gate validator，同时 gate 决定仍然独立 | `38f81bbc1966fbf5742b0087bdd9e871eb11d58cdee747628ed3f4ca1323713c` | `b8e0b5389c3f21be4b4f28cfeba8d902917a304c6b9252cf9911dcccb6146a2b` |
 | `context-budgets` | 两条并发 Lane 各自携带精确绑定的 owner 与互不相同的 task-scoped budget，一条处于软压力、一条越过硬上限 | `1b251b312b05ef950cdfc8190347e848a38d92bdaf26fe7d196e1ba053fc667b` | `7fcbde9edc5aa1a40a5cd41b0a8442403c6424903cc754cbe64d45980389029f` |
-| `streamed-turn` | 同一 session 与 message id 下的有序 `AssistantDelta` chunk 恰好重建最终回复，作为终止标记的完成事实不会重复追加 | `bd918bb10398a598c71ed2c787155140106e7c8e7953bab36b0b00ef09280dae` | `819b125211d14de998dd9ce1e049a4d7a76f951ee5b971d58972466b0ce78001` |
-| `message-parts` | ACP turn 在文本之外返回 image part：typed part 只挂到自己的消息上，reference 是 parts 目录的不可变 digest 路径，未建模的 part kind 无损往返 | `d7de155865ef9308b88c338530a754fd27d565dee9d6f56dfe9f47f883eec4ee` | `b4ffe6f432e9a69dea125e9f11d213b97456a7336ac84e71cdc7b9e934dfe2e1` |
+| `streamed-turn` | 同一 session 与 message id 下的有序 `AssistantDelta` chunk 恰好重建最终回复，作为终止标记的完成事实不会重复追加 | `2567d9709e6ec96d621fa281acc205ba5a8fe0b8a08f5868b70ca386f70e3a7d` | `3b1129fb57860aa337c571a9f70be2eacca432c4419bfbb1f4c2943dd371b8e2` |
+| `message-parts` | ACP turn 在文本之外返回 image part：typed part 只挂到自己的消息上，reference 是 parts 目录的不可变 digest 路径，未建模的 part kind 无损往返 | `0162e39121f8f9f4543970fdc8098580bc5e01e43786de56d50cc520baed32fe` | `2e7f430cf1694baedd4615c0b60faf9b5614475e52b3c1b365b69a22d0f3d0c2` |
 | `audit-reads` | 两次并发 audit 读取以相反顺序被回答，每个 page 指名自己的 `command_id`；另有一次过滤读取，其 `complete` 描述的是过滤后的 timeline，而未过滤 page 上仍存在更旧的记录 | `389739e9f28cfaf1e1cc9632316760e60fc43495f3702a21d2944874027bb28e` | `a1bdc24b45fc015b9601cf30ae7916dedd5ee0d5bcd2bbc1b5792e2964ef07d2` |
 | `owner-scoped-live-work` | 两个并发 Lane 在各自精确绑定的 owner 下交错发布 task、tool call、排队输入与 evidence 事实，另有同样四类事实在没有 owner 的情况下发布 | `6972686f93d9d2653fa3510a0f74c50d4b7905426ac0554362a07945ac2541d4` | `87dc66790932f819f84903b3efd457dca1c85e3992c862a44919d0fe5bdeefc2` |
 | `audit-ordering` | 一页 newest-first 的 audit 记录横跨两个交错的项目，且有一对跨项目、时间戳相同的记录靠降序 audit id 定序 | `4da28fdd43503046033cf65b5362c2cdd482c42ade083bb32f45a014b942c842` | `6c7de7344afb54cf58793c5878672c435da848aea426e5e0a89253ee98d9c3e4` |
 | `workspace-files` | 同一项目上的两次并发清单读取以相反顺序被回答，每个 page 都携带必填的 `command_id`；带 prefix 的读取对其子树返回 `complete`，而未加 prefix 的读取仍未完；另有第二个已挂载项目只发布 lane 事实、完全没有清单读取 | `9f1c95e59ff5c4a172791d8c0c862f6286326311853b228cc5b83674e4775c37` | `f907b793d2817372fc71c95122e4e33152755682fff5fe46aa20150704bcb949` |
+
+2026-09-07 语义修正（评审发现 4）：`RuntimeViewState.assistant_stream` 此前没有生命
+周期——它在整个 view 生命期内只追加，因此启动重放会把每个历史会话的回复串接成一整块
+无归属文本。终态 agent-session fact（`AgentSessionCompleted`、`AgentSessionFailed`，
+或携带终态 status 的 `AgentSessionUpdated`）现在会清空它。该 stream 在回合进行中仍
+保有完整回复；结算之后，回复由终态 fact 的 `session.output` 与 owner-scoped
+`agent_conversation` 承载。这移动了两个 extension fixture 记录的最终 view digest ——
+即事件序列中终态 fact 位于 delta 之后的 `streamed-turn` 与 `message-parts` —— 以及
+它们的 canonical bytes，因为每个 fixture 自身记录了其期望 view digest。没有任何冻结
+base fixture 发生移动：九个 base fixture 都没有把终态 agent-session fact 放在
+`AssistantDelta` 之后。没有 agent session 的回合——内置本地 provider 完全不发出
+agent-session facts——没有终态事件，其文本照旧留在 stream 中。这是本次修复已记录的
+限制，而非疏漏：没有为本地路径发明新事件。
 
 `context-budgets` fixture 为 `ContextScope` 与 `ContextBudgetRecord` 的 frontend-neutral
 facade 导出提供依据。Budget 只能通过该 Lane 精确绑定的 runtime owner 所指名的 typed task

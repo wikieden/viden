@@ -215,8 +215,20 @@ a single owner-scoped message. The schema-1 extension fixture
 `streamed-turn.json` makes this canonical: its replay test proves the ordered
 chunks reconstruct exactly the final message, that the terminal completion fact
 settles the turn without appending a second copy, and that the unscoped
-`assistant_stream` still holds the identical reply for a client that predates
+`assistant_stream` holds the identical reply for a client that predates
 owner-scoped conversation.
+
+Amendment 2026-09-07 (review finding 4): the sentence above originally promised
+that the unscoped `assistant_stream` still held the identical reply *after*
+completion. That promise is narrowed, not withdrawn. The stream holds the
+identical reply **during** the turn; the terminal fact now clears it, because
+an unscoped stream that is never cleared concatenates every historical session's
+reply into one unattributed blob on replay. After settlement the reply is
+carried by the completion fact's `session.output` and by the owner-scoped
+`agent_conversation`, both of which every schema-1 client already receives. The
+`streamed-turn.json` replay test asserts both halves: the whole reply is in the
+stream at the last pre-terminal event, and the stream is empty once the
+completion fact is applied.
 
 ## GUI-CORE-017: Non-text Agent message content — CLOSED
 

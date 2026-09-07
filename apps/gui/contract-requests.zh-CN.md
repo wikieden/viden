@@ -170,8 +170,16 @@ fixture 证明重放分片可精确重建最终消息时，关闭此请求。
 Core 状态：已交付。`AssistantDelta` 携带可选会话 id，ACP 适配器在整个提示轮次内保持
 同一个消息 id，reducer 因此增长单条归属明确的消息。schema-1 扩展 fixture
 `streamed-turn.json` 将其固化为规范：其重放测试证明有序分片恰好重建最终消息、作为终止
-标记的完成事实只结算该轮次而不再追加一份副本，以及未归属会话的 `assistant_stream` 仍
+标记的完成事实只结算该轮次而不再追加一份副本，以及未归属会话的 `assistant_stream`
 保有完全相同的回复，供尚未支持 owner-scoped 对话的客户端使用。
+
+2026-09-07 修订（评审发现 4）：上述句子原本承诺未归属会话的 `assistant_stream` 在
+完成**之后**仍保有完全相同的回复。该承诺被收窄，而非撤销。该 stream 在回合**进行中**
+保有完全相同的回复；终态 fact 现在会清空它，因为一个永不清空的 unscoped stream 会在
+重放时把每个历史会话的回复串接成一整块无归属文本。结算之后，回复由完成 fact 的
+`session.output` 和 owner-scoped `agent_conversation` 承载，二者都是每个 schema-1
+客户端已经收到的。`streamed-turn.json` 重放测试同时断言两半：在最后一个终态前事件处
+整条回复位于 stream 中，而应用完成 fact 之后 stream 为空。
 
 ## GUI-CORE-017：Agent 消息的非文本内容 — 已关闭
 

@@ -238,5 +238,5 @@
     "stream_id": "fixture:message-parts",
     "sequence": 6
   },
-  "expected_view_sha256": "d7de155865ef9308b88c338530a754fd27d565dee9d6f56dfe9f47f883eec4ee"
+  "expected_view_sha256": "0162e39121f8f9f4543970fdc8098580bc5e01e43786de56d50cc520baed32fe"
 }
