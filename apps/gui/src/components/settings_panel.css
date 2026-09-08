@@ -10,18 +10,27 @@
 .gset-panel {
   position: fixed;
   z-index: 21;
-  inset-block-end: clamp(
+  /*
+   * Hoisted so `max-height` can subtract the panel's own bottom offset. The
+   * gear sits at the bottom of the rail, so a panel sized against the full
+   * viewport height would start above the viewport top and clip its own
+   * heading and close button out of reach — which the Provider and Permissions
+   * cards made reachable in practice by making the panel taller than one
+   * screen.
+   */
+  --gset-bottom: clamp(
     var(--sp-3),
     calc(100dvh - var(--gset-anchor-block)),
     calc(100dvh - var(--sp-6))
   );
+  inset-block-end: var(--gset-bottom);
   inset-inline-start: clamp(
     var(--sp-3),
     var(--gset-anchor-inline),
     calc(100vw - min(30rem, calc(100vw - var(--sp-6))) - var(--sp-3))
   );
   width: min(30rem, calc(100vw - var(--sp-6)));
-  max-height: calc(100dvh - var(--sp-6));
+  max-height: calc(100dvh - var(--gset-bottom) - var(--sp-3));
   box-sizing: border-box;
   display: grid;
   gap: var(--sp-3);
@@ -124,6 +133,117 @@
   margin-block-start: 2px;
   color: var(--fg-muted);
   font: var(--fs-micro)/var(--lh-tight) var(--font-sans);
+}
+
+.gset-card-detail {
+  margin: 0;
+  padding: 0 var(--sp-3) var(--sp-2);
+  color: var(--fg-muted);
+  font: var(--fs-micro)/var(--lh-tight) var(--font-sans);
+}
+
+.gset-value {
+  flex: none;
+  max-width: 60%;
+  overflow: hidden;
+  color: var(--fg-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: var(--fs-micro)/var(--lh-ui) var(--font-mono);
+}
+
+.gset-empty {
+  margin: 0;
+  padding: var(--sp-2) var(--sp-3);
+  border-block-start: 1px solid var(--border-soft);
+  color: var(--fg-muted);
+  font: var(--fs-xs)/var(--lh-ui) var(--font-sans);
+}
+
+/*
+ * Full-width immediate-dispatch rows, per the design's `.pmrow` / `.provrow`.
+ * They are buttons rather than the design's clickable divs so the keyboard and
+ * the accessibility tree get the same radio group the segmented controls have.
+ */
+.gset-rows {
+  display: grid;
+}
+
+.gset-pmrow,
+.gset-provrow {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border: 0;
+  border-block-start: 1px solid var(--border-soft);
+  background: transparent;
+  color: var(--fg-secondary);
+  text-align: start;
+  min-height: 2.75rem;
+}
+
+.gset-pmrow:hover:not(:disabled),
+.gset-provrow:hover:not(:disabled) {
+  background: var(--bg-base);
+  color: var(--fg-primary);
+}
+
+.gset-pmrow[aria-checked="true"],
+.gset-provrow[aria-checked="true"] {
+  background: var(--bg-sel);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.gset-pmrow:disabled,
+.gset-provrow:disabled {
+  opacity: 0.55;
+}
+
+.gset-pm-name {
+  flex: none;
+  min-width: 6rem;
+  color: var(--fg-primary);
+  font: 600 var(--fs-sm)/var(--lh-ui) var(--font-sans);
+}
+
+.gset-pmrow[aria-checked="true"] .gset-pm-name,
+.gset-provrow[aria-checked="true"] .gset-prov-model {
+  color: var(--accent-bright);
+}
+
+.gset-pm-cli {
+  flex: none;
+  min-width: 5.5rem;
+  color: var(--fg-faint);
+  font: var(--fs-micro)/var(--lh-ui) var(--font-mono);
+}
+
+.gset-pm-detail {
+  min-width: 0;
+  flex: 1;
+  color: var(--fg-muted);
+  font-size: var(--fs-micro);
+  line-height: var(--lh-tight);
+}
+
+.gset-prov-model {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: var(--fg-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 600 var(--fs-xs)/var(--lh-ui) var(--font-mono);
+}
+
+.gset-prov-group {
+  flex: none;
+  padding: 1px var(--sp-2);
+  color: var(--fg-muted);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-xs);
+  font: var(--fs-micro)/var(--lh-ui) var(--font-mono);
 }
 
 /* Segmented option group, per the design's `.seg`. */

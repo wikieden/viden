@@ -123,8 +123,8 @@ URL 与尺寸，不在该运行时之外调用浏览器自动化。
 | `d1` | `…/qa.html?state=d1` | 完整驾驶舱；标题栏项目选择器带分支与 dirty 标记，旁边是 `↑/↓` 与工作树 chip；九个状态栏分段全部带事实，另加待决闸提示；三个 Composer 选择器胶囊 |
 | `d1-mode-menu` | `…/qa.html?state=d1-mode-menu` | 工作模式弹层在 Composer 上方展开，当前模式标记为选中 |
 | `d1-model-menu` | `…/qa.html?state=d1-model-menu` | 模型弹层展开，同时显示提供方分组与 Core 发布的适配器分组 |
-| `settings` | `…/qa.html?state=settings` | 设置面板覆盖在驾驶舱上并带未保存草稿；取消与保存均可用 |
-| `settings-unavailable` | `…/qa.html?state=settings-unavailable` | 同一面板只读，点名缺失的 `ui.preference_persistence` 能力；保存禁用 |
+| `settings` | `…/qa.html?state=settings` | 设置面板覆盖在驾驶舱上并带未保存草稿，以面板自身顶部取景：Provider 与模型卡列出 Core 发布的 provider 组与 adapter 组并标出当前模型；权限卡列出全部五个 Core 档位——UI 标签、Core CLI 标识符、一行说明——并标出当前档位；以及只读的工作目录行；下方取消与保存均可用 |
+| `settings-unavailable` | `…/qa.html?state=settings-unavailable` | 同一面板点名缺失的 `ui.preference_persistence` 能力，保存禁用，语言与外观控件只读——而 Provider 与权限各行仍**可操作**，因为它们走的是 `SelectModel` / `SetPermissionLevel`，不受该 capability 门控 |
 | `d6-actions` | `…/qa.html?state=d6-actions` | 恢复界面上「重启智能体」与「关闭 Lane」可用，并展开检查事实 |
 | `d6-error` | `…/qa.html?state=d6-error` | 同一界面在重启被拒后，把 Core 的拒绝理由渲染成告警 |
 | `d12-actions` | `…/qa.html?state=d12-actions` | 合并闸的批准可用，退回理由输入框已填写且可用 |
@@ -283,3 +283,32 @@ light/`zh-CN` 截图是这两个界面的语言划分，且与 D14 已记录的�
 类型列与走马灯标题会翻译，而每个 Core 值都保持 Core 发布时的原样——工作区相对路径，
 以及走马灯的稳定 audit id 与点分 `action` key。把动作词汇表本地化会毁掉两份时间线
 可互相 diff 这一性质，把路径本地化则会让它无法被打开。
+
+## 设置的 Core 命令分区截图
+
+2026-09-07 以 headless Chrome
+（`--headless --disable-gpu --hide-scrollbars --window-size=1440,900
+--virtual-time-budget=6000`）对 4199 端口上的 vite dev server 采集，并逐张目视复核
+（三张全部复核）。
+
+| 文件 | 状态 | 视口 | 模式 | 语言 |
+| --- | --- | --- | --- | --- |
+| [settings-1440x900-dark-en.png](settings-1440x900-dark-en.png) | settings | 1440x900 | dark | en |
+| [settings-unavailable-1440x900-dark-en.png](settings-unavailable-1440x900-dark-en.png) | settings-unavailable | 1440x900 | dark | en |
+| [settings-1440x900-light-zh-CN.png](settings-1440x900-light-zh-CN.png) | settings | 1440x900 | light | zh-CN |
+
+两张 dark 截图是在面板新增 Provider 与模型、权限两个分区之后重拍的。与之一同变化、
+并且在图中可见的还有两处。其一，harness 现在把 `settings` 截图锚定在面板自身的滚动
+顶部：草稿之后的重挂会聚焦被草拟的选项，否则两张新卡会被滚出画面。其二，面板的
+`max-height` 现在会减去它自己的底部偏移量：齿轮把浮层锚在 rail 底部附近，面板一旦长
+到这个高度，按整屏高度计算就会越过视口顶部，把标题与关闭按钮顶出可及范围。
+
+`settings-unavailable` 是能力划分的证据。在点名缺失的 `ui.preference_persistence`
+之下，语言与外观控件只读，而同一张图里 Provider 与权限的每一行仍可操作——它们走的是
+`SelectModel` 与 `SetPermissionLevel`，不在该 capability 的门控之内。
+
+light/`zh-CN` 截图是新增文案的语言与皮肤证据，其划分与审计时间线已记录的一致：分区
+标题、档位标签、说明文字与工作目录标题会翻译，而每个 Core 值都保持 Core 发布时的
+原样——五个 CLI 标识符（`ask`、`auto_edit`、`auto`、`read_only`、`full_access`）、
+模型名、provider 组标签与工作区根目录。把 CLI 标识符本地化会毁掉这个标记唯一的存在
+理由：拿这个面板去对照 Core 的日志。

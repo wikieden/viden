@@ -145,8 +145,8 @@ All URLs share the prefix
 | `lane-rail` | `…/qa.html?state=lane-rail` | the rail pinned open (it auto-hides), showing the one `.wsroot` project group named `viden` with its `▾` collapse, its Lane count, the per-group `＋`, the Lane nested beneath it, and the `＋ Add project…` footer — and no second group and no "Global" section |
 | `project-picker` | `…/qa.html?state=project-picker` | the picker open under the titlebar `▾` selector with all three columns visible at once: `Add directory…` enabled beside the two disabled rows naming `GUI-CORE-023`, the single "In workspace" row for the open project with its lane count, and one Recent row with its relative age |
 | `project-switch-confirm` | `…/qa.html?state=project-switch-confirm` | the same picker after choosing the recent project, showing the inline confirmation: the target root, the replacement sentence naming `GUI-CORE-023`, the running-work counts, and Cancel beside Switch workspace |
-| `settings` | `…/qa.html?state=settings` | the Settings overlay open over the cockpit with an unsaved draft; Cancel and Save enabled |
-| `settings-unavailable` | `…/qa.html?state=settings-unavailable` | the same overlay read-only, naming the absent `ui.preference_persistence` capability; Save disabled |
+| `settings` | `…/qa.html?state=settings` | the Settings overlay open over the cockpit with an unsaved draft, framed from the panel's own top: the Provider & Models card listing the provider group and the adapter group Core published with the current model marked, the Permissions card with all five Core levels — UI label, Core CLI identifier, one-line description — the current level marked, and the read-only working-directory row; Cancel and Save enabled below |
+| `settings-unavailable` | `…/qa.html?state=settings-unavailable` | the same overlay with the absent `ui.preference_persistence` capability named, Save disabled, and the language/appearance controls read-only — while the Provider and Permissions rows stay **operable**, because they ride `SelectModel`/`SetPermissionLevel` rather than the preference capability |
 | `d6-actions` | `…/qa.html?state=d6-actions` | the recovery surface with Restart agent and Close Lane enabled, and the inspect facts expanded |
 | `d6-error` | `…/qa.html?state=d6-error` | the same surface after a refused restart, with Core's rejection rendered as an alert |
 | `d12-actions` | `…/qa.html?state=d12-actions` | the merge gate with Accept available and the bounce reason input filled and enabled |
@@ -321,3 +321,41 @@ as Core published it — the workspace-relative paths, and the ticker's stable
 audit ids and dotted `action` keys. Localizing an action vocabulary would
 destroy the property that makes two timelines diffable, and localizing a path
 would make it un-openable.
+
+## Settings Core-command section captures
+
+Captured 2026-09-07 with headless Chrome
+(`--headless --disable-gpu --hide-scrollbars --window-size=1440,900
+--virtual-time-budget=6000`) against the vite dev server on port 4199, then
+visually reviewed (all three sampled in review).
+
+| File | State | Viewport | Mode | Locale |
+| --- | --- | --- | --- | --- |
+| [settings-1440x900-dark-en.png](settings-1440x900-dark-en.png) | settings | 1440x900 | dark | en |
+| [settings-unavailable-1440x900-dark-en.png](settings-unavailable-1440x900-dark-en.png) | settings-unavailable | 1440x900 | dark | en |
+| [settings-1440x900-light-zh-CN.png](settings-1440x900-light-zh-CN.png) | settings | 1440x900 | light | zh-CN |
+
+Both dark captures were retaken after the overlay gained its Provider & Models
+and Permissions sections. Two things changed alongside them and are visible in
+the images. The harness now anchors the `settings` capture to the panel's own
+scroll top, because the remount after a draft focuses the drafted option and
+would otherwise scroll the two new cards out of frame. And the panel's
+`max-height` now subtracts its own bottom offset: the gear anchors the popover
+near the bottom of the rail, so a panel sized against the full viewport height
+started above the viewport top once it grew this tall, putting its heading and
+close button out of reach.
+
+`settings-unavailable` is the proof of the capability split. The language and
+appearance controls are read-only under the named absent
+`ui.preference_persistence`, while every Provider and Permissions row stays
+operable in the same image — they ride `SelectModel` and `SetPermissionLevel`,
+which that capability does not gate.
+
+The light/`zh-CN` capture is the locale and skin proof for the added copy, and
+it is the same split the audit timeline already documents: the section
+headings, the level labels, the descriptions, and the working-directory caption
+translate, while every Core value stays exactly as Core published it — the five
+CLI identifiers (`ask`, `auto_edit`, `auto`, `read_only`, `full_access`), the
+model names, the provider group labels, and the workspace root. Localizing a
+CLI identifier would break the one property the chip exists for: matching this
+panel against a Core log.

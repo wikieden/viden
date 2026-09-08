@@ -258,9 +258,29 @@ pill 都只按 Core 重新发布的 snapshot 重绘，因此选择“规划”�
 surface（`role=alert`）上。弹层遵循 agent-menu 约定：Escape 关闭并把焦点交还 pill，
 外部点击关闭，方向键移动选项焦点。
 
-活动 rail 在 spacer 之后以原型的设置齿轮收尾。它打开语言、皮肤、明暗、密度与
-动效的设置浮层，取自注册设计组件 `GUI/gui-settings.jsx`，只使用共享 token。所有
-控件都只编辑未保存的 GUI 本地 draft：未改动任何轴时“保存”保持禁用，并且只有操作
+活动 rail 在 spacer 之后以原型的设置齿轮收尾。它打开 provider/模型、权限、语言、
+皮肤、明暗、密度与动效的设置浮层，取自注册设计组件 `GUI/gui-settings.jsx`，
+只使用共享 token。
+
+浮层的前两节是**编辑器 pill 的第二个界面，而不是第二套模型**。权限节使用与 pill
+相同的 `PERMISSION_LEVELS` 枚举渲染权限档位——每行给出 UI 标签、逐字照抄的 Core
+CLI 标识符，以及一行说明——从同一个 `statusbar.permissionLevel` 事实读取当前档位，
+并派发同一个 `SetPermissionLevel` intent。Provider 与模型节列出的正是 pill 所用
+`modelGroups()` 的返回值（当前 provider 组，加上 Core 发布的每个 adapter 组），
+标出 Core 的当前选择，并派发同一个 `SelectModel` intent。二者在编辑器不可编辑、
+未打开工作区，或有命令占用 Core 的单命令 D1 槽位时被禁用——绝不隐藏；该门控与
+`ui.preference_persistence` 无关，后者只管下方的 draft/保存那一半。一个只读的
+工作目录行写明 Core 打开的工作区根目录。
+
+设计在这两节里画出、而此处刻意留白（而非伪造）的元素有三处：新增 provider 动作与
+各 provider 的 API key 标记（凭据仍属 GUI-CORE-001 残留范围）、Requests 卡片
+（`request_timeout_secs`、`max_retries`、`provider_plugin_dirs` 在
+`frontend-contract-v1` 中没有对应的 Core 命令），以及权限规则预览框与可编辑的
+“额外工作目录”字段（Core 既不发布规则表，也没有范围命令）。每处留白都在代码注释
+里点名对应的设计元素。没画出来不是谎言；画一个够不到 Core 的控件才是。
+
+语言与外观控件维持既有契约。它们都只编辑未保存的 GUI 本地 draft：未改动任何轴时
+“保存”保持禁用，并且只有操作
 者真正选择过的轴才进入 patch，未触碰的轴继续沿用 Core 的解析结果。保存经由 host
 命令 `preferences_save`、`preferences_restore`、`preferences_poll` 发送
 `SetUiPreferences`，“恢复默认”发送 `ResetUiPreferences`。

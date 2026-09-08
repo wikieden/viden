@@ -773,6 +773,13 @@ async function renderState(): Promise<void> {
       // become enabled only once an axis actually changed.
       click("[data-settings-option='density:comfy']");
       await waitFor("[data-settings-panel] [data-settings-option='density:comfy'][aria-checked='true']");
+      // The panel is taller than one viewport now that the two Core-command
+      // sections lead it, and the remount focuses the drafted option, which
+      // scrolls the Provider and Permissions cards out of frame. The capture
+      // is anchored to the panel's own top; the draft still proves itself
+      // through the sticky Cancel/Save footer.
+      document.querySelector("[data-settings-panel]")!.scrollTop = 0;
+      await tick();
       return;
     }
 

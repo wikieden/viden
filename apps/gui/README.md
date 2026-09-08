@@ -323,9 +323,37 @@ conventions: Escape closes and returns focus to the pill, an outside click
 closes, and arrow keys move option focus.
 
 The activity rail closes with the prototype's Settings gear below the spacer.
-It opens the Settings overlay for language, skin, mode, density, and motion,
-built from the registered design component `GUI/gui-settings.jsx` with shared
-tokens only. Every control edits an unsaved GUI-local draft: Save stays
+It opens the Settings overlay for provider/model, permissions, language, skin,
+mode, density, and motion, built from the registered design component
+`GUI/gui-settings.jsx` with shared tokens only.
+
+The overlay's first two sections are a **second surface onto the composer
+pills, not a second model**. The Permissions section renders the permission
+levels from the same `PERMISSION_LEVELS` enumeration the pill uses — each row
+carrying the UI label, the Core CLI identifier verbatim, and a one-line
+description — reads the current level from the same `statusbar.permissionLevel`
+fact, and dispatches the same `SetPermissionLevel` intent. The Provider &
+Models section lists exactly what `modelGroups()` returns for the pill (the
+active provider group plus each adapter group Core published), marks Core's
+current selection, and dispatches the same `SelectModel` intent. Both are
+disabled — never hidden — while the composer is not editable, no workspace is
+open, or a command holds Core's one-command-at-a-time D1 slot; that gating is
+independent of `ui.preference_persistence`, which governs only the draft-and-
+save half below. A read-only working-directory row states the workspace root
+Core opened.
+
+Three elements the design draws in those sections are deliberately absent
+rather than faked: the add-provider action and per-provider API-key chips
+(credentials remain GUI-CORE-001-residual territory), the Requests card
+(`request_timeout_secs`, `max_retries`, `provider_plugin_dirs` have no Core
+command in `frontend-contract-v1`), and the permission Rules preview box plus
+the editable additional-working-directories field (Core publishes neither a
+rule table nor a scope command). Each absence carries a code comment naming
+the design element it corresponds to. An undrawn element is not a lie; a drawn
+control that cannot reach Core would be.
+
+The language and appearance controls keep their existing contract. Every one
+of them edits an unsaved GUI-local draft: Save stays
 disabled until an axis is drafted, and only the axes the operator actually
 selected enter the patch, so an untouched axis keeps whatever Core resolves.
 Save sends `SetUiPreferences` and Restore defaults sends `ResetUiPreferences`

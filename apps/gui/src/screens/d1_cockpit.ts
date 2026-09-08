@@ -905,10 +905,15 @@ export function renderD1Cockpit(
         if (!disposed) {
           releaseCommandSlotWaiters();
           render(false);
+          // The Settings overlay renders the same two controls, so it has to
+          // follow the snapshot Core republished. `render` only re-anchors a
+          // detached panel, so an open one is rebuilt explicitly.
+          remountSettingsPanel();
         }
       }
     })();
     render(false);
+    remountSettingsPanel();
   };
 
   const submitComposer = (content: string): void => {
@@ -1038,8 +1043,24 @@ export function renderD1Cockpit(
         available: preferencesAvailable,
         saving: preferenceSaving,
         outcome: preferenceOutcome,
+        // The panel's permission and model rows are a second surface onto the
+        // composer pills, so they read the same Core facts and enumerate from
+        // the same shared sources. Gating mirrors the pills exactly; without a
+        // dispatcher the sections render inert rather than disappearing.
+        controls: !options.sendComposerControl
+          ? null
+          : {
+              permissionLevel: projection.statusbar.permissionLevel,
+              providerId: projection.environment.providerId,
+              model: projection.environment.model,
+              groups: modelGroups(projection),
+              cwd: projection.environment.cwd,
+              enabled: projection.composer.editable && !shouldShowWelcome(),
+              busy: controlInFlight || sending || Boolean(pendingCommandId),
+            },
       },
       {
+        onControl: (intent: ComposerControlIntent) => sendControl(intent),
         onDraft: (update: PreferenceDraft) => {
           preferenceState = updatePreferenceDraft(preferenceState, update);
           // A new edit supersedes the previous result; keeping a stale

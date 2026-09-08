@@ -35,6 +35,7 @@ function handlers() {
     onCancel: vi.fn(),
     onRestore: vi.fn(),
     onClose: vi.fn(),
+    onControl: vi.fn(),
   };
 }
 
@@ -75,6 +76,7 @@ describe("settings panel", () => {
         available: true,
         saving: false,
         outcome: null,
+        controls: null,
       },
       spies,
     );
@@ -108,6 +110,7 @@ describe("settings panel", () => {
         available: true,
         saving: false,
         outcome: null,
+        controls: null,
       },
       spies,
     );
@@ -125,7 +128,7 @@ describe("settings panel", () => {
     const state = { resolved: RESOLVED, draft: { skin: "ice" as const }, dirty: true };
     const controller = renderSettingsPanel(
       anchorButton(),
-      { locale: "en", state, available: true, saving: false, outcome: null },
+      { locale: "en", state, available: true, saving: false, outcome: null, controls: null },
       spies,
     );
 
@@ -153,6 +156,7 @@ describe("settings panel", () => {
         available: true,
         saving: false,
         outcome,
+        controls: null,
       },
       handlers(),
     );
@@ -176,6 +180,7 @@ describe("settings panel", () => {
         available: true,
         saving: false,
         outcome: { status: "confirmed", resolved: RESOLVED, persisted: false, diagnostics: [] },
+        controls: null,
       },
       handlers(),
     );
@@ -194,6 +199,7 @@ describe("settings panel", () => {
         available: false,
         saving: false,
         outcome: null,
+        controls: null,
       },
       handlers(),
     );
@@ -217,6 +223,7 @@ describe("settings panel", () => {
         available: true,
         saving: true,
         outcome: null,
+        controls: null,
       },
       handlers(),
     );
@@ -239,6 +246,7 @@ describe("settings panel", () => {
         available: true,
         saving: false,
         outcome: null,
+        controls: null,
       },
       spies,
     );
@@ -264,6 +272,7 @@ describe("settings panel", () => {
         available: true,
         saving: false,
         outcome: null,
+        controls: null,
       },
       spies,
     );
@@ -283,6 +292,7 @@ describe("settings panel", () => {
         available: true,
         saving: false,
         outcome: null,
+        controls: null,
       },
       handlers(),
     );

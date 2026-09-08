@@ -1,4 +1,10 @@
+import {
+  PERMISSION_LEVELS,
+  permissionLabel,
+  type ModelGroup,
+} from "./composer_controls";
 import { translate, type Locale, type MessageKey } from "../i18n/catalog";
+import type { ComposerControlIntent } from "../models/composer";
 import type {
   PreferenceDraft,
   PreferenceIntentOutcome,
@@ -8,14 +14,22 @@ import { DENSITIES, MOTIONS, SKINS } from "../ui/theme";
 import "./settings_panel.css";
 
 /**
- * The Settings overlay: language and appearance, as a client of the Core
- * preference contract.
+ * The Settings overlay: provider/model, permissions, language, and appearance.
  *
- * Every control edits a GUI-local draft only. Nothing here writes a
- * preference, re-resolves precedence, or validates the skin/mode pair — Core
- * owns all three, so an invalid pair stays selectable and comes back as Core's
- * own rejection rather than as a client rule the operator cannot see. Rendered
- * authority changes only when a Core result is confirmed.
+ * Two different Core contracts meet here, and they are deliberately not merged.
+ *
+ * The language and appearance controls edit a GUI-local draft only. Nothing
+ * there writes a preference, re-resolves precedence, or validates the
+ * skin/mode pair — Core owns all three, so an invalid pair stays selectable and
+ * comes back as Core's own rejection rather than as a client rule the operator
+ * cannot see. Rendered authority changes only when a Core result is confirmed.
+ *
+ * The permission-level and model controls are a *second surface* onto the two
+ * commands the composer pills already own (`SetPermissionLevel`,
+ * `SelectModel`). They dispatch immediately rather than drafting, they read
+ * their current value from the same Core facts the pills read, and they
+ * enumerate from the same shared sources (`PERMISSION_LEVELS`, `modelGroups`).
+ * One wire path, two surfaces — never a settings-private model.
  *
  * Visual vocabulary: the registered design component
  * `docs/viden-design/Viden/GUI/gui-settings.jsx`. Popover behaviour: the
@@ -74,6 +88,29 @@ export function settingsFieldValue(
   return state.draft?.[field] ?? state.resolved[field];
 }
 
+/**
+ * The Core-command half of the panel, mirroring the composer pills.
+ *
+ * `null` when the cockpit bound no control dispatcher at all (the no-project
+ * shell). The sections still render in that case — an absent capability is
+ * stated by disabling the controls, never by removing the rows, so the
+ * operator can see what Core would own.
+ */
+export interface SettingsControlsModel {
+  /** The level Core published, read from the same statusbar fact the pill reads. */
+  permissionLevel: string;
+  providerId: string;
+  model: string;
+  /** Exactly what `modelGroups()` returned for the composer's model pill. */
+  groups: ModelGroup[];
+  /** The workspace root Core opened. Display only; Core has no scope command. */
+  cwd: string;
+  /** False while the composer is not editable or no workspace is open. */
+  enabled: boolean;
+  /** True while any command holds Core's one-command-at-a-time D1 slot. */
+  busy: boolean;
+}
+
 export interface SettingsPanelModel {
   /** UI language for the panel's own copy. */
   locale: Locale;
@@ -84,6 +121,7 @@ export interface SettingsPanelModel {
   saving: boolean;
   /** The last Core outcome, or null before any command in this session. */
   outcome: PreferenceIntentOutcome | null;
+  controls: SettingsControlsModel | null;
 }
 
 export interface SettingsPanelHandlers {
@@ -92,6 +130,8 @@ export interface SettingsPanelHandlers {
   onCancel: () => void;
   onRestore: () => void;
   onClose: () => void;
+  /** Dispatches through the cockpit's shared composer-control path. */
+  onControl: (intent: ComposerControlIntent) => void;
 }
 
 export interface SettingsPanelController {
@@ -107,6 +147,21 @@ interface FieldSpec {
   /** Skins render as the design's chip row rather than a segmented control. */
   chips?: boolean;
 }
+
+/**
+ * One line per Core permission level.
+ *
+ * Keyed by the Core CLI name so the enumeration stays owned by
+ * `PERMISSION_LEVELS`: a level Core adds renders with its own identifier and no
+ * description rather than being silently dropped from the list.
+ */
+const PERMISSION_DETAIL_KEYS: Record<string, MessageKey> = {
+  ask: "settings.permission.ask.detail",
+  auto_edit: "settings.permission.auto_edit.detail",
+  auto: "settings.permission.auto.detail",
+  read_only: "settings.permission.read_only.detail",
+  full_access: "settings.permission.full_access.detail",
+};
 
 const APPEARANCE_FIELDS: FieldSpec[] = [
   {
@@ -255,6 +310,150 @@ export function renderSettingsPanel(
     for (const spec of specs) renderField(element, spec);
     panel.append(element);
   };
+
+  // The Core-command sections are gated by whether Core can accept a control
+  // command right now — never by `ui.preference_persistence`, which governs
+  // only the draft-and-save half below. Conflating the two would grey out a
+  // working `SetPermissionLevel` because an unrelated capability is absent.
+  const controls = model.controls;
+  const controlsDisabled = !controls || !controls.enabled || controls.busy;
+
+  /// Builds one immediate-dispatch radio row group inside its own card.
+  const controlCard = (
+    headingKey: MessageKey,
+    detailKey: MessageKey,
+    field: "permission" | "model",
+    groupLabelKey: MessageKey,
+    rows: Array<{ key: string; build: (row: HTMLButtonElement) => void; selected: boolean; intent: ComposerControlIntent }>,
+  ): HTMLElement => {
+    const element = document.createElement("section");
+    element.className = "gset-card";
+    const head = document.createElement("div");
+    head.className = "gset-card-head";
+    head.textContent = translate(locale, headingKey, {});
+    const detail = document.createElement("p");
+    detail.className = "gset-card-detail";
+    detail.textContent = translate(locale, detailKey, {});
+    element.append(head, detail);
+
+    const group = document.createElement("div");
+    group.className = "gset-rows";
+    group.dataset.settingsField = field;
+    group.setAttribute("role", "radiogroup");
+    group.setAttribute("aria-label", translate(locale, groupLabelKey, {}));
+    for (const row of rows) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = field === "permission" ? "gset-pmrow" : "gset-provrow";
+      button.dataset.settingsOption = row.key;
+      button.setAttribute("role", "radio");
+      button.setAttribute("aria-checked", String(row.selected));
+      button.tabIndex = row.selected ? 0 : -1;
+      button.disabled = controlsDisabled;
+      row.build(button);
+      button.addEventListener("click", () => {
+        if (controlsDisabled) return;
+        handlers.onControl(row.intent);
+      });
+      group.append(button);
+    }
+    optionGroups.push(group);
+    element.append(group);
+    panel.append(element);
+    return element;
+  };
+
+  const providerCard = controlCard(
+    "settings.provider",
+    "settings.provider.detail",
+    "model",
+    "d1.controls.model",
+    (controls?.groups ?? []).flatMap((group) =>
+      group.models.map((candidate) => ({
+        key: `model:${group.providerId}:${candidate}`,
+        selected:
+          group.providerId === controls?.providerId && candidate === controls?.model,
+        intent: {
+          type: "select_model" as const,
+          providerId: group.providerId,
+          model: candidate,
+        },
+        build: (row: HTMLButtonElement) => {
+          const name = document.createElement("span");
+          name.className = "gset-prov-model";
+          name.textContent = candidate;
+          const label = document.createElement("span");
+          label.className = "gset-prov-group";
+          label.textContent = group.label;
+          row.append(name, label);
+        },
+      })),
+    ),
+  );
+  // The design's section 1 also draws an add-provider action, per-provider API
+  // key chips, and a Requests card (`request_timeout_secs`, `max_retries`,
+  // `provider_plugin_dirs`). None are drawn here: credentials stay
+  // GUI-CORE-001-residual territory, and the request knobs have no Core
+  // command in `frontend-contract-v1`. Absence is honest; a dead control is not.
+  if ((controls?.groups.length ?? 0) === 0) {
+    const empty = document.createElement("p");
+    empty.className = "gset-empty";
+    empty.dataset.settingsNoModels = "true";
+    empty.textContent = translate(locale, "d1.controls.noOptions", {});
+    providerCard.append(empty);
+  }
+
+  const permissionCard = controlCard(
+    "settings.permissions",
+    "settings.permissions.detail",
+    "permission",
+    "d1.controls.permission",
+    PERMISSION_LEVELS.map((level) => ({
+      key: `permission:${level}`,
+      selected: level === controls?.permissionLevel,
+      intent: { type: "set_permission_level" as const, level },
+      build: (row: HTMLButtonElement) => {
+        const name = document.createElement("span");
+        name.className = "gset-pm-name";
+        name.textContent = permissionLabel(locale, level);
+        // The Core CLI name, verbatim. An operator matching this panel against
+        // a Core log needs the identifier, not a second reworded label.
+        const cli = document.createElement("code");
+        cli.className = "gset-pm-cli";
+        cli.textContent = level;
+        row.append(name, cli);
+        const detailKey = PERMISSION_DETAIL_KEYS[level];
+        if (detailKey) {
+          const description = document.createElement("small");
+          description.className = "gset-pm-detail";
+          description.textContent = translate(locale, detailKey, {});
+          row.append(description);
+        }
+      },
+    })),
+  );
+  // The design's section 2 additionally draws a "Rules preview" box
+  // (allow/ask/deny rule lines) and an editable additional-working-directories
+  // field. Core publishes neither the rule table nor a scope command, so
+  // neither is drawn and neither gets a fail-closed placeholder row: a drawn
+  // element that shows nothing real would be the lie, an absent one is not.
+  const cwdRow = document.createElement("div");
+  cwdRow.className = "gset-row";
+  cwdRow.dataset.settingsCwd = "true";
+  const cwdLabels = document.createElement("div");
+  cwdLabels.className = "gset-row-labels";
+  const cwdTitle = document.createElement("div");
+  cwdTitle.className = "gset-row-title";
+  cwdTitle.textContent = translate(locale, "settings.workingDirectory", {});
+  const cwdDetail = document.createElement("div");
+  cwdDetail.className = "gset-row-detail";
+  cwdDetail.textContent = translate(locale, "settings.workingDirectory.detail", {});
+  cwdLabels.append(cwdTitle, cwdDetail);
+  const cwdValue = document.createElement("code");
+  cwdValue.className = "gset-value";
+  cwdValue.textContent = controls?.cwd ?? translate(locale, "d1.permission.unavailable", {});
+  cwdRow.append(cwdLabels, cwdValue);
+  permissionCard.append(cwdRow);
 
   card("settings.language", [
     {
