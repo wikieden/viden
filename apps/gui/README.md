@@ -260,8 +260,12 @@ The destinations are honest as of this change and the routing itself is
 unchanged. What stays open is the *design* question rather than the labelling
 one — the accepted rail has no slot for the decision queue, the audit trail,
 the lane monitor, or the fleet board, and the design reaches several of them as
-in-cockpit secondary views instead, so those four slots remain a routing
-decision awaiting design adjudication.
+in-cockpit secondary views instead, so those four slots were a routing decision
+awaiting design adjudication. That adjudication has since landed: the design
+package's `docs/SPEC.md` decision `D-RAILNAV` (2026-09-08) accepts the rail as a
+router to the standalone D-screens and keeps the flagship's in-page view
+switching as design exploration, so this shipped routing is the accepted model
+rather than an interim one.
 
 `New Lane` opens one compact, anchored popover with the built-in Viden Agent
 selected by default, discovered ACP Agents, the task draft, branded Agent
