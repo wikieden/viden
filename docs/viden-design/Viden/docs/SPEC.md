@@ -19,7 +19,7 @@ role: machine-source-of-truth   # 决策护栏；叙事版 = CLAUDE.md
 read_before: [design_screen, change_token, change_decision, cross-track_change]
 on_change: [sync_self, sync_CHANGELOG, sync_DESIGN-REF(若动 token/组件)]
 status: living
-updated: 2026-07-02
+updated: 2026-09-08
 product: Viden                  # AI agent 编排开发工具：lane/会话编排多智能体协作写代码，带工具门控(gate)+人审
 tracks: [Core, TUI, GUI]        # Core=Rust 视觉真源&文档 / TUI=终端驾驶舱 / GUI=Rust+Tauri 桌面
 impl: { core: Rust, gui: "Rust + Tauri" }   # UI 设计阶段以 HTML 高保真稿沉淀规范
@@ -106,6 +106,8 @@ D-NOTIFY  离桌拉回(看板#13)：桌面内 = Pip/收件箱/状态栏金徽标
           quiet hours 只留 webhook。IM 直连 = V2 roadmap。载体 = 设置屏 Notifications 节。
 D-POPOUT  popout 独立窗口顶栏单一真源 = gui-titlebar.jsx <GuiPopoutBar>(.winbar·度量同 gui-kit)；
           各页禁再手抄 dots/字标。召唤坞实现真源 = D1 内置 DockSD；D2h/D3 降为概念稿(只探版式·不再扩展)。
+          ⚠ DockSD 此前只在本条被指名、DESIGN-REF 从未登记 = 治理不一致(SPEC 说它是实现真源,
+          准入护栏 D-COMP 却判它临时草稿)；已补登记并带 roadmap 标(D-RAILNAV ⑥)。2026-09-08。
 D-SIDEBAR 左侧 lanes 侧栏双模式(D1 驾驶舱)：float(默认·hover 峰显,水平空间让给转录) | pinned(占布局列·
           可拖宽 176–360,默认 218)。同一 <ThreadSidebar/> 组件,只换宿主——两态内容/结构零分叉。
           float 触发 = 活动栏右缘 12px 热区(.edgewrap.l+.edgehint 青提示条),移入滑出、移出延时 ~700ms 收起。
@@ -154,6 +156,23 @@ D-ROLES 7 个内置角色(runtime 唯一真源)：planner · coder · reviewer �
           曾用名映射 editor→coder、writer→doc-writer(GUI 稿已改)。orchestrator/context-builder/lane-supervisor = runtime 组件、非角色(不进清单·可作 fleet 节点)。
           task 状态枚举(AgentTaskRecord.status)UI 只映射不猜：进行中/等待(waiting_approval·needs_input·blocked=一等「需要人」)/完成/失败——
           现有视觉码 run/done/gate/idle/wait 是其显示分组，勿另立枚举。词表详见 DESIGN-REF「内置角色 & task 状态词表」。来源 = review §1.2.3。
+D-RAILNAV 活动 rail = 路由器(2026-09-08 定档)：rail 按钮导航到独立 D 屏(D12/D2/D14/D10/D13)，
+          此为已接受的实现模型；D1 旗舰保留页内视图切换作**设计探索**，实现目标 = 独立 D 屏 +
+          下面登记的面。旗舰五个次级面逐面裁决(「登记」= 进 DESIGN-REF 组件目录·准入护栏 D-COMP)：
+          ① DiffReview **登记**(`.review/.filetree/.diffpane/.commitbar`)：文件树 + 暂存 + 统一 diff +
+            提交栏；定为操作者 git 动作 / 结构化 diff / 冲突内容的计划宿主
+            (GUI-CORE-020/012/015)。实现目标 0.3.3。
+          ② EvidenceView **登记**(`.evwrap/.evmain/.evdet`)：按天分组证据时间线 + 详情 + 关联芯片；
+            读侧先行，配 D-AUDIT「审计行链接证据、不反向」的单向链。实现目标 0.3.3(排在 DiffReview 之后)。
+          ③ WorktreeBoard **不登记**、并从实现目标中拿掉：lane↔worktree 二元同一 → 与 lane 监视(D10)
+            重复；其独有动作归 DiffReview 与 D12。原型 markup(`.wtwrap`)留在旗舰作探索，不是实现目标。
+          ④ 单 lane 内嵌 subagent 树 **延后**到 fleet 家族(0.3.4+)，契约依赖同 D13；现不登记。
+          ⑤ DiagnosticsView **登记但带 deferred 标**(`.dgwrap/.dgmain/.dgdet`)：实现目标 0.3.4 候选，
+            待 lsp→契约接线勘查。
+          ⑥ DockSD 召唤坞 **登记但带 roadmap 标**(`.sdock/.sdtabs/.sdsummon`·0.3.4+/V2)：收口
+            D-POPOUT 指名它为召唤坞实现真源、DESIGN-REF 却从未登记的治理不一致，两处自此一致。
+          ⚠ 登记只说「组件可复用」(D-COMP)，不承诺可开工；deferred/roadmap 标沿用 D-ROADMAP 语义
+            —— 实现目标版本是排期，不是交付承诺。
 ```
 
 ## @OPEN 开放问题（详情/进度在 Core「设计审查看板」·此处只做 grep 索引）

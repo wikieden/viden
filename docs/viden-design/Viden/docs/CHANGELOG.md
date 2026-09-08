@@ -20,6 +20,14 @@
 
 ---
 
+## 2026-09-08
+- [GUI][文档] **D1 次级面裁决定档：活动 rail = 路由器 + 四族登记**（SPEC 新增 `D-RAILNAV`）：
+  - rail 按钮导航到独立 D 屏（D12/D2/D14/D10/D13）= 已接受的实现模型；旗舰 D1 的页内视图切换保留作设计探索。
+  - DESIGN-REF 新增「D1 次级视图」节登记四族：DiffReview（0.3.3）· EvidenceView（0.3.3）· DiagnosticsView（deferred · 0.3.4 候选）· DockSD（roadmap · 0.3.4+/V2）；WorktreeBoard `.wtwrap` 与单 lane 内嵌 subagent 树**有意不登记**（不作实现目标 / 延后 fleet 家族）。
+  - 收口 D-POPOUT 治理不一致（SPEC 指名 DockSD 为召唤坞实现真源、DESIGN-REF 从未登记），D-POPOUT 附 2026-09-08 修订注；本次纯文档/登记改动，零页面视觉、零 tokens.css。
+
+---
+
 ## 2026-07-20
 - [GUI][文档] **`0.1.0-alpha.1` framework gate 定档 Tauri 为唯一 production baseline**:
   - Tauri/GPUI 均通过同一 D1 fixture 功能 parity、10k event 顺序、共享 50k paging 与本机 macOS build/launch smoke;fixture 身份/摘要绑定到实际 test command，launch 须完整存活 5 秒，机读 JSON 保留精确命令、exit code 与 host/tool version。

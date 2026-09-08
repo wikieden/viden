@@ -395,6 +395,118 @@
 
 **`.edgewrap.l/.r` + `.edgehint` + `.floatpanel`** — 边栏自动隐藏 + 边缘悬停浮出(`leftMode==='float'`)。热区贴活动 rail 右缘(`left:52px`);`.edgehint` 青提示条;`.floatpanel` 锚定 rail 右侧,入场 `translateX(-14px)→0`+淡入(**勿用 -115% 大位移横扫**)。`cols` 按实际子元素数生成轨道:pinned 4 轨 / float 3 轨 / focus 2 轨(否则 centerwrap 落进 0 宽轨)。
 
+#### D1 次级视图（活动 rail 的路由目的地 · SPEC `D-RAILNAV`）
+
+> **活动 rail = 路由器**(D-RAILNAV·2026-09-08 定档)：rail 按钮导航到独立 D 屏(D12/D2/D14/D10/D13);
+> 旗舰 D1 的页内视图切换保留作**设计探索**。下面四族是该次裁决**判定登记**的次级面 —— 登记后即「可复用」(D-COMP)。
+> **样式现状(如实登记)**:四族的 CSS 仍在 **D1 旗舰页内联**,尚未升进 `gui-kit.css`。第二个页面复用它们之前,
+> 先按 D-SOT 把样式提进 `gui-kit.css`(改一处全站跟随),别在第二页手抄一份 —— 手抄即漂移。
+> **未登记(有意)**:`WorktreeBoard`(`.wtwrap`)与旗舰单 lane 内嵌 subagent 树 —— D-RAILNAV ③④ 判为
+> 不作实现目标 / 延后到 fleet 家族;原型 markup 留在旗舰作探索,**按 D-COMP 视为临时草稿,勿在新页复用**。
+> **登记 ≠ 已实现**:实现目标版本(0.3.3 / 0.3.4)是排期不是交付承诺,语义同 `D-ROADMAP`。
+
+**`.review` > `.filetree`(`.fthead`/`.ftlist`>`.ftrow.on`) + `.diffpane`(`.dphead`+`.diffbody`>`.dl.add/.del/.hunk`+`.commitbar`)** — **DiffReview**:in-cockpit 逐文件 diff 评审(文件树 + 暂存 + 统一/分栏 diff + 提交栏)。`.ftrow .stat.m/.a/.d`=改/增/删(金/绿/红)·`.on`=`--bg-sel`+青 `inset 2px` 左竖条·`.ck` 已暂存 ✓;`.dl .ln` 行号 + `.tx`(`.ctx` 上下文行);`.cbtn` 提交按钮(`.commit` 绿实心 / `.push` 青描边)。**实现目标 0.3.3** = 操作者 git 动作 / 结构化 diff / 冲突内容的计划宿主(GUI-CORE-020/012/015)。
+```html
+<div class="review">
+  <div class="filetree">
+    <div class="fthead"><h3>Changes</h3><span class="ct">4 files · +54 −56</span></div>
+    <div class="ftlist">
+      <div class="ftrow on"><span class="stat m">M</span><span class="fn">src/config.rs</span><span class="pm">+24 −6</span><span class="ck">✓</span></div>
+      <div class="ftrow"><span class="stat a">A</span><span class="fn">src/errors.rs</span><span class="pm">+12</span></div>
+    </div>
+  </div>
+  <div class="diffpane">
+    <div class="dphead"><span class="fn">src/config.rs</span>
+      <div class="seg"><button class="on">Unified</button><button>Split</button></div></div>
+    <div class="diffbody">
+      <div class="dl hunk"><span class="ln"></span><span class="tx">@@ -38,9 +38,12 @@ impl ConfigLoader</span></div>
+      <div class="dl del"><span class="ln">41</span><span class="tx">-       let raw = fs::read_to_string(path).unwrap();</span></div>
+      <div class="dl add"><span class="ln">41</span><span class="tx">+       let raw = fs::read_to_string(path)?;</span></div>
+      <div class="dl ctx"><span class="ln">45</span><span class="tx ctx">        toml::from_str(&amp;raw).map_err(Into::into)</span></div>
+    </div>
+    <div class="commitbar">
+      <div class="msg-in">fix(config): use ? + guard empty file <span class="ph">· conventional commit suggested by viden</span></div>
+      <button class="cbtn">Stage all</button><button class="cbtn commit">Commit</button><button class="cbtn push">Commit &amp; Push ⇡</button>
+    </div>
+  </div>
+</div>
+```
+
+**`.evwrap` > `.evmain`(`.evbar`>`.fchip`+`.search` · `.evscroll`>`.evday`+`.evrow2.on`) + `.evdet`(`.evdethead`+`.evsec`+`.evfoot`)** — **EvidenceView**:in-cockpit 证据视图(按天分组的证据时间线 + 右侧详情 + 关联芯片)。行 `.evrow2`>`.tm2` 时间·`.ic2` 类型字形(色 = 语义)·`.tt2` 标题·`.lane-b` 归属 lane;详情 `.evkv`(`.k`/`.v` 键值)·`.evterm`(`.gp`/`.rp`/`.dim` 输出尾)·`.evchip`(关联 patch/resume/approval)·`.evfoot`>`.mpill.go` 主动作。读侧先行;配 **D-AUDIT**「审计行链接证据、不反向」的单向链。**实现目标 0.3.3**(排在 DiffReview 之后)。
+```html
+<div class="evwrap">
+  <div class="evmain">
+    <div class="evbar"><span class="fchip on">All</span><span class="fchip">Tests</span><span class="fchip">Diffs</span>
+      <span class="search">⌕ search evidence… ⌘F</span></div>
+    <div class="evscroll">
+      <div class="evday">Today</div>
+      <div class="evrow2 on"><span class="tm2">14:32</span><span class="ic2">✕</span><span class="tt2">test failed · config_tests</span><span class="lane-b">L1</span></div>
+    </div>
+  </div>
+  <div class="evdet">
+    <div class="evdethead"><div class="t1">✕ test failed · config_tests</div>
+      <div class="t2">L1 codex · ⎇ vd/config-loader · 14:32 · evidence #e-0142</div></div>
+    <div class="evsec"><h5>Report</h5>
+      <div class="evkv"><span class="k">command</span><span class="v">cargo test -p viden-cli config_tests</span></div>
+      <div class="evkv"><span class="k">exit</span><span class="v">101</span></div></div>
+    <div class="evsec"><h5>Output tail</h5>
+      <div class="evterm"><div class="gp">test config::loads_valid ... ok</div><div class="rp">test config::rejects_empty ... FAILED</div>
+        <div class="dim">assertion at config.rs:42 — expected Err(Empty), got Ok</div></div></div>
+    <div class="evsec"><h5>Linked</h5><span class="evchip">+24−6 patch · config.rs</span><span class="evchip">⤴ resume 4f2b…7e</span></div>
+    <div class="evfoot"><span class="mpill go">Open in review</span><span class="mpill">Re-run test</span></div>
+  </div>
+</div>
+```
+
+**`.dgwrap` > `.dgmain`(`.dgbar`>`.fchip`+`.sum` · `.dgfile` + `.dgrow.on`) + `.dgdet`(`.evdethead`+`.dgcode`+`.evsec`+`.evfoot`)** — **DiagnosticsView**(⏳ **deferred**):in-cockpit 诊断视图(按文件分组的 error/warning 列表 + 右侧代码定位)。行 `.dgrow`>`.sev` 严重度字形(✕ error / ⚠ warning)·`.msg3` 消息·`.loc` 行列·`.src` 来源(test/clippy/LSP);详情 `.dgcode`>`.lnum`+`.squig`(波浪下划线)。详情壳复用 EvidenceView 的 `.evdethead`/`.evsec`/`.evfoot`。**实现目标 0.3.4 候选**,待 lsp→契约接线勘查 —— 登记只保证组件可复用,不承诺可开工(D-ROADMAP 语义)。
+```html
+<div class="dgwrap">
+  <div class="dgmain">
+    <div class="dgbar"><span class="fchip on">All</span><span class="fchip">Errors</span><span class="fchip">clippy</span>
+      <span class="sum">1 error · 3 warnings</span></div>
+    <div class="dgfile"><span class="fn">src/config.rs</span><span>· ⎇ vd/config-loader</span></div>
+    <div class="dgrow on"><span class="sev">✕</span><span class="msg3">mismatched types: expected Err(Empty), got Ok</span>
+      <span class="loc">42:15</span><span class="src">test</span></div>
+    <div class="dgrow"><span class="sev">⚠</span><span class="msg3">unused import: std::io::Read</span>
+      <span class="loc">3:5</span><span class="src">clippy</span></div>
+  </div>
+  <div class="dgdet">
+    <div class="evdethead"><div class="t1">✕ mismatched types</div>
+      <div class="t2">src/config.rs:42:15 · test · ⎇ vd/config-loader · L1 codex</div></div>
+    <div class="dgcode"><div><span class="lnum">42</span><span>assert!(matches!(cfg, Err(Empty)));</span></div>
+      <div><span class="lnum">  </span><span class="squig">              ^^^^^^^^^^^^^^^ got Ok(_)</span></div></div>
+    <div class="evsec"><h5>Context</h5><div class="evkv"><span class="k">lane</span><span class="v">L1 codex · fixing now (attempt 2/3)</span></div></div>
+    <div class="evfoot"><span class="mpill go">Delegate fix → lane</span><span class="mpill">Re-run check</span></div>
+  </div>
+</div>
+```
+
+**`.sdock`(`.collapsed`) > `.sdgrip` + `.sdtabs`(`.sdtab.host/.on` + `.sdaddwrap`>`.sdadd`+`.sdveil`+`.sdsummon` + `.sdright`>`.sdmini`) + `.sdbody`(`.sdempty`>`.sdquick`>`.sdqbtn`)** — **DockSD 召唤坞**(🗺 **roadmap**):D1 底部可拖高的工具坞 —— 标签页(host 终端 + 已召唤工具)、`+` 召唤菜单、坞体。`.sdsummon` 菜单行 `.ar`(`.open`=已开)>`.ti` 图标 + `.tt2`(`.n` 名 / `.s` 描述) + `.ak` 键位,五个工具:terminal / files / review / browser / sidechat。**召唤坞实现真源 = 本组件**(SPEC `D-POPOUT`),D2h/D3 是只探版式的概念稿。**roadmap 0.3.4+/V2** —— 本次登记只为让 SPEC 与 DESIGN-REF 一致(D-RAILNAV ⑥),不改变排期。
+```html
+<div class="sdock">
+  <div class="sdgrip"></div>
+  <div class="sdtabs">
+    <div class="sdtab host"><span class="hdot"></span>wiki@viden</div>
+    <div class="sdtab on"><span class="tic"><!-- ICONS.term --></span>Terminal<span class="x">✕</span></div>
+    <div class="sdaddwrap">
+      <div class="sdadd open">+</div>
+      <div class="sdveil"></div>
+      <div class="sdsummon">
+        <div class="amh">Summon a tool</div>
+        <div class="ar"><span class="ti"><!-- ICONS.review --></span>
+          <span class="tt2"><span class="n">Review</span><span class="s">Per-file diff review of this round</span></span>
+          <kbd class="ak">⌘R</kbd></div>
+      </div>
+    </div>
+    <div class="sdright"><span class="sdmini">▾</span></div>
+  </div>
+  <div class="sdbody">
+    <div class="sdempty"><div class="eh">Dock is empty · summon a tool to start</div>
+      <div class="sdquick"><div class="sdqbtn"><span class="qi"><!-- ICONS.term --></span>Terminal<span class="qk">⌘J</span></div></div></div>
+  </div>
+</div>
+```
+
 **竖屏 cockpit**:`Viden - 竖屏 4K 驾驶舱 (GUI).html` — 上述全部 chrome 的竖向编排(活动 rail + lanes 常驻 · 对话↑ → 监控+终端 dock↓ · Environment 浮层),固定 1080×1920 letterbox scale-to-fit,纯静态 HTML。新竖屏/异形屏从它 fork。
 
 ## 内置角色 & task 状态词表（跨轨 · 契约对齐 robocode/frontend-integration-contract）
