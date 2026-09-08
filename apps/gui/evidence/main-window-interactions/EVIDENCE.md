@@ -392,3 +392,43 @@ The light/`zh-CN` capture is the locale and skin proof: the prompt translates
 to 告诉 Codex 改做什么…, while `Codex` itself stays exactly as Core published
 it. Translating an adapter's display name would make the redirect name an
 agent the operator cannot find anywhere else in the cockpit.
+
+## Activity-rail destination recapture
+
+The rail's five routing slots were relabelled with the screens they actually
+open and re-glyphed from the registered `GUI/gui-icons.jsx` set, so every
+capture that shows the cockpit shell shows a different rail. All eighteen
+cockpit-bearing images were recaptured 2026-09-07 with headless Chrome
+(`--headless --disable-gpu --hide-scrollbars --window-size=1440,900
+--virtual-time-budget=6000`) against the vite dev server on port 4199, then
+visually reviewed (6 of 18 sampled in review; all 18 DOM-verified at build
+time by `tests/activity_rail_destinations.spec.ts`).
+
+| File | State | Viewport | Mode | Locale |
+| --- | --- | --- | --- | --- |
+| [d1-1440x900-dark-en.png](d1-1440x900-dark-en.png) | d1 | 1440x900 | dark | en |
+| [d1-1440x900-light-zh-CN.png](d1-1440x900-light-zh-CN.png) | d1 | 1440x900 | light | zh-CN |
+| [d1-mode-menu-1440x900-dark-en.png](d1-mode-menu-1440x900-dark-en.png) | d1-mode-menu | 1440x900 | dark | en |
+| [d1-model-menu-1440x900-dark-en.png](d1-model-menu-1440x900-dark-en.png) | d1-model-menu | 1440x900 | dark | en |
+| [palette-1440x900-dark-en.png](palette-1440x900-dark-en.png) | palette | 1440x900 | dark | en |
+| [palette-files-1440x900-dark-en.png](palette-files-1440x900-dark-en.png) | palette-files | 1440x900 | dark | en |
+| [palette-files-1440x900-light-zh-CN.png](palette-files-1440x900-light-zh-CN.png) | palette-files | 1440x900 | light | zh-CN |
+| [lane-rail-1440x900-dark-en.png](lane-rail-1440x900-dark-en.png) | lane-rail | 1440x900 | dark | en |
+| [project-picker-1440x900-dark-en.png](project-picker-1440x900-dark-en.png) | project-picker | 1440x900 | dark | en |
+| [project-switch-confirm-1440x900-dark-en.png](project-switch-confirm-1440x900-dark-en.png) | project-switch-confirm | 1440x900 | dark | en |
+| [settings-1440x900-dark-en.png](settings-1440x900-dark-en.png) | settings | 1440x900 | dark | en |
+| [settings-1440x900-light-zh-CN.png](settings-1440x900-light-zh-CN.png) | settings | 1440x900 | light | zh-CN |
+| [settings-unavailable-1440x900-dark-en.png](settings-unavailable-1440x900-dark-en.png) | settings-unavailable | 1440x900 | dark | en |
+| [d6-actions-1440x900-dark-en.png](d6-actions-1440x900-dark-en.png) | d6-actions | 1440x900 | dark | en |
+| [d6-error-1440x900-dark-en.png](d6-error-1440x900-dark-en.png) | d6-error | 1440x900 | dark | en |
+| [permission-ask-1440x900-dark-en.png](permission-ask-1440x900-dark-en.png) | permission-ask | 1440x900 | dark | en |
+| [permission-deny-redirect-1440x900-dark-en.png](permission-deny-redirect-1440x900-dark-en.png) | permission-deny-redirect | 1440x900 | dark | en |
+| [permission-deny-redirect-1440x900-light-zh-CN.png](permission-deny-redirect-1440x900-light-zh-CN.png) | permission-deny-redirect | 1440x900 | light | zh-CN |
+
+Two glyphs changed shape in every one of them: the fourth slot is now the
+`decide` checkmark for the decision queue rather than the `review` book, and
+the seventh is the `fleet` node graph for the fleet board rather than the
+`inbox` tray. The labels themselves are tooltip and accessible-name text, so
+they do not appear in a still capture — the coherence between each slot's route
+and its name is asserted in `tests/activity_rail_destinations.spec.ts` instead,
+which is the right place for it.

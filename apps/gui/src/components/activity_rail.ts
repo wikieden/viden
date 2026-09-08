@@ -1,13 +1,23 @@
 import { translate, type Locale, type MessageKey } from "../i18n/catalog";
 
+/**
+ * The rail's slots, in the accepted design's order.
+ *
+ * Each routing slot is labelled with the screen it actually opens. The rail
+ * previously carried an editor's file-explorer vocabulary (Search, Source
+ * control, Evidence, Diagnostics, Inbox) over routes that go elsewhere; a
+ * label naming the wrong destination is worse than a missing one, because the
+ * operator can only learn the real mapping by clicking, and every tooltip and
+ * screen-reader announcement teaches it wrong until they do.
+ */
 export const D1_ACTIVITY_ITEMS = [
   { icon: "chat", key: "d1.activity.work" },
-  { icon: "worktree", key: "d1.activity.search" },
+  { icon: "worktree", key: "d1.activity.integrationGate" },
   { icon: "lanes", key: "d1.activity.lanes" },
-  { icon: "review", key: "d1.activity.git" },
-  { icon: "evidence", key: "d1.activity.evidence" },
-  { icon: "diagnostics", key: "d1.activity.diagnostics" },
-  { icon: "inbox", key: "d1.activity.inbox" },
+  { icon: "decide", key: "d1.activity.decisions" },
+  { icon: "evidence", key: "d1.activity.audit" },
+  { icon: "diagnostics", key: "d1.activity.laneMonitor" },
+  { icon: "fleet", key: "d1.activity.fleet" },
 ] as const satisfies ReadonlyArray<{
   icon: CanonicalGuiIcon;
   key: MessageKey;
@@ -18,6 +28,7 @@ export type CanonicalGuiIcon =
   | "worktree"
   | "lanes"
   | "review"
+  | "fleet"
   | "evidence"
   | "diagnostics"
   | "inbox"
@@ -85,6 +96,14 @@ export function createCanonicalGuiIcon(name: CanonicalGuiIcon): SVGSVGElement {
     );
   } else if (name === "diagnostics") {
     svg.append(svgNode("path", { d: "M3 12h4l3 8 4-16 3 8h4" }));
+  } else if (name === "fleet") {
+    svg.append(
+      svgNode("circle", { cx: "12", cy: "5", r: "2.4" }),
+      svgNode("circle", { cx: "5", cy: "19", r: "2.2" }),
+      svgNode("circle", { cx: "12", cy: "19", r: "2.2" }),
+      svgNode("circle", { cx: "19", cy: "19", r: "2.2" }),
+      svgNode("path", { d: "M12 7.4v4M12 11.4L5.6 16.8M12 11.4l6.4 5.4M12 11.4V17" }),
+    );
   } else if (name === "inbox") {
     svg.append(svgNode("path", { d: "M22 12h-6l-2 3h-4l-2-3H2M5 5h14l3 7v6a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-6z" }));
   } else if (name === "decide") {
@@ -118,17 +137,25 @@ export function createCanonicalGuiIcon(name: CanonicalGuiIcon): SVGSVGElement {
 
 /// Rail slots that open a restored screen.
 ///
-/// `worktree` follows the D12 design page, whose own rail highlights that slot
-/// for the integration gate. The remaining three are a provisional routing
-/// decision, not a design-backed one: the accepted rail has no `decide`,
-/// `gallery`, or `monitor` slot, so the screens are reachable here rather than
-/// staying unreachable outside a URL.
+/// The destinations are honest as of this change: every slot's label, tooltip,
+/// and accessible name is the screen it opens, and each carries the registered
+/// `GUI/gui-icons.jsx` glyph closest to that screen. The `worktree` slot also
+/// matches the D12 design page, whose own rail highlights it for the
+/// integration gate.
+///
+/// What remains open is the *design* question, not the labelling one: the
+/// accepted rail has no slot for the decision queue, the audit trail, the lane
+/// monitor, or the fleet board, and the design instead reaches several of them
+/// as in-cockpit secondary views. Those four slots therefore stay a routing
+/// decision awaiting design adjudication — the screens are reachable here
+/// rather than only from a URL. Do not read the honest labels as the
+/// adjudication having happened.
 export const D1_RAIL_ROUTES: Partial<Record<string, string>> = {
-  "d1.activity.search": "d12",
-  "d1.activity.git": "d2",
-  "d1.activity.evidence": "d14",
-  "d1.activity.diagnostics": "d10",
-  "d1.activity.inbox": "d13",
+  "d1.activity.integrationGate": "d12",
+  "d1.activity.decisions": "d2",
+  "d1.activity.audit": "d14",
+  "d1.activity.laneMonitor": "d10",
+  "d1.activity.fleet": "d13",
 };
 
 export interface ActivityRailOptions {

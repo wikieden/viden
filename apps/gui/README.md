@@ -248,6 +248,21 @@ toggles the Lane rail, and `Work` — the slot marked `aria-current` because it
 is the screen already showing — returns focus to the composer. A slot with no
 available action is disabled rather than enabled and inert.
 
+Every routing slot is labelled — tooltip and accessible name alike — with the
+screen it actually opens: Integration gate (D12), Decisions (D2), Audit
+timeline (D14), Lane monitor (D10), and Fleet board (D13), each carrying the
+registered `GUI/gui-icons.jsx` glyph closest to that screen. The rail
+previously wore an editor's file-explorer vocabulary (Search, Source control,
+Evidence, Diagnostics, Inbox) over those same routes, which is worse than a
+missing label: the operator could only learn the real mapping by clicking, and
+every tooltip and screen-reader announcement taught it wrong until they did.
+The destinations are honest as of this change and the routing itself is
+unchanged. What stays open is the *design* question rather than the labelling
+one — the accepted rail has no slot for the decision queue, the audit trail,
+the lane monitor, or the fleet board, and the design reaches several of them as
+in-cockpit secondary views instead, so those four slots remain a routing
+decision awaiting design adjudication.
+
 `New Lane` opens one compact, anchored popover with the built-in Viden Agent
 selected by default, discovered ACP Agents, the task draft, branded Agent
 identity, Core-projected eligibility/probe diagnostics, and a

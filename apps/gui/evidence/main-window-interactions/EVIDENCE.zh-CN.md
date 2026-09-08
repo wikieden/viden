@@ -341,3 +341,39 @@ ACP 会话、且其 session id 正是 Core `laneAgent` 事实已经点名的那�
 light/`zh-CN` 截图是语言与皮肤证据：提示语翻译为「告诉 Codex 改做什么…」，而
 `Codex` 本身保持 Core 发布时的原样。把 adapter 的显示名翻译掉，会让重定向点名一个
 操作者在驾驶舱其他任何地方都找不到的 agent。
+
+## 活动 rail 目的地重拍
+
+Rail 的五个路由槽位已按其实际打开的屏幕重新命名，并从已登记的
+`GUI/gui-icons.jsx` 集合重新取字形，因此每一张显示驾驶舱外壳的截图里 rail 都不一样。
+全部十八张带驾驶舱的图已于 2026-09-07 以 headless Chrome
+（`--headless --disable-gpu --hide-scrollbars --window-size=1440,900
+--virtual-time-budget=6000`）对 4199 端口上的 vite dev server 重拍，并做目视复核
+（十八张中抽查六张；十八张全部由 `tests/activity_rail_destinations.spec.ts`
+在构建期做 DOM 校验）。
+
+| 文件 | 状态 | 视口 | 模式 | 语言 |
+| --- | --- | --- | --- | --- |
+| [d1-1440x900-dark-en.png](d1-1440x900-dark-en.png) | d1 | 1440x900 | dark | en |
+| [d1-1440x900-light-zh-CN.png](d1-1440x900-light-zh-CN.png) | d1 | 1440x900 | light | zh-CN |
+| [d1-mode-menu-1440x900-dark-en.png](d1-mode-menu-1440x900-dark-en.png) | d1-mode-menu | 1440x900 | dark | en |
+| [d1-model-menu-1440x900-dark-en.png](d1-model-menu-1440x900-dark-en.png) | d1-model-menu | 1440x900 | dark | en |
+| [palette-1440x900-dark-en.png](palette-1440x900-dark-en.png) | palette | 1440x900 | dark | en |
+| [palette-files-1440x900-dark-en.png](palette-files-1440x900-dark-en.png) | palette-files | 1440x900 | dark | en |
+| [palette-files-1440x900-light-zh-CN.png](palette-files-1440x900-light-zh-CN.png) | palette-files | 1440x900 | light | zh-CN |
+| [lane-rail-1440x900-dark-en.png](lane-rail-1440x900-dark-en.png) | lane-rail | 1440x900 | dark | en |
+| [project-picker-1440x900-dark-en.png](project-picker-1440x900-dark-en.png) | project-picker | 1440x900 | dark | en |
+| [project-switch-confirm-1440x900-dark-en.png](project-switch-confirm-1440x900-dark-en.png) | project-switch-confirm | 1440x900 | dark | en |
+| [settings-1440x900-dark-en.png](settings-1440x900-dark-en.png) | settings | 1440x900 | dark | en |
+| [settings-1440x900-light-zh-CN.png](settings-1440x900-light-zh-CN.png) | settings | 1440x900 | light | zh-CN |
+| [settings-unavailable-1440x900-dark-en.png](settings-unavailable-1440x900-dark-en.png) | settings-unavailable | 1440x900 | dark | en |
+| [d6-actions-1440x900-dark-en.png](d6-actions-1440x900-dark-en.png) | d6-actions | 1440x900 | dark | en |
+| [d6-error-1440x900-dark-en.png](d6-error-1440x900-dark-en.png) | d6-error | 1440x900 | dark | en |
+| [permission-ask-1440x900-dark-en.png](permission-ask-1440x900-dark-en.png) | permission-ask | 1440x900 | dark | en |
+| [permission-deny-redirect-1440x900-dark-en.png](permission-deny-redirect-1440x900-dark-en.png) | permission-deny-redirect | 1440x900 | dark | en |
+| [permission-deny-redirect-1440x900-light-zh-CN.png](permission-deny-redirect-1440x900-light-zh-CN.png) | permission-deny-redirect | 1440x900 | light | zh-CN |
+
+每张图里都有两个字形换了形状：第四个槽位现在是决策队列的 `decide` 对勾，而不是
+`review` 书本；第七个是舰队看板的 `fleet` 节点图，而不是 `inbox` 托盘。标签本身是
+tooltip 与可访问名称文本，在静态截图里看不到——每个槽位的路由与名称之间的一致性改由
+`tests/activity_rail_destinations.spec.ts` 断言，那才是它该待的地方。

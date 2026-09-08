@@ -766,12 +766,14 @@ describe("D1 canonical streaming cockpit", () => {
       ),
     ).toEqual([
       "Workspace",
-      "Search",
+      // Each routing slot names the screen it actually opens, not a
+      // file-explorer verb it borrowed from another editor's rail.
+      "Integration gate",
       "Lanes",
-      "Source control",
-      "Evidence",
-      "Diagnostics",
-      "Inbox",
+      "Decisions",
+      "Audit timeline",
+      "Lane monitor",
+      "Fleet board",
       // The cockpit prototype closes the rail with the Settings gear below
       // the spacer.
       "Settings",
