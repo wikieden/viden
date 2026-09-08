@@ -557,6 +557,20 @@ the design's `Shift+A` chord on `repo_allowlist` rather than on a dead action. P
 transport. Command acceptance is not success: pending clears only after the
 matching ordered `ApprovalResolved` owner/request/audit fact.
 
+Deny additionally redirects the composer, following the design's own post-deny
+state: the prompt becomes "Tell <agent> what to do instead…" and takes the
+caret, so the operator corrects the agent where they were already looking. The
+agent is named from Core's published adapter `displayName` when the focused
+conversation is an ACP session, and generically otherwise — never from a name
+guessed out of an agent id. This is presentation and nothing more. It is
+applied when the deny is *dispatched* rather than when Core answers, because it
+claims nothing about the answer, and `feedback` stays `null`: schema 1 carries
+no feedback field (`GUI-CORE-019`), so the correction travels as the operator's
+next ordinary message rather than as a fabricated field. The redirect retires
+on the next submit or when Core publishes a *different* request id; a refresh
+still carrying the ask that was just denied leaves it alone, because that is
+the ordinary state between the command and Core's answer.
+
 D6 is a subordinate central work surface inside D1, never a second cockpit
 shell. Empty, connection, provider, stopped-agent, context-overflow,
 capability, incompatible-schema, queue-clear, and event-gap states come only

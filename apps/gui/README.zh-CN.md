@@ -435,6 +435,15 @@ Once、Session、仓库 allowlist 与 Deny 只映射到 `RespondToApproval`；Al
 Command acceptance 不代表成功：只有 owner/request/audit 全部匹配的有序
 `ApprovalResolved` 事实才能清除 pending。
 
+「拒绝」还会重定向 composer，遵循设计中拒绝之后的那一状态：提示语变为
+「Tell <agent> what to do instead…」并接管光标，让操作者就在原本注视的位置纠正 agent。
+当聚焦会话是 ACP 会话时，agent 名取自 Core 发布的 adapter `displayName`，否则使用通用
+措辞——绝不从 agent id 猜一个名字出来。这只是呈现，仅此而已。它在拒绝被**派发**时应用，
+而不是等 Core 答复，因为它对答复不作任何声明；`feedback` 仍为 `null`：schema 1 没有
+feedback 字段（`GUI-CORE-019`），因此纠正内容以操作者的下一条普通消息发出，而不是伪造
+一个字段。重定向在下一次提交时、或 Core 发布**另一个** request id 时退场；仍携带刚被
+拒绝的那个请求的刷新不会动它，因为那正是命令与 Core 答复之间的常态。
+
 D6 是 D1 中央工作面的从属状态，不建立第二套 cockpit shell。Empty、connection、provider、
 agent stopped、context overflow、capability、incompatible schema、queue clear 与 event gap
 只来自 Core projection 或 CoreClient error。Event gap 的 reconnect 走 CoreClient snapshot

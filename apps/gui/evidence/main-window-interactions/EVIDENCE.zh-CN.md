@@ -123,6 +123,8 @@ URL 与尺寸，不在该运行时之外调用浏览器自动化。
 | `d1` | `…/qa.html?state=d1` | 完整驾驶舱；标题栏项目选择器带分支与 dirty 标记，旁边是 `↑/↓` 与工作树 chip；九个状态栏分段全部带事实，另加待决闸提示；三个 Composer 选择器胶囊 |
 | `d1-mode-menu` | `…/qa.html?state=d1-mode-menu` | 工作模式弹层在 Composer 上方展开，当前模式标记为选中 |
 | `d1-model-menu` | `…/qa.html?state=d1-model-menu` | 模型弹层展开，同时显示提供方分组与 Core 发布的适配器分组 |
+| `permission-ask` | `…/qa.html?state=permission-ask` | Core 发布的权限坞，尚未有任何裁决：命令、类型化事实行，以及五个动作中 `Always` / `Edit` 在 `GUI-CORE-003` 之下禁用——它是读取重定向状态时的基线 |
+| `permission-deny-redirect` | `…/qa.html?state=permission-deny-redirect` | 同一屏在点击「拒绝」之后：编辑器提示语变为「Tell Codex what to do instead…」并持有光标。harness 中的 `sendPermission` 永不 resolve，这正是要点——提示语在拒绝被**派发**时切换，对 Core 的答复不作任何声明 |
 | `settings` | `…/qa.html?state=settings` | 设置面板覆盖在驾驶舱上并带未保存草稿，以面板自身顶部取景：Provider 与模型卡列出 Core 发布的 provider 组与 adapter 组并标出当前模型；权限卡列出全部五个 Core 档位——UI 标签、Core CLI 标识符、一行说明——并标出当前档位；以及只读的工作目录行；下方取消与保存均可用 |
 | `settings-unavailable` | `…/qa.html?state=settings-unavailable` | 同一面板点名缺失的 `ui.preference_persistence` 能力，保存禁用，语言与外观控件只读——而 Provider 与权限各行仍**可操作**，因为它们走的是 `SelectModel` / `SetPermissionLevel`，不受该 capability 门控 |
 | `d6-actions` | `…/qa.html?state=d6-actions` | 恢复界面上「重启智能体」与「关闭 Lane」可用，并展开检查事实 |
@@ -312,3 +314,30 @@ light/`zh-CN` 截图是新增文案的语言与皮肤证据，其划分与审计
 原样——五个 CLI 标识符（`ask`、`auto_edit`、`auto`、`read_only`、`full_access`）、
 模型名、provider 组标签与工作区根目录。把 CLI 标识符本地化会毁掉这个标记唯一的存在
 理由：拿这个面板去对照 Core 的日志。
+\n
+## 权限拒绝重定向截图
+
+2026-09-07 以 headless Chrome
+（`--headless --disable-gpu --hide-scrollbars --window-size=1440,900
+--virtual-time-budget=6000`）对 4199 端口上的 vite dev server 采集，并逐张目视复核
+（三张全部复核）。
+
+| 文件 | 状态 | 视口 | 模式 | 语言 |
+| --- | --- | --- | --- | --- |
+| [permission-ask-1440x900-dark-en.png](permission-ask-1440x900-dark-en.png) | permission-ask | 1440x900 | dark | en |
+| [permission-deny-redirect-1440x900-dark-en.png](permission-deny-redirect-1440x900-dark-en.png) | permission-deny-redirect | 1440x900 | dark | en |
+| [permission-deny-redirect-1440x900-light-zh-CN.png](permission-deny-redirect-1440x900-light-zh-CN.png) | permission-deny-redirect | 1440x900 | light | zh-CN |
+
+这几张是设计中「拒绝之后的编辑器」（`Viden - 桌面驾驶舱 (GUI).html`，权限坞旁边的
+编辑器）。这一对应当对照着看：同一屏在一次点击前后，只有提示语与光标不同。其余一切
+都没有动，因为其余一切都不许动——重定向只是呈现，`feedback` 仍为 `null`
+（GUI-CORE-019），而权限坞仍显示该请求，因为 harness 的 `sendPermission` 永不答复。
+
+Agent 名取自 Core 发布的 adapter `displayName`，这也是 harness 的待审投影为何带一条
+ACP 会话、且其 session id 正是 Core `laneAgent` 事实已经点名的那一个：没有 ACP 会话
+时，提示语会退回通用措辞，而不是从 agent id 猜一个名字。两条路径都在
+`tests/permission_deny_redirect.spec.ts` 中有覆盖。
+
+light/`zh-CN` 截图是语言与皮肤证据：提示语翻译为「告诉 Codex 改做什么…」，而
+`Codex` 本身保持 Core 发布时的原样。把 adapter 的显示名翻译掉，会让重定向点名一个
+操作者在驾驶舱其他任何地方都找不到的 agent。

@@ -145,6 +145,8 @@ All URLs share the prefix
 | `lane-rail` | `…/qa.html?state=lane-rail` | the rail pinned open (it auto-hides), showing the one `.wsroot` project group named `viden` with its `▾` collapse, its Lane count, the per-group `＋`, the Lane nested beneath it, and the `＋ Add project…` footer — and no second group and no "Global" section |
 | `project-picker` | `…/qa.html?state=project-picker` | the picker open under the titlebar `▾` selector with all three columns visible at once: `Add directory…` enabled beside the two disabled rows naming `GUI-CORE-023`, the single "In workspace" row for the open project with its lane count, and one Recent row with its relative age |
 | `project-switch-confirm` | `…/qa.html?state=project-switch-confirm` | the same picker after choosing the recent project, showing the inline confirmation: the target root, the replacement sentence naming `GUI-CORE-023`, the running-work counts, and Cancel beside Switch workspace |
+| `permission-ask` | `…/qa.html?state=permission-ask` | the permission dock as Core published it, before any verdict: the command, the typed facts row, and the five actions with `Always`/`Edit` disabled under `GUI-CORE-003` — the baseline the redirect state is read against |
+| `permission-deny-redirect` | `…/qa.html?state=permission-deny-redirect` | the same screen immediately after Deny: the composer prompt reads "Tell Codex what to do instead…" and holds the caret. `sendPermission` never resolves in the harness, which is the point — the prompt switches when the deny is *dispatched* and claims nothing about Core's answer |
 | `settings` | `…/qa.html?state=settings` | the Settings overlay open over the cockpit with an unsaved draft, framed from the panel's own top: the Provider & Models card listing the provider group and the adapter group Core published with the current model marked, the Permissions card with all five Core levels — UI label, Core CLI identifier, one-line description — the current level marked, and the read-only working-directory row; Cancel and Save enabled below |
 | `settings-unavailable` | `…/qa.html?state=settings-unavailable` | the same overlay with the absent `ui.preference_persistence` capability named, Save disabled, and the language/appearance controls read-only — while the Provider and Permissions rows stay **operable**, because they ride `SelectModel`/`SetPermissionLevel` rather than the preference capability |
 | `d6-actions` | `…/qa.html?state=d6-actions` | the recovery surface with Restart agent and Close Lane enabled, and the inspect facts expanded |
@@ -359,3 +361,34 @@ CLI identifiers (`ask`, `auto_edit`, `auto`, `read_only`, `full_access`), the
 model names, the provider group labels, and the workspace root. Localizing a
 CLI identifier would break the one property the chip exists for: matching this
 panel against a Core log.
+\n
+## Permission deny-redirect captures
+
+Captured 2026-09-07 with headless Chrome
+(`--headless --disable-gpu --hide-scrollbars --window-size=1440,900
+--virtual-time-budget=6000`) against the vite dev server on port 4199, then
+visually reviewed (all three sampled in review).
+
+| File | State | Viewport | Mode | Locale |
+| --- | --- | --- | --- | --- |
+| [permission-ask-1440x900-dark-en.png](permission-ask-1440x900-dark-en.png) | permission-ask | 1440x900 | dark | en |
+| [permission-deny-redirect-1440x900-dark-en.png](permission-deny-redirect-1440x900-dark-en.png) | permission-deny-redirect | 1440x900 | dark | en |
+| [permission-deny-redirect-1440x900-light-zh-CN.png](permission-deny-redirect-1440x900-light-zh-CN.png) | permission-deny-redirect | 1440x900 | light | zh-CN |
+
+These are the design's post-deny composer (`Viden - 桌面驾驶舱 (GUI).html`,
+the composer beside the permission dock). The pair is worth reading together:
+the same screen before and after one click, with only the prompt and the caret
+different. Nothing else moves, because nothing else may — the redirect is
+presentation, `feedback` stays `null` (GUI-CORE-019), and the dock still shows
+the ask because the harness's `sendPermission` never answers.
+
+The agent name is Core's published adapter `displayName`, which is why the
+harness's pending projection carries an ACP session under the exact session id
+Core's `laneAgent` fact already names: with no ACP conversation the prompt
+falls back to the generic wording rather than guessing a name from an agent id.
+Both paths are covered in `tests/permission_deny_redirect.spec.ts`.
+
+The light/`zh-CN` capture is the locale and skin proof: the prompt translates
+to 告诉 Codex 改做什么…, while `Codex` itself stays exactly as Core published
+it. Translating an adapter's display name would make the redirect name an
+agent the operator cannot find anywhere else in the cockpit.

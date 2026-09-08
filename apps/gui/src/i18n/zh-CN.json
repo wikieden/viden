@@ -59,6 +59,8 @@
   "d1.activity.work": "工作区",
   "d1.cancel": "取消当前回合",
   "d1.composer.placeholder": "向选中 Lane 发送消息，Shift+Enter 换行。",
+  "d1.composer.redirect": "告诉 {agent} 改做什么…",
+  "d1.composer.redirect.generic": "告诉该 agent 改做什么…",
   "d1.composer.prompt": "提示词",
   "d1.composer.queue": "排队后续输入",
   "d1.composer.send": "发送",

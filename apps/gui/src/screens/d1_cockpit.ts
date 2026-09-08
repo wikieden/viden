@@ -464,6 +464,22 @@ export function renderD1Cockpit(
   let submittedDraft: string | null = null;
   let composerDispatchQueued = false;
   let errorMessage: string | null = null;
+  /**
+   * The design's post-deny redirect: once the operator denies an ask, the
+   * composer stops inviting a message and asks for the correction instead
+   * ("Tell <agent> what to do instead…"), with the caret already there.
+   *
+   * Presentation only, and deliberately so. It is set when the deny is
+   * *dispatched* rather than when Core answers, because it makes no claim
+   * about the answer; `feedback` stays `null` because schema 1 carries no
+   * feedback field (GUI-CORE-019). `agent` is Core's own adapter display name,
+   * or null when the focused conversation has none, in which case the generic
+   * wording is used rather than a guessed name.
+   */
+  let denyRedirect: { agent: string | null } | null = null;
+  /// The request id the redirect is anchored to, so a refresh that still
+  /// carries the same ask does not undo it but a *new* ask does.
+  let lastPermissionRequestId: string | null = initial.permissionDock.request?.id ?? null;
   let contextDrawerOpen = false;
   let laneRailOpen = false;
   let laneRailFocusTarget: "rail" | "toggle" | null = null;
@@ -617,6 +633,54 @@ export function renderD1Cockpit(
   };
   window.addEventListener("resize", handleWindowResize);
 
+  /**
+   * Retires the deny redirect when Core publishes a *different* ask.
+   *
+   * Anchoring on the request id rather than on presence is what separates the
+   * two cases: refreshes that still carry the ask the operator just denied are
+   * the ordinary state between the command and Core's answer and must not
+   * clear the prompt out from under someone typing into it, while a new ask
+   * genuinely supersedes the correction they were about to give.
+   */
+  function noteRedirectAgainst(next: D1CockpitProjection): void {
+    const nextId = next.permissionDock.request?.id ?? null;
+    if (nextId !== null && nextId !== lastPermissionRequestId) denyRedirect = null;
+    lastPermissionRequestId = nextId;
+  }
+
+  /// Core's own display name for the agent owning the focused conversation, or
+  /// null. Never derived from an agent id: an unnamed adapter gets the generic
+  /// wording rather than a client-invented name.
+  function focusedAgentDisplayName(): string | null {
+    if (focusedConversation?.kind !== "acp") return null;
+    const sessionId = focusedConversation.sessionId;
+    const session = projection.agentSessions.find(
+      (candidate) => candidate.sessionId === sessionId,
+    );
+    if (!session) return null;
+    const adapter = projection.agentAdapters.find(
+      (candidate) => candidate.agentId === session.agentId,
+    );
+    return adapter?.displayName ?? null;
+  }
+
+  /**
+   * Dispatches one permission response, and redirects the composer on a deny.
+   *
+   * The redirect is applied before the await on purpose: it is a presentation
+   * change that claims nothing about Core's answer, and making the operator
+   * wait for a round trip before they can type the correction would defeat the
+   * affordance. No fact is written here — the intent is passed through exactly
+   * as the dock built it, `feedback` included.
+   */
+  const dispatchPermission = (intent: PermissionIntent): Promise<unknown> => {
+    if (intent.choice === "deny") {
+      denyRedirect = { agent: focusedAgentDisplayName() };
+      render(true);
+    }
+    return sendPermission ? sendPermission(intent) : Promise.resolve(undefined);
+  };
+
   const controller: D1Controller = {
     transcript,
     applyProjection: (next) => {
@@ -635,6 +699,7 @@ export function renderD1Cockpit(
         selectedLaneId = next.selectedLaneId;
       }
       focusedConversation = conversationForLane(next, selectedLaneId);
+      noteRedirectAgainst(next);
       busySince = next.composer.busy ? (busySince ?? Date.now()) : null;
       projectionKey = nextKey;
       locale = next.preferences.locale;
@@ -684,6 +749,7 @@ export function renderD1Cockpit(
           }
         }
         focusedConversation = conversationForLane(result.projection, selectedLaneId);
+        noteRedirectAgainst(result.projection);
         busySince = result.projection.composer.busy ? (busySince ?? Date.now()) : null;
         projectionKey = nextKey;
         locale = result.projection.preferences.locale;
@@ -928,6 +994,9 @@ export function renderD1Cockpit(
     if (!selectedLaneId) return;
     submittedDraft = content;
     errorMessage = null;
+    // The correction has been sent, so the prompt goes back to inviting a
+    // message. A submit blocked above never gets here, and never clears it.
+    denyRedirect = null;
     const route = conversationForLane(projection, selectedLaneId);
     if (route?.kind === "acp" && !projection.composer.busy) {
       sendComposerIntent(
@@ -1881,7 +1950,7 @@ export function renderD1Cockpit(
       renderPermissionDock(
         permissionHost,
         projection.permissionDock,
-        sendPermission ?? (async () => undefined),
+        dispatchPermission,
         locale,
       );
     }
@@ -1897,7 +1966,13 @@ export function renderD1Cockpit(
     composer.rows = 3;
     composer.value = draft;
     composer.disabled = !projection.composer.editable;
-    composer.placeholder = translate(locale, "d1.composer.placeholder", {});
+    // After a deny the prompt asks for the correction instead, naming the
+    // agent when Core published a display name for it.
+    composer.placeholder = !denyRedirect
+      ? translate(locale, "d1.composer.placeholder", {})
+      : denyRedirect.agent
+        ? translate(locale, "d1.composer.redirect", { agent: denyRedirect.agent })
+        : translate(locale, "d1.composer.redirect.generic", {});
     composer.setAttribute("aria-label", translate(locale, "d1.composer.inputLabel", {}));
     composer.addEventListener("compositionstart", () => {
       composing = true;

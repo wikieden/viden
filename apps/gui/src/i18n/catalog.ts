@@ -65,6 +65,8 @@ export const MESSAGE_ARGUMENT_NAMES = {
   "d1.activity.work": [],
   "d1.cancel": [],
   "d1.composer.placeholder": [],
+  "d1.composer.redirect": ["agent"],
+  "d1.composer.redirect.generic": [],
   "d1.composer.prompt": [],
   "d1.composer.queue": [],
   "d1.composer.send": [],

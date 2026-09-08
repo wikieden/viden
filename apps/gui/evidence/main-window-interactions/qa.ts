@@ -198,6 +198,87 @@ function d1Base(): D1CockpitProjection {
 }
 
 /**
+ * The pending permission ask the deny-redirect states start from.
+ *
+ * Delta on the shared D1 fixture, which carries no request. The shape mirrors
+ * the dock fixture in `tests/permission_dock.spec.ts`, and the command mirrors
+ * the design's own example (`rm -rf target/` outside the Lane allowlist).
+ */
+const PERMISSION_REQUEST: NonNullable<
+  D1CockpitProjection["permissionDock"]["request"]
+> = {
+  id: "approval-shell",
+  toolName: "shell",
+  title: "Approve shell",
+  message: "Core requests scoped permission",
+  inputPreview: "rm -rf target && cargo build --release",
+  isMutating: true,
+  reason: "recursive delete outside the allowlist",
+  risk: "high",
+  target: {
+    kind: "repo_path",
+    display: "/workspace/viden/target",
+    canonicalRef: "repo://target",
+  },
+  policyReasonKey: "permission.requires_approval",
+  policyReasonArgs: {},
+  expiresAt: 1_700_003_600,
+  defaultAction: "deny",
+  auditId: "audit-shell",
+  blockedByPlan: false,
+  actions: [
+    { kind: "once", available: true, sessionId: null, paths: [], code: null },
+    {
+      kind: "session",
+      available: true,
+      sessionId: "session-lane-core",
+      paths: [],
+      code: null,
+    },
+    {
+      kind: "repo_allowlist",
+      available: true,
+      sessionId: null,
+      paths: ["/workspace/viden/apps/gui"],
+      code: null,
+    },
+    { kind: "always", available: false, sessionId: null, paths: [], code: "GUI-CORE-003" },
+    { kind: "edit", available: false, sessionId: null, paths: [], code: "GUI-CORE-003" },
+    { kind: "deny", available: true, sessionId: null, paths: [], code: null },
+  ],
+};
+
+/**
+ * The cockpit with that ask pending in its permission dock, owned by an ACP
+ * Agent.
+ *
+ * Delta: one `agentSessions` entry under the exact session id Core's
+ * `laneAgent` fact already names, which is what makes this Lane's conversation
+ * the ACP one. It is there so the deny redirect can name the agent — the
+ * design's own wording — from Core's published `displayName` rather than from
+ * a client guess. Mirrors the ACP session shape in `tests/d6_recovery.spec.ts`.
+ */
+function d1Pending(): D1CockpitProjection {
+  const base = d1Base();
+  return {
+    ...base,
+    permissionDock: { ...base.permissionDock, request: PERMISSION_REQUEST },
+    agentSessions: [
+      {
+        sessionId: base.contextDock.laneAgent!.sessionId ?? "session-lane-core",
+        laneId: "lane-core",
+        agentId: "codex-acp",
+        model: "gpt-5.3-codex",
+        status: "waiting_approval",
+        task: "Freeze contract",
+        diagnostic: null,
+      },
+    ],
+  };
+}
+
+
+/**
  * A stopped ACP session with its two Core-backed recovery actions available.
  *
  * Mirrors the `STOPPED` fixture in `tests/d6_recovery.spec.ts`: `restart`
@@ -779,6 +860,25 @@ async function renderState(): Promise<void> {
       // is anchored to the panel's own top; the draft still proves itself
       // through the sticky Cancel/Save footer.
       document.querySelector("[data-settings-panel]")!.scrollTop = 0;
+      await tick();
+      return;
+    }
+
+    case "permission-ask": {
+      // The dock as Core publishes it, before any verdict: the baseline the
+      // redirect state is read against.
+      mountCockpit({ projection: d1Pending(), preferencesAvailable: true });
+      await waitFor("[data-permission-dock]");
+      return;
+    }
+
+    case "permission-deny-redirect": {
+      // The design's post-deny composer. `sendPermission` never resolves, so
+      // the capture proves the point precisely: the prompt switches when the
+      // deny is *dispatched*, claiming nothing about Core's answer.
+      mountCockpit({ projection: d1Pending(), preferencesAvailable: true });
+      await waitFor("[data-permission-dock]");
+      click("[data-permission-action='deny']");
       await tick();
       return;
     }

@@ -59,6 +59,8 @@
   "d1.activity.work": "Workspace",
   "d1.cancel": "Cancel active turn",
   "d1.composer.placeholder": "Message the selected Lane. Shift+Enter adds a line.",
+  "d1.composer.redirect": "Tell {agent} what to do instead…",
+  "d1.composer.redirect.generic": "Tell the agent what to do instead…",
   "d1.composer.prompt": "Prompt",
   "d1.composer.queue": "Queue follow-up",
   "d1.composer.send": "Send",
