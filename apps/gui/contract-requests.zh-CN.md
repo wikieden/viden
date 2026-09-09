@@ -2,6 +2,13 @@
 
 英文版：[contract-requests.md](contract-requests.md)
 
+规划注记 2026-09-09（`docs/release-0.3.3-plan.zh-CN.md`）：012、015、020
+经 `docs/release-0.3.3-contract-design.zh-CN.md` 中的 Core 契约增量排入
+`0.3.3`，该增量同时为 EvidenceView 面开立 GUI-CORE-025（证据读取）。013 是
+`0.3.3` 的 stretch，与创建流打包。009、018、019 移到 `0.3.4`；021 与 023
+保持 `0.3.4+`。排期不等于关闭：每条只在其声明的条件于 `main` 上满足时才
+关闭。
+
 ## GUI-CORE-008：所选 Lane 的上下文作用域 — 已关闭
 
 历史：Core `0.3.5` 已暴露 `RuntimeViewState.context_budgets`，但 frontend-neutral

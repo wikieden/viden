@@ -202,7 +202,9 @@ Next release planning (`0.2.x` and `0.3.x`):
   the Tauri/GPUI vertical-slice gate selects the production client framework.
 - `0.3.2`: Integration release candidate. Merge core, then TUI, then GUI, and
   run TUI/GUI parity, migration, plugin, and real development gates.
-- `0.3.3`: Operable GUI beta and compatibility hardening.
+- `0.3.3`: Operable GUI beta and compatibility hardening. Batches, gates,
+  and exit criteria are in `docs/release-0.3.3-plan.md`; the Core contract
+  increment behind them is in `docs/release-0.3.3-contract-design.md`.
 - `0.3.4`: Visual fidelity and production release gate.
 - Keep Mode/Permission, provider/model, plan-mode, daily-loop, and live
   DeepSeek token/cost smoke in the release gate for future releases.

@@ -2,6 +2,14 @@
 
 Chinese version: [contract-requests.zh-CN.md](contract-requests.zh-CN.md)
 
+Planning note 2026-09-09 (`docs/release-0.3.3-plan.md`): 012, 015, and 020
+are scheduled for `0.3.3` through the Core contract increment in
+`docs/release-0.3.3-contract-design.md`, which also opens GUI-CORE-025
+(evidence reads) for the EvidenceView surface. 013 is a `0.3.3` stretch
+bundled with the creation flows. 009, 018, and 019 move to `0.3.4`; 021 and
+023 stay `0.3.4+`. A schedule is not a closure: each entry closes only when
+its stated condition is met on `main`.
+
 ## GUI-CORE-008: Selected-Lane context scope — CLOSED
 
 History: Core `0.3.5` exposed `RuntimeViewState.context_budgets`, but the

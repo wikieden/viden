@@ -335,6 +335,15 @@ V3 规划基线之后，Core、TUI、GUI 各自维护独立产品版本号。仓
 - GUI 完成 D2/D10/D12/D14、Plan Studio 和 Agent Board。
 - local-first 全流程在真实开发任务中可审计地跑通。
 
+修订 2026-09-09：本里程碑的可执行计划见
+[release-0.3.3-plan.zh-CN.md](release-0.3.3-plan.zh-CN.md)，其 Core 契约
+增量见
+[release-0.3.3-contract-design.zh-CN.md](release-0.3.3-contract-design.zh-CN.md)。
+Plan Studio 与 Agent Board 移到 `0.3.4`：二者都没有登记的 D 屏与 Core 契约，
+而 `0.3.3` 已新增已登记的 DiffReview 与 EvidenceView 两个面。"GUI 完成
+D2/D10/D12/D14" 解读为 D2 获得类型化决策上下文、D12 获得结构化冲突内容；
+D10 与 D14 已在 `0.3.2` 迁移到 audit 与 live-work 契约。
+
 ### 0.3.4：视觉、性能和生产发版门禁
 
 - TUI deterministic previews + 真实 Terminal/iTerm2 证据。

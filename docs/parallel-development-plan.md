@@ -389,6 +389,16 @@ For design assets, shared `tokens.css`, SPEC, and DESIGN-REF changes are reviewe
 - GUI completes D2/D10/D12/D14, Plan Studio, and Agent Board.
 - A real local-first development task completes with auditable evidence.
 
+Amendment 2026-09-09: the executable plan for this milestone is
+[release-0.3.3-plan.md](release-0.3.3-plan.md), with its Core contract
+increment in
+[release-0.3.3-contract-design.md](release-0.3.3-contract-design.md). Plan
+Studio and Agent Board move to `0.3.4`: neither has a registered D-screen or
+a Core contract, and `0.3.3` already adds the registered DiffReview and
+EvidenceView surfaces. "GUI completes D2/D10/D12/D14" is read as D2 gaining
+typed decision context and D12 gaining structured conflict content; D10 and
+D14 were migrated to the audit and live-work contracts during `0.3.2`.
+
 ### 0.3.4: Visual, Performance, And Production Release Gate
 
 - TUI deterministic previews plus real Terminal/iTerm2 evidence.
