@@ -5556,3 +5556,4 @@ fn a_workspace_change_without_a_structured_diff_encodes_as_it_did_before() {
     let decoded: WorkspaceChangeView = serde_json::from_value(encoded).unwrap();
     assert_eq!(decoded, change);
 }
+

@@ -541,6 +541,19 @@ impl SessionEngine {
                     Err(err) => return Ok(vec![command_rejected(command_id, err)]),
                 }
             }
+            // The same shape as the inventory read above and for the same
+            // reasons: permission-gated because it reads the operator's tree,
+            // and every refusal — a path that escapes the target, an unknown
+            // Lane, a deny, an unresolved ask — comes back as
+            // `CommandRejected` naming this exact read. An empty page here
+            // would render as "nothing changed", which is the one thing a
+            // diff surface must never say wrongly.
+            RuntimeCommand::QueryWorkspaceDiff { query } => {
+                match self.query_workspace_diff(&command_id, query) {
+                    Ok(diff_events) => append_resequenced(&mut events, diff_events),
+                    Err(err) => return Ok(vec![command_rejected(command_id, err)]),
+                }
+            }
             RuntimeCommand::SubmitUserInput { content } => {
                 match self.process_runtime_turn_with_approval_and_control(
                     &content,
@@ -3446,7 +3459,17 @@ impl SessionEngine {
             .ok_or_else(|| format!("merge gate `{gate_id}` does not exist"))?;
         let task_id = self.runtime_merge_gates[gate_index].task_id.clone();
         let dag_id = self.dag_id_for_task(&task_id)?;
-        self.require_trust_permission("merge_agent_patch", &format!("gate={gate_id}"), approver)?;
+        // The canonical patch bytes are already validated at this point, so
+        // the operator approves the multi-file change itself rather than a
+        // gate id. This is the multi-file case GUI-CORE-012 asked for.
+        self.require_trust_permission_with_context(
+            "merge_agent_patch",
+            &format!("gate={gate_id}"),
+            Some(crate::decision_context::patch_decision_context(
+                &patch_content,
+            )),
+            approver,
+        )?;
         let patch_backend = LocalPatchBackend;
         let patch_application = match patch_backend.prepare(&PatchRequest {
             cwd: self.cwd.clone(),
@@ -5529,7 +5552,9 @@ fn approval_request_view(request_id: &str, prompt: &PermissionPrompt) -> Approva
         expires_at: now_timestamp().saturating_add(300),
         default_action: ApprovalDefaultAction::Deny,
         audit_id,
-        decision_context: None,
+        // Whatever the call site computed, carried through unchanged. `None`
+        // means Core previewed nothing for this tool.
+        decision_context: prompt.decision_context.clone(),
     }
 }
 
@@ -5861,6 +5886,14 @@ pub(crate) fn redacted_runtime_command_for_event(command: &RuntimeCommand) -> Ru
         // Core answered, which is worse than verbatim: the accepted-command
         // event would no longer describe the read that produced the page.
         RuntimeCommand::QueryWorkspaceFiles { query } => RuntimeCommand::QueryWorkspaceFiles {
+            query: query.clone(),
+        },
+        // Same reasoning as the inventory prefix above: the paths are
+        // target-relative fragments the operator selected in their own
+        // client, already validated to stay inside the target. Running the
+        // identifier redactor over them would publish a *different* query
+        // than the one Core answered.
+        RuntimeCommand::QueryWorkspaceDiff { query } => RuntimeCommand::QueryWorkspaceDiff {
             query: query.clone(),
         },
         RuntimeCommand::PreviewStarterLane { request } => RuntimeCommand::PreviewStarterLane {

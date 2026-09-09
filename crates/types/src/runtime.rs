@@ -16,8 +16,8 @@ use crate::{
     StarterLanePreset, StarterLanePreview, StarterLanePreviewInvalidationReason,
     StarterLaneReceipt, StarterLaneRequest, ToolCallId, TranscriptPage, TranscriptPageRequest,
     UiPreferenceDiagnostic, UiPreferencePatch, UiPreferences, WorkMode, WorkspaceChangeView,
-    WorkspaceEligibility, WorkspaceFilePage, WorkspaceFilesQuery, WorkspaceSourceView,
-    now_timestamp,
+    WorkspaceDiffPage, WorkspaceDiffQuery, WorkspaceEligibility, WorkspaceFilePage,
+    WorkspaceFilesQuery, WorkspaceSourceView, now_timestamp,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -80,6 +80,17 @@ pub enum RuntimeCommand {
     /// in Plan mode.
     QueryWorkspaceFiles {
         query: WorkspaceFilesQuery,
+    },
+    /// Read-only structured diff of the workspace or one Lane worktree
+    /// (`runtime.structured_diff`, GUI-CORE-012).
+    ///
+    /// Permission-gated like `QueryWorkspaceFiles`, under the existing
+    /// non-mutating `git_diff` tool with the resolved target root as the input
+    /// path, so one `viden.toml` rule set governs an operator's diff read and
+    /// an agent's `git_diff` call. It mutates nothing, so it stays answerable
+    /// in Plan mode.
+    QueryWorkspaceDiff {
+        query: WorkspaceDiffQuery,
     },
     PreviewStarterLane {
         request: StarterLaneRequest,
@@ -689,6 +700,17 @@ pub enum RuntimeEventKind {
         command_id: String,
         page: WorkspaceFilePage,
     },
+    /// Answer to `QueryWorkspaceDiff`. A query result like the two pages
+    /// above: bounded, re-read on demand, and deliberately never folded into
+    /// `RuntimeViewState`, so publishing one moves no snapshot digest.
+    WorkspaceDiffLoaded {
+        /// The exact `QueryWorkspaceDiff` command id this page answers.
+        /// Required, like `WorkspaceFilesLoaded`: this event is new, so a
+        /// client never falls back to attributing a page to its own
+        /// acceptance.
+        command_id: String,
+        page: WorkspaceDiffPage,
+    },
     WorkspaceSourceUpdated {
         source: WorkspaceSourceView,
     },
@@ -1246,6 +1268,10 @@ impl RuntimeViewState {
             // an inventory page into the capped view collections would
             // silently truncate the tree a client is paging through.
             RuntimeEventKind::WorkspaceFilesLoaded { .. } => {}
+            // Same rule again: a bounded diff read answered on demand. It is
+            // re-asked whenever a reviewer opens a file, so folding it into
+            // view state would keep a stale diff alive after the tree moved.
+            RuntimeEventKind::WorkspaceDiffLoaded { .. } => {}
             RuntimeEventKind::WorkspaceSourceUpdated { source } => {
                 self.workspace_source = Some(source.clone());
             }

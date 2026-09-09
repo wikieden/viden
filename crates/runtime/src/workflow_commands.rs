@@ -18,6 +18,26 @@ impl SessionEngine {
     where
         F: FnMut(viden_types::PermissionPrompt) -> ApprovalResponse,
     {
+        self.ensure_workflow_permission_with_context(action, preview, None, approver)
+    }
+
+    /// The same gate, carrying what Core knows about the change the operator
+    /// is being asked to approve (`runtime.structured_diff`).
+    ///
+    /// Only the sites that already hold a validated proposal pass a context —
+    /// the trust loop's patch merge holds the canonical patch bytes. Every
+    /// other workflow mutation passes `None`, which means Core computed no
+    /// preview rather than "this changes nothing".
+    pub(crate) fn ensure_workflow_permission_with_context<F>(
+        &mut self,
+        action: &str,
+        preview: &str,
+        decision_context: Option<viden_types::DecisionContext>,
+        approver: &mut F,
+    ) -> Result<Option<String>, String>
+    where
+        F: FnMut(viden_types::PermissionPrompt) -> ApprovalResponse,
+    {
         let tool_name = format!("workflow_{action}");
         let tool = ToolSpec {
             name: tool_name.clone(),
@@ -31,7 +51,10 @@ impl SessionEngine {
         let mut gate_permissions = self.permissions.clone();
         let decision =
             crate::permission_gate::resolve(&mut gate_permissions, &tool, &tool_name, &input, {
-                |_ask, prompt| approver(prompt)
+                |_ask, mut prompt| {
+                    prompt.decision_context = decision_context.clone();
+                    approver(prompt)
+                }
             });
         match decision {
             PermissionDecision::Allow(allow) => {

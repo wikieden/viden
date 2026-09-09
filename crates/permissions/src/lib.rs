@@ -175,6 +175,10 @@ impl PermissionEngine {
             message: decision.message.clone(),
             input_preview: render_prompt_input(input),
             candidate_paths: candidate_paths(input),
+            // The engine decides; it does not read the filesystem. The
+            // runtime call site that holds the tool input fills this in
+            // before the operator sees the prompt.
+            decision_context: None,
         }
     }
 

@@ -1333,7 +1333,27 @@ impl SessionEngine {
     where
         F: FnMut(viden_types::PermissionPrompt) -> ApprovalResponse,
     {
-        if let Some(denial) = self.ensure_workflow_permission(action, preview, approver)? {
+        self.require_trust_permission_with_context(action, preview, None, approver)
+    }
+
+    /// The same trust-loop gate, carrying the multi-file change the operator
+    /// is approving (`runtime.structured_diff`, GUI-CORE-012).
+    pub(crate) fn require_trust_permission_with_context<F>(
+        &mut self,
+        action: &str,
+        preview: &str,
+        decision_context: Option<viden_types::DecisionContext>,
+        approver: &mut F,
+    ) -> Result<(), String>
+    where
+        F: FnMut(viden_types::PermissionPrompt) -> ApprovalResponse,
+    {
+        if let Some(denial) = self.ensure_workflow_permission_with_context(
+            action,
+            preview,
+            decision_context,
+            approver,
+        )? {
             return Err(denial);
         }
         Ok(())

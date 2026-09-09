@@ -560,7 +560,18 @@ impl SessionEngine {
             &tool_spec,
             &call.name,
             &call.input,
-            |_ask, prompt| {
+            |_ask, mut prompt| {
+                // The one site that holds the proposed tool input, so the
+                // preview is computed here and rides the prompt to every
+                // `ApprovalRequestView` construction site — including the
+                // ordered boundary replayed below — instead of the input
+                // being threaded through four call chains. Read-only: see
+                // `decision_context`.
+                prompt.decision_context = crate::decision_context::tool_decision_context(
+                    &self.cwd,
+                    &call.name,
+                    &call.input,
+                );
                 task.status = AgentTaskStatus::WaitingApproval;
                 task.activity = format!("waiting for approval: `{}`", call.name);
                 task.progress = 35;

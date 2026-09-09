@@ -2034,6 +2034,11 @@ pub(super) fn acp_permission_prompt(request: &Value) -> viden_types::PermissionP
             .map(Value::to_string)
             .unwrap_or_else(|| "{}".to_string()),
         candidate_paths: acp_request_path(request).into_iter().collect(),
+        // An ACP permission request describes an external agent's proposed
+        // effect in the agent's own vocabulary. Core did not compute a
+        // prospective result for it, so it publishes none rather than a
+        // guess dressed as a diff.
+        decision_context: None,
     }
 }
 

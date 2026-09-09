@@ -134,7 +134,15 @@ fn resolve_required_path(ctx: &ToolExecutionContext, input: &ToolInput) -> Resul
     Ok(resolve_path(&ctx.cwd, raw))
 }
 
-fn render_diff(before: &str, after: &str) -> String {
+/// Renders the header-only preview `write_file` and `edit_file` publish as
+/// their tool-result diff.
+///
+/// Public because the approval path computes the *prospective* content in
+/// memory and renders it with this exact function, so an approval preview and
+/// the diff the executed tool publishes are produced by one renderer and
+/// cannot describe the same edit differently. The text carries no `@@`
+/// header; `patch::parse_diff_document` folds it into one whole-file hunk.
+pub fn render_diff(before: &str, after: &str) -> String {
     let before_lines: Vec<_> = before.lines().collect();
     let after_lines: Vec<_> = after.lines().collect();
     let mut output = String::from("--- before\n+++ after\n");

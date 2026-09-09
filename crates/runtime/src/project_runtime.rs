@@ -270,9 +270,21 @@ impl SessionEngine {
         input.insert("preview".to_string(), preview);
         match self.permissions.decide(&tool, &input) {
             PermissionDecision::Allow(_) => Ok(SupervisorProjectMutationPreparation::Ready),
-            PermissionDecision::Ask(ask) => Ok(SupervisorProjectMutationPreparation::Pending(
-                PermissionEngine::prompt_for(&tool_name, &ask, &input),
-            )),
+            PermissionDecision::Ask(ask) => {
+                let mut prompt = PermissionEngine::prompt_for(&tool_name, &ask, &input);
+                // The supervised half of the same gate the in-process path
+                // takes: a patch merge is the one supervised mutation whose
+                // proposal Core already holds as bytes, so the operator sees
+                // the multi-file change rather than a gate id
+                // (`runtime.structured_diff`, GUI-CORE-012).
+                if let RuntimeCommand::MergeAgentPatch { gate_id, actor, .. } = command
+                    && let Ok(patch) = self.preflight_merge_agent_patch(gate_id, actor)
+                {
+                    prompt.decision_context =
+                        Some(crate::decision_context::patch_decision_context(&patch));
+                }
+                Ok(SupervisorProjectMutationPreparation::Pending(prompt))
+            }
             PermissionDecision::Deny(deny) => Err(deny.message),
         }
     }

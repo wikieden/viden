@@ -19,6 +19,7 @@ pub use capability::{
     FilesystemCapability, InteractiveInvocation, InteractiveProcess, InteractiveProcessControl,
     LocalFilesystem, LocalProcess, ProcessCapability, ProcessInvocation, ProcessOutput,
 };
+pub use files::render_diff;
 use files::{EditFileTool, ReadFileTool, WriteFileTool};
 use git::{
     GitAddTool, GitBranchTool, GitCommitTool, GitDiffTool, GitPushTool, GitRestoreTool,

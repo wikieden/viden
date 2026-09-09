@@ -19,7 +19,7 @@ pub(crate) const MAX_COCKPIT_ROWS: usize = 50;
 /// Individual captured patches are bounded independently from the row cap.
 pub(crate) const MAX_COCKPIT_PATCH_BYTES: usize = 64 * 1024;
 const MAX_GIT_OUTPUT_BYTES: usize = 64 * 1024;
-const GIT_COMMAND_TIMEOUT: Duration = Duration::from_secs(2);
+pub(crate) const GIT_COMMAND_TIMEOUT: Duration = Duration::from_secs(2);
 
 pub(crate) fn sample_workspace_source(cwd: &Path) -> WorkspaceSourceView {
     sample_workspace_source_with_git(cwd, Path::new("git"), GIT_COMMAND_TIMEOUT)
@@ -169,6 +169,24 @@ pub(crate) fn workspace_changes_from_tool_result(
         .diff
         .as_deref()
         .map(|patch| truncate_utf8_bytes(patch, MAX_COCKPIT_PATCH_BYTES));
+    // The same bytes as rows (`runtime.structured_diff`). Parsed from the
+    // patch text under the same 64 KiB bound, so the structured view and the
+    // string a base client renders can never describe different changes. The
+    // path and classification come from the tool call rather than from the
+    // rendered header, which carries `render_diff`'s `before`/`after`
+    // placeholders and not a real path.
+    let diff = patch.as_deref().map(|patch| {
+        let mut document = viden_tools::patch::parse_diff_document(
+            patch,
+            u32::try_from(MAX_COCKPIT_PATCH_BYTES).unwrap_or(u32::MAX),
+        );
+        for file in &mut document.files {
+            file.path = path.clone();
+            file.old_path = None;
+            file.kind = kind;
+        }
+        document
+    });
     vec![WorkspaceChangeView {
         id: format!("{}:{path}", result.tool_call_id),
         owner: owner.clone(),
@@ -177,7 +195,7 @@ pub(crate) fn workspace_changes_from_tool_result(
         patch,
         additions,
         deletions,
-        diff: None,
+        diff,
     }]
 }
 
@@ -227,7 +245,7 @@ pub(crate) fn bind_fact_owner(kind: &mut RuntimeEventKind, owner: &RuntimeOwner)
     }
 }
 
-enum GitOutput {
+pub(crate) enum GitOutput {
     Complete(String),
     Truncated,
     Failed,
@@ -235,6 +253,23 @@ enum GitOutput {
 }
 
 fn run_git_bounded(cwd: &Path, program: &Path, args: &[&str], timeout: Duration) -> GitOutput {
+    run_git_capped(cwd, program, args, timeout, MAX_GIT_OUTPUT_BYTES)
+}
+
+/// The same bounded, contained `git` run with an explicit output cap.
+///
+/// The cockpit samplers read status lines and are happy with 64 KiB; the
+/// structured diff read publishes file content and needs its own, larger
+/// bound. Both go through one runner so the process containment, the
+/// `GIT_OPTIONAL_LOCKS`/`GIT_CONFIG_NOSYSTEM` hardening, and the timeout stay
+/// written once.
+pub(crate) fn run_git_capped(
+    cwd: &Path,
+    program: &Path,
+    args: &[&str],
+    timeout: Duration,
+    max_output_bytes: usize,
+) -> GitOutput {
     let containment = match ProcessTreeContainment::new() {
         Ok(containment) => containment,
         Err(_) => return GitOutput::Unavailable,
@@ -274,13 +309,13 @@ fn run_git_bounded(cwd: &Path, program: &Path, args: &[&str], timeout: Duration)
         return GitOutput::Unavailable;
     };
     let reader = thread::spawn(move || {
-        let mut bytes = Vec::with_capacity(MAX_GIT_OUTPUT_BYTES.min(8192));
+        let mut bytes = Vec::with_capacity(max_output_bytes.min(8192));
         let mut chunk = [0_u8; 8192];
         loop {
             match stdout.read(&mut chunk) {
                 Ok(0) => return Some((bytes, false)),
                 Ok(count) => {
-                    let remaining = MAX_GIT_OUTPUT_BYTES.saturating_sub(bytes.len());
+                    let remaining = max_output_bytes.saturating_sub(bytes.len());
                     let keep = remaining.min(count);
                     bytes.extend_from_slice(&chunk[..keep]);
                     if keep < count || remaining == 0 {

@@ -21,6 +21,7 @@ mod runtime_contract_tests;
 mod runtime_loop_tests;
 mod runtime_supervisor_tests;
 mod session_command_tests;
+mod structured_diff_tests;
 mod transcript_contract_tests;
 mod trust_loop_tests;
 mod workflow_command_tests;

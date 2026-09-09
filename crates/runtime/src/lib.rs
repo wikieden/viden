@@ -13,6 +13,7 @@ mod bootstrap;
 mod brief_commands;
 mod command_dispatch;
 mod context_bundle;
+mod decision_context;
 mod doctor;
 mod event_journal;
 mod extension_commands;

@@ -884,12 +884,23 @@ pub struct RuntimeSnapshot {
     pub ui_preferences: ResolvedUiPreferences,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// One operator prompt for a permission decision.
+///
+/// Process-local: it is never serialized, so `decision_context` is an
+/// in-memory enrichment rather than a wire addition. The permission engine
+/// builds a prompt without one — it has no filesystem access and must not
+/// grow any — and the runtime call site that holds the tool input fills it in
+/// before the approver sees it. That keeps one field, populated once, feeding
+/// every `ApprovalRequestView` construction site.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PermissionPrompt {
     pub tool_name: String,
     pub message: String,
     pub input_preview: String,
     pub candidate_paths: Vec<String>,
+    /// What Core knows about the change this approval would make. `None`
+    /// means Core computed no preview for this tool, never "no change".
+    pub decision_context: Option<DecisionContext>,
 }
 
 pub fn parse_tool_input(input: &str) -> ToolInput {
