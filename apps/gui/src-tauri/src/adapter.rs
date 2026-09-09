@@ -3400,7 +3400,7 @@ impl GuiCoreAdapter {
         intent: D11Intent,
     ) -> Result<RuntimeCommandEnvelope, String> {
         if matches!(&intent, D11Intent::StoreCredentialHandle { .. }) {
-            return Err("GUI-CORE-001: platform credential intake is unavailable".to_string());
+            return Err("GUI-CORE-026: platform credential intake is unavailable".to_string());
         }
         let required_capability = match intent {
             D11Intent::ProbeProject

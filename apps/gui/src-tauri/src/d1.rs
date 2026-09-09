@@ -4,6 +4,17 @@ use crate::{D6RecoveryProjection, PermissionDockProjection, ResolvedPreferencesP
 
 pub const D1_OWNER_CAPABILITY: &str = "runtime.lane_owner_projection";
 
+/// A selected Lane that carries more than one exact runtime owner binding.
+///
+/// Client-local, not a Core contract request, so the code deliberately does
+/// not use the `GUI-CORE-` prefix the register in
+/// `apps/gui/contract-requests.md` reserves for numbered requests. Core's own
+/// reducer keeps at most one `LaneRuntimeOwnerBinding` per Lane, so a view
+/// holding two is one this client refuses to render rather than a fact Core
+/// still owes it; D1 enters the snapshot/replay recovery path instead of
+/// choosing an owner.
+pub const D1_OWNER_CARDINALITY_CODE: &str = "D1-OWNER-CARDINALITY";
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct D1WorkspaceSourceProjection {
     pub status: &'static str,
@@ -531,31 +542,41 @@ pub struct D1IntentResult {
     pub outcome: D1OutcomeProjection,
 }
 
+/// The capability gaps D1 declares, each naming the open register entry in
+/// `apps/gui/contract-requests.md` that closes it.
+///
+/// A row here is a claim about Core, so it is removed the moment the fact
+/// arrives rather than left standing as a stale sentence, and it never cites a
+/// code the register does not carry.
 pub(crate) fn unavailable_features() -> Vec<D1UnavailableFeatureProjection> {
     vec![
         D1UnavailableFeatureProjection {
             id: "diff",
             available: false,
-            code: "GUI-CORE-006",
-            message: "Typed diff facts are unavailable.",
+            code: "GUI-CORE-012",
+            message: "Structured diff rows are unavailable; Core publishes an opaque patch string.",
         },
         D1UnavailableFeatureProjection {
             id: "apply",
             available: false,
-            code: "GUI-CORE-006",
-            message: "Typed apply receipts are unavailable.",
+            code: "GUI-CORE-020",
+            message: "Operator-initiated apply and commit actions are unavailable.",
         },
-        D1UnavailableFeatureProjection {
-            id: "audit",
-            available: false,
-            code: "GUI-CORE-004",
-            message: "Typed audit history is unavailable.",
-        },
+        // `audit` was here under GUI-CORE-004 until Core published the
+        // append-only audit timeline (`QueryAudit` -> `AuditPageLoaded`,
+        // capability `runtime.audit`), which closed GUI-CORE-014 and
+        // GUI-CORE-024. The timeline's registered hosts are the D10 ticker and
+        // D14; D1 declaring it missing was a claim about Core that had stopped
+        // being true.
         D1UnavailableFeatureProjection {
             id: "recovery",
             available: false,
+            // The fail-closed code the register pins for a recovery action
+            // schema 1 does not model. Restart and close-Lane now reach real
+            // Core commands, so only checkpoint capture and restore are left
+            // (contract request GUI-CORE-018).
             code: "GUI-CORE-003",
-            message: "Typed recovery actions are unavailable.",
+            message: "Checkpoint capture and restore are unavailable.",
         },
         D1UnavailableFeatureProjection {
             id: "transcript_user",

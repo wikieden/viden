@@ -564,3 +564,65 @@ an id.
 Remaining client-side follow-up, not blocked on Core: D14 actor and time-range
 filter chips over the new `AuditQuery` fields. No client sends an actor or time
 filter yet, because no operator control chooses one.
+
+## GUI-CORE-025: Evidence reads
+
+Reserved by `docs/release-0.3.3-contract-design.md` for the paged evidence read
+(`QueryEvidence` / `EvidencePageLoaded`, `ReadEvidenceContent` /
+`EvidenceContentLoaded`) that the registered `EvidenceView` surface needs. Core
+batch C4 opens and closes it; the number is held here so no other request
+takes it.
+
+## GUI-CORE-026: Platform credential intake
+
+`RuntimeCommand::StoreCredentialHandle` exists and takes a
+`credential_request_id`. Nothing publishes one. `CredentialRequestId` is
+documented as "opaque, one-use" and minted behind the trusted local host
+boundary, and schema 1 exposes no command, event, or host surface that stages a
+secret and returns that id. The only way for the GUI to fill the field would be
+to take the raw secret in the client and mint an id itself, which puts secret
+bytes in the frontend and forges an identity Core never issued.
+
+D11 therefore projects `credentialIngress` as `available: false` with this code
+and refuses `D11Intent::StoreCredentialHandle` before any command is built
+(`apps/gui/src-tauri/src/adapter.rs`). Settings draws no per-provider API-key
+chip and no add-provider action for the same reason.
+
+Close this request when Core publishes a staging path that returns a
+`CredentialRequestId` without the secret crossing the frontend boundary, the
+event that reports its outcome, and a canonical `frontend-contract-v1` fixture
+covering a staged credential that becomes a `CredentialHandle` and one that is
+refused.
+
+## Retired pre-register codes
+
+`GUI-CORE-001` to `GUI-CORE-007` predate this register, which starts at 008.
+They were never entries here, so a projection citing one named nothing a reader
+could look up. Where they went:
+
+| Retired code | Was | Today |
+| --- | --- | --- |
+| `GUI-CORE-001` | typed project intake, config preview/confirm, masked credential handles | project onboarding shipped; the credential half is GUI-CORE-026 |
+| `GUI-CORE-002` | lane lifecycle commands and starter-lane creation | shipped; D4 and the starter-lane path send Core commands |
+| `GUI-CORE-003` | structured connection and lane-recovery facts | mostly shipped; kept as the *rendered* fail-closed code for a D6 action schema 1 does not model, whose open requests are GUI-CORE-018 (checkpoint) and GUI-CORE-019 (Always / Edit) |
+| `GUI-CORE-004` | stable append-only audit timeline | delivered; closed as GUI-CORE-014 and GUI-CORE-024 |
+| `GUI-CORE-005` | preference mutation and persistence | shipped as the `ui.preference_persistence` capability |
+| `GUI-CORE-006` | structured diff / test / apply / conflict / retry facts | split: diff is GUI-CORE-012, conflict content is GUI-CORE-015, operator apply and commit are GUI-CORE-020; check runs shipped |
+| `GUI-CORE-007` | paginated recent project and session history | shipped as the `runtime.recent_work` capability |
+
+`GUI-CORE-003` is the one code still emitted by production projections. It is
+deliberate and documented in GUI-CORE-018 and GUI-CORE-019: those entries name
+it as the code the GUI renders while the capability behind the action is
+missing. Every other projection now cites an entry above.
+
+## Client-local reason codes
+
+Not every unavailable control is a Core gap. A control this client refuses to
+offer for a reason of its own carries a screen-scoped code with no `GUI-CORE-`
+prefix, so a reader can tell a contract request from a local rule at a glance.
+
+| Code | Where | Means |
+| --- | --- | --- |
+| `D1-OWNER-CARDINALITY` | `apps/gui/src-tauri/src/d1.rs`, applied in the D1 cockpit projection | The selected Lane carries more than one exact runtime owner binding. Core's reducer keeps at most one per Lane, so this is a view the client refuses to render — it enters snapshot/replay recovery instead of choosing an owner — not a fact Core still owes it. |
+| `D2-REVIEW-SETTLED` | `apps/gui/src-tauri/src/d2.rs` | Core already recorded this review's verdict; `DecideReview` settles a `Pending` review once. |
+| `D2-NO-REVIEWER-ACTOR` | `apps/gui/src-tauri/src/d2.rs` | No actor `validate_review_decider` would accept is derivable from the published facts for this review. |

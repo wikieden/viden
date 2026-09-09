@@ -133,10 +133,13 @@ fn canonical_d1_projects_cockpit_regions_only_from_the_core_view() {
             .iter()
             .map(|feature| feature.id)
             .collect::<Vec<_>>(),
+        // `audit` is deliberately absent: Core's append-only audit timeline
+        // closed GUI-CORE-014 and GUI-CORE-024, so D1 no longer declares it
+        // missing. Every remaining code must name an open register entry or a
+        // documented client-local reason.
         vec![
             "diff",
             "apply",
-            "audit",
             "recovery",
             "transcript_user",
             "transcript_assistant",
@@ -210,7 +213,7 @@ fn d1_cockpit_context_dock_enforces_zero_one_or_duplicate_lane_agent_cardinality
     assert_eq!(duplicate.recovery.state, D6State::EventGap);
     assert_eq!(
         duplicate.recovery.detail.as_deref(),
-        Some("GUI-CORE-D1-OWNER-CARDINALITY")
+        Some(viden_gui::D1_OWNER_CARDINALITY_CODE)
     );
 }
 

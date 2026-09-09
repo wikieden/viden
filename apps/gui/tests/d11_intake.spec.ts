@@ -27,7 +27,7 @@ const EMPTY_PROJECTION: D11IntakeProjection = {
   },
   credentialIngress: {
     available: false,
-    code: "GUI-CORE-001",
+    code: "GUI-CORE-026",
     message: "Secure credential ingress is unavailable.",
   },
   capabilities: {

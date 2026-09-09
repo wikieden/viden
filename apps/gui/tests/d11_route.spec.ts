@@ -38,7 +38,7 @@ const D11_PROJECTION: D11IntakeProjection = {
   },
   credentialIngress: {
     available: false,
-    code: "GUI-CORE-001",
+    code: "GUI-CORE-026",
     message: "Platform credential intake is unavailable.",
   },
   capabilities: {

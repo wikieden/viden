@@ -432,3 +432,59 @@ schema-1 已知 event type 集合中，因此在任何序列化 snapshot/replay 
 
 剩余客户端后续项（不被 Core 阻塞）：基于新 `AuditQuery` 字段的 D14 actor 与时间范围过滤
 chip。目前没有客户端发送 actor 或时间过滤，因为还没有让操作者做出选择的控件。
+
+## GUI-CORE-025：证据读取
+
+由 `docs/release-0.3.3-contract-design.zh-CN.md` 预留，用于已注册的
+`EvidenceView` 界面所需的分页证据读取（`QueryEvidence` / `EvidencePageLoaded`、
+`ReadEvidenceContent` / `EvidenceContentLoaded`）。由 Core 批次 C4 开启并关闭；
+此处占位以免该编号被其他请求占用。
+
+## GUI-CORE-026：平台凭据录入
+
+`RuntimeCommand::StoreCredentialHandle` 已存在，并要求一个
+`credential_request_id`，但没有任何路径会发布它。`CredentialRequestId` 被文档化
+为「不透明、一次性」，只在受信本地宿主边界内铸造，而 schema 1 没有暴露任何暂存
+密钥并返回该 id 的 command、event 或宿主接口。GUI 若要填上该字段，只能在客户端
+接收原始密钥并自行铸造 id——这会把密钥字节放进前端，并伪造一个 Core 从未签发的
+身份。
+
+因此 D11 将 `credentialIngress` 投影为 `available: false` 并标注本编码，且在构造
+任何命令之前就拒绝 `D11Intent::StoreCredentialHandle`
+（`apps/gui/src-tauri/src/adapter.rs`）。基于同一理由，Settings 不绘制各 provider
+的 API key 标记，也不绘制 add-provider 动作。
+
+当 Core 发布以下内容时，关闭此请求：一条不让密钥穿越前端边界即可返回
+`CredentialRequestId` 的暂存路径、报告其结果的事件，以及一个覆盖「暂存凭据成为
+`CredentialHandle`」与「暂存被拒绝」两种情形的规范 `frontend-contract-v1`
+fixture。
+
+## 已退役的前登记编码
+
+`GUI-CORE-001` 到 `GUI-CORE-007` 早于本登记册，本册从 008 开始。它们从来不是这里
+的条目，因此投影引用其中之一时，读者无从查证。它们的去向：
+
+| 退役编码 | 原含义 | 今天 |
+| --- | --- | --- |
+| `GUI-CORE-001` | typed project intake、config preview/confirm、masked credential handles | 项目接入已交付；凭据部分为 GUI-CORE-026 |
+| `GUI-CORE-002` | lane lifecycle commands 与 starter-lane 创建 | 已交付；D4 与 starter-lane 路径发送 Core 命令 |
+| `GUI-CORE-003` | 结构化连接与 lane 恢复事实 | 大部分已交付；保留为 schema 1 未建模的 D6 动作所**渲染**的 fail-closed 编码，其开放请求是 GUI-CORE-018（checkpoint）与 GUI-CORE-019（Always / Edit） |
+| `GUI-CORE-004` | 稳定的 append-only 审计时间线 | 已交付；以 GUI-CORE-014 与 GUI-CORE-024 关闭 |
+| `GUI-CORE-005` | 偏好设置的变更与持久化 | 已作为 `ui.preference_persistence` capability 交付 |
+| `GUI-CORE-006` | 结构化 diff / test / apply / conflict / retry 事实 | 已拆分：diff 为 GUI-CORE-012，冲突内容为 GUI-CORE-015，操作者 apply 与 commit 为 GUI-CORE-020；check run 已交付 |
+| `GUI-CORE-007` | 分页的 recent project / session 历史 | 已作为 `runtime.recent_work` capability 交付 |
+
+`GUI-CORE-003` 是唯一仍由生产投影发出的编码。这是刻意的，并记录在 GUI-CORE-018 与
+GUI-CORE-019 中：这两条条目点名它为「动作背后的能力缺失期间 GUI 渲染的编码」。其余
+投影现在都引用上表之后的条目。
+
+## 客户端本地原因编码
+
+并非每个不可用控件都是 Core 缺口。客户端因自身理由拒绝提供的控件，携带屏幕作用域的
+编码且不带 `GUI-CORE-` 前缀，以便读者一眼分辨契约请求与本地规则。
+
+| 编码 | 位置 | 含义 |
+| --- | --- | --- |
+| `D1-OWNER-CARDINALITY` | `apps/gui/src-tauri/src/d1.rs`，在 D1 驾驶舱投影中使用 | 选中 Lane 携带了多于一个精确 runtime owner binding。Core 的 reducer 对每个 Lane 最多保留一个，因此这是客户端拒绝渲染的视图——它转入 snapshot/replay 恢复而不是挑一个 owner——而不是 Core 尚欠的事实。 |
+| `D2-REVIEW-SETTLED` | `apps/gui/src-tauri/src/d2.rs` | Core 已记录该评审的裁决；`DecideReview` 只对 `Pending` 评审裁决一次。 |
+| `D2-NO-REVIEWER-ACTOR` | `apps/gui/src-tauri/src/d2.rs` | 从该评审的已发布事实中，推导不出 `validate_review_decider` 会接受的 actor。 |

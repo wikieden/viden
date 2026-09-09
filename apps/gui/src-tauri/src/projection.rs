@@ -15,17 +15,17 @@ use viden_core::{
 };
 
 use crate::d1::{
-    D1_OWNER_CAPABILITY, D1AgentAdapterProjection, D1AgentConversationMessageProjection,
-    D1AgentSessionProjection, D1ApprovalProjection, D1ChecklistItemProjection, D1CockpitProjection,
-    D1ComposerProjection, D1ContentPartProjection, D1ContextDockProjection,
-    D1ContextUsageProjection, D1CostUsageProjection, D1CursorProjection, D1EnvironmentProjection,
-    D1EvidenceProjection, D1LaneAgentProjection, D1LaneProjection, D1LiveWorkProjection,
-    D1ProviderHealthProjection, D1QueuedInputProjection, D1RuntimeServiceProjection,
-    D1StarterLanePreviewProjection, D1StarterLaneReceiptProjection, D1StatusbarContextProjection,
-    D1StatusbarLaneProjection, D1StatusbarLatencyProjection, D1StatusbarProjection,
-    D1StatusbarRequestsProjection, D1StatusbarTokensProjection, D1TaskProjection, D1ToolProjection,
-    D1TopbarSourceProjection, D1TranscriptRowProjection, D1WorkspaceEligibilityProjection,
-    D1WorkspaceSourceProjection, unavailable_features,
+    D1_OWNER_CAPABILITY, D1_OWNER_CARDINALITY_CODE, D1AgentAdapterProjection,
+    D1AgentConversationMessageProjection, D1AgentSessionProjection, D1ApprovalProjection,
+    D1ChecklistItemProjection, D1CockpitProjection, D1ComposerProjection, D1ContentPartProjection,
+    D1ContextDockProjection, D1ContextUsageProjection, D1CostUsageProjection, D1CursorProjection,
+    D1EnvironmentProjection, D1EvidenceProjection, D1LaneAgentProjection, D1LaneProjection,
+    D1LiveWorkProjection, D1ProviderHealthProjection, D1QueuedInputProjection,
+    D1RuntimeServiceProjection, D1StarterLanePreviewProjection, D1StarterLaneReceiptProjection,
+    D1StatusbarContextProjection, D1StatusbarLaneProjection, D1StatusbarLatencyProjection,
+    D1StatusbarProjection, D1StatusbarRequestsProjection, D1StatusbarTokensProjection,
+    D1TaskProjection, D1ToolProjection, D1TopbarSourceProjection, D1TranscriptRowProjection,
+    D1WorkspaceEligibilityProjection, D1WorkspaceSourceProjection, unavailable_features,
 };
 use crate::d2::{
     D2_KIND_CONTRACT, D2_KIND_GATE, D2_KIND_REVIEW, D2ActionProjection, D2ContextProjection,
@@ -1133,9 +1133,14 @@ impl RuntimeProjection {
                     message: "Core did not publish runtime.recent_work; recent history is unavailable.",
                 }
             },
+            // Core carries `StoreCredentialHandle`, but it takes a
+            // `CredentialRequestId` that only a trusted staging path can mint,
+            // and schema 1 publishes no such path. The GUI must not take the
+            // raw secret itself, so the row stays unavailable under the
+            // register entry that asks for it.
             credential_ingress: D11AvailabilityProjection {
                 available: false,
-                code: "GUI-CORE-001",
+                code: "GUI-CORE-026",
                 message: "Platform credential intake is unavailable.",
             },
             capabilities: D11CapabilityProjection {
@@ -1466,9 +1471,17 @@ impl RuntimeProjection {
         let recovery = if supports_owner && exact_owner_count > 1 {
             // An ambiguous execution identity is not renderable. Enter the
             // existing snapshot/replay recovery path instead of choosing one.
+            //
+            // This is a client-local defence, not a Core contract request, so
+            // it carries a `D1-` code rather than a `GUI-CORE-` one: the
+            // reducer already admits at most one `LaneRuntimeOwnerBinding` per
+            // Lane (`RuntimeViewState::apply` ignores a second binding for a
+            // lane that already has one), so a view holding two is a view this
+            // client should not trust rather than a fact Core has yet to
+            // publish.
             self.d6_recovery(
                 D6ConnectionState::Recovering,
-                Some("GUI-CORE-D1-OWNER-CARDINALITY"),
+                Some(D1_OWNER_CARDINALITY_CODE),
                 true,
             )?
         } else {

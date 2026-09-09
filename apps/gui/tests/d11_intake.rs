@@ -308,7 +308,7 @@ fn credential_handle_intent_is_disabled_without_a_secure_ingress_receipt() {
         )
         .expect_err("credential storage must remain disabled");
 
-    assert!(error.contains("GUI-CORE-001"));
+    assert!(error.contains("GUI-CORE-026"));
     assert!(sent.lock().expect("sent command lock").is_empty());
 }
 

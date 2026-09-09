@@ -186,12 +186,12 @@ density、两套 catalog 和 reduced-motion 行为仍由自动化测试覆盖。
 配置 rail 只渲染 Core 返回的 `viden.toml` 精确复核内容，confirm 的 preview id 与 SHA
 也从当前 Core projection 复制。Credential 行只显示 masked handle。由于尚无
 frontend-safe 平台 credential staging channel，raw credential 输入与 webview
-`StoreCredentialHandle` 路径以 `GUI-CORE-001` 明确禁用。D11 的历史面板现与下文的
+`StoreCredentialHandle` 路径以 `GUI-CORE-026` 明确禁用。D11 的历史面板现与下文的
 Welcome 中心和项目选择器渲染同一份 Core `QueryRecentWork` 清单，以
 `runtime.recent_work` capability 为门（旧的 `GUI-CORE-007` 临时文案已退役）；
 这些界面都不扫描 local storage、JSONL 或 SQLite。
 project switching 现通过 Core-owned `LocalCoreHost::open_workspace` 完成；
-安全 raw credential staging 仍是 `GUI-CORE-001` 的未完成部分。
+安全 raw credential staging 仍是 `GUI-CORE-026` 的未完成部分。
 
 ## D1 流式驾驶舱
 
@@ -285,7 +285,7 @@ CLI 标识符，以及一行说明——从同一个 `statusbar.permissionLevel`
 工作目录行写明 Core 打开的工作区根目录。
 
 设计在这两节里画出、而此处刻意留白（而非伪造）的元素有三处：新增 provider 动作与
-各 provider 的 API key 标记（凭据仍属 GUI-CORE-001 残留范围）、Requests 卡片
+各 provider 的 API key 标记（凭据仍属 GUI-CORE-026 范围）、Requests 卡片
 （`request_timeout_secs`、`max_retries`、`provider_plugin_dirs` 在
 `frontend-contract-v1` 中没有对应的 Core 命令），以及权限规则预览框与可编辑的
 “额外工作目录”字段（Core 既不发布规则表，也没有范围命令）。每处留白都在代码注释
@@ -334,8 +334,10 @@ Transcript 最多保留 240 行。离开最新输出边缘后会设为 `follow_l
 dark/regular 英文、Ice light/regular 英文、Aurora dark/regular 中文、compact density
 和 responsive drawer 状态，并包含一个由 `d1-main-cockpit.json` 填充的独立同状态设计
 reference。它还包含一个补充 Context Dock bottom-state capture，用于证明下方事实可通过内部
-滚动到达。Diff、apply、audit 与未类型化 recovery actions 始终是明确 unavailable facts；D1
-不会伪造成功占位。
+滚动到达。结构化 diff 行（`GUI-CORE-012`）、操作者 apply 与 commit（`GUI-CORE-020`）、
+checkpoint 捕获与恢复（渲染为 `GUI-CORE-003`，契约请求 `GUI-CORE-018`）始终是明确
+unavailable facts；D1 不会伪造成功占位。`audit` 行已移除：Core 的审计时间线已关闭该缺口，
+再保留该行只会是关于 Core 的过期陈述，而不是事实。
 
 ## 项目、最近工作与分组侧栏
 

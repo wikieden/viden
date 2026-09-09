@@ -393,7 +393,7 @@ export function renderSettingsPanel(
   // The design's section 1 also draws an add-provider action, per-provider API
   // key chips, and a Requests card (`request_timeout_secs`, `max_retries`,
   // `provider_plugin_dirs`). None are drawn here: credentials stay
-  // GUI-CORE-001-residual territory, and the request knobs have no Core
+  // GUI-CORE-026 territory, and the request knobs have no Core
   // command in `frontend-contract-v1`. Absence is honest; a dead control is not.
   if ((controls?.groups.length ?? 0) === 0) {
     const empty = document.createElement("p");

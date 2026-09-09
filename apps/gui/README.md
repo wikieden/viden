@@ -220,13 +220,13 @@ The config rail renders only Core's exact reviewed `viden.toml` contents, and
 confirmation copies the preview id and SHA from the current Core projection.
 Credential rows contain masked handles only. Because no frontend-safe platform
 credential staging channel exists, raw credential entry and the webview
-`StoreCredentialHandle` path are disabled with `GUI-CORE-001`. D11's history
+`StoreCredentialHandle` path are disabled with `GUI-CORE-026`. D11's history
 panel renders the same Core `QueryRecentWork` inventory as the Welcome centre
 and the project picker described below, gated on the `runtime.recent_work`
 capability (the old `GUI-CORE-007` stopgap is retired); none of these surfaces
 scan local storage, JSONL, or SQLite. Project switching now uses the Core-owned
 `LocalCoreHost::open_workspace` boundary; secure raw credential staging remains
-the outstanding `GUI-CORE-001` part.
+the outstanding `GUI-CORE-026` part.
 
 ## D1 streaming cockpit
 
@@ -363,7 +363,7 @@ Core opened.
 
 Three elements the design draws in those sections are deliberately absent
 rather than faked: the add-provider action and per-provider API-key chips
-(credentials remain GUI-CORE-001-residual territory), the Requests card
+(credentials remain GUI-CORE-026 territory), the Requests card
 (`request_timeout_secs`, `max_retries`, `provider_plugin_dirs` have no Core
 command in `frontend-contract-v1`), and the permission Rules preview box plus
 the editable additional-working-directories field (Core publishes neither a
@@ -435,9 +435,13 @@ Aurora dark/regular English, Ice light/regular English, Aurora dark/regular
 Chinese, compact density, responsive drawer states, and an independent
 same-state design reference populated from `d1-main-cockpit.json`. It also
 includes a supplemental Context Dock bottom-state capture that proves lower
-facts are reachable by internal scrolling. Diff, apply, audit, and untyped
-recovery actions remain explicit unavailable facts; D1 never fabricates a
-successful placeholder.
+facts are reachable by internal scrolling. Structured diff rows
+(`GUI-CORE-012`), operator apply and commit (`GUI-CORE-020`), and checkpoint
+capture and restore (rendered as `GUI-CORE-003`, contract request
+`GUI-CORE-018`) remain explicit unavailable facts; D1 never fabricates a
+successful placeholder. The `audit` row is gone: Core's audit timeline closed
+that gap, and a dock row claiming otherwise would be a stale statement about
+Core rather than a fact.
 
 ## Projects, recent work, and the grouped rail
 

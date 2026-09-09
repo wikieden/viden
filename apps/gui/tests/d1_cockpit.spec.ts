@@ -182,7 +182,9 @@ describe("D1 canonical streaming cockpit", () => {
     expect(transcript?.getAttribute("aria-busy")).toBe("true");
     expect(root.querySelector('[aria-label="Environment"]')?.textContent).toContain("deepseek");
     expect(root.querySelector('[aria-label="Live Work"]')?.textContent).toContain("cargo");
-    expect(root.querySelectorAll('[data-unavailable-feature]')).toHaveLength(4);
+    // Three, not four: the `audit` row went away when Core published the audit
+    // timeline, and the dock never renders a gap Core has already closed.
+    expect(root.querySelectorAll('[data-unavailable-feature]')).toHaveLength(3);
     expect(document.activeElement).toBe(root.querySelector("[data-composer]"));
   });
 

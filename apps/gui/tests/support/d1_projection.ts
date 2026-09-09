@@ -151,9 +151,13 @@ export const D1_PROJECTION: D1CockpitProjection = {
     actions: [],
   },
   unavailableFeatures: [
-    { id: "diff", available: false, code: "GUI-CORE-006", message: "Diff is unavailable." },
-    { id: "apply", available: false, code: "GUI-CORE-006", message: "Apply is unavailable." },
-    { id: "audit", available: false, code: "GUI-CORE-004", message: "Audit is unavailable." },
-    { id: "recovery", available: false, code: "GUI-CORE-003", message: "Recovery is unavailable." },
+    { id: "diff", available: false, code: "GUI-CORE-012", message: "Diff is unavailable." },
+    { id: "apply", available: false, code: "GUI-CORE-020", message: "Apply is unavailable." },
+    {
+      id: "recovery",
+      available: false,
+      code: "GUI-CORE-003",
+      message: "Checkpoint capture and restore are unavailable.",
+    },
   ],
 };

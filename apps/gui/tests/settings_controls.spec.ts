@@ -258,7 +258,7 @@ describe("settings provider and models section", () => {
   test("ships no add-provider action and no credential field", () => {
     const { panel } = mount();
 
-    // Credentials are GUI-CORE-001-residual territory and the design's request
+    // Credentials are GUI-CORE-026 territory and the design's request
     // knobs have no Core contract, so neither may be drawn here.
     expect(panel.querySelector("[data-settings-add-provider]")).toBeNull();
     expect(panel.querySelector("input[type='password']")).toBeNull();

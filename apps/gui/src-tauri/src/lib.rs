@@ -25,14 +25,15 @@ use std::{env, ffi::OsString, path::Path};
 pub use adapter::{D11Intent, D11IntentResult, GuiCoreAdapter, open_local_workspace};
 pub use agent_content::{agent_content_data_url, resolve_agent_content_reference};
 pub use d1::{
-    ComposerControlIntent, D1_OWNER_CAPABILITY, D1AgentSessionInputProjection,
-    D1AgentSessionProjection, D1ChecklistItemProjection, D1CockpitProjection,
-    D1ContentPartProjection, D1ContextDockProjection, D1ContextUsageProjection,
-    D1CostUsageProjection, D1CursorProjection, D1Intent, D1IntentResult, D1LaneAgentProjection,
-    D1OutcomeProjection, D1ProviderHealthProjection, D1RuntimeServiceProjection,
-    D1StarterLaneReceiptProjection, D1StatusbarContextProjection, D1StatusbarLaneProjection,
-    D1StatusbarLatencyProjection, D1StatusbarProjection, D1StatusbarRequestsProjection,
-    D1StatusbarTokensProjection, D1TopbarSourceProjection, D1WorkspaceSourceProjection,
+    ComposerControlIntent, D1_OWNER_CAPABILITY, D1_OWNER_CARDINALITY_CODE,
+    D1AgentSessionInputProjection, D1AgentSessionProjection, D1ChecklistItemProjection,
+    D1CockpitProjection, D1ContentPartProjection, D1ContextDockProjection,
+    D1ContextUsageProjection, D1CostUsageProjection, D1CursorProjection, D1Intent, D1IntentResult,
+    D1LaneAgentProjection, D1OutcomeProjection, D1ProviderHealthProjection,
+    D1RuntimeServiceProjection, D1StarterLaneReceiptProjection, D1StatusbarContextProjection,
+    D1StatusbarLaneProjection, D1StatusbarLatencyProjection, D1StatusbarProjection,
+    D1StatusbarRequestsProjection, D1StatusbarTokensProjection, D1TopbarSourceProjection,
+    D1WorkspaceSourceProjection,
 };
 pub use d2::{
     D2_KIND_CONTRACT, D2_KIND_GATE, D2_KIND_REVIEW, D2_REVIEW_FEEDBACK_MAX_CHARS,
