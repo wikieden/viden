@@ -1,3 +1,4 @@
+import { renderDiffFiles } from "./diff_rows";
 import type { Locale } from "../i18n/catalog";
 import { translate } from "../i18n/catalog";
 import type { ChecklistItemProjection, D1CockpitProjection } from "../models/workspace";
@@ -41,14 +42,22 @@ export function appendTypedWorkCards(
       card.setAttribute("aria-label", translate(locale, "d1.workspaceChange", {}));
       const heading = document.createElement("header");
       heading.textContent = `${item.label} · ${localizedStatus(locale, item.status)}`;
-      const patch = document.createElement("pre");
-      if (item.patch) {
-        patch.textContent = item.patch;
+      card.append(heading);
+      if (item.diff) {
+        // Core published typed rows for this change. `patch` carries the same
+        // computation as opaque text, so exactly one of them is drawn —
+        // printing both would read as two separate changes (GUI-CORE-012).
+        renderDiffFiles(card, item.diff.files, locale);
       } else {
-        patch.dataset.typedEmpty = "workspace-change-patch";
-        patch.textContent = translate(locale, "d1.workspaceChange.emptyPatch", {});
+        const patch = document.createElement("pre");
+        if (item.patch) {
+          patch.textContent = item.patch;
+        } else {
+          patch.dataset.typedEmpty = "workspace-change-patch";
+          patch.textContent = translate(locale, "d1.workspaceChange.emptyPatch", {});
+        }
+        card.append(patch);
       }
-      card.append(heading, patch);
       if (item.additions !== null && item.deletions !== null) {
         const stats = document.createElement("p");
         stats.className = "d1-work-card-meta";

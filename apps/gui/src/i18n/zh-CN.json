@@ -223,6 +223,7 @@
   "d1.palette.action.focusComposer": "聚焦输入框",
   "d1.palette.action.cancelTurn": "取消进行中的轮次",
   "d1.palette.action.openSettings": "打开设置",
+  "d1.permission.computedAgainst": "\u9884\u89c8\u57fa\u4e8e {hash} \u8ba1\u7b97",
   "d1.review.region": "\u53d8\u66f4\u8bc4\u5ba1",
   "d1.review.title": "\u53d8\u66f4",
   "d1.review.count": "{files} \u4e2a\u6587\u4ef6 \u00b7 +{additions} \u2212{deletions}",

@@ -282,3 +282,21 @@
   outline: 2px solid var(--border-active);
   outline-offset: 2px;
 }
+
+/* Core's decision context rows, below the input preview (GUI-CORE-012). */
+.d2-decision-context {
+  margin-top: var(--sp-2);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-sm);
+  background: var(--bg-base);
+  max-height: 260px;
+  overflow: auto;
+}
+
+.d2-decision-base {
+  margin: 0;
+  padding: var(--sp-2) var(--sp-3);
+  border-bottom: 1px solid var(--border-soft);
+  color: var(--fg-muted);
+  font: var(--fs-xs)/var(--lh-ui) var(--font-mono);
+}

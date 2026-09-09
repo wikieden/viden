@@ -229,6 +229,7 @@ export const MESSAGE_ARGUMENT_NAMES = {
   "d1.palette.action.focusComposer": [],
   "d1.palette.action.cancelTurn": [],
   "d1.palette.action.openSettings": [],
+  "d1.permission.computedAgainst": ["hash"],
   "d1.review.region": [],
   "d1.review.title": [],
   "d1.review.count": ["additions", "deletions", "files"],

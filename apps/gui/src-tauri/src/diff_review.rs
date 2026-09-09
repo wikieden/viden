@@ -81,6 +81,45 @@ pub struct DiffFileProjection {
     pub hunks: Vec<DiffHunkProjection>,
 }
 
+/// A parsed unified diff over one or more files.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiffDocumentProjection {
+    pub files: Vec<DiffFileProjection>,
+    /// At least one file lost its rows to [`Self::byte_limit`].
+    pub truncated: bool,
+    /// The bound the document was built under, published so the frontend can
+    /// state the limit rather than guess it.
+    pub byte_limit: u32,
+}
+
+/// What Core knows about the change an approval would make.
+///
+/// Present only for the three proposals Core can preview without running
+/// anything: `edit_file`, `write_file`, and the trust loop's
+/// `MergeAgentPatch`. Every other tool — `shell` and the `git_*` family
+/// included — carries none, because Core cannot predict an external process's
+/// effect without executing it, and the dock keeps rendering `input_preview`
+/// verbatim there.
+///
+/// Stated limitation, carried rather than hidden: the preview is computed at
+/// approval time and execution later runs the proposed tool input against
+/// whatever the file holds then. [`Self::base_sha256`] is what lets a client
+/// or an audit reader detect a file that moved in between; Core does not
+/// re-check before execution in `0.3.3`.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DecisionContextProjection {
+    /// `None` means Core attached a context but computed no diff for it —
+    /// never "no change". The frontend then keeps the preview alone.
+    pub diff: Option<DiffDocumentProjection>,
+    /// SHA-256 of the bytes a single-file preview was computed against.
+    /// Absent for a multi-file patch — one hash cannot describe several files,
+    /// and naming one would invite a client to verify the wrong one — and for
+    /// a file Core could not read.
+    pub base_sha256: Option<String>,
+}
+
 /// One changed path in a `WorkspaceDiffPage`.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]

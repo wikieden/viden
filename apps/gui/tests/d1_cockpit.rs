@@ -135,10 +135,12 @@ fn canonical_d1_projects_cockpit_regions_only_from_the_core_view() {
             .collect::<Vec<_>>(),
         // `audit` is deliberately absent: Core's append-only audit timeline
         // closed GUI-CORE-014 and GUI-CORE-024, so D1 no longer declares it
-        // missing. Every remaining code must name an open register entry or a
-        // documented client-local reason.
+        // missing. `diff` is absent for the same reason as of
+        // `runtime.structured_diff`, which this fixture's Core advertises:
+        // the row said Core publishes only an opaque patch string, and that
+        // stopped being true. Every remaining code must name an open register
+        // entry or a documented client-local reason.
         vec![
-            "diff",
             "apply",
             "recovery",
             "transcript_user",

@@ -1,4 +1,5 @@
 import type { Locale } from "../i18n/catalog";
+import type { DiffDocumentProjection } from "./diff_review";
 import type { D1TranscriptRow } from "./transcript";
 
 export type PermissionChoice =
@@ -28,6 +29,24 @@ export interface PermissionDockProjection {
     defaultAction: string;
     auditId: string;
     blockedByPlan: boolean;
+    /**
+     * What Core knows about the change this approval would make
+     * (`runtime.structured_diff`, GUI-CORE-012).
+     *
+     * `null` for every approval Core attached no context to — the ordinary
+     * case for `shell` and the `git_*` family, which Core cannot preview
+     * without running them. The dock then renders `inputPreview` alone, with
+     * the exact wording it has always had.
+     */
+    decisionContext?: {
+      /** `null` means Core computed no diff — never "no change". */
+      diff: DiffDocumentProjection | null;
+      /**
+       * SHA-256 of the bytes a single-file preview was computed against.
+       * `null` for a multi-file patch: one hash cannot describe several files.
+       */
+      baseSha256: string | null;
+    } | null;
     actions: Array<{
       kind: PermissionChoice;
       available: boolean;
@@ -171,6 +190,12 @@ export interface ChecklistItemProjection {
   summary: string | null;
   /** Typed WorkspaceChange patch; absent facts must render as unavailable. */
   patch?: string | null;
+  /**
+   * The same change as typed rows, when Core published them. Two views of one
+   * Core computation, so exactly one of them is drawn: the rows when they
+   * exist, the patch string otherwise.
+   */
+  diff?: DiffDocumentProjection | null;
   failingLocation: string | null;
   additions: number | null;
   deletions: number | null;

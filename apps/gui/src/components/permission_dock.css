@@ -31,3 +31,30 @@
   outline: 2px solid var(--accent-bright);
   outline-offset: 2px;
 }
+
+/*
+ * Core's decision context (GUI-CORE-012). It sits below the input preview
+ * inside `.gperm-what`, so the operator reads the tool input Core received and
+ * then the change it would make, in that order.
+ */
+.gperm-diff {
+  margin-top: var(--sp-2);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-sm);
+  background: var(--bg-base);
+  max-height: 220px;
+  overflow: auto;
+}
+
+/*
+ * The preimage note. Muted on purpose: it is a fact that lets a reader detect
+ * a file that moved between preview and execution, not a guarantee that none
+ * did.
+ */
+.gperm-diff-base {
+  margin: 0;
+  padding: var(--sp-2) var(--sp-3);
+  border-bottom: 1px solid var(--border-soft);
+  color: var(--fg-muted);
+  font: var(--fs-xs)/var(--lh-ui) var(--font-mono);
+}

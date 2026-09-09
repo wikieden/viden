@@ -6,13 +6,13 @@ use viden_core::{
     AgentSessionStatus, AgentStartability, AgentTaskStatus, ApprovalDefaultAction,
     ApprovalRequestView, ApprovalRisk, ApprovalScope, AuditObjectRef, COCKPIT_CONTEXT_CAPABILITY,
     CheckRunStatus, ConflictBounceStatus, ContextScope, ContractDecision, ContractRecord,
-    CostMeterability, CredentialHandle, DependencyState, DiffFile, DiffHunk, DiffLine,
-    DiffLineKind, EventCursor, GateStrength, LaneStatus, LocaleId, MergeGateRecord,
-    MergeGateStatus, MergeGateType, MutationPolicy, ProjectConfigPreview, ProjectProbe,
-    ProviderHealthView, ReviewRequestRecord, ReviewRequestStatus, RuntimeOwner, RuntimeServiceKind,
-    RuntimeServiceStatus, RuntimeSnapshotEnvelope, RuntimeViewState, SourceTarget, UiColorMode,
-    UiDensity, UiMotion, UiSkin, WorkMode, WorkspaceChangeKind, WorkspaceDiffEntry,
-    WorkspaceSourceStatus, WorkspaceSourceView,
+    CostMeterability, CredentialHandle, DecisionContext, DependencyState, DiffDocument, DiffFile,
+    DiffHunk, DiffLine, DiffLineKind, EventCursor, GateStrength, LaneStatus, LocaleId,
+    MergeGateRecord, MergeGateStatus, MergeGateType, MutationPolicy, ProjectConfigPreview,
+    ProjectProbe, ProviderHealthView, ReviewRequestRecord, ReviewRequestStatus, RuntimeOwner,
+    RuntimeServiceKind, RuntimeServiceStatus, RuntimeSnapshotEnvelope, RuntimeViewState,
+    SourceTarget, UiColorMode, UiDensity, UiMotion, UiSkin, WorkMode, WorkspaceChangeKind,
+    WorkspaceDiffEntry, WorkspaceSourceStatus, WorkspaceSourceView,
 };
 
 use crate::d1::{
@@ -45,7 +45,8 @@ use crate::d13::{
     D13WorkflowProjection,
 };
 use crate::diff_review::{
-    DiffFileProjection, DiffHunkProjection, DiffLineProjection, WorkspaceDiffEntryProjection,
+    DecisionContextProjection, DiffDocumentProjection, DiffFileProjection, DiffHunkProjection,
+    DiffLineProjection, WorkspaceDiffEntryProjection,
 };
 use crate::{
     D6ActionProjection, D6ConnectionState, D6RecoveryProjection, D6State,
@@ -360,6 +361,9 @@ impl RuntimeProjection {
                     },
                     audit_id: approval.audit_id.clone(),
                     blocked_by_plan,
+                    decision_context: decision_context_projection(
+                        approval.decision_context.as_ref(),
+                    ),
                     actions,
                 }
             });
@@ -485,6 +489,7 @@ impl RuntimeProjection {
                 code: None,
             });
 
+            let decision_context = decision_context_projection(approval.decision_context.as_ref());
             return Some(D2DetailProjection {
                 id: approval.id.clone(),
                 kind: D2_KIND_GATE.to_string(),
@@ -502,13 +507,19 @@ impl RuntimeProjection {
                 context: D2ContextProjection {
                     source: "approval_input_preview",
                     text: approval.input_preview.clone(),
-                    // The design shows line-level diff rows. Schema 1 carries
-                    // only this opaque preview, so the rows stay unavailable.
-                    unavailable: Some(D2UnavailableProjection {
-                        key: "d2.context.noStructuredDiff",
-                        code: "GUI-CORE-012",
-                    }),
+                    // The marker is a claim about Core, so it stands only
+                    // while Core really published no rows for this approval.
+                    // Core may legitimately produce none — `shell` and the
+                    // `git_*` family never carry a context — and the preview
+                    // stays the whole context there.
+                    unavailable: decision_context
+                        .is_none()
+                        .then_some(D2UnavailableProjection {
+                            key: "d2.context.noStructuredDiff",
+                            code: "GUI-CORE-012",
+                        }),
                 },
+                decision_context,
                 evidence: owner_evidence(view, approval.owner.lane_id.as_deref()),
                 actions,
             });
@@ -550,6 +561,7 @@ impl RuntimeProjection {
                 )),
                 policy_reason_key: None,
                 blocked_by_plan,
+                decision_context: None,
                 context: D2ContextProjection {
                     source: "review_request",
                     text: review.gate_id.clone(),
@@ -598,6 +610,7 @@ impl RuntimeProjection {
             )),
             policy_reason_key: None,
             blocked_by_plan,
+            decision_context: None,
             context: D2ContextProjection {
                 source: "contract_summary",
                 text: contract.summary.clone(),
@@ -1201,6 +1214,10 @@ impl RuntimeProjection {
             .capabilities
             .iter()
             .any(|capability| capability.0 == COCKPIT_CONTEXT_CAPABILITY);
+        let supports_structured_diff = confirmed
+            .capabilities
+            .iter()
+            .any(|capability| capability.0 == crate::STRUCTURED_DIFF_CAPABILITY);
         // Native turns publish `turn_id`; typed ACP attempts publish an exact,
         // owner-scoped session status. Both are Core facts, unlike the broad
         // Lane lifecycle state, so either may prove that the composer must queue.
@@ -1286,6 +1303,7 @@ impl RuntimeProjection {
                     path: Some(change.path.clone()),
                     summary: None,
                     patch: change.patch.clone(),
+                    diff: change.diff.as_ref().map(diff_document_projection),
                     failing_location: None,
                     additions: Some(change.additions),
                     deletions: Some(change.deletions),
@@ -1304,6 +1322,9 @@ impl RuntimeProjection {
                         path: None,
                         summary: Some(check.summary.clone()),
                         patch: None,
+                        // A check run is not a file change; Core publishes no
+                        // rows for one and none are invented here.
+                        diff: None,
                         failing_location: check.failing_location.clone(),
                         additions: None,
                         deletions: None,
@@ -1693,7 +1714,7 @@ impl RuntimeProjection {
                 None => self.empty_permission_dock()?,
             },
             recovery,
-            unavailable_features: unavailable_features(),
+            unavailable_features: unavailable_features(supports_structured_diff),
         })
     }
 }
@@ -2533,6 +2554,27 @@ pub(crate) fn diff_file_projection(file: &DiffFile) -> DiffFileProjection {
         deletions: file.deletions,
         hunks: file.hunks.iter().map(diff_hunk_projection).collect(),
     }
+}
+
+pub(crate) fn diff_document_projection(document: &DiffDocument) -> DiffDocumentProjection {
+    DiffDocumentProjection {
+        files: document.files.iter().map(diff_file_projection).collect(),
+        truncated: document.truncated,
+        byte_limit: document.byte_limit,
+    }
+}
+
+/// Projects an approval's decision context.
+///
+/// Returns `None` for an approval Core attached none to, which keeps the
+/// preview-only path exactly where Core published nothing.
+pub(crate) fn decision_context_projection(
+    context: Option<&DecisionContext>,
+) -> Option<DecisionContextProjection> {
+    context.map(|context| DecisionContextProjection {
+        diff: context.diff.as_ref().map(diff_document_projection),
+        base_sha256: context.base_sha256.clone(),
+    })
 }
 
 pub(crate) fn workspace_diff_entry_projection(

@@ -64,6 +64,15 @@ export interface DiffFileProjection {
   hunks: DiffHunkProjection[];
 }
 
+/** A parsed unified diff over one or more files. */
+export interface DiffDocumentProjection {
+  files: DiffFileProjection[];
+  /** At least one file lost its rows to `byteLimit`. */
+  truncated: boolean;
+  /** The bound Core built the document under, so the client states it. */
+  byteLimit: number;
+}
+
 export interface WorkspaceDiffEntryProjection {
   path: string;
   /** `HEAD` vs index. Null means the index matches `HEAD` there. */

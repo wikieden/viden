@@ -61,6 +61,13 @@ pub struct PermissionRequestProjection {
     pub default_action: &'static str,
     pub audit_id: String,
     pub blocked_by_plan: bool,
+    /// What Core knows about the change this approval would make
+    /// (`runtime.structured_diff`, GUI-CORE-012).
+    ///
+    /// `None` for every approval Core attached no context to, which is the
+    /// ordinary case: the dock then keeps rendering `input_preview` verbatim
+    /// rather than an empty diff.
+    pub decision_context: Option<crate::diff_review::DecisionContextProjection>,
     pub actions: Vec<PermissionActionProjection>,
 }
 

@@ -223,6 +223,7 @@
   "d1.palette.action.focusComposer": "Focus the composer",
   "d1.palette.action.cancelTurn": "Cancel the running turn",
   "d1.palette.action.openSettings": "Open settings",
+  "d1.permission.computedAgainst": "Preview computed against {hash}",
   "d1.review.region": "Change review",
   "d1.review.title": "Changes",
   "d1.review.count": "{files} files \u00b7 +{additions} \u2212{deletions}",

@@ -124,6 +124,10 @@ pub struct D1ChecklistItemProjection {
     pub path: Option<String>,
     pub summary: Option<String>,
     pub patch: Option<String>,
+    /// The same change as typed rows, when Core published them
+    /// (`runtime.structured_diff`). `patch` stays beside it: the two are two
+    /// views of one Core computation, never two independent ones.
+    pub diff: Option<crate::diff_review::DiffDocumentProjection>,
     pub failing_location: Option<String>,
     pub additions: Option<u32>,
     pub deletions: Option<u32>,
@@ -548,14 +552,21 @@ pub struct D1IntentResult {
 /// A row here is a claim about Core, so it is removed the moment the fact
 /// arrives rather than left standing as a stale sentence, and it never cites a
 /// code the register does not carry.
-pub(crate) fn unavailable_features() -> Vec<D1UnavailableFeatureProjection> {
-    vec![
-        D1UnavailableFeatureProjection {
+pub(crate) fn unavailable_features(structured_diff: bool) -> Vec<D1UnavailableFeatureProjection> {
+    let mut features = Vec::new();
+    // `diff` was unconditional until Core published `runtime.structured_diff`.
+    // The row is a claim about Core — "Core publishes an opaque patch string"
+    // — so it is dropped the moment that stops being true, and it stays for a
+    // Core that really does publish only the patch string.
+    if !structured_diff {
+        features.push(D1UnavailableFeatureProjection {
             id: "diff",
             available: false,
             code: "GUI-CORE-012",
             message: "Structured diff rows are unavailable; Core publishes an opaque patch string.",
-        },
+        });
+    }
+    features.extend([
         D1UnavailableFeatureProjection {
             id: "apply",
             available: false,
@@ -595,5 +606,6 @@ pub(crate) fn unavailable_features() -> Vec<D1UnavailableFeatureProjection> {
         // calls, queued inputs, and evidence by exact owner equality; a fact
         // with no owner is still omitted from Lane scope, which is a property
         // of that fact rather than a missing capability.
-    ]
+    ]);
+    features
 }

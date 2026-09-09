@@ -151,6 +151,10 @@ fn d1_cockpit_fixture_projects_the_exact_committed_context_dock() {
                     "path": "crates/types/src/runtime.rs",
                     "summary": null,
                     "patch": null,
+                    // Core published no structured rows for this change on
+                    // the frozen fixture, so the field is present and null:
+                    // "Core produced no diff", never "no change".
+                    "diff": null,
                     "failingLocation": null,
                     "additions": 3,
                     "deletions": 1
@@ -164,6 +168,10 @@ fn d1_cockpit_fixture_projects_the_exact_committed_context_dock() {
                     "path": null,
                     "summary": "one assertion failed",
                     "patch": null,
+                    // Core published no structured rows for this change on
+                    // the frozen fixture, so the field is present and null:
+                    // "Core produced no diff", never "no change".
+                    "diff": null,
                     "failingLocation": "crates/types/src/tests.rs:2500",
                     "additions": null,
                     "deletions": null

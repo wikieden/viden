@@ -1,4 +1,6 @@
+import { renderDiffFiles } from "../components/diff_rows";
 import type { Locale } from "../i18n/catalog";
+import type { DiffDocumentProjection } from "../models/diff_review";
 import type { D14AuditScope } from "./d14_audit_timeline";
 import "./d2_decisions.css";
 
@@ -75,6 +77,15 @@ export interface D2Detail {
   policyReasonKey: string | null;
   blockedByPlan: boolean;
   context: D2Context;
+  /**
+   * The same Core decision context the D1 permission dock renders
+   * (GUI-CORE-012). `null` for a decision Core published none for, where the
+   * context pane keeps its unavailable marker and its preview.
+   */
+  decisionContext?: {
+    diff: DiffDocumentProjection | null;
+    baseSha256: string | null;
+  } | null;
   evidence: D2Evidence[];
   actions: D2Action[];
 }
@@ -154,6 +165,8 @@ const COPY: Record<Locale, Copy> = {
       "Core records decided contracts only; there is no pending-confirmation fact.",
     "d2.context.noStructuredDiff":
       "Core exposes an opaque input preview; structured diff rows are unavailable.",
+    computedAgainst: "computed against",
+    noDiffComputed: "Core produced no diff for this decision. This does not mean it is empty.",
     empty: "Core is holding no decision for you.",
   },
   "zh-CN": {
@@ -190,6 +203,8 @@ const COPY: Record<Locale, Copy> = {
     "GUI-CORE-013": "Core 已记录该契约的裁决，且不发布任何待确认契约。",
     "d2.contract.noPendingFact": "Core 只记录已决契约，没有「待确认」这一事实。",
     "d2.context.noStructuredDiff": "Core 只提供不透明入参预览，结构化 diff 行不可用。",
+    computedAgainst: "基于",
+    noDiffComputed: "Core 没有为该决策产出 diff。这不代表它是空的。",
     empty: "Core 当前没有等你处理的决策。",
   },
 };
@@ -345,6 +360,30 @@ export function renderD2Decisions(
     contextBody.className = "d2-context-body";
     contextBody.textContent = detail.context.text;
     context.append(contextHead, contextBody);
+    // Core's typed rows, when it published them. The preview stays above
+    // them: it is the tool input, and the rows are a preview of its effect.
+    if (detail.decisionContext) {
+      const pane = document.createElement("div");
+      pane.className = "d2-decision-context";
+      pane.dataset.d2DecisionContext = "true";
+      if (detail.decisionContext.baseSha256) {
+        const base = document.createElement("p");
+        base.className = "d2-decision-base";
+        base.dataset.decisionBase = detail.decisionContext.baseSha256;
+        base.textContent = `${label(copy, "computedAgainst")} ${detail.decisionContext.baseSha256.slice(0, 8)}`;
+        pane.append(base);
+      }
+      if (detail.decisionContext.diff) {
+        renderDiffFiles(pane, detail.decisionContext.diff.files, locale);
+      } else {
+        const note = document.createElement("p");
+        note.className = "dl note";
+        note.dataset.diffNote = "no-diff";
+        note.textContent = label(copy, "noDiffComputed");
+        pane.append(note);
+      }
+      context.append(pane);
+    }
     if (detail.context.unavailable) {
       const note = document.createElement("p");
       note.className = "d2-unavailable";

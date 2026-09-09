@@ -148,3 +148,7 @@ path = "../tests/gate_dormancy.rs"
 [[test]]
 name = "workspace_diff"
 path = "../tests/workspace_diff.rs"
+
+[[test]]
+name = "decision_context"
+path = "../tests/decision_context.rs"

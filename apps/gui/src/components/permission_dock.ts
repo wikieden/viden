@@ -1,3 +1,4 @@
+import { renderDiffFiles } from "./diff_rows";
 import { translate, type Locale, type MessageKey } from "../i18n/catalog";
 import type {
   PermissionChoice,
@@ -132,6 +133,54 @@ export function renderPermissionDock(
     `${translate(locale, "d1.permission.audit", {})}: ${request.auditId}`,
   ].join(" · ");
   facts.append(factText);
+
+  // Core's structured decision context, when it published one (GUI-CORE-012).
+  //
+  // The rows go *beside* `input_preview`, never instead of it: the preview is
+  // Core's own summary of the tool input, the rows are a preview of the effect
+  // that input would have, and an operator approving a mutation should see
+  // both. Where Core published no context — `shell` and the `git_*` family
+  // never carry one — nothing is added and the preview stands alone, with the
+  // wording it has always had.
+  const context = request.decisionContext;
+  if (context) {
+    const pane = document.createElement("div");
+    pane.className = "gperm-diff";
+    pane.dataset.decisionContext = "true";
+    if (context.baseSha256) {
+      // The preimage the preview was computed against. Stated as a note rather
+      // than a guarantee: execution runs the proposed tool input against
+      // whatever the file holds then, and Core does not re-check first, so
+      // this is what lets a reader detect a file that moved in between.
+      const base = document.createElement("p");
+      base.className = "gperm-diff-base";
+      base.dataset.decisionBase = context.baseSha256;
+      base.textContent = translate(locale, "d1.permission.computedAgainst", {
+        hash: context.baseSha256.slice(0, 8),
+      });
+      pane.append(base);
+    }
+    if (context.diff) {
+      if (context.diff.truncated) {
+        const banner = document.createElement("p");
+        banner.className = "gperm-diff-base";
+        banner.dataset.decisionTruncated = "true";
+        banner.textContent = translate(locale, "d1.review.truncated", {});
+        pane.append(banner);
+      }
+      renderDiffFiles(pane, context.diff.files, locale);
+    } else {
+      // Core attached a context and produced no diff for it. That is not "no
+      // change", so the shared renderer's own sentence is used.
+      renderDiffFiles(pane, [], locale);
+      const note = document.createElement("p");
+      note.className = "dl note";
+      note.dataset.diffNote = "no-diff";
+      note.textContent = translate(locale, "d1.review.noDiff", {});
+      pane.append(note);
+    }
+    facts.append(pane);
+  }
 
   if (request.blockedByPlan) {
     const alert = document.createElement("p");

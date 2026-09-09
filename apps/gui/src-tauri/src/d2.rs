@@ -131,6 +131,11 @@ pub struct D2DetailProjection {
     pub policy_reason_key: Option<String>,
     pub blocked_by_plan: bool,
     pub context: D2ContextProjection,
+    /// The same decision context the D1 permission dock renders, so both
+    /// surfaces draw one set of rows from one Core fact (GUI-CORE-012).
+    /// `None` for a decision Core published no context for; the context pane
+    /// then keeps its unavailable marker.
+    pub decision_context: Option<crate::diff_review::DecisionContextProjection>,
     pub evidence: Vec<D2EvidenceProjection>,
     pub actions: Vec<D2ActionProjection>,
 }
