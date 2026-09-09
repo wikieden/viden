@@ -91,18 +91,18 @@ body{margin:0;background:var(--page-bg);color:var(--fg-primary);font-family:var(
 .filetabs{display:flex;gap:4px;padding:8px 14px 0;}
 .ftab{font-family:var(--mono);font-size:10px;padding:3px 9px;border-radius:6px 6px 0 0;color:var(--fg-muted);border:1px solid var(--border-soft);border-bottom:none;cursor:pointer;background:var(--bg-panel);}
 .ftab.on{color:var(--accent-bright);background:var(--bg-void);border-color:var(--border);}
-.diffbody{margin:0 14px 16px;background:var(--bg-void);border:1px solid var(--border);border-radius:0 8px 8px 8px;padding:10px 0;font-family:var(--mono);overflow-x:auto;}
-.diffbody.rtop{border-radius:8px;margin-top:10px;}
-.dl{display:grid;grid-template-columns:42px 16px 1fr;gap:0 8px;padding:1px 12px 1px 0;line-height:1.75;white-space:pre;}
-.dl .ln{text-align:right;color:var(--fg-faint);font-size:10px;user-select:none;}
-.dl .sg{text-align:center;font-size:11px;}
-.dl .tx{color:var(--fg-secondary);}
-.dl.hk{background:color-mix(in srgb,var(--accent) 5%,transparent);}
-.dl.hk .tx{color:var(--accent);}
-.dl.add{background:color-mix(in srgb,var(--success) 7%,transparent);}
-.dl.add .sg{color:var(--success);} .dl.add .tx{color:var(--success);}
-.dl.del{background:color-mix(in srgb,var(--error) 7%,transparent);}
-.dl.del .sg{color:var(--error);} .dl.del .tx{color:var(--error);text-decoration:line-through;text-decoration-color:color-mix(in srgb,var(--error) 40%,transparent);}
+.d2diff{margin:0 14px 16px;background:var(--bg-void);border:1px solid var(--border);border-radius:0 8px 8px 8px;padding:10px 0;font-family:var(--mono);overflow-x:auto;}
+.d2diff.rtop{border-radius:8px;margin-top:10px;}
+.d2dl{display:grid;grid-template-columns:42px 16px 1fr;gap:0 8px;padding:1px 12px 1px 0;line-height:1.75;white-space:pre;}
+.d2dl .ln{text-align:right;color:var(--fg-faint);font-size:10px;user-select:none;}
+.d2dl .sg{text-align:center;font-size:11px;}
+.d2dl .tx{color:var(--fg-secondary);}
+.d2dl.hk{background:color-mix(in srgb,var(--accent) 5%,transparent);}
+.d2dl.hk .tx{color:var(--accent);}
+.d2dl.add{background:color-mix(in srgb,var(--success) 7%,transparent);}
+.d2dl.add .sg{color:var(--success);} .d2dl.add .tx{color:var(--success);}
+.d2dl.del{background:color-mix(in srgb,var(--error) 7%,transparent);}
+.d2dl.del .sg{color:var(--error);} .d2dl.del .tx{color:var(--error);text-decoration:line-through;text-decoration-color:color-mix(in srgb,var(--error) 40%,transparent);}
 
 /* transcript (ask context) */
 .trans{padding:12px 16px;}
@@ -507,9 +507,9 @@ function DiffPane({r,fontSize,label}){
     <div className="pane code">
       <div className="ph"><b>{label||t('Code diff','代码 Diff')}</b><span>{r.file}</span>{r.delta&&<span className="pm">{r.delta}</span>}<span className="sp"></span><span>⎇ {r.branch}</span></div>
       <div className="filetabs">{r.files.map((f,i)=><span key={f} className={"ftab "+(i===0?'on':'')}>{f}</span>)}</div>
-      <div className="diffbody" style={{fontSize}}>
+      <div className="d2diff" style={{fontSize}}>
         {r.diff.map((d,i)=>(
-          <div key={i} className={"dl "+d.t}><span className="ln">{d.ln}</span><span className="sg">{d.sg}</span><span className="tx">{d.tx}</span></div>
+          <div key={i} className={"d2dl "+d.t}><span className="ln">{d.ln}</span><span className="sg">{d.sg}</span><span className="tx">{d.tx}</span></div>
         ))}
       </div>
     </div>

@@ -25,6 +25,10 @@
   - **D1 不能反向 link `gui-kit.css`**：两边同名规则已有意分叉,D1 只声明部分属性、kit 多出的属性会泄漏（`.envrow .cv` 多 font-family/font-size）→ 实测 chat 视图 **2584 px** 变化;结论写进 PROTO-STANDARD §5,升进只能做成逐字镜像。
   - **`.review` 族与 D2 决策中心自带的 `.dl`/`.diffbody` 撞名**（两个不同组件、只是重名）→ 加进 kit 后实测 D2 **1698 px** 变化,阻塞;裁决项与 EvidenceView 可单独升进（D14/组件库/D1 实测 AE=0）都记进 DESIGN-REF「D1 次级视图」。
   - 顺带更正文档笔误：DESIGN-REF 迁移状态与 CHECKLIST §5 原列「D1 已接 gui-kit」,实物从未 link,两处改为「有意不接」。
+- [GUI][设计规范] **DiffReview / EvidenceView 两族镜像进 `gui-kit.css`,撞名的页面私有类改名**（承接上条裁决 · D-SOT · D-RAILNAV ①②）：
+  - kit 尾部新增「D1 次级视图」镜像块：DiffReview 43 条 + EvidenceView 35 条,与 D1 内联**逐条 byte-identical**;D1 仍不反向 link kit(镜像纪律 · PROTO-STANDARD §5),改任一侧必须同步另一侧。
+  - 撞名按 §5 既定解法改**页面专属类**、保留登记族名：D2 决策中心 `.diffbody`/`.dl` → `.d2diff`/`.d2dl`(CSS 12 条 + JSX 2 处),D14 `.evchip` → `.d14chip`(CSS 2 条 + JSX 1 处)。
+  - 像素回归 AE=0：D1 八视图 · 组件库 · 12 张 kit 消费屏(无头 Chrome 1440×900 · 动画冻结);零 token 改动,`#04140a` 随镜像逐字带入 kit,显式加进 check-tokens baseline(D1 同值早在册)。
 
 ## 2026-09-08
 - [GUI][文档] **D1 次级面裁决定档：活动 rail = 路由器 + 四族登记**（SPEC 新增 `D-RAILNAV`）：

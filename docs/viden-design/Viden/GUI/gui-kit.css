@@ -231,3 +231,115 @@ svg.ic.sm{width:15px;height:15px;}
 .mgate-ev.wait .ck{color:var(--gold);}
 .mgate-ev.na{color:var(--fg-faint);}
 .mgate-ev.na .ck,.mgate-ev.na .kind,.mgate-ev.na .det{color:var(--fg-faint);}
+
+/* ════════════════════════════════════════════════════════════════
+ * D1 次级视图（活动 rail 的路由目的地 · SPEC D-RAILNAV）—— D1 内联样式的【镜像】
+ * ------------------------------------------------------------------
+ * D-RAILNAV 判定登记的两族，此前只在 D1 旗舰内联；第二个消费页（0.3.3 的
+ * DiffReview / EvidenceView 宿主）接本文件即可，别再从 D1 手抄（手抄即漂移）。
+ * ⚠ 镜像纪律（PROTO-STANDARD §5）：D1 = GUI 视觉真源，下面两族与 D1 内联
+ *   【逐字一致】，改任一侧必须同步另一侧。D1 不反向 link 本文件 —— 两边同名
+ *   chrome 规则已有意分叉（`.envrow .cv` 等），全量接 kit 会属性泄漏改变 D1
+ *   渲染（2026-09-09 像素实测：chat 视图 2584 px 变化）。
+ * ⚠ 升进前先解了同名碰撞（PROTO-STANDARD §5「gui-kit 全局类名碰撞」）：
+ *   D2 决策中心的页面专属 `.diffbody`/`.dl` → `.d2diff`/`.d2dl`（3 列 grid +
+ *   `.sg` 符号列的另一个组件，只是重名），D14 的页面专属 `.evchip` → `.d14chip`。
+ *   下面这两族才是登记名的持有者；新页要复用就接这里，别再拿裸名做页面私有类。
+ * ⚠ 同屏未升进的两族：DiagnosticsView（`.dgwrap`·deferred·D-RAILNAV ⑤）与
+ *   DockSD（`.sdock`·roadmap·D-RAILNAV ⑥）仍只在 D1 内联，没有第二消费者。
+ *   DiagnosticsView 的详情壳复用下面 EvidenceView 的 `.evdethead`/`.evsec`/`.evfoot`。
+ * ════════════════════════════════════════════════════════════════ */
+
+/* ── DiffReview family · mirror of D1 · registered D-RAILNAV ① ──
+ * in-cockpit 逐文件 diff 评审：文件树 + 暂存 + 统一/分栏 diff + 提交栏。实现目标 0.3.3
+ * （操作者 git 动作 / 结构化 diff / 冲突内容的计划宿主 · GUI-CORE-020/012/015）。
+ * `.ftrow .stat.m/.a/.d` = 改/增/删（金/绿/红）· `.on` = --bg-sel + 青 inset 2px 左竖条 ·
+ * `.ck` 已暂存 ✓；`.dl .ln` 行号 + `.tx`（`.ctx` 上下文行）；
+ * `.cbtn` 提交按钮（`.commit` 绿实心 / `.push` 青描边）。最小 HTML 见 DESIGN-REF。
+ * 家族自有的 `.fn`/`.pm`/`.ck`/`.stat`/`.seg` 一律挂在 `.ftrow`/`.dphead` 下 ——
+ * 别提成全局裸类（`.envrow .stat` / `.todorow .ck` 是别族的同名子类，不随本族走）。 */
+.review{display:grid;grid-template-columns:236px 1fr;height:100%;min-height:0;}
+.filetree{border-right:1px solid var(--border-soft);overflow:hidden;display:flex;flex-direction:column;background:var(--bg-panel);}
+.fthead{flex:none;display:flex;align-items:center;justify-content:space-between;padding:11px 13px;border-bottom:1px solid var(--border-soft);}
+.fthead h3{margin:0;font-family:var(--mono);font-size:10.5px;letter-spacing:1px;text-transform:uppercase;color:var(--accent);font-weight:700;}
+.fthead .ct{font-family:var(--mono);font-size:11px;color:var(--fg-muted);}
+.ftlist{overflow:hidden;padding:6px 6px;}
+.ftrow{display:flex;align-items:center;gap:8px;padding:6px 9px;border-radius:7px;cursor:pointer;font-family:var(--mono);font-size:12px;}
+.ftrow:hover{background:var(--bg-base);}
+.ftrow.on{background:var(--bg-sel);box-shadow:inset 2px 0 0 var(--accent);}
+.ftrow .stat{flex:none;width:14px;text-align:center;font-weight:700;}
+.ftrow .stat.m{color:var(--gold);}.ftrow .stat.a{color:var(--success);}.ftrow .stat.d{color:var(--error);}
+.ftrow .fn{color:var(--fg-secondary);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.ftrow.on .fn{color:var(--fg-primary);}
+.ftrow .pm{font-size:10px;color:var(--fg-muted);}
+.ftrow .ck{flex:none;color:var(--success);}
+.diffpane{display:flex;flex-direction:column;min-width:0;overflow:hidden;background:var(--bg-base);}
+.dphead{flex:none;display:flex;align-items:center;gap:10px;padding:10px 15px;border-bottom:1px solid var(--border-soft);}
+.dphead .fn{font-family:var(--mono);font-size:12.5px;color:var(--fg-primary);}
+.dphead .seg{margin-left:auto;display:flex;border:1px solid var(--border-soft);border-radius:7px;overflow:hidden;}
+.dphead .seg button{font-family:var(--mono);font-size:11px;padding:4px 11px;background:var(--bg-panel);color:var(--fg-muted);border:none;cursor:pointer;border-right:1px solid var(--border-soft);}
+.dphead .seg button:last-child{border-right:none;}
+.dphead .seg button.on{background:var(--bg-sel);color:var(--accent);}
+.diffbody{flex:1;overflow:hidden;font-family:var(--mono);font-size:12px;line-height:1.65;padding:8px 0;}
+.dl{display:flex;}
+.dl .ln{width:46px;flex:none;text-align:right;padding-right:12px;color:var(--fg-faint);user-select:none;font-size:11px;}
+.dl .tx{flex:1;white-space:pre;padding-right:16px;}
+.dl.add{background:color-mix(in srgb,var(--success) 9%,transparent);}
+.dl.add .tx{color:var(--success);}
+.dl.add .ln{color:color-mix(in srgb,var(--success) 60%,transparent);}
+.dl.del{background:color-mix(in srgb,var(--error) 9%,transparent);}
+.dl.del .tx{color:var(--error);}
+.dl.del .ln{color:color-mix(in srgb,var(--error) 50%,transparent);}
+.dl.hunk{background:var(--bg-void);}
+.dl.hunk .tx{color:var(--accent);}
+.dl .tx.ctx{color:var(--fg-secondary);}
+.commitbar{flex:none;border-top:1px solid var(--border-soft);background:var(--bg-panel);padding:11px 15px;display:flex;align-items:center;gap:11px;}
+.commitbar .msg-in{flex:1;background:var(--bg-base);border:1px solid var(--border);border-radius:8px;padding:9px 12px;font-family:var(--mono);font-size:12px;color:var(--fg-secondary);}
+.commitbar .msg-in .ph{color:var(--fg-muted);}
+.cbtn{font-family:var(--mono);font-size:12px;font-weight:700;border-radius:8px;padding:9px 15px;border:1px solid var(--border);background:var(--bg-base);color:var(--fg-secondary);cursor:pointer;white-space:nowrap;}
+.cbtn.commit{background:var(--success);border-color:var(--success);color:#04140a;}
+.cbtn.push{border-color:var(--accent-dim);color:var(--accent);}
+
+/* ── EvidenceView family · mirror of D1 · registered D-RAILNAV ② ──
+ * in-cockpit 证据视图：按天分组的证据时间线 + 右侧详情 + 关联芯片。读侧先行，
+ * 配 D-AUDIT「审计行链接证据、不反向」的单向链。实现目标 0.3.3（排在 DiffReview 之后）。
+ * 行 `.evrow2` > `.tm2` 时间 · `.ic2` 类型字形（色 = 语义）· `.tt2` 标题 · `.lane-b` 归属 lane；
+ * 详情 `.evkv`（`.k`/`.v`）· `.evterm`（`.gp`/`.rp`/`.dim`）· `.evchip` 关联 · `.evfoot` > `.mpill.go`。
+ * `.fchip`/`.search` 是本族自有子类（挂 `.evbar`）—— DiagnosticsView 的 `.dgbar .fchip`
+ * 是另一份、仍在 D1 内联，别互相「统一」。`.mpill` 是 D1 跨族共用件、未随本族升进。
+ * `.evchip` 在 D1 里同时被 subagent 检视器（`.saevid`·D-RAILNAV ④ 未登记草稿）复用，
+ * 归属仍是 EvidenceView（DESIGN-REF 登记处）；D14 原先的同名页面私有类已改名 `.d14chip`。
+ * 最小 HTML 见 DESIGN-REF。 */
+.evwrap{display:grid;grid-template-columns:minmax(0,1fr) 372px;height:100%;min-height:0;}
+.evmain{display:flex;flex-direction:column;min-width:0;border-right:1px solid var(--border-soft);}
+.evbar{flex:none;display:flex;align-items:center;gap:8px;padding:10px 15px;border-bottom:1px solid var(--border-soft);flex-wrap:nowrap;overflow:hidden;}
+.evbar .fchip{font-family:var(--mono);font-size:11px;padding:3px 10px;border-radius:14px;border:1px solid var(--border-soft);color:var(--fg-muted);cursor:pointer;white-space:nowrap;}
+.evbar .fchip.on{background:var(--bg-sel);color:var(--accent-bright);border-color:var(--accent-dim);}
+.evbar .search{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--fg-faint);border:1px solid var(--border-soft);border-radius:7px;padding:4px 10px;white-space:nowrap;}
+.evday{font-family:var(--mono);font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:var(--fg-faint);padding:10px 15px 4px;}
+.evrow2{display:grid;grid-template-columns:46px 20px 1fr auto;gap:10px;align-items:baseline;padding:7px 15px;cursor:pointer;font-family:var(--mono);}
+.evrow2:hover{background:var(--bg-panel);}
+.evrow2.on{background:var(--bg-sel);box-shadow:inset 3px 0 0 var(--accent);}
+.evrow2 .tm2{font-size:10.5px;color:var(--fg-faint);text-align:right;}
+.evrow2 .ic2{text-align:center;font-size:11px;}
+.evrow2 .tt2{font-size:12px;color:var(--fg-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.evrow2.on .tt2{color:var(--fg-primary);}
+.evrow2 .tt2 b{color:var(--fg-primary);font-weight:600;}
+.evrow2 .lane-b{font-size:10px;color:var(--accent);border:1px solid var(--accent-dim);border-radius:4px;padding:0 5px;white-space:nowrap;}
+.evscroll{flex:1;overflow:hidden;}
+/* detail */
+.evdet{display:flex;flex-direction:column;min-width:0;background:var(--bg-panel);}
+.evdethead{flex:none;padding:12px 15px;border-bottom:1px solid var(--border-soft);}
+.evdethead .t1{font-family:var(--mono);font-size:12.5px;color:var(--fg-primary);font-weight:700;display:flex;align-items:center;gap:8px;}
+.evdethead .t2{font-family:var(--mono);font-size:10.5px;color:var(--fg-muted);margin-top:4px;}
+.evkv{display:flex;justify-content:space-between;gap:10px;font-family:var(--mono);font-size:11.5px;padding:3px 0;white-space:nowrap;}
+.evkv .k{color:var(--fg-muted);}
+.evkv .v{color:var(--fg-primary);overflow:hidden;text-overflow:ellipsis;}
+.evsec{padding:11px 15px;border-bottom:1px solid var(--border-soft);}
+.evsec h5{margin:0 0 7px;font-family:var(--mono);font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:var(--accent);font-weight:700;}
+.evterm{background:var(--bg-void);border:1px solid var(--border-soft);border-radius:7px;padding:8px 11px;font-family:var(--mono);font-size:10.5px;line-height:1.6;}
+.evterm > div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.evterm .gp{color:var(--success);}.evterm .rp{color:var(--error);}.evterm .dim{color:var(--fg-muted);}.evterm .cp{color:var(--accent);}
+.evfoot{margin-top:auto;padding:11px 15px;display:flex;gap:8px;flex-wrap:wrap;}
+.evchip{font-family:var(--mono);font-size:10.5px;border:1px solid var(--border-soft);border-radius:5px;padding:2px 8px;color:var(--fg-secondary);cursor:pointer;display:flex;align-items:center;gap:5px;}
+.evchip:hover{border-color:var(--accent-dim);color:var(--accent);}

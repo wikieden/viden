@@ -1,8 +1,8 @@
 {
   "note": "已认证保留的 token 违规清单。新增违规需修代码或显式加到这里。",
   "generatedAt": "2026-07-02",
-  "reason": "resync after coding-side re-review: pruned 7 stale D1 entries (backend colors → tokens), 0 new",
-  "totalEntries": 214,
+  "reason": "resync after coding-side re-review: pruned 7 stale D1 entries (backend colors → tokens), 0 new · 2026-09-09 手工 +1：GUI/gui-kit.css #04140a（DiffReview 族镜像自 D1 内联，D1 同值早已在册；镜像必须逐字一致，不改色）",
+  "totalEntries": 215,
   "files": {
     "Core/Viden - 品牌资产 (Core).html": [
       {
@@ -1102,6 +1102,13 @@
         "line": 359,
         "kind": "bare-hex",
         "match": "#e3ab44"
+      }
+    ],
+    "GUI/gui-kit.css": [
+      {
+        "line": 300,
+        "kind": "bare-hex",
+        "match": "#04140a"
       }
     ]
   }

@@ -399,24 +399,26 @@
 
 > **活动 rail = 路由器**(D-RAILNAV·2026-09-08 定档)：rail 按钮导航到独立 D 屏(D12/D2/D14/D10/D13);
 > 旗舰 D1 的页内视图切换保留作**设计探索**。下面四族是该次裁决**判定登记**的次级面 —— 登记后即「可复用」(D-COMP)。
-> **样式现状(如实登记)**:四族的 CSS 仍在 **D1 旗舰页内联**,尚未升进 `gui-kit.css`。第二个页面复用它们之前,
-> 先按 D-SOT 把样式提进 `gui-kit.css`(改一处全站跟随),别在第二页手抄一份 —— 手抄即漂移。
-> ⚠ **2026-09-09 升进尝试受阻,先做一次裁决再动手**(实测记录,别重跑一遍踩同样的坑):
+> **样式现状(如实登记)**:**DiffReview / EvidenceView 两族的 CSS 已按 D-SOT 镜像进 `gui-kit.css`**
+> (2026-09-09 · kit 尾部「D1 次级视图」块);第二个消费页 `<link href="gui-kit.css">` 直接取用,别再从 D1
+> 手抄一份 —— 手抄即漂移。**DiagnosticsView / DockSD 两族仍只在 D1 内联**(见下「未升进的两族」)。
+> ⚠ **2026-09-09 裁决与实测(照此复用,别重跑一遍踩同样的坑)**:
 > ① **D1 不能反向 link `gui-kit.css`** —— 两边同名 chrome 规则已有意分叉,D1 只声明部分属性、kit 那条
 >   多出的属性会泄漏进来(`.envrow .cv` 多了 `font-family`/`font-size`,直接改掉 Environment 行字形);
 >   无头 Chrome 逐视图像素比对:chat **2584 px**、review 175 px、evidence/diagnostics 各 189 px 变化。
->   → 升进只能做成**镜像**(kit 与 D1 内联逐字一致、改一侧同步另一侧 · PROTO-STANDARD §5),不是「搬走」。
-> ② **DiffReview 的裸类与 D2 决策中心撞名** —— 把 `.review` 族原样加进 kit 后,kit 的 `.diffbody`/`.dl`/
->   `.dl.add .ln`/`.dl.del .ln` 泄漏进 D2 自带的 diff 渲染(D2 是 3 列 grid + `.sg` 符号列 + 删除行删除线,
->   与 DiffReview 的 2 列 flex 是**两个不同组件、只是重名**),实测 D2 **1698 px 变化**(行高位移 + 行号染色)。
->   → 先裁决:D2 的私有 `.dl`/`.diffbody` 改名(PROTO-STANDARD §5 撞名的既定解法),还是让 D2 收敛到登记的
->   DiffReview 画法(那是视觉改动、要单独立项)。**没裁决前不要把 `.review` 族加进 kit。**
-> ③ **EvidenceView 单独升进是干净的**(实测 D14 `.evchip`、组件库、D1 三处 **AE=0**),但 `.evchip` 与 D14
->   自带的同名类共存,靠 D14 逐属性覆盖才没出事 —— 升进时要一并把这层脆弱性写清楚。
+>   → 升进只能做成**镜像**(kit 与 D1 内联逐字一致、改一侧必须同步另一侧 · PROTO-STANDARD §5),不是「搬走」。
+>   已落地:kit 尾块 = DiffReview 43 条 + EvidenceView 35 条,与 D1 内联**逐条 byte-identical**(脚本核对)。
+> ② **裸族名撞名照 PROTO-STANDARD §5 的既定解法办:改页面专属类名、保留登记族名**(先例 D12 `.tl` → `.rline`)。
+>   D2 决策中心私有的 `.diffbody`/`.dl`(3 列 grid + `.sg` 符号列 + 删除行删除线,与 DiffReview 的 2 列 flex
+>   是**两个不同组件、只是重名**;未改名时实测 kit 泄漏使 D2 **1698 px** 变化)→ **`.d2diff` / `.d2dl`**;
+>   D14 私有的 `.evchip`(原先靠逐属性覆盖才与登记名共存,脆)→ **`.d14chip`**。
+>   登记族名自此归 kit 所有:新页要这套画法就接 kit,**别再拿裸族名当页面私有类**。
+> ③ 镜像 + 改名后逐页像素回归(无头 Chrome 1440×900 · 动画冻结):D1 八视图 · 组件库 · 12 张 kit 消费屏
+>   **全部 AE=0**。
 > **未升进的两族**:DiagnosticsView(`.dgwrap`)与 DockSD(`.sdock`)是 deferred / roadmap,没有第二消费者,
 > 暂不动;它们的详情壳复用 EvidenceView 的 `.evdethead`/`.evsec`/`.evfoot`,将来一起升进。
-> **家族边界(升进时照此切)**:`.fchip`/`.search` 归 EvidenceView(挂 `.evbar`);DiagnosticsView 的
-> `.dgbar .fchip` 是另一份;`.mpill`(`.evfoot` 用)、`.envrow .stat`、`.todorow .ck` 是别族共用件,不随族走。
+> **家族边界(已照此切)**:`.fchip`/`.search` 归 EvidenceView(镜像为 `.evbar .fchip`/`.evbar .search`);DiagnosticsView 的
+> `.dgbar .fchip` 是另一份、仍在 D1 内联;`.mpill`(`.evfoot` 用)、`.envrow .stat`、`.todorow .ck` 是别族共用件,不随族走。
 > **未登记(有意)**:`WorktreeBoard`(`.wtwrap`)与旗舰单 lane 内嵌 subagent 树 —— D-RAILNAV ③④ 判为
 > 不作实现目标 / 延后到 fleet 家族;原型 markup 留在旗舰作探索,**按 D-COMP 视为临时草稿,勿在新页复用**。
 > **登记 ≠ 已实现**:实现目标版本(0.3.3 / 0.3.4)是排期不是交付承诺,语义同 `D-ROADMAP`。

@@ -81,8 +81,8 @@ body{margin:0;background:var(--page-bg);color:var(--fg-primary);font-family:var(
 .kv .v .a{color:var(--accent-bright);} .kv .v .g{color:var(--gold-bright);} .kv .v .ok{color:var(--success);} .kv .v .bad{color:var(--error);}
 .chainbox{margin:4px 0 8px;background:var(--bg-void);border:1px solid var(--border-soft);border-radius:8px;padding:9px 12px;font-family:var(--mono);font-size:10px;line-height:1.9;color:var(--fg-secondary);}
 .chainbox .sha{color:var(--accent);} .chainbox .dim{color:var(--fg-faint);}
-.evchip{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:9.5px;color:var(--fg-secondary);border:1px solid var(--border-soft);border-radius:6px;padding:3px 9px;margin:0 6px 6px 0;cursor:pointer;}
-.evchip:hover{border-color:var(--accent-dim);color:var(--fg-primary);}
+.d14chip{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:9.5px;color:var(--fg-secondary);border:1px solid var(--border-soft);border-radius:6px;padding:3px 9px;margin:0 6px 6px 0;cursor:pointer;}
+.d14chip:hover{border-color:var(--accent-dim);color:var(--fg-primary);}
 .rail .note{margin-top:auto;border-top:1px solid var(--border-soft);padding:12px 17px;font-family:var(--mono);font-size:9.5px;color:var(--fg-faint);line-height:1.8;}
 .rail .note .a{color:var(--accent);}
 .exp{display:flex;gap:7px;flex-wrap:wrap;padding-bottom:10px;}
@@ -242,7 +242,7 @@ function App(){
           </div>}
           {sel.det.refs.length>0 && <div className="dsec">
             <h5>{t('Linked','关联')}</h5>
-            <div>{sel.det.refs.map((x,i)=><span key={i} className="evchip">{x}</span>)}</div>
+            <div>{sel.det.refs.map((x,i)=><span key={i} className="d14chip">{x}</span>)}</div>
           </div>}
           <div className="dsec">
             <h5>{t('Export','导出')}</h5>
