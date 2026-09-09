@@ -269,8 +269,8 @@
   "approval.diff.unavailable": "无法显示差异行 · {capability}",
   "interaction.git": "源代码管理",
   "interaction.git.commit": "提交信息",
-  "git.action.stage": "暂存全部更改",
-  "git.action.unstage": "取消暂存全部更改",
+  "git.action.stage": "暂存",
+  "git.action.unstage": "取消暂存",
   "git.action.commit": "提交",
   "git.action.push": "推送",
   "git.action.fetch": "抓取",
@@ -338,5 +338,7 @@
   "conflict.reason.unrecognized": "本版本无法命名的拒绝原因",
   "supervision.action.conflict_detail": "查看冲突内容",
   "overlay.title.conflict": "冲突内容",
-  "conflict.hint": "Esc 关闭 · 只读 · Core 未解决任何冲突"
+  "conflict.hint": "Esc 关闭 · 只读 · Core 未解决任何冲突",
+  "git.action.stage_all": "暂存全部更改",
+  "git.action.unstage_all": "取消暂存全部更改"
 }

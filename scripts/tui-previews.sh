@@ -561,4 +561,4 @@ Files:
 - \`main.<theme>.ansi\` for each generated theme variant
 EOF
 
-wc -l "$OUT_DIR"/main-approval-hunks.txt "$OUT_DIR"/main.txt "$OUT_DIR"/main-idle.txt "$OUT_DIR"/main-live-turn.txt "$OUT_DIR"/main-resize.txt "$OUT_DIR"/main-cjk-input.txt "$OUT_DIR"/main-command-palette.txt "$OUT_DIR"/main-setup-wizard.txt "$OUT_DIR"/main-provider-selector.txt "$OUT_DIR"/main-provider-detail.txt "$OUT_DIR"/main-model-selector.txt "$OUT_DIR"/main-lane-selector.txt "$OUT_DIR"/main-lane.txt "$OUT_DIR"/side-1.txt "$OUT_DIR"/side-2.txt
+wc -l "$OUT_DIR"/main-approval-hunks.txt "$OUT_DIR"/main-git-picker.txt "$OUT_DIR"/main-git-outcome.txt "$OUT_DIR"/main-conflict-detail.txt "$OUT_DIR"/main.txt "$OUT_DIR"/main-idle.txt "$OUT_DIR"/main-live-turn.txt "$OUT_DIR"/main-resize.txt "$OUT_DIR"/main-cjk-input.txt "$OUT_DIR"/main-command-palette.txt "$OUT_DIR"/main-setup-wizard.txt "$OUT_DIR"/main-provider-selector.txt "$OUT_DIR"/main-provider-detail.txt "$OUT_DIR"/main-model-selector.txt "$OUT_DIR"/main-lane-selector.txt "$OUT_DIR"/main-lane.txt "$OUT_DIR"/side-1.txt "$OUT_DIR"/side-2.txt

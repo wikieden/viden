@@ -1123,10 +1123,18 @@ pub(super) fn git_picker_rows(state: &TuiState) -> Vec<GitPickerRow> {
     ]
     .into_iter()
     .map(|(id, kind)| {
+        // A picker row says what picking it *does* — it stages everything, or
+        // it opens a prompt. An outcome entry names the same action as a plain
+        // verb, because "Stage all changes completed" reads as a sentence
+        // fragment rather than a settled fact.
         let label_key = match &kind {
+            GitPickerRowKind::Send(viden_core::OperatorGitAction::Stage { .. }) => {
+                "git.action.stage_all"
+            }
+            GitPickerRowKind::Send(viden_core::OperatorGitAction::Unstage { .. }) => {
+                "git.action.unstage_all"
+            }
             GitPickerRowKind::Send(action) => action_label_key(action),
-            // The picker row opens a prompt, so it is labelled as such; the
-            // outcome entry names the same action as a plain verb.
             GitPickerRowKind::Commit => "git.action.commit_prompt",
             GitPickerRowKind::Disabled | GitPickerRowKind::Dismiss => "git.unavailable",
         };

@@ -1526,7 +1526,7 @@ fn open_local_picker_command<C: CoreClient>(
         // Selector-first, exactly like `/acp`: opening the picker sends no
         // command and takes no lock. The rows stay listed without the
         // capability, so an operator can see the surface and why it is inert.
-        "/git" | "/source" => Some(InteractionPanel::GitPicker {
+        "/git" => Some(InteractionPanel::GitPicker {
             selected: 0,
             phase: GitPickerPhase::Browse,
         }),
@@ -1548,9 +1548,6 @@ fn apply_git_picker_selection<C: CoreClient>(
     selected: usize,
     phase: &GitPickerPhase,
 ) -> Result<(), TuiClientError> {
-    if !driver.has_capability(OPERATOR_GIT_CAPABILITY) {
-        return Ok(());
-    }
     let action = match phase {
         GitPickerPhase::Browse => match git_picker_rows(state).get(selected).map(|row| &row.kind) {
             Some(GitPickerRowKind::Send(action)) => action.clone(),
@@ -1602,6 +1599,12 @@ fn apply_git_picker_selection<C: CoreClient>(
             ),
         });
         state.ui.interaction_panel = None;
+        return Ok(());
+    }
+    // Gated at the point of *sending*, not at the point of entry: the dismiss
+    // row above must stay usable even if the capability disappeared while an
+    // action was in flight, or the slot would be stranded forever.
+    if !driver.has_capability(OPERATOR_GIT_CAPABILITY) {
         return Ok(());
     }
     let target = git_target(state);
@@ -3066,6 +3069,82 @@ mod tests {
     /// anything ran, a completed commit, and a push that failed *after* the
     /// gate. All three reach the transcript as typed system entries, and none
     /// of them is read out of git's output text.
+    /// The end-to-end loop, not just the machine: the picker sends, Core's
+    /// ordered events come back through `pump`, and `observe_driver_events`
+    /// turns the settled fact into one transcript entry. This is what proves
+    /// the correlation survives the real event path.
+    #[test]
+    fn a_settled_operator_action_reaches_the_transcript_through_the_event_loop() {
+        let source = viden_core::WorkspaceSourceView {
+            status: viden_core::WorkspaceSourceStatus::Ready,
+            branch: Some("main".to_string()),
+            worktree: Some("workspace".to_string()),
+            ahead: 0,
+            behind: 0,
+            added: 2,
+            deleted: 0,
+            dirty: true,
+        };
+        let client = FakeCoreClient {
+            transport: FakeCoreTransport {
+                events: VecDeque::from([
+                    event(
+                        1,
+                        RuntimeEventKind::CommandAccepted {
+                            command_id: "tui-1".to_string(),
+                            command: RuntimeCommand::CancelActiveTurn,
+                        },
+                    ),
+                    event(
+                        2,
+                        RuntimeEventKind::OperatorGitActionFinished {
+                            command_id: "tui-1".to_string(),
+                            target: viden_core::SourceTarget::Workspace,
+                            action: viden_core::OperatorGitAction::Stage { paths: Vec::new() },
+                            outcome: viden_core::OperatorGitOutcome::Completed {
+                                output: "staged 2 paths".to_string(),
+                                truncated: false,
+                                source: source.clone(),
+                            },
+                            audit_id: "audit-stage".to_string(),
+                        },
+                    ),
+                ]),
+                ..FakeCoreTransport::default()
+            },
+            ..FakeCoreClient::default()
+        };
+        let mut driver = TuiClientDriver::connect(client).expect("connect");
+        let mut state = TuiState {
+            capabilities: driver.capabilities(),
+            ..TuiState::default()
+        };
+
+        apply_git_picker_selection(&mut driver, &mut state, 0, &GitPickerPhase::Browse)
+            .expect("send stage");
+        assert!(state.operator_git.pending().is_some());
+
+        while !matches!(driver.pump().expect("pump"), PumpOutcome::Idle) {
+            observe_driver_events(&mut state, &mut driver).expect("observe");
+        }
+        observe_driver_events(&mut state, &mut driver).expect("observe");
+
+        assert!(
+            state.operator_git.pending().is_none(),
+            "the finished event must free the slot"
+        );
+        let entry = state
+            .ui
+            .entries
+            .iter()
+            .find(|entry| entry.label == "system" && entry.body.contains("completed"))
+            .unwrap_or_else(|| panic!("no settled entry: {:?}", state.ui.entries));
+        assert!(entry.body.contains("main"), "{entry:?}");
+        assert!(entry.body.contains("audit-stage"), "{entry:?}");
+        // The typed source, not a fact read out of the output text.
+        assert!(entry.body.contains("dirty"), "{entry:?}");
+    }
+
     #[test]
     fn operator_git_fixture_replays_into_typed_outcome_entries() {
         let fixture: serde_json::Value = serde_json::from_str(include_str!(

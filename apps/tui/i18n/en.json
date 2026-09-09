@@ -269,8 +269,8 @@
   "approval.diff.unavailable": "hunk rows unavailable · {capability}",
   "interaction.git": "Source control",
   "interaction.git.commit": "Commit message",
-  "git.action.stage": "Stage all changes",
-  "git.action.unstage": "Unstage all changes",
+  "git.action.stage": "Stage",
+  "git.action.unstage": "Unstage",
   "git.action.commit": "Commit",
   "git.action.push": "Push",
   "git.action.fetch": "Fetch",
@@ -338,5 +338,7 @@
   "conflict.reason.unrecognized": "a rejection this build cannot name",
   "supervision.action.conflict_detail": "Inspect the conflict content",
   "overlay.title.conflict": "CONFLICT CONTENT",
-  "conflict.hint": "Esc close · read-only · Core resolved nothing"
+  "conflict.hint": "Esc close · read-only · Core resolved nothing",
+  "git.action.stage_all": "Stage all changes",
+  "git.action.unstage_all": "Unstage all changes"
 }
