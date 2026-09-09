@@ -52,6 +52,7 @@ pub use diff::{
 pub use evidence_reads::{
     DEFAULT_EVIDENCE_PAGE_SIZE, EvidenceContent, EvidenceCursor, EvidencePage, EvidenceQuery,
     EvidenceUnavailableReason, MAX_EVIDENCE_CONTENT_BYTES, MAX_EVIDENCE_PAGE_SIZE,
+    MAX_EVIDENCE_QUERY_KINDS,
 };
 pub use frontend_services::{
     CheckRunStatus, CheckRunView, RecentProjectSummary, RecentSessionSummary, RecentWorkQuery,

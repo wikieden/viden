@@ -17,6 +17,7 @@ mod context_bundle;
 mod decision_context;
 mod doctor;
 mod event_journal;
+mod evidence_reads;
 mod extension_commands;
 mod formatting;
 mod frontend_services;

@@ -8,14 +8,15 @@ use viden_config::{
 use viden_tools::patch::parse_diff_document;
 use viden_tools::render_diff;
 use viden_types::{
-    ApprovalResponse, AuditQuery, DiffFile, LaneStatus, PermissionDecision, RecentWorkQuery,
-    RuntimeCommand, RuntimeEvent, RuntimeEventKind, SourceTarget, ToolInput, ToolSpec,
-    UiPreferencePatch, UiPreferences, WorkspaceChangeKind, WorkspaceDiffEntry, WorkspaceDiffPage,
-    WorkspaceDiffQuery, WorkspaceDiffScope, WorkspaceFileEntry, WorkspaceFileKind,
-    WorkspaceFilePage, WorkspaceFilesQuery, resolve_ui_preferences,
+    ApprovalResponse, AuditQuery, DiffFile, EvidenceQuery, LaneStatus, PermissionDecision,
+    RecentWorkQuery, RuntimeCommand, RuntimeEvent, RuntimeEventKind, SourceTarget, ToolInput,
+    ToolSpec, UiPreferencePatch, UiPreferences, WorkspaceChangeKind, WorkspaceDiffEntry,
+    WorkspaceDiffPage, WorkspaceDiffQuery, WorkspaceDiffScope, WorkspaceFileEntry,
+    WorkspaceFileKind, WorkspaceFilePage, WorkspaceFilesQuery, resolve_ui_preferences,
 };
 
 use crate::SessionEngine;
+use crate::evidence_reads::{evidence_page, resolve_evidence_content};
 use crate::frontend_status::{
     GIT_COMMAND_TIMEOUT, GitOutput, run_git_capped, sample_workspace_source,
 };
@@ -214,6 +215,81 @@ impl SessionEngine {
             RuntimeEventKind::AuditPageLoaded {
                 command_id: Some(command_id.to_string()),
                 page,
+            },
+        )])
+    }
+
+    /// Reads one oldest-first page of the durable evidence archive
+    /// (`runtime.evidence_reads`, GUI-CORE-025).
+    ///
+    /// Gate posture is [`Self::query_audit`]'s, not
+    /// [`Self::query_workspace_files`]'s, and the difference is not a
+    /// convenience. The evidence archive is Viden's own state — facts Core
+    /// itself recorded into the workflow log — rather than the operator's
+    /// working tree. There is no workspace read to authorize here, and no
+    /// `git_*` or file tool whose `viden.toml` rule would describe it, so
+    /// gating it on a tool spec would invent a permission with no meaning and
+    /// let a rule written about the filesystem hide facts Core already holds.
+    /// The read is bounded and owner-scoped instead, which is what actually
+    /// constrains it.
+    ///
+    /// The source is the archive Core rebuilds at open, not
+    /// `RuntimeViewState::latest_evidence`: see `crate::evidence_reads`.
+    ///
+    /// `Err` is a *pre-answer* refusal of this exact read — an over-limit
+    /// filter list, a cursor this build did not issue — and reaches the client
+    /// as `CommandRejected` carrying its own command id. It is deliberately
+    /// never an empty page: "this query was malformed" and "no evidence
+    /// matches" are different facts, and a client shown the second for the
+    /// first would render a fabricated empty archive.
+    pub(crate) fn query_evidence(
+        &self,
+        command_id: &str,
+        query: EvidenceQuery,
+    ) -> Result<Vec<RuntimeEvent>, String> {
+        query.validate()?;
+        let page = evidence_page(self.evidence_archive(), &query);
+        Ok(vec![RuntimeEvent::new(
+            1,
+            RuntimeEventKind::EvidencePageLoaded {
+                command_id: command_id.to_string(),
+                page,
+            },
+        )])
+    }
+
+    /// Reads the canonical content behind one evidence row
+    /// (`runtime.evidence_reads`, GUI-CORE-025).
+    ///
+    /// Same posture and same store as [`Self::query_evidence`]. The one
+    /// refusal is an evidence id this build has never recorded: that is a
+    /// malformed request, and answering it with
+    /// `Unavailable { SummaryOnly }` would tell a client that a row it invented
+    /// exists and simply has no bytes. Every outcome for a row that *does*
+    /// exist is a typed `EvidenceContent`, including the unavailable ones,
+    /// because those are facts about the archive rather than failures.
+    pub(crate) fn read_evidence_content(
+        &self,
+        command_id: &str,
+        evidence_id: &str,
+    ) -> Result<Vec<RuntimeEvent>, String> {
+        let entry = self
+            .evidence_archive()
+            .iter()
+            .find(|entry| entry.id == evidence_id)
+            .ok_or_else(|| {
+                format!(
+                    "evidence `{evidence_id}` is not recorded in this workspace\nhint: page the \
+                     evidence archive with QueryEvidence and read an id it returned"
+                )
+            })?;
+        let content = resolve_evidence_content(self.context_engine_root(), entry);
+        Ok(vec![RuntimeEvent::new(
+            1,
+            RuntimeEventKind::EvidenceContentLoaded {
+                command_id: command_id.to_string(),
+                evidence_id: entry.id.clone(),
+                content,
             },
         )])
     }

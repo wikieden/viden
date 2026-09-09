@@ -51,6 +51,24 @@ impl SessionEngine {
         }
     }
 
+    /// The durable evidence archive this session rebuilt at open.
+    ///
+    /// Named rather than reached through the field so the read path documents
+    /// what it is reading: `runtime_evidence` is replayed from the append-only
+    /// workflow agent log by `hydrate_workflow_agent_projection`, so it is the
+    /// archive rather than a window over the live stream. It is deliberately
+    /// *not* `RuntimeViewState::latest_evidence`, which is a client-side
+    /// reduction of whatever events that client received.
+    pub(crate) fn evidence_archive(&self) -> &[EvidenceView] {
+        &self.runtime_evidence
+    }
+
+    /// Root of the canonical ContextStore the evidence content read verifies
+    /// bytes against.
+    pub(crate) fn context_engine_root(&self) -> &std::path::Path {
+        &self.context_engine_root
+    }
+
     pub(crate) fn provider_task(
         &self,
         input: &str,

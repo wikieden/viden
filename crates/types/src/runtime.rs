@@ -8,9 +8,9 @@ use crate::{
     ContextItemRecord, ContextQualityRecord, ContextReductionRecord, ContextRetrievalRecord,
     ContextScope, ContextViewRecord, ContractDecision, ContractRecord, CostLedgerTotals,
     CostUsageRecord, CredentialHandle, DecisionContext, DependencyRecord, DependencyState,
-    EvidenceCanonicalizationRecord, EvidenceContent, EvidenceId, EvidencePage, HandoffAcceptance,
-    HandoffRecord, LaneStatus, MergeGateId, MergeGateRecord, MessageId, OperatorGitAction,
-    OperatorGitOutcome, PermissionLevel, ProjectConfigPreview, ProjectProbe,
+    EvidenceCanonicalizationRecord, EvidenceContent, EvidenceId, EvidencePage, EvidenceQuery,
+    HandoffAcceptance, HandoffRecord, LaneStatus, MergeGateId, MergeGateRecord, MessageId,
+    OperatorGitAction, OperatorGitOutcome, PermissionLevel, ProjectConfigPreview, ProjectProbe,
     ProviderCacheObservationRecord, RecentProjectSummary, RecentSessionSummary, RecentWorkQuery,
     ResolvedUiPreferences, RevertRecord, ReviewRequestRecord, ReviewVerdict,
     ReviewedEvidenceBinding, RuntimeOwner, RuntimeServiceHealthView, RuntimeSnapshot, SessionId,
@@ -72,6 +72,29 @@ pub enum RuntimeCommand {
     /// so it stays answerable in Plan mode.
     QueryAudit {
         query: AuditQuery,
+    },
+    /// Read-only page of the durable evidence archive
+    /// (`runtime.evidence_reads`, GUI-CORE-025).
+    ///
+    /// Gate posture is `QueryAudit`'s, not `QueryWorkspaceFiles`': bounded and
+    /// owner-scoped, never tool-gated. The evidence archive is Viden's own
+    /// state — facts Core itself recorded — rather than the operator's working
+    /// tree, so there is no workspace read to authorize and no tool whose
+    /// `viden.toml` rule would mean anything here. It mutates nothing and
+    /// prompts for nothing, so it stays answerable in Plan mode.
+    QueryEvidence {
+        query: EvidenceQuery,
+    },
+    /// Read-only canonical content behind one evidence row
+    /// (`runtime.evidence_reads`, GUI-CORE-025).
+    ///
+    /// Same posture as `QueryEvidence`, and the same store: the answer is read
+    /// only from the canonical ContextStore bytes the row's own
+    /// `CanonicalEvidenceReference` names, verified against its `source_hash`
+    /// first. Core never serves bytes it could not verify, so every other
+    /// outcome is a typed `EvidenceContent::Unavailable` rather than content.
+    ReadEvidenceContent {
+        evidence_id: EvidenceId,
     },
     /// Read-only page of the workspace file inventory (GUI-CORE-022).
     ///

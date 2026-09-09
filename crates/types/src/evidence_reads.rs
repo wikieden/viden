@@ -51,6 +51,15 @@ pub const MAX_EVIDENCE_PAGE_SIZE: u16 = 200;
 /// Page size a client gets when it expresses no preference.
 pub const DEFAULT_EVIDENCE_PAGE_SIZE: u16 = 50;
 
+/// Largest `kinds` filter one [`EvidenceQuery`] may carry.
+///
+/// `limit` is clamped rather than rejected, because a client that asked for
+/// too many rows still means something answerable. A filter list is different:
+/// it is not a preference Core can narrow on the client's behalf without
+/// answering a *different* question than the one asked, so an over-limit
+/// filter is refused instead. The bound matches `MAX_AUDIT_ARGS`.
+pub const MAX_EVIDENCE_QUERY_KINDS: usize = 32;
+
 /// Byte bound on the content one [`EvidenceContent`] publishes.
 ///
 /// 256 KiB, the same bound the diff reads and conflict content use. Evidence
@@ -114,6 +123,13 @@ impl EvidenceQuery {
     pub fn validate(&self) -> Result<(), String> {
         if let Some(after) = self.after.as_deref() {
             EvidenceCursor::decode(after)?;
+        }
+        if self.kinds.len() > MAX_EVIDENCE_QUERY_KINDS {
+            return Err(format!(
+                "evidence query kinds exceed the {MAX_EVIDENCE_QUERY_KINDS} entry bound: {} \
+                 requested\nhint: ask for fewer kinds, or drop the filter and page the archive",
+                self.kinds.len()
+            ));
         }
         for kind in &self.kinds {
             if kind.trim().is_empty() {

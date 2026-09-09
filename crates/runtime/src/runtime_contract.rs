@@ -534,6 +534,30 @@ impl SessionEngine {
                 Ok(audit_events) => append_resequenced(&mut events, audit_events),
                 Err(err) => return Ok(vec![command_rejected(command_id, err)]),
             },
+            // Read-only exactly like `QueryAudit` above, and for the same
+            // reason: the evidence archive is Viden's own state rather than
+            // the operator's tree, so there is no workspace read to authorize
+            // and no tool spec whose rule would describe one. `Err` is always
+            // a pre-answer refusal of this exact read — an over-limit filter
+            // list, a cursor this build did not issue — and never an empty
+            // page, which a client would render as an empty archive.
+            RuntimeCommand::QueryEvidence { query } => {
+                match self.query_evidence(&command_id, query) {
+                    Ok(evidence_events) => append_resequenced(&mut events, evidence_events),
+                    Err(err) => return Ok(vec![command_rejected(command_id, err)]),
+                }
+            }
+            // Same posture and same store as the page above. The only `Err` is
+            // an evidence id this build never recorded: "no such evidence" and
+            // "this evidence has no content" are different facts, and the
+            // second is a typed `EvidenceContent::Unavailable` on a published
+            // event rather than a rejection.
+            RuntimeCommand::ReadEvidenceContent { evidence_id } => {
+                match self.read_evidence_content(&command_id, &evidence_id) {
+                    Ok(content_events) => append_resequenced(&mut events, content_events),
+                    Err(err) => return Ok(vec![command_rejected(command_id, err)]),
+                }
+            }
             // Read-only like the two queries above, but permission-gated: it
             // reads the operator's working tree, so the handler consults the
             // permission engine before touching disk. `Err` covers both a
@@ -5926,6 +5950,21 @@ pub(crate) fn redacted_runtime_command_for_event(command: &RuntimeCommand) -> Ru
         RuntimeCommand::QueryAudit { query } => RuntimeCommand::QueryAudit {
             query: query.clone(),
         },
+        // The evidence query carries an owner scope, exact kind keys, a bound
+        // and an opaque cursor Core itself issued: stable identifiers with no
+        // free text, so it passes through like the audit query above.
+        RuntimeCommand::QueryEvidence { query } => RuntimeCommand::QueryEvidence {
+            query: query.clone(),
+        },
+        // The evidence id is one Core minted and published on its own
+        // `EvidenceRecorded`. Running the identifier redactor over it would
+        // publish an accepted command naming a *different* row than the one
+        // Core answered, so the id is echoed verbatim.
+        RuntimeCommand::ReadEvidenceContent { evidence_id } => {
+            RuntimeCommand::ReadEvidenceContent {
+                evidence_id: evidence_id.clone(),
+            }
+        }
         // The prefix is a workspace-relative path fragment the operator typed
         // into their own client, already validated to stay inside the
         // workspace. Passing the identifier redactor over it would strip the
