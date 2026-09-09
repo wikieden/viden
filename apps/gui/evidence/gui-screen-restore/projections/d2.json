@@ -87,6 +87,7 @@
         "code": "GUI-CORE-012"
       }
     },
+    "decisionContext": null,
     "evidence": [
       {
         "id": "evidence-playtest",

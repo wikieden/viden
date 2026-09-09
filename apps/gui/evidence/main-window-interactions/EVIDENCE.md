@@ -58,6 +58,8 @@ typechecks the harness against the production render signatures.
 | `d14-audit*` | [`../gui-screen-restore/projections/d14-audit.json`](../gui-screen-restore/projections/d14-audit.json) | **generated** by the same test — the projection the production acceptance-first correlation produced from a Core `AuditPageLoaded` page |
 | `d14-raw-fallback` | [`../gui-screen-restore/projections/d14-raw.json`](../gui-screen-restore/projections/d14-raw.json) | **generated** by the same test through `CoreClient::replay` |
 | `d11`, `d11-recent` | mirrors the fixtures in `tests/d11_intake.spec.ts`, plus the hand-written `RecentWorkResult` below for the history panel | hand-written; D11 has no generated capture projection yet |
+| `review*` | one `WorkspaceDiffLoaded` page: the same two entries the canonical extension fixture carries — a staged `modified` file with one real hunk and an `omitted` addition whose counts stay real — plus the same `truncated: true` page flag. `review-rejected` replaces the outcome with the fixture's own `CommandRejected` reason; `review-empty` keeps the page and empties `entries` | the `structured-diff.json` extension fixture and the page shape asserted in `tests/workspace_diff.rs` |
+| `approval-hunks` | the shared pending approval retargeted to `edit_file` and given the fixture's one-file `decision_context` and `base_sha256`. The tool is changed on purpose: `edit_file` is one of exactly three proposals Core attaches a context to, and a `shell` approval carrying hunks would be a screenshot of something Core never publishes | the `edit_file` approval in `structured-diff.json` and `an_approval_with_a_decision_context_projects_its_rows_and_base_hash` in `tests/decision_context.rs` |
 | `lane-rail`, `project-picker`, `project-switch-confirm` | the shared D1 fixture plus a hand-written `RecentWorkResult` | hand-written; `frontend-contract-v1` has no canonical recent-work capture projection yet, so the shapes mirror `tests/recent_work.rs` and `tests/project_picker.spec.ts` |
 
 The D12 projection is never hand-written. `tests/capture_projections.rs` runs
@@ -142,6 +144,11 @@ All URLs share the prefix
 | `palette` | `…/qa.html?state=palette` | the ⌘K command palette open over the cockpit from the titlebar toggle, with all four sections visible — Actions, Jump to (the cross-Lane gate and ask plus the Lane), Settings, and the Files section listing the workspace inventory Core published |
 | `palette-files` | `…/qa.html?state=palette-files` | the same palette pre-scoped to `~`, framing the Core-published inventory alone: six paths in Core's lexicographic order, each with the entry kind Core reported and no path the client discovered itself (`GUI-CORE-022`) |
 | `d10-ticker` | `…/qa.html?state=d10-ticker` | the D10 event ticker under the lane cards: one bounded newest-first page of Core's audit timeline, with two projects interleaved so the strip shows one order across projects rather than a per-project list, each row carrying Core's stable id, raw dotted action key, owner, and timestamp (`GUI-CORE-014`) |
+| `review` | `…/qa.html?state=review` | DiffReview opened from the titlebar changes marker: the file tree with its `M`/`A` glyphs, Core's staged `✓`, per-file counts and the header total; the unified body with Git's own `@@` header and per-side line numbers; the page truncation banner; `Split` visible and disabled; the commit bar disabled and naming `GUI-CORE-020` |
+| `review-omitted` | `…/qa.html?state=review-omitted` | the same view with the second entry selected, so the "rows not shown" note appears beside counts that stayed real (`omitted`) |
+| `review-rejected` | `…/qa.html?state=review-rejected` | Core's refusal verbatim in a `role=alert`, with no file count in the header and no empty-tree sentence |
+| `review-empty` | `…/qa.html?state=review-empty` | "No changes in the working tree" — the only state drawn that way, over a page Core actually answered |
+| `approval-hunks` | `…/qa.html?state=approval-hunks` | the D1 permission dock rendering `decision_context` as hunk rows under the "Preview computed against" note, with `input_preview` above and the decision row pinned below (`GUI-CORE-012`) |
 | `lane-rail` | `…/qa.html?state=lane-rail` | the rail pinned open (it auto-hides), showing the one `.wsroot` project group named `viden` with its `▾` collapse, its Lane count, the per-group `＋`, the Lane nested beneath it, and the `＋ Add project…` footer — and no second group and no "Global" section |
 | `project-picker` | `…/qa.html?state=project-picker` | the picker open under the titlebar `▾` selector with all three columns visible at once: `Add directory…` enabled beside the two disabled rows naming `GUI-CORE-023`, the single "In workspace" row for the open project with its lane count, and one Recent row with its relative age |
 | `project-switch-confirm` | `…/qa.html?state=project-switch-confirm` | the same picker after choosing the recent project, showing the inline confirmation: the target root, the replacement sentence naming `GUI-CORE-023`, the running-work counts, and Cancel beside Switch workspace |
@@ -479,3 +486,58 @@ pending contract to confirm.", the Chinese one
 "Core 已记录该契约的裁决，且不发布任何待确认契约。", and the code
 `GUI-CORE-013` stays untranslated in both, because a reason code is an
 identifier rather than prose.
+
+## DiffReview and approval-hunk captures
+
+Captured 2026-09-09 with headless Chrome
+(`--headless --disable-gpu --hide-scrollbars --window-size=1440,900
+--virtual-time-budget=6000`) against the vite dev server on port 4211, then
+visually reviewed (all six sampled in review).
+
+| File | State | Viewport | Mode | Locale |
+| --- | --- | --- | --- | --- |
+| [review-1440x900-dark-en.png](review-1440x900-dark-en.png) | review | 1440x900 | dark | en |
+| [review-1440x900-light-zh-CN.png](review-1440x900-light-zh-CN.png) | review | 1440x900 | light | zh-CN |
+| [review-omitted-1440x900-dark-en.png](review-omitted-1440x900-dark-en.png) | review-omitted | 1440x900 | dark | en |
+| [review-rejected-1440x900-dark-en.png](review-rejected-1440x900-dark-en.png) | review-rejected | 1440x900 | dark | en |
+| [review-empty-1440x900-dark-en.png](review-empty-1440x900-dark-en.png) | review-empty | 1440x900 | dark | en |
+| [approval-hunks-1440x900-dark-en.png](approval-hunks-1440x900-dark-en.png) | approval-hunks | 1440x900 | dark | en |
+
+These are the registered DiffReview family (`docs/DESIGN-REF.md`, "D1 次级视图",
+`D-RAILNAV ①`) and the D1 permission dock rendering Core's decision context.
+All five review states are opened the way an operator opens them — through the
+titlebar's changes marker — rather than by mounting the screen directly, so the
+entry point is under test in every image.
+
+The set is chosen so that each of the honesty rules the source-control contract
+states has exactly one image that can falsify it:
+
+| Image | The rule it proves |
+| --- | --- |
+| `review` | a `truncated` page carries its banner; the file tree shows the `M`/`A` glyphs, Core's own staged `✓`, and per-file counts; the commit bar is fully disabled and names `GUI-CORE-020`; `Split` is visible and disabled |
+| `review-omitted` | the second entry selected, so its "Rows not shown (1284 additions, 0 deletions) — over the byte bound" note is framed beside counts that stayed real. This is the one rule a screenshot of the first file cannot show |
+| `review-rejected` | Core's refusal rendered verbatim, hint included, with **no** file count in the header — "0 files · +0 −0" would be a number Core never gave, and would read as a clean tree |
+| `review-empty` | the only state drawn as "No changes in the working tree": a page Core answered, with zero entries |
+| `approval-hunks` | the dock rendering `decision_context` as hunk rows under "Preview computed against 3f79bb7b", with `input_preview` still above them and the decision row pinned below them |
+
+`review-rejected` and `review-empty` are worth reading as a pair: the two
+images differ in exactly the way the contract says they must. One shows Core's
+own words and no counts, the other shows a count of zero and the empty-tree
+sentence. A client that collapsed them would produce the same picture twice.
+
+The light/`zh-CN` capture is the locale and skin proof for the added copy: the
+headings, the segmented control, the truncation banner, the commit-bar note,
+and the counts translate, while `crates/types/src/diff.rs`, the `@@` header,
+the diff content, the branch name, and the code `GUI-CORE-020` stay exactly as
+they are. A translated `@@` header or reason code would break the one property
+a diff pane exists for — matching what a reviewer sees in a terminal.
+
+Two things the images make visible that are worth stating rather than leaving
+to the eye. The dock's action row is pinned and its context scrolls, which is a
+change this batch made: before Core published a decision context the dock
+always fitted its host, and letting an unbounded preview scroll the whole dock
+would push Approve and Deny out of sight behind the very rows they answer
+(`permission-ask` is unchanged and is the before image). And a basename longer
+than the 236px file tree still ellipsizes; the split only guarantees that the
+directory half disappears first, and the full path stays in the row's title and
+in the pane header.

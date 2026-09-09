@@ -87,6 +87,7 @@
       "text": "gate-integration",
       "unavailable": null
     },
+    "decisionContext": null,
     "evidence": [
       {
         "id": "evidence-playtest",

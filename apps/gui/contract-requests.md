@@ -160,10 +160,26 @@ before execution in `0.3.3`. A multi-file patch carries no `base_sha256` at
 all: one hash cannot describe several files, and naming one would invite a
 client to verify the wrong one.
 
-GUI status: not yet adopted. D2 and the D1 permission dock still render the
-preview verbatim and keep the unavailable marker; rendering `decision_context`
-rows and dropping that marker lands with the DiffReview host batch, together
-with GUI-CORE-020 and GUI-CORE-015.
+GUI status: adopted 2026-09-09 (G1a), read side. The DiffReview view renders
+`QueryWorkspaceDiff` -> `WorkspaceDiffLoaded` as the registered
+`.review > .filetree + .diffpane` family in the D1 centre pane; the D1
+permission dock, the D2 decision detail, and D1's changed-file cards render
+`decision_context` and `WorkspaceChangeView.diff` through the same row
+renderer. D1's `diff` unavailable row is dropped when Core advertises
+`runtime.structured_diff` and kept otherwise, and D2's marker is dropped per
+decision — only for an approval Core actually attached a context to, because
+`shell` and the `git_*` family legitimately carry none and the preview stays
+the whole context there. `base_sha256` renders as "Preview computed against
+<8 chars>", stated as the preimage the preview was computed against rather
+than as a guarantee that the file has not moved since.
+
+Two parts of the host are deliberately not adopted yet. The commit bar the
+DiffReview family draws is present, fully disabled, carries no handlers, and
+names GUI-CORE-020: operator git actions need `runtime.operator_git`, which
+`frontend-contract-v1` does not carry. The Split half of the Unified/Split
+segmented control is visible and disabled for the same reason of honesty —
+only the unified body is built. Conflict content (GUI-CORE-015) is a separate
+batch.
 
 ## GUI-CORE-013: Pending contract-confirmation fact
 

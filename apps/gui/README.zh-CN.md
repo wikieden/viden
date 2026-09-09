@@ -467,6 +467,64 @@ agent stopped、context overflow、capability、incompatible schema、queue clea
 Inspect 只是对投影中既有事实的本地展开，不触达任何 Core 命令。Checkpoint 控件仍可见但以
 `GUI-CORE-003` 禁用（契约请求 `GUI-CORE-018`）；GUI 不伪造 recovery receipt。
 
+## DiffReview 变更评审
+
+`⌘R`（非 macOS 为 `⌃R`）、标题栏的变更标记、命令面板的 `打开评审` 三个入口都在 D1
+中央区打开登记族 `.review > .filetree + .diffpane`。它是**驾驶舱内的视图，不是路由**：
+按设计裁决 `D-RAILNAV`，活动 rail 仍然是通往独立 D 屏的路由器，DiffReview 是该次裁决
+登记的次级面之一，关闭它回到对话流而不是导航离开。CSS 取自 `GUI/gui-kit.css` —— `D0`
+升进正是为这个第二消费者做的镜像；按设计包自己的规则，手抄 D1 内联样式即漂移。
+
+**数据通路。** 经 CoreClient 缝合层发一次 `QueryWorkspaceDiff` ->
+`WorkspaceDiffLoaded`，关联方式与 `QueryWorkspaceFiles` 相同：同时只有一次读在飞行中，
+页与 `CommandRejected` 都携带精确的 `command_id`，且不存在「以受理兜底」的猜测，因为页
+上的 id 是必填字段。默认查询覆盖整个目标、`scope: Both`、不带路径过滤、使用 Core 自己
+的字节上限。目标跟随驾驶舱的 Lane 选择 —— 选中某 Lane 即评审该 Lane 的工作树 —— 并由
+Core 依 Lane id 解析工作树，因为客户端从不传路径。权限门（非变更的 `git_diff` 工具，
+因此该读取在 Plan 模式下仍可回答）、`git status`/`git diff` 的执行、上限与排序都归
+Core。客户端不执行 git，也不解析 diff 文本。
+
+**重读规则。** 刷新按钮按需重读。除此之外，视图打开期间每次有序 Core 唤醒都会读一次
+宿主的零流量投影；适配器在唯一的事件接收漏斗里统计使两个使 diff 失效的事实 ——
+`WorkspaceSourceUpdated` 与 `WorkspaceChangeUpdated` —— 因此即使该事实被别的屏幕的轮询
+消费掉，打开着的评审仍能得知。页在读取之后被失效时会立刻显示横幅，并在 400 ms 去抖后
+重读，于是一串 agent 写入只花一次有界查询而不是每个事件一次。期间行始终留在屏幕上：
+「该重读了」绝不能把操作者眼前唯一的事实抹掉。关闭的评审不做任何检查。修订号在命令发出
+时记录而非在页到达时记录，于是失败方向是多读一次，而不是让评审面默默过期。
+
+**诚实规则**，每条都有自己的句子和自己的测试：
+
+| Core 事实 | 视图渲染 |
+| --- | --- |
+| `DiffFile.omitted` | 「未显示 diff 行（n 行新增、m 行删除）—— 超出字节上限」，并保留真实计数 |
+| `DiffFile.binary` | 「二进制文件，无 diff 行」 |
+| `WorkspaceDiffEntry.diff: None` | 「Core 没有为该文件产出 diff。这不代表它没有变化。」 |
+| `WorkspaceDiffPage.truncated` | 页级横幅，说明上限丢弃了至少一个文件的行 |
+| 已加载但零条目的页 | 「工作区没有变更」—— 唯一可以这样渲染的状态 |
+| 尚未得到回答的读取 | 「正在从 Core 读取工作区 diff…」 |
+| `CommandRejected` | 在 `role=alert` 中原样呈现 Core 的拒绝文本 |
+| 无 `runtime.structured_diff` | 点名该能力，并明确说明这不代表工作区干净 |
+
+表头合计只累加 Core 给出了行的条目；只要有条目没有 diff，合计就被标为不完整，而不是
+悄悄少报；页到达之前完全不显示合计。文件行携带 `WorkspaceChangeKind` 字形（M/A/D/R/?）、
+Core 自己的 `staged` 标记与逐文件计数。长路径保住文件名：目录一半让位的速度快一百倍，
+完整路径挂在该行的 title 上。
+
+**等待 C2 的部分。** 该族画出的提交栏保留在位、整体禁用、不挂任何处理器，并标注
+`GUI-CORE-020` —— 操作者 git 动作需要 `frontend-contract-v1` 尚未携带的
+`runtime.operator_git`。「分栏」可见且禁用，因为只实现了统一视图。冲突内容属于
+`GUI-CORE-015`，是另一个批次。
+
+**审批决策上下文。** 同一个行渲染器在 D1 权限坞与 D2 决策详情中渲染
+`ApprovalRequestView.decision_context`，在 D1 变更文件卡片中渲染
+`WorkspaceChangeView.diff`。`base_sha256` 渲染为「预览基于 <8 位> 计算」—— 那是预览所
+依据的原像，而不是「文件没有变过」的保证，因为执行时才会把拟议的工具输入作用到当时的
+文件内容上，且 Core 不会在执行前重新校验。不可用标记按「关于 Core 的断言」对待：Core
+广告该能力时 D1 的 `diff` 行消失，D2 的标记按单条决策消失、且只在 Core 确实附了上下文
+处消失。`shell` 与 `git_*` 族本就不带上下文，那里的 `input_preview` 保持原有措辞不变。
+坞的动作行被固定，上下文自身滚动，因此再长的预览也不会把「允许」「拒绝」挤到它们所要
+回答的那些行后面。
+
 ## D12 集成闸决策
 
 `批准并合入` 与 `退回原 Lane` 是 D12 仅有的两个变更动作；没有手动 merge 后门，客户端

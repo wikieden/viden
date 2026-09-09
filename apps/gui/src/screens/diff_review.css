@@ -1,73 +1,67 @@
 /*
- * DiffReview (`.review > .filetree + .diffpane`), derived from the registered
- * family in `docs/viden-design/Viden/GUI/gui-kit.css` ("D1 次级视图" tail
- * block) against the shared token layer only — the same way every other GUI
- * screen derives its CSS. No token value is copied, and the design package is
- * not modified.
+ * DiffReview (`.review > .filetree + .diffpane`).
  *
- * Two rules the design's static mock has no need for, added here because this
- * is a live view rather than a screenshot:
+ * The family itself comes from the design package: `D0` mirrored it into
+ * `gui-kit.css` ("D1 次级视图" tail block) precisely so a second consumer
+ * could link the kit instead of hand-copying D1's inline rules, and the
+ * registration says outright that a hand copy *is* drift. This file therefore
+ * imports the kit — as `d1_cockpit.css`, `d11_intake.css`, and
+ * `d4_lane_create.css` already do — and adds only what a live view needs that
+ * a static mock does not.
  *
- * - `.fthead` carries a Refresh control and `.dphead` a Close control. The
- *   mock never re-reads and never returns anywhere.
- * - `.ftrow .fn` is split into an ellipsizing directory half and a
- *   non-shrinking basename, so the distinctive end of a long repository path
+ * Everything below is an addition or a deliberate, stated override:
+ *
+ * - The kit's `.ftlist` and `.diffbody` are `overflow: hidden`, which is right
+ *   for a fixed-height mock and wrong for a real change set. Both scroll here.
+ * - `.fthead` gains a Refresh control and `.dphead` a Close control. The mock
+ *   never re-reads and never returns anywhere.
+ * - `.ftrow .fn` is split into a directory half that gives way first and a
+ *   basename that survives, so the distinctive end of a long repository path
  *   stays readable. The mock's paths are short enough that plain
  *   `text-overflow` never bites.
+ * - Four state notes and two banners carry facts the mock has no data for:
+ *   an absent capability, a pending read, Core's refusal, a clean tree, the
+ *   page byte bound, and a page invalidated since it was read.
+ * - `.ftrow` is a real `<button>`, so it needs the button reset and a focus
+ *   ring the mock's `<div>` never needed.
+ *
+ * The design package itself is not modified.
  */
 
-.review {
-  display: grid;
-  grid-template-columns: 236px 1fr;
-  height: 100%;
-  min-height: 0;
-}
+@import "../../../../docs/viden-design/Viden/GUI/gui-kit.css";
 
-.review .filetree {
-  border-right: 1px solid var(--border-soft);
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  background: var(--bg-panel);
+/* A change set is not a fixed-height mock: both panes scroll. */
+.review .ftlist,
+.review .diffbody {
+  overflow: auto;
 }
 
 .review .fthead {
-  flex: none;
-  display: flex;
-  align-items: center;
   gap: var(--sp-2);
-  padding: var(--sp-3);
-  border-bottom: 1px solid var(--border-soft);
-}
-
-.review .fthead h3 {
-  margin: 0;
-  font: 700 var(--fs-xs)/var(--lh-ui) var(--font-mono);
-  letter-spacing: var(--ls-label);
-  text-transform: uppercase;
-  color: var(--accent);
 }
 
 .review .fthead .ct {
   margin-left: auto;
-  font: var(--fs-xs)/var(--lh-ui) var(--font-mono);
-  color: var(--fg-muted);
 }
 
 /* Totals Core could not complete are marked, never silently under-reported. */
 .review .review-partial {
   color: var(--gold);
-  font: var(--fs-xs)/var(--lh-ui) var(--font-mono);
+  font-family: var(--mono);
+  font-size: 11px;
 }
 
+/* Refresh and Close: the two controls a live view owes that a mock does not. */
 .review .review-icon {
   flex: none;
   border: 1px solid var(--border-soft);
   border-radius: var(--r-xs);
   background: var(--bg-base);
   color: var(--fg-muted);
-  font: var(--fs-xs)/1 var(--font-mono);
-  padding: var(--sp-1) var(--sp-2);
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1;
+  padding: 5px 7px;
   cursor: pointer;
 }
 
@@ -81,32 +75,12 @@
   outline-offset: 2px;
 }
 
-.review .ftlist {
-  overflow: auto;
-  padding: var(--sp-2);
-}
-
+/* `.ftrow` is a button here, not the mock's div. */
 .review .ftrow {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-2);
   width: 100%;
-  padding: var(--sp-2) var(--sp-3);
   border: none;
-  border-radius: var(--r-sm);
   background: transparent;
-  cursor: pointer;
   text-align: left;
-  font: var(--fs-sm)/var(--lh-ui) var(--font-mono);
-}
-
-.review .ftrow:hover {
-  background: var(--bg-base);
-}
-
-.review .ftrow.on {
-  background: var(--bg-sel);
-  box-shadow: inset 2px 0 0 var(--accent);
 }
 
 .review .ftrow:focus-visible {
@@ -114,40 +88,24 @@
   outline-offset: -2px;
 }
 
+/* A path Core did not classify keeps a neutral marker, never a borrowed one. */
 .review .ftrow .stat {
-  flex: none;
-  width: 14px;
-  text-align: center;
-  font-weight: 700;
   color: var(--fg-muted);
 }
 
-.review .ftrow .stat.m {
-  color: var(--gold);
-}
-
-.review .ftrow .stat.a {
-  color: var(--success);
-}
-
-.review .ftrow .stat.d {
-  color: var(--error);
-}
-
 .review .ftrow .fn {
-  color: var(--fg-secondary);
-  flex: 1;
-  min-width: 0;
   display: flex;
   white-space: nowrap;
 }
 
-.review .ftrow.on .fn {
-  color: var(--fg-primary);
-}
-
-/* The leading directories are the half allowed to disappear. */
+/*
+ * The leading directories are the half that gives way first. Both halves can
+ * shrink — a repository path can be longer than the whole rail — but the
+ * directory half yields a hundred times faster, so the basename survives every
+ * width at which anything survives at all.
+ */
 .review .ftrow .fn .dir {
+  flex: 0 100 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -155,18 +113,15 @@
 }
 
 .review .ftrow .fn .base {
-  flex: none;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.review .ftrow .pm {
-  flex: none;
-  font-size: var(--fs-xs);
-  color: var(--fg-muted);
-}
-
+.review .ftrow .pm,
 .review .ftrow .ck {
   flex: none;
-  color: var(--success);
 }
 
 /*
@@ -177,7 +132,9 @@
   margin: var(--sp-2) 0 0;
   padding: var(--sp-2) var(--sp-3);
   color: var(--fg-muted);
-  font: var(--fs-xs)/var(--lh-body) var(--font-mono);
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: var(--lh-body);
   white-space: pre-wrap;
 }
 
@@ -191,26 +148,7 @@
   border-left: 2px solid var(--gold);
 }
 
-.review .diffpane {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  overflow: hidden;
-  background: var(--bg-base);
-}
-
-.review .dphead {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: var(--sp-3);
-  padding: var(--sp-3) var(--sp-4);
-  border-bottom: 1px solid var(--border-soft);
-}
-
 .review .dphead .fn {
-  font: var(--fs-sm)/var(--lh-ui) var(--font-mono);
-  color: var(--fg-primary);
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -218,35 +156,9 @@
 }
 
 .review .review-renamed {
-  font: var(--fs-xs)/var(--lh-ui) var(--font-mono);
+  font-family: var(--mono);
+  font-size: 11px;
   color: var(--fg-muted);
-}
-
-.review .dphead .seg {
-  margin-left: auto;
-  display: flex;
-  border: 1px solid var(--border-soft);
-  border-radius: var(--r-sm);
-  overflow: hidden;
-}
-
-.review .dphead .seg button {
-  font: var(--fs-xs)/var(--lh-ui) var(--font-mono);
-  padding: var(--sp-1) var(--sp-3);
-  background: var(--bg-panel);
-  color: var(--fg-muted);
-  border: none;
-  border-right: 1px solid var(--border-soft);
-  cursor: pointer;
-}
-
-.review .dphead .seg button:last-child {
-  border-right: none;
-}
-
-.review .dphead .seg button.on {
-  background: var(--bg-sel);
-  color: var(--accent);
 }
 
 .review .dphead .seg button:disabled {
@@ -261,58 +173,21 @@
   padding: var(--sp-2) var(--sp-4);
   border-bottom: 1px solid var(--border-soft);
   color: var(--gold);
-  font: var(--fs-xs)/var(--lh-body) var(--font-mono);
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: var(--lh-body);
 }
 
 .review .review-banner[data-review-stale] {
   color: var(--accent);
 }
 
-.review .commitbar {
-  flex: none;
-  border-top: 1px solid var(--border-soft);
-  background: var(--bg-panel);
-  padding: var(--sp-3) var(--sp-4);
-  display: flex;
-  align-items: center;
-  gap: var(--sp-3);
-}
-
-.review .commitbar .msg-in {
-  flex: 1;
-  background: var(--bg-base);
-  border: 1px solid var(--border);
-  border-radius: var(--r-sm);
-  padding: var(--sp-2) var(--sp-3);
-  font: var(--fs-xs)/var(--lh-body) var(--font-mono);
-  color: var(--fg-muted);
-}
-
-.review .cbtn {
-  font: 700 var(--fs-sm)/var(--lh-ui) var(--font-mono);
-  border-radius: var(--r-sm);
-  padding: var(--sp-2) var(--sp-4);
-  border: 1px solid var(--border);
-  background: var(--bg-base);
-  color: var(--fg-secondary);
-  white-space: nowrap;
-}
-
 /*
- * The whole bar is inert until GUI-CORE-020 closes. It keeps the design's
- * shape so the operator can see what is coming, and states why it cannot act.
+ * The whole commit bar is inert until GUI-CORE-020 closes. It keeps the kit's
+ * shape so the operator can see what is coming, and the reduced opacity is the
+ * only thing that says it cannot act yet.
  */
 .review .cbtn:disabled {
   cursor: not-allowed;
   opacity: 0.55;
-}
-
-.review .cbtn.commit {
-  border-color: var(--success);
-  color: var(--success);
-}
-
-.review .cbtn.push {
-  border-color: var(--accent-dim);
-  color: var(--accent);
 }

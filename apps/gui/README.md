@@ -607,6 +607,83 @@ already in the projection and reaches no Core command. Checkpoint stays visible
 but disabled under `GUI-CORE-003` (contract request `GUI-CORE-018`); the GUI
 never fabricates recovery receipts.
 
+## DiffReview
+
+`⌘R` (`⌃R` off macOS), the titlebar's changes marker, and the palette's
+`Open review` all open the registered `.review > .filetree + .diffpane` family
+in D1's centre pane. It is a **view inside the cockpit, not a route**: per the
+design decision `D-RAILNAV` the activity rail stays a router to the standalone
+D-screens, DiffReview is one of the secondary surfaces that adjudication
+registered, and closing it returns to the transcript rather than navigating.
+The CSS comes from `GUI/gui-kit.css`, where the `D0` promotion mirrored the
+family for exactly this second consumer; hand-copying D1's inline rules is
+drift by the package's own rule.
+
+**Data path.** One `QueryWorkspaceDiff` -> `WorkspaceDiffLoaded` through the
+CoreClient seam, correlated the way `QueryWorkspaceFiles` is: one read in
+flight, the exact `command_id` on both the page and a `CommandRejected`, and no
+acceptance-gated fallback, because the page's id is a required field. The
+default query is the whole target, `scope: Both`, no path filter, and Core's
+own byte bound. The target follows the cockpit's Lane selection — a selected
+Lane reviews that Lane's worktree — and Core resolves the worktree from the
+Lane id, because a client never passes a path. Core owns the permission gate
+(the non-mutating `git_diff` tool, so the read stays answerable in Plan mode),
+the `git status`/`git diff` runs, the bound, and the ordering. The client runs
+no git and parses no diff text.
+
+**Re-query rule.** Refresh re-reads on demand. Beyond that, while the view is
+open every ordered Core wake reads the host's no-traffic projection; the
+adapter counts the two facts that invalidate a diff — `WorkspaceSourceUpdated`
+and `WorkspaceChangeUpdated` — inside its single receive funnel, so a fact
+drained by an unrelated screen's poll still reaches the open review. A page
+invalidated since it was read shows its banner immediately and re-reads after
+a 400 ms debounce, so a burst of agent writes costs one bounded query rather
+than one per event. The rows stay on screen throughout: "re-read due" must
+never blank the only facts the operator has. A closed review checks nothing.
+The revision is captured when the command leaves rather than when the page
+lands, which fails safe towards one extra read instead of a silently outdated
+review pane.
+
+**Honesty rules**, each with its own sentence and its own test:
+
+| Core fact | What the view renders |
+| --- | --- |
+| `DiffFile.omitted` | "Rows not shown (n additions, m deletions) — over the byte bound", with the real counts |
+| `DiffFile.binary` | "Binary, no rows" |
+| `WorkspaceDiffEntry.diff: None` | "Core produced no diff for this file. This does not mean it is unchanged." |
+| `WorkspaceDiffPage.truncated` | a page banner stating the bound dropped at least one file's rows |
+| a loaded page with zero entries | "No changes in the working tree" — the only state drawn that way |
+| a read with no answer yet | "Reading the workspace diff from Core…" |
+| `CommandRejected` | Core's refusal text verbatim in a `role=alert` |
+| no `runtime.structured_diff` | the capability named, and explicitly not a clean tree |
+
+Header totals are summed over the entries Core published rows for; when any
+entry carries no diff the totals are marked partial rather than quietly
+under-reporting, and before a page arrives no total is shown at all. File rows
+carry the `WorkspaceChangeKind` glyph (M/A/D/R/?), Core's own `staged` mark,
+and per-file counts. A long path keeps its basename: the directory half gives
+way a hundred times faster, and the full path is the row's title.
+
+**What waits for C2.** The commit bar the family draws is present, entirely
+disabled, carries no handlers at all, and states `GUI-CORE-020` — operator git
+actions need `runtime.operator_git`, which `frontend-contract-v1` does not
+carry. Split is visible and disabled because only the unified body is built.
+Conflict content is `GUI-CORE-015` and a separate batch.
+
+**Approval decision context.** The same row renderer draws
+`ApprovalRequestView.decision_context` in the D1 permission dock and the D2
+decision detail, and `WorkspaceChangeView.diff` on D1's changed-file cards.
+`base_sha256` renders as "Preview computed against <8 chars>" — the preimage
+the preview was computed against, not a guarantee the file has not moved,
+because execution runs the proposed tool input against whatever the file holds
+then and Core does not re-check first. The unavailable markers are treated as
+claims about Core: D1's `diff` row goes when Core advertises the capability,
+D2's marker goes per decision and only where Core attached a context. `shell`
+and the `git_*` family legitimately carry none, and there `input_preview`
+keeps the exact wording it always had. The dock's action row is pinned while
+the context scrolls, so a long preview can never push Approve and Deny behind
+the rows they answer.
+
 ## D12 merge-gate decisions
 
 `Accept and merge` and `Bounce to origin Lane` are the only two mutations D12

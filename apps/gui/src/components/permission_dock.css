@@ -2,6 +2,28 @@
   border-inline: 0;
   border-radius: 0;
   box-shadow: none;
+  /*
+   * The decision (`.gperm-opts`) is pinned; the facts above it scroll.
+   *
+   * Before Core published a decision context the dock always fitted its host,
+   * so the host's own `overflow: auto` was enough. A context is unbounded —
+   * a `MergeAgentPatch` preview can be hundreds of rows — and scrolling the
+   * whole dock would push Approve and Deny out of sight behind the very rows
+   * they are the response to.
+   */
+  display: flex;
+  flex-direction: column;
+  max-height: min(22rem, 46vh);
+  min-height: 0;
+}
+
+.gperm.dock .gperm-what {
+  min-height: 0;
+  overflow: auto;
+}
+
+.gperm.dock .gperm-opts {
+  flex: none;
 }
 
 .gperm.dock .gperm-opts {
@@ -42,7 +64,13 @@
   border: 1px solid var(--border-soft);
   border-radius: var(--r-sm);
   background: var(--bg-base);
-  max-height: 220px;
+  /*
+   * Bounded on purpose. The dock lives above the composer in a fixed shell,
+   * and a multi-file `MergeAgentPatch` context can be hundreds of rows long;
+   * letting it grow freely would push the approve and deny buttons out of the
+   * dock's own scroll region. The rows scroll inside this box instead.
+   */
+  max-height: 160px;
   overflow: auto;
 }
 

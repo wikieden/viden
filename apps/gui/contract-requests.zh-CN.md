@@ -129,9 +129,19 @@ unified diff 解析器（`crates/tools/src/patch.rs`）被提升为发布该文�
 变化，但 Core 在 `0.3.3` 中不会在执行前重新校验。多文件补丁完全不携带 `base_sha256`：
 一个哈希无法描述多个文件，给出其中之一只会诱导客户端去校验错误的对象。
 
-GUI 状态：尚未接入。D2 与 D1 权限坞仍原样渲染预览并保留不可用标记；渲染
-`decision_context` 行并移除该标记将随 DiffReview 宿主批次落地，与 GUI-CORE-020、
-GUI-CORE-015 一同进行。
+GUI 状态：2026-09-09（G1a）已接入读侧。DiffReview 视图在 D1 中央区以登记族
+`.review > .filetree + .diffpane` 渲染 `QueryWorkspaceDiff` ->
+`WorkspaceDiffLoaded`；D1 权限坞、D2 决策详情、D1 变更文件卡片共用同一个行渲染器
+渲染 `decision_context` 与 `WorkspaceChangeView.diff`。当 Core 广告
+`runtime.structured_diff` 时 D1 的 `diff` 不可用行被移除，否则保留；D2 的标记按单条
+决策移除 —— 只对 Core 确实附了上下文的审批移除，因为 `shell` 与 `git_*` 族本就不带
+上下文，那里的预览就是全部上下文。`base_sha256` 渲染为「预览基于 <8 位> 计算」，
+陈述的是预览所依据的原像，而非「文件此后没有变过」的保证。
+
+宿主的两部分刻意尚未接入。DiffReview 族画出的提交栏保留在位、整体禁用、不挂任何
+处理器，并标注 GUI-CORE-020：操作者 git 动作需要 `frontend-contract-v1` 尚未携带的
+`runtime.operator_git`。统一/分栏切换中的「分栏」出于同样的诚实原因可见且禁用 ——
+本版本只实现了统一视图。冲突内容（GUI-CORE-015）属于另一个批次。
 
 ## GUI-CORE-013：待确认契约事实
 

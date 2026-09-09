@@ -43,6 +43,7 @@ import "../../src/ui/window_chrome.css";
 import type { PaletteWorkspaceFiles } from "../../src/components/command_palette";
 import type { Locale } from "../../src/i18n/catalog";
 import type { ComposerControlIntent } from "../../src/models/composer";
+import type { WorkspaceDiffProjection } from "../../src/models/diff_review";
 import type { RecentWorkResult } from "../../src/models/recent_work";
 import type { PreferenceIntentOutcome } from "../../src/preferences";
 import {
@@ -293,6 +294,52 @@ function d1Pending(): D1CockpitProjection {
 
 
 /**
+ * The pending approval with Core's structured decision context attached
+ * (GUI-CORE-012).
+ *
+ * Delta on the canonical `structured-diff.json` fixture's `edit_file`
+ * approval: the same one-file, one-hunk diff and the same `base_sha256`. The
+ * tool is `edit_file` rather than the shared `shell` request, because
+ * `edit_file` is one of exactly three proposals Core attaches a context to —
+ * a `shell` approval carrying hunks would be a screenshot of something Core
+ * never publishes.
+ */
+function d1DecisionContext(): D1CockpitProjection {
+  const base = d1Pending();
+  return {
+    ...base,
+    permissionDock: {
+      ...base.permissionDock,
+      request: {
+        ...PERMISSION_REQUEST,
+        id: "approval-structured-edit",
+        toolName: "edit_file",
+        title: "Approve edit_file",
+        message: "edit_file requires approval",
+        inputPreview: "path: crates/types/src/diff.rs",
+        reason: "edit_file requires approval",
+        risk: "medium",
+        target: {
+          kind: "repo_path",
+          display: "crates/types/src/diff.rs",
+          canonicalRef: "repo://crates/types/src/diff.rs",
+        },
+        auditId: "audit_approval_structured_edit",
+        decisionContext: {
+          diff: {
+            files: [REVIEW_PAGE.entries[0]!.diff!],
+            truncated: false,
+            byteLimit: 65_536,
+          },
+          baseSha256:
+            "3f79bb7b435b05321651daefd374cdc681dc06faa65e374e38337b88ca046dea",
+        },
+      },
+    },
+  };
+}
+
+/**
  * A stopped ACP session with its two Core-backed recovery actions available.
  *
  * Mirrors the `STOPPED` fixture in `tests/d6_recovery.spec.ts`: `restart`
@@ -340,6 +387,8 @@ interface CockpitOptions {
   files?: boolean;
   /** Present so the titlebar selector and the rail footer open the picker. */
   projectPicker?: boolean;
+  /** The `WorkspaceDiffLoaded` page the DiffReview entry points resolve to. */
+  workspaceDiff?: WorkspaceDiffProjection;
 }
 
 function mountCockpit(options: CockpitOptions): void {
@@ -365,6 +414,16 @@ function mountCockpit(options: CockpitOptions): void {
         ? async () => PALETTE_CROSS_LANE
         : undefined,
       loadPaletteFiles: options.files ? async () => PALETTE_FILES : undefined,
+      // The same read pair the shell injects: `read` answers the capability
+      // and the staleness check with no Core traffic, `query` answers the
+      // actual `QueryWorkspaceDiff`. Both resolve to one fixed page, so the
+      // capture cannot move after it settles.
+      workspaceDiff: options.workspaceDiff
+        ? {
+            read: async () => options.workspaceDiff!,
+            query: async () => options.workspaceDiff!,
+          }
+        : undefined,
       loadRecentWork: options.projectPicker ? async () => RECENT_WORK : undefined,
       // The chooser never resolves, so `Add directory…` cannot advance the
       // capture past the columns it is framing.
@@ -860,6 +919,149 @@ async function d10Unobserved(): Promise<D10LaneMonitorProjection> {
 }
 
 /* ------------------------------------------------------------------ */
+/* DiffReview (GUI-CORE-012)                                           */
+/* ------------------------------------------------------------------ */
+
+/**
+ * One `WorkspaceDiffLoaded` page.
+ *
+ * Delta on the canonical `structured-diff.json` extension fixture: the same
+ * two entries it carries — one staged `modified` file with a real hunk, one
+ * `omitted` addition whose counts stay real — and the same `truncated: true`
+ * page flag, so the capture frames all three honesty rules at once. The
+ * `source` block mirrors the fixture's resampled `WorkspaceSourceView`.
+ */
+const REVIEW_PAGE: WorkspaceDiffProjection = {
+  outcome: { state: "confirmed", reason: null },
+  targetLaneId: null,
+  source: {
+    status: "ready",
+    branch: "codex/v3-core-runtime",
+    worktree: "workspace/viden",
+    ahead: 1,
+    behind: 0,
+    added: 2,
+    deleted: 0,
+    dirty: true,
+  },
+  entries: [
+    {
+      path: "crates/types/src/diff.rs",
+      index: "modified",
+      worktree: null,
+      staged: true,
+      diff: {
+        path: "crates/types/src/diff.rs",
+        oldPath: null,
+        kind: "modified",
+        binary: false,
+        omitted: false,
+        additions: 1,
+        deletions: 1,
+        hunks: [
+          {
+            oldStart: 42,
+            oldLines: 3,
+            newStart: 42,
+            newLines: 3,
+            header: "pub struct DiffDocument {",
+            lines: [
+              {
+                kind: "context",
+                content: "    pub files: Vec<DiffFile>,",
+                oldLine: 42,
+                newLine: 42,
+              },
+              {
+                kind: "removed",
+                content: "    pub truncated: bool,",
+                oldLine: 43,
+                newLine: null,
+              },
+              {
+                kind: "added",
+                content: "    pub truncated: bool, // bounded",
+                oldLine: null,
+                newLine: 43,
+              },
+              {
+                kind: "context",
+                content: "    pub byte_limit: u32,",
+                oldLine: 44,
+                newLine: 44,
+              },
+            ],
+          },
+        ],
+      },
+    },
+    {
+      path: "crates/types/tests/fixtures/frontend-contract-v1/structured-diff.json",
+      index: null,
+      worktree: "added",
+      staged: false,
+      diff: {
+        path: "crates/types/tests/fixtures/frontend-contract-v1/structured-diff.json",
+        oldPath: null,
+        kind: "added",
+        binary: false,
+        // The byte bound dropped the rows and left the counts real.
+        omitted: true,
+        additions: 1_284,
+        deletions: 0,
+        hunks: [],
+      },
+    },
+  ],
+  truncated: true,
+  loaded: true,
+  pendingCommandId: null,
+  capabilityAvailable: true,
+  stale: false,
+};
+
+/// Core's own refusal text, verbatim from the canonical fixture's
+/// `CommandRejected` for a denied `git_diff`.
+const REVIEW_REJECTION: WorkspaceDiffProjection = {
+  ...REVIEW_PAGE,
+  outcome: {
+    state: "rejected",
+    reason:
+      "permission denied\ntool: git_diff\nreason: DenyRule\nmessage: git_diff is denied by a workspace rule\nhint: grant the `git_diff` permission to read structured workspace changes",
+  },
+  source: null,
+  entries: [],
+  truncated: false,
+  loaded: false,
+};
+
+/// A read Core answered over a clean working tree. The only state that may
+/// render as "no changes".
+const REVIEW_EMPTY: WorkspaceDiffProjection = {
+  ...REVIEW_PAGE,
+  entries: [],
+  truncated: false,
+  loaded: true,
+};
+
+/// Opens DiffReview from the titlebar's changes marker, the way an operator
+/// does, rather than by mounting the screen directly.
+async function openReview(page: WorkspaceDiffProjection): Promise<void> {
+  mountCockpit({
+    projection: d1Base(),
+    preferencesAvailable: true,
+    workspaceDiff: page,
+  });
+  await waitFor("[data-topbar-review]:not([disabled])");
+  click("[data-topbar-review]");
+  // The view mounts in its pending state first and fills when the query
+  // resolves, so waiting for the container alone would frame an empty tree.
+  await waitFor("[data-diff-review]");
+  if (page.entries.length > 0) await waitFor(".ftrow");
+  else await waitFor("[data-review-state]");
+}
+
+/* ------------------------------------------------------------------ */
 /* States                                                              */
 /* ------------------------------------------------------------------ */
 
@@ -1009,6 +1211,49 @@ async function renderState(): Promise<void> {
       await waitFor("[data-permission-dock]");
       click("[data-permission-action='deny']");
       await tick();
+      return;
+    }
+
+    case "review": {
+      // The registered DiffReview family over one Core page: the file tree
+      // with its staged ✓ and per-file counts, the unified body, the page's
+      // truncation banner, and the commit bar disabled under GUI-CORE-020.
+      await openReview(REVIEW_PAGE);
+      return;
+    }
+
+    case "review-omitted": {
+      // The second entry selected, so the capture frames the "rows not shown"
+      // note beside its real counts — the one rule a screenshot of the first
+      // file cannot show.
+      await openReview(REVIEW_PAGE);
+      click("[data-path='crates/types/tests/fixtures/frontend-contract-v1/structured-diff.json']");
+      await waitFor("[data-diff-note='omitted']");
+      return;
+    }
+
+    case "review-rejected": {
+      // Core's refusal, rendered verbatim in a `role=alert`. Never an empty
+      // tree, which would read as a clean workspace.
+      await openReview(REVIEW_REJECTION);
+      await waitFor("[data-review-state='rejected']");
+      return;
+    }
+
+    case "review-empty": {
+      // The only state that may say "no changes": Core answered, with zero
+      // entries.
+      await openReview(REVIEW_EMPTY);
+      await waitFor("[data-review-state='empty']");
+      return;
+    }
+
+    case "approval-hunks": {
+      // The D1 permission dock rendering `decision_context` as hunk rows, with
+      // the preimage note. GUI-CORE-012's unavailable marker is gone here
+      // because Core published the rows.
+      mountCockpit({ projection: d1DecisionContext(), preferencesAvailable: true });
+      await waitFor("[data-decision-context]");
       return;
     }
 

@@ -132,15 +132,20 @@ export function renderDiffReview(
   const counted = entries.filter((entry) => entry.diff !== null);
   const additions = counted.reduce((total, entry) => total + (entry.diff?.additions ?? 0), 0);
   const deletions = counted.reduce((total, entry) => total + (entry.diff?.deletions ?? 0), 0);
-  const count = document.createElement("span");
-  count.className = "ct";
-  count.textContent = translate(locale, "d1.review.count", {
-    files: String(entries.length),
-    additions: String(additions),
-    deletions: String(deletions),
-  });
-  head.append(count);
-  if (counted.length !== entries.length) {
+  // Only a page that arrived has counts. Before one does — and after a
+  // refusal — "0 files · +0 −0" would be a number Core never gave, and would
+  // read as a clean tree.
+  if (projection.loaded) {
+    const count = document.createElement("span");
+    count.className = "ct";
+    count.textContent = translate(locale, "d1.review.count", {
+      files: String(entries.length),
+      additions: String(additions),
+      deletions: String(deletions),
+    });
+    head.append(count);
+  }
+  if (projection.loaded && counted.length !== entries.length) {
     const partial = document.createElement("span");
     partial.className = "review-partial";
     partial.dataset.reviewCountPartial = "true";

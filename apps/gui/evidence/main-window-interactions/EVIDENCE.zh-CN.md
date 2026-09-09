@@ -96,6 +96,8 @@ harness 补充的每个值都是上述来源之上的 delta，`qa.ts` 中每条�
 | `palette` | 交给 `loadPaletteCrossLane` 的一条跨 Lane 合并闸与一条询问 | `tests/d12_integration_gate.spec.ts` 的闸 fixture，以及 D1 fixture 本就带的那条 `liveWork.approvals` |
 | `palette`、`palette-files` | 交给 `loadPaletteFiles` 的六条真实 Viden 路径，按 Core 的字典序排列，字节大小固定 | `tests/command_palette.spec.ts` 的已加载清单 fixture，以及 `tests/workspace_files.rs` 断言的 page 形状 |
 | `d10-ticker` | 一页四条、横跨两个交错项目的 audit 记录，经屏幕自己的 `applyEvents` 应用 | 规范 fixture `audit-ordering.json` 与 `crates/core/tests/frontend_contract_v1.rs` 中的 `audit_ordering_fixture_orders_two_projects_as_one_newest_first_timeline` |
+| `review*` | 一页 `WorkspaceDiffLoaded`：与规范扩展 fixture 相同的两个条目 —— 一个带真实 hunk 的已暂存 `modified` 文件，以及一个计数仍真实的 `omitted` 新增 —— 加上同样的 `truncated: true` 页标志。`review-rejected` 把 outcome 换成该 fixture 自己的 `CommandRejected` 原因；`review-empty` 保留页并清空 `entries` | 扩展 fixture `structured-diff.json` 与 `tests/workspace_diff.rs` 断言的页形状 |
+| `approval-hunks` | 共享的待审批被改指到 `edit_file`，并附上该 fixture 的单文件 `decision_context` 与 `base_sha256`。改工具是刻意的：`edit_file` 正是 Core 会附上下文的三种提议之一，而带 hunk 的 `shell` 审批会是一张 Core 从不发布的东西的截图 | `structured-diff.json` 中的 `edit_file` 审批，以及 `tests/decision_context.rs` 中的 `an_approval_with_a_decision_context_projects_its_rows_and_base_hash` |
 | `lane-rail`、`project-picker`、`project-switch-confirm` | 一份两项目的 `RecentWorkResult`，时间戳是相对冻结时钟的偏移，因此渲染出的相对时间稳定。当前打开的根目录被刻意包含在内——选择器必须把它从「最近」中剔除，而不是提供切换到已经打开的项目 | `tests/recent_work.rs` 断言的 `RecentWorkLoaded` 载荷 |
 
 共享 D1 fixture 的 `topbarSource.project` 现在携带 `viden` 而不是 `null`。这是 Core
@@ -149,6 +151,11 @@ URL 与尺寸，不在该运行时之外调用浏览器自动化。
 | `palette` | `…/qa.html?state=palette` | 从标题栏按钮打开、覆盖在驾驶舱之上的 ⌘K 命令面板，四个分区全部可见——动作、跳转到（跨 Lane 的闸与询问，加上本 Lane）、设置，以及列出 Core 已发布工作区清单的「文件」分区 |
 | `palette-files` | `…/qa.html?state=palette-files` | 同一个面板但预先限定到 `~`，单独框出 Core 发布的清单：六条路径按 Core 的字典序排列，每条带 Core 报告的条目类型，没有任何一条是客户端自行发现的（`GUI-CORE-022`） |
 | `d10-ticker` | `…/qa.html?state=d10-ticker` | Lane 卡片下方的 D10 事件走马灯：Core 审计时间线的一页有界 newest-first 记录，两个项目交错出现，因此该条展示的是跨项目的同一个顺序而不是按项目分组的列表；每行携带 Core 的稳定 id、原样的点分 action key、owner 与时间戳（`GUI-CORE-014`） |
+| `review` | `…/qa.html?state=review` | 由标题栏变更标记打开的 DiffReview：文件树带 `M`/`A` 字形、Core 的暂存 `✓`、逐文件计数与表头合计；统一视图带 Git 自己的 `@@` 头与逐侧行号；页级截断横幅；`分栏` 可见且禁用；提交栏禁用并标注 `GUI-CORE-020` |
+| `review-omitted` | `…/qa.html?state=review-omitted` | 同一视图选中第二个条目，于是「未显示 diff 行」的说明与依然真实的计数并列（`omitted`） |
+| `review-rejected` | `…/qa.html?state=review-rejected` | Core 的拒绝在 `role=alert` 中原样呈现，表头没有文件计数，也没有空树句子 |
+| `review-empty` | `…/qa.html?state=review-empty` | 「工作区没有变更」—— 唯一可以这样渲染的状态，且建立在 Core 确实回答过的页之上 |
+| `approval-hunks` | `…/qa.html?state=approval-hunks` | D1 权限坞把 `decision_context` 渲染成 hunk 行，上方是「预览基于 … 计算」，`input_preview` 在其上、决策行固定在其下（`GUI-CORE-012`） |
 | `lane-rail` | `…/qa.html?state=lane-rail` | 侧栏被固定展开（它默认自动隐藏），显示名为 `viden` 的唯一 `.wsroot` 项目分组、`▾` 折叠控件、Lane 计数、分组内 `＋`、嵌套其下的 Lane，以及 `＋ 添加项目…` 页脚；没有第二个分组，也没有「Global」分区 |
 | `project-picker` | `…/qa.html?state=project-picker` | 选择器在标题栏 `▾` 之下展开，三列同时可见：可用的 `添加目录…` 与两行点名 `GUI-CORE-023` 的禁用行、当前打开项目的唯一「工作区内」行及其 lane 计数，以及一行带相对时间的「最近」 |
 | `project-switch-confirm` | `…/qa.html?state=project-switch-confirm` | 同一选择器在点击最近项目后进入内联确认：目标根目录、点名 `GUI-CORE-023` 的替换说明、正在运行的工作计数，以及「取消」与「切换工作区」两个按钮 |
@@ -417,3 +424,48 @@ event stream is unavailable」——因为这两个状态没有应用任何审�
 this contract's decision, and publishes no pending contract to confirm."，中文读作
 「Core 已记录该契约的裁决，且不发布任何待确认契约。」，而编码 `GUI-CORE-013` 在两者
 中都不翻译，因为原因编码是标识符而不是散文。
+
+## DiffReview 与审批 hunk 截图
+
+2026-09-09 以无头 Chrome 采集
+（`--headless --disable-gpu --hide-scrollbars --window-size=1440,900
+--virtual-time-budget=6000`），针对 4211 端口上的 vite 开发服务器，随后人工复核
+（六张全部抽检）。
+
+| 文件 | 状态 | 视口 | 模式 | 语言 |
+| --- | --- | --- | --- | --- |
+| [review-1440x900-dark-en.png](review-1440x900-dark-en.png) | review | 1440x900 | dark | en |
+| [review-1440x900-light-zh-CN.png](review-1440x900-light-zh-CN.png) | review | 1440x900 | light | zh-CN |
+| [review-omitted-1440x900-dark-en.png](review-omitted-1440x900-dark-en.png) | review-omitted | 1440x900 | dark | en |
+| [review-rejected-1440x900-dark-en.png](review-rejected-1440x900-dark-en.png) | review-rejected | 1440x900 | dark | en |
+| [review-empty-1440x900-dark-en.png](review-empty-1440x900-dark-en.png) | review-empty | 1440x900 | dark | en |
+| [approval-hunks-1440x900-dark-en.png](approval-hunks-1440x900-dark-en.png) | approval-hunks | 1440x900 | dark | en |
+
+这些是登记的 DiffReview 族（`docs/DESIGN-REF.md`「D1 次级视图」·`D-RAILNAV ①`），
+以及 D1 权限坞渲染 Core 决策上下文的画面。五个评审状态都按操作者的方式打开 ——
+经标题栏的变更标记 —— 而不是直接挂载屏幕，因此每张图都同时验证了入口。
+
+这一组的选取原则是：源码控制契约陈述的每条诚实规则，都恰好有一张图可以证伪它。
+
+| 图 | 它所证明的规则 |
+| --- | --- |
+| `review` | `truncated` 的页带有横幅；文件树显示 `M`/`A` 字形、Core 自己的暂存 `✓` 与逐文件计数；提交栏整体禁用并标注 `GUI-CORE-020`；`分栏` 可见且禁用 |
+| `review-omitted` | 选中第二个条目，于是「未显示 diff 行（1284 行新增、0 行删除）—— 超出字节上限」与依然真实的计数并列成像。这是第一个文件的截图无法展示的那条规则 |
+| `review-rejected` | Core 的拒绝文本连同 hint 原样呈现，表头**没有**文件计数 —— 「0 files · +0 −0」会是 Core 从未给出的数字，且会读作工作区干净 |
+| `review-empty` | 唯一可以渲染成「工作区没有变更」的状态：Core 回答过、条目为零的页 |
+| `approval-hunks` | 权限坞把 `decision_context` 渲染成 hunk 行，上方是「预览基于 3f79bb7b 计算」，`input_preview` 仍在其上，决策行固定在其下 |
+
+`review-rejected` 与 `review-empty` 值得成对阅读：两张图的差别正是契约要求的差别。
+一张是 Core 自己的话且没有计数，另一张是零计数加上空树句子。把两者合一的客户端会
+产出两张一样的图。
+
+light/`zh-CN` 那张是新增文案的语言与皮肤佐证：标题、分段控件、截断横幅、提交栏说明与
+计数都翻译，而 `crates/types/src/diff.rs`、`@@` 头、diff 内容、分支名与编码
+`GUI-CORE-020` 完全不变。翻译 `@@` 头或原因编码会破坏 diff 面板存在的唯一意义 ——
+与评审者在终端里看到的内容对得上。
+
+有两件图里能看见、但值得写明而不是留给眼睛的事。坞的动作行被固定、上下文自身滚动，
+这是本批次做的改动：在 Core 发布决策上下文之前坞总能装进它的宿主，而让无界的预览滚动
+整个坞会把「允许」「拒绝」挤到它们所要回答的那些行后面（`permission-ask` 未变，是
+改动前的对照图）。另外，长于 236px 文件树的文件名仍会省略；拆分只保证目录一半先消失，
+完整路径保留在该行的 title 与面板表头里。
