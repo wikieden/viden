@@ -531,7 +531,8 @@ Task 6 现已负责 resolved locale/appearance projection 与未保存 draft con
 
 ## rc.3 视觉、元数据与 bundle 门禁
 
-Task 11 新增 framework-neutral 组件画廊，以及面向 D1、D11、D4、D6 和 gallery 的
+Task 11 曾新增 framework-neutral 组件画廊
+（`src/screens/component_gallery.ts`），以及面向 D1、D11、D4、D6 和 gallery 的
 deterministic pairwise case inventory/DOM contract。它枚举中英文、全部有效 skin/mode
 组合、3 档 density、system/reduced motion，以及桌面、窄屏和放大字体要求。当前已复核
 视觉证据包含代表性 desktop gate 和精确尺寸的 D1 同状态 QA；gallery、窄屏与放大字体
@@ -544,3 +545,11 @@ lineage 保留。
 [evidence/0.1.0-rc.3](evidence/0.1.0-rc.3/README.md)。active manifest 与
 immutable rc.3 snapshot 记录相同证据路径并保持逐字节一致。macOS `.app` bundle
 只是本地构建产物；未安装、签名、公证、发布、打 tag 或 release。
+
+画廊模块本身已在 `claude/hygiene-h1` 上删除：从来没有任何地方 import 它，没有任何
+qa state 或脚本渲染它，它的样式表也从未进入过 bundle，因此它既没有产出 capture，也
+不可能发生回归。于是 `release-manifest.toml` 以及 `0.1.0-rc.2`/`0.1.0-rc.3` 快照中的
+`[evidence] component_gallery` 键指向了一个不再存在的路径。这些文件被
+`rc_release_manifest_is_an_immutable_byte_equivalent_snapshot` 逐字节冻结，无法就地
+修正；该键将在编写 `0.1.0-rc.4` manifest 时移除，模块本身可从 Git 历史中恢复，作为
+rc.3 的记录。

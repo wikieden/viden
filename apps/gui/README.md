@@ -688,8 +688,9 @@ contract; Task 7 owns D11, and Task 9 owns D1.
 
 ## rc.3 visual, metadata, and bundle gate
 
-Task 11 adds a framework-neutral component gallery and a deterministic pairwise
-case inventory/DOM contract for D1, D11, D4, D6, and the gallery. It enumerates
+Task 11 added a framework-neutral component gallery
+(`src/screens/component_gallery.ts`) and a deterministic pairwise case
+inventory/DOM contract for D1, D11, D4, D6, and the gallery. It enumerates
 both locales, every valid skin/mode pair, all densities, system/reduced motion,
 and desktop, narrow, and scaled-font requirements. The reviewed visual evidence
 is the representative desktop gate plus exact-size D1 same-state QA; gallery,
@@ -705,3 +706,14 @@ explicit native audit/profile skips are under
 immutable rc.3 snapshot record the same evidence paths and remain
 byte-equivalent. The macOS `.app` bundle is a local build artifact only; it is
 not installed, signed, notarized, published, tagged, or released.
+
+The gallery module itself was deleted on `claude/hygiene-h1`: nothing ever
+imported it, no qa state or script rendered it, and its stylesheet never
+reached a bundle, so it produced no capture and could not regress. The
+`[evidence] component_gallery` key in `release-manifest.toml` and in the
+`0.1.0-rc.2`/`0.1.0-rc.3` snapshots therefore names a path that no longer
+exists. Those files are byte-frozen by
+`rc_release_manifest_is_an_immutable_byte_equivalent_snapshot`, so the key
+cannot be corrected in place; it is dropped when the `0.1.0-rc.4` manifest is
+authored, and the module stays recoverable from Git history as the rc.3
+record.
