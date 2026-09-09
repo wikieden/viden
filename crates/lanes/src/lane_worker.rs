@@ -1261,6 +1261,10 @@ fn lane_approval(
         expires_at,
         default_action: viden_types::ApprovalDefaultAction::Deny,
         audit_id: audit_id.to_string(),
+        // A lane approval gates `lane_apply`, `lane_resolve_conflict`, and the
+        // other lane effects, whose result Core cannot compute without running
+        // them. `None` means Core previewed nothing, never "this changes
+        // nothing" (`runtime.structured_diff`).
         decision_context: None,
     }
 }

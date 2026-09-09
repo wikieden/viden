@@ -89,6 +89,7 @@ runtime.lane_owner_projection
 runtime.project_onboarding
 runtime.recent_work
 runtime.starter_lane_preview
+runtime.structured_diff
 runtime.trust_loop
 runtime.workspace_eligibility
 runtime.workspace_files
@@ -162,6 +163,42 @@ working tree:
 - A client without the capability sends nothing and states the inventory is
   unavailable rather than walking the filesystem itself, which is outside the
   client boundary and would bypass this gate.
+
+The structured diff (`ApprovalRequestView.decision_context`,
+`WorkspaceChangeView.diff`, and `QueryWorkspaceDiff` -> `WorkspaceDiffLoaded`)
+requires `runtime.structured_diff` (GUI-CORE-012). It is additive in the strict
+sense: both new fields are `Option` with `skip_serializing_if`, so an approval
+or a change published without them encodes to exactly the bytes it did before,
+and the nine frozen base fixtures keep their byte and digest identity.
+
+- Core is the only producer of diff rows. The unified-diff parser that
+  *applies* patches is promoted to emit `DiffDocument`, so the apply path and
+  every client agree about what a hunk is, and no frontend parses display text
+  into rows.
+- The decision context is computed read-only. An `edit_file` or `write_file`
+  preview reads the target file and applies the proposed replacement in memory;
+  nothing is written at approval time, which is what keeps a denial meaningful.
+  The trust loop's `MergeAgentPatch` context comes from the canonical patch
+  bytes Core already holds, and is the multi-file case.
+- `base_sha256` names the bytes a single-file preview was computed against.
+  The recorded limitation is that execution runs the proposed tool input
+  against whatever the file holds then, so a file changed in between produces a
+  different result; the hash lets a client or an audit reader detect that
+  afterwards, and a pre-execution recheck is not in `0.3.3`. A multi-file patch
+  carries no hash at all, because one hash cannot describe several files.
+- The operator read is permission-gated like the file inventory, but under the
+  *existing* non-mutating `git_diff` tool with the resolved target root as the
+  input path, so one rule set governs an operator's review pane and an agent's
+  `git_diff` call. A deny, an unresolved ask, a path that escapes the target,
+  and an unknown or archived Lane all come back as `CommandRejected` naming the
+  read — never an empty page, which reads as "nothing changed". Plan mode still
+  answers, because the tool mutates nothing.
+- Bounds degrade rows, never entries. `byte_limit` is clamped to `1..=1 MiB`
+  with a 256 KiB default; a file over the bound is published `omitted` with its
+  real counts and the page is `truncated`, so "not shown" is always
+  distinguishable from "unchanged". The page is a query answer like
+  `WorkspaceFilesLoaded` and is never folded into `RuntimeViewState`, so no
+  snapshot digest moves.
 
 One further additive schema-1 extension since core-0.3.5 makes live work
 attributable (GUI-CORE-010). `AgentTaskRecord`, `ToolCallView`,
@@ -343,6 +380,7 @@ registered schema-1 extension fixtures are:
 | `owner-scoped-live-work` | Two concurrent Lanes with interleaved task, tool-call, queued-input, and evidence facts under their exact bound owners, plus the same four fact kinds published with no owner | `6972686f93d9d2653fa3510a0f74c50d4b7905426ac0554362a07945ac2541d4` | `87dc66790932f819f84903b3efd457dca1c85e3992c862a44919d0fe5bdeefc2` |
 | `audit-ordering` | One newest-first audit page over two interleaved projects, with a cross-project timestamp tie broken by the descending audit id | `4da28fdd43503046033cf65b5362c2cdd482c42ade083bb32f45a014b942c842` | `6c7de7344afb54cf58793c5878672c435da848aea426e5e0a89253ee98d9c3e4` |
 | `workspace-files` | Two concurrent inventory reads on one project answered out of order, each page naming the required `command_id`, the scoped read `complete` for its subtree while the unscoped read is not, plus a second attached project with lane facts and no inventory read at all | `9f1c95e59ff5c4a172791d8c0c862f6286326311853b228cc5b83674e4775c37` | `f907b793d2817372fc71c95122e4e33152755682fff5fe46aa20150704bcb949` |
+| `structured-diff` | An `edit_file` approval whose decision context holds one file, one hunk, and the `base_sha256` of the bytes it was computed against; a `MergeAgentPatch` approval carrying the two-file change and no base hash; a diff page with one staged entry and one the byte bound omitted with its counts intact; and a second read refused by `CommandRejected` with its own command id | `3f5f4caf39cee2c46162999a35618599c0197aae15a3abfdd3a098e080676b8a` | `e24915b31f4192d85349be99da4c0ea81b6fb0b126b2076de17775d70de21cd0` |
 
 Semantics fix 2026-09-07 (review finding 4): `RuntimeViewState.assistant_stream`
 had no lifecycle — it was append-only for the life of the view, so startup
@@ -381,6 +419,19 @@ here so they are not rediscovered as new findings:
    session. The gate's own id keeps the protocol handle for continuity, and
    the owner binding added on 2026-09-07 is what makes it joinable; the two
    keys still have to be read together.
+
+The `structured-diff` fixture is the generated evidence for
+`runtime.structured_diff` (GUI-CORE-012). It is deliberately not a happy path:
+one read is answered and one is refused, and the answered page carries one
+entry with rows beside one the byte bound stripped. A client that rendered an
+empty page, a bounded entry, and a refusal the same way would say "nothing
+changed" three times over, which is the failure this capability exists to
+prevent. Both approvals appear because the single-file and the multi-file
+producer differ in what they can honestly claim: the `edit_file` preview names
+the `base_sha256` of the bytes it read, and the multi-file patch names none,
+since one hash cannot describe several files. Core is the only producer of
+these rows — the unified-diff parser that applies patches is promoted to emit
+them — so a client never parses diff text into rows.
 
 The `context-budgets` fixture backs the frontend-neutral facade export of
 `ContextScope` and `ContextBudgetRecord`. A budget belongs to a Lane only

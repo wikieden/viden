@@ -59,6 +59,7 @@ runtime.lane_owner_projection
 runtime.project_onboarding
 runtime.recent_work
 runtime.starter_lane_preview
+runtime.structured_diff
 runtime.trust_loop
 runtime.workspace_eligibility
 ui.preference_persistence
@@ -119,6 +120,7 @@ payload SHA。Payload commit 内没有猜测或写入自引用 SHA。
 | UI preferences | locale、skin/mode、density、motion | 同步的 `RuntimeViewState.ui_preferences` 与 `RuntimeSnapshot.ui_preferences`、`UiPreferencesUpdated` | `SetUiPreferences`、`ResetUiPreferences` | Core `0.3.2` extension `ui.preference_persistence` |
 | Recent work | 跨项目历史与 resume 入口 | `RuntimeViewState.recent_projects`、`recent_sessions`、`recent_work_diagnostics`、`RecentWorkLoaded` | `QueryRecentWork` | Core `0.3.2` extension `runtime.recent_work` |
 | Audit timeline | 谁在什么对象上做了什么、结果如何 | `AuditRecord`、`AuditPage`、`AuditCursor`、`AuditObjectRef`、`AuditActorFilter`、`AuditPageLoaded` | `QueryAudit` | Core `0.3.5` extension `runtime.audit`；newest-first、`before` 为排他上界、页大小钳制在 `1..=500`。`AuditPageLoaded.command_id` 指名它所回答的那次读取；客户端要求精确匹配，仅当 page 不带 id 时才退回到"关联自己已被 accept 的查询"，且不得从记录内容反推。`AuditQuery` 的 actor 与 `[from, until)` 过滤在分页之前应用，因此 `complete` 与 `next_before` 描述的是过滤后的 timeline |
+| 结构化 diff | 审批决策上下文、变更文件行、DiffReview 文件树与 diff 面板 | `DiffDocument`、`DiffFile`、`DiffHunk`、`DiffLine`、`ApprovalRequestView.decision_context`、`WorkspaceChangeView.diff`、`WorkspaceDiffLoaded` | `QueryWorkspaceDiff` | Core `0.3.6` extension `runtime.structured_diff`；Core 是 diff 行的唯一生产者，读取在既有的非变更工具 `git_diff` 下过权限门禁，输入路径为解析后的目标根 |
 | 工作区文件清单 | 当前工作区的有序路径列表 | `WorkspaceFileEntry`、`WorkspaceFileKind`、`WorkspaceFilePage`、`WorkspaceFilesLoaded` | `QueryWorkspaceFiles` | Core `0.3.5` extension `runtime.workspace_files`；在读取任何目录项之前先过权限门禁，工具名为非变更的 `workspace_file_inventory`，输入路径为工作区根。deny 与未解决的 ask 都以 `CommandRejected` 返回，指名这次确切的读取并携带拒绝原因——绝不发布空 page，也绝不发送不带 command id 的裸 `Error`（那会让有读取在途的客户端把无关失败误认成自己这次读取的拒绝）。该工具不产生变更，因此 plan mode 仍可回答。遍历遵循 gitignore，并无条件排除 `.git/`、`.viden/`、`.omx/`、`.worktrees/`、`.ref/`。条目按字典序排列；prefix 过滤、排他的 `after` 游标与 `1..=500` 的 limit 钳制都作用在该顺序之上，因此 `complete` 与 `next_after` 描述的是过滤后的有序清单。`WorkspaceFilesLoaded.command_id` 为必填，因此不像 audit page 那样存在无法关联的情形。客户端不得自行遍历文件系统 |
 
 Core `0.3.4` 中，续聊与 retry 保持逻辑 session id 和精确 `RuntimeOwner` 不变。
@@ -298,6 +300,7 @@ flowchart LR
 | 探测并接入项目 | `ProbeProject`、`PreviewProjectConfig`、`ConfirmProjectConfig` | Git/config probe、精确审阅字节/hash、权限控制写入与 replay |
 | 保存 credential 引用 | 带 opaque ingress id 的 `StoreCredentialHandle` | 注入 backend、安全 handle fact、provider health 与 secret 隔离 |
 | 加载 recent work | `QueryRecentWork { query }` | shared-home 发现、canonical metadata 校验、稳定排序、边界、diagnostic 与安全 view projection |
+| 读取结构化 diff | `QueryWorkspaceDiff { command_id, query }` | 从 Core 自有 Lane 记录解析目标、在任何进程启动之前过 `git_diff` 权限门禁、`git status`/`git diff` 采样、排序、字节边界与类型化 page |
 | 创建 starter Lane | `PreviewStarterLane`，审阅结果后携带未变化 request/id/hash 发送 `CreateStarterLane` | preset 解析、workspace/isolation 校验、permission gate、执行前复检、补偿和 typed receipt |
 
 Starter Lane 的隔离模式由 Core 决定，而不是由前端决定。位于 Git work tree 且具有有效
@@ -491,6 +494,78 @@ quality、cache 和 cost events。前端可以发送带用户可见 reason 的 `
 `crates/context`、读取 canonical blobs、把 compact view 当作 Merge Gate evidence，
 或计算 authoritative cost。详见
 [Context、Evidence 与 Cost Engine 设计](superpowers/specs/2026-07-18-context-evidence-cost-engine-design.zh-CN.md)。
+
+## 源码控制与 Diff UI 契约
+
+需要 `runtime.structured_diff` extension（Core `0.3.6`，GUI-CORE-012）。没有该
+extension 的客户端原样渲染审批的 `input_preview` 并声明 diff 行不可用；不得把展示
+文本解析成行。
+
+Core 是 diff 行的唯一生产者。**应用**补丁的那个 unified diff 解析器
+（`crates/tools/src/patch.rs`）被提升为发布 `DiffDocument`，因此应用路径与所有客户端
+对"文件、hunk、行"的理解一致。前端永不解析 diff 文本。
+
+`DiffDocument` 语义：
+
+- `DiffLine` 只在其存在的一侧携带 `old_line` 与 `new_line`。被删除的行没有新文件行号，
+  新增的行没有旧文件行号；这些字段是缺席而不是 `0`——`0` 会被客户端渲染成真实行号。
+  行号来自 Git 写入的 `@@` 头，因此客户端渲染的是 Git 的编号，而不是自行计数。
+- `DiffFile.binary` 表示 Git 报告为二进制内容，因此没有可渲染的行。它是独立标志，
+  因为"没有 hunk"本身是有歧义的。
+- `DiffFile.old_path` 只在重命名时出现，保存重命名前的路径；`path` 始终是变更后的路径。
+- **`truncated` 与 `omitted` 是诚实性配对。** `DiffDocument.byte_limit` 是构建该文档时
+  使用的边界。行数据会越过该边界的文件以 `omitted: true` 且无 hunk 发布，而 `additions`
+  与 `deletions` 保持真实，同时文档置 `truncated: true`。条目永不被丢弃：评审者必须始终
+  能区分"未展示"与"未变更"。`WorkspaceDiffPage.truncated` 对 page 表达同样的含义。
+- diff 为 `None` 表示 Core 未生成——失败的 `git diff`，或 Core 无法预览的工具。它绝不
+  表示"没有变更"。
+
+`ApprovalRequestView.decision_context` 携带 Core 对该审批将造成的变更的认知。仅对两类
+提议生成，不对其他任何工具生成：
+
+- `edit_file` 与 `write_file`：通过工具所用的同一文件系统 capability 只读读取目标文件，
+  并在内存中计算拟议内容。**审批时不发生任何变更**，这正是让"拒绝"仍然有意义的前提。
+  `base_sha256` 是 Core 读到的字节的 SHA-256；对 Core 读不到的文件则缺席，因为没有原像
+  可哈希，而发布空内容的哈希会让客户端误以为自己持有真实基线。
+- trust loop 的 `MergeAgentPatch`：来自 Core 已持有的规范补丁字节。这是多文件情形。它
+  不携带 `base_sha256`：一个哈希无法描述多个文件，给出其中之一只会诱导客户端去校验
+  错误的对象。
+
+其他所有工具（含 `shell` 与 `git_*` 家族）都不携带上下文，因为 Core 无法在不执行的情况下
+预测外部进程的效果。
+
+**明示限制。** 预览在审批时计算，执行时才把拟议的工具输入作用到当时的文件内容上。期间
+被修改的文件可能产生不同结果。`base_sha256` 正是让客户端或审计读者事后能够发现这一点的
+手段。Core 在 `0.3.3` 中不会在执行前重新校验。
+
+`WorkspaceChangeView.diff` 以同样的行携带已完成的变更，边界与 `patch` 同为 64 KiB。
+`patch` 保留给 base 客户端；两者是同一次计算的两个视图，而非两次独立计算。
+
+`QueryWorkspaceDiff { command_id, query }` -> `WorkspaceDiffLoaded { command_id,
+page }` 是操作者读取：
+
+- **目标，而非路径。** `SourceTarget` 指名工作区或某个 Lane；客户端永不传路径。Core 从
+  自有记录解析 Lane 的 worktree；未知、已归档或已取消的 Lane 是拒绝，而不是悄悄回退到
+  工作区根——那会用另一棵树的事实描述这棵树。没有 worktree 的 Lane 是直接工作区 Lane，
+  因此解析为工作区根。
+- **门禁优先。** `PermissionEngine::decide` 在任何进程启动之前，对既有的非变更工具
+  `git_diff` 执行，输入路径为解析后的目标根。因此同一套 `viden.toml` 规则同时约束操作者
+  的评审面板与 agent 的 `git_diff` 调用。deny、未解决的 ask、越界路径、无法解析的 Lane，
+  都以 `CommandRejected { command_id, reason }` 返回，指名这次确切的读取，并把可执行的
+  提示折叠进 reason——绝不发布空 page（那会被读成"没有变更"），也绝不发送不带 command id
+  的裸 `Error`。该工具不产生变更，因此 plan mode 仍可回答。
+- **来源。** `git status --porcelain=v2 -z` 是"哪些路径变了、怎么变的"的权威；`git diff`
+  与 `git diff --cached` 按 scope 提供行数据。使用 `-z` 是因为含空格或引号的路径是真实
+  路径，转义拼写会打开错误的文件。未跟踪条目沿用文件清单的同一套无条件排除——`.git/`、
+  `.viden/`、`.omx/`、`.worktrees/`、`.ref/`——未跟踪文件的 diff 是其全部内容作为新增，
+  同样受边界约束，因为 `git diff` 对它只字不提，而沉默会被读成"该文件不存在"。
+- **`Both` scope。** 两侧都变更的路径携带其**工作树**行，因为那才是操作者文件当前持有的
+  内容。已暂存的一半通过该条目的 `index` 分类与 `staged` 保持可见，因此没有任何东西被
+  隐藏；只是行数据择其一侧。
+- `byte_limit` 钳制到 `1..=1 MiB`，默认 256 KiB。条目按 path 字典序排列。
+- 该 page 与 `WorkspaceFilesLoaded` 一样是查询结果而非视图状态：绝不折叠进
+  `RuntimeViewState`，因此发布它不会移动任何快照摘要。`command_id` 为必填，因此客户端
+  永不按到达顺序归属 page。
 
 ## Approval 和 Permission UI 契约
 

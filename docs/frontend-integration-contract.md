@@ -61,6 +61,7 @@ runtime.lane_owner_projection
 runtime.project_onboarding
 runtime.recent_work
 runtime.starter_lane_preview
+runtime.structured_diff
 runtime.trust_loop
 runtime.workspace_eligibility
 ui.preference_persistence
@@ -124,6 +125,7 @@ self-referential inside the payload commit.
 | UI preferences | locale, skin/mode, density, motion | synchronized `RuntimeViewState.ui_preferences` and `RuntimeSnapshot.ui_preferences`, `UiPreferencesUpdated` | `SetUiPreferences`, `ResetUiPreferences` | Core `0.3.2` extension `ui.preference_persistence` |
 | Recent work | cross-project history and resume entry points | `RuntimeViewState.recent_projects`, `recent_sessions`, `recent_work_diagnostics`, `RecentWorkLoaded` | `QueryRecentWork` | Core `0.3.2` extension `runtime.recent_work` |
 | Audit timeline | who changed what, on which objects, with what outcome | `AuditRecord`, `AuditPage`, `AuditCursor`, `AuditObjectRef`, `AuditActorFilter`, `AuditPageLoaded` | `QueryAudit` | Core `0.3.5` extension `runtime.audit`; newest-first, exclusive `before`, page size clamped to `1..=500`. `AuditPageLoaded.command_id` names the exact read it answers; a client requires an exact match, falls back to its own accepted query only for a page with no id, and must never infer one from record contents. `AuditQuery` actor and `[from, until)` filters are applied before pagination, so `complete` and `next_before` describe the filtered timeline |
+| Structured diff | approval decision context, changed-file rows, DiffReview file tree and diff pane | `DiffDocument`, `DiffFile`, `DiffHunk`, `DiffLine`, `ApprovalRequestView.decision_context`, `WorkspaceChangeView.diff`, `WorkspaceDiffLoaded` | `QueryWorkspaceDiff` | Core `0.3.6` extension `runtime.structured_diff`; Core is the only producer of diff rows, and the read is permission-gated under the existing non-mutating `git_diff` tool with the resolved target root as the input path |
 | Workspace file inventory | the ordered path list of the open workspace | `WorkspaceFileEntry`, `WorkspaceFileKind`, `WorkspaceFilePage`, `WorkspaceFilesLoaded` | `QueryWorkspaceFiles` | Core `0.3.5` extension `runtime.workspace_files`; permission-gated before any directory is read, under the non-mutating tool `workspace_file_inventory` with the workspace root as the input path. A deny, and an unresolved ask, both come back as `CommandRejected` naming this exact read and carrying the refusal — never an empty page, and never a bare `Error`, which has no command id and would let a client with a read outstanding mistake an unrelated failure for its own refusal. Plan mode still answers, because the tool mutates nothing. The walk is gitignore-aware and unconditionally excludes `.git/`, `.viden/`, `.omx/`, `.worktrees/`, `.ref/`. Entries are lexicographic; the prefix filter, the exclusive `after` cursor, and the `1..=500` limit clamp are applied to that order, so `complete` and `next_after` describe the filtered ordered inventory. `WorkspaceFilesLoaded.command_id` is required, so unlike an audit page there is no uncorrelated case. A client must never walk the filesystem itself |
 
 For Core `0.3.4`, follow-up and retry preserve the logical session id and exact
@@ -343,6 +345,7 @@ a contract change, not a refactor.
 | Probe and onboard a project | `ProbeProject`, `PreviewProjectConfig`, `ConfirmProjectConfig` | Git/config probe, exact reviewed bytes/hash, permission-gated write and replay |
 | Store a credential reference | `StoreCredentialHandle` with opaque ingress id | injected backend access, safe handle fact, provider health and secret exclusion |
 | Load recent work | `QueryRecentWork { query }` | shared-home discovery, canonical metadata validation, stable ordering, bounds, diagnostics, and safe view projection |
+| Read a structured diff | `QueryWorkspaceDiff { command_id, query }` | target resolution from Core-owned Lane records, the `git_diff` permission gate before any process spawns, `git status`/`git diff` sampling, ordering, byte bounds, and the typed page |
 | Create a starter Lane | `PreviewStarterLane`, review the result, then `CreateStarterLane` with the unchanged request/id/hash | preset resolution, workspace/isolation checks, permission gate, execution-time recheck, compensation, typed receipt |
 
 Starter Lane isolation is selected by Core, not by the frontend. A workspace
@@ -575,6 +578,102 @@ and returns bounded content. Frontends must never import `crates/context`, read
 canonical blobs, trust compact views as merge evidence, or calculate
 authoritative cost. See
 [Context, Evidence, And Cost Engine Design](superpowers/specs/2026-07-18-context-evidence-cost-engine-design.md).
+
+## Source Control And Diff UI Contract
+
+Requires the `runtime.structured_diff` extension (Core `0.3.6`, GUI-CORE-012).
+A client without it renders the approval `input_preview` verbatim and states
+that diff rows are unavailable; it must not parse display text into rows.
+
+Core is the only producer of diff rows. The unified-diff parser that *applies*
+patches (`crates/tools/src/patch.rs`) is promoted to emit `DiffDocument`, so
+the apply path and every client agree about what a file, a hunk, and a line
+are. A frontend never parses diff text.
+
+`DiffDocument` semantics:
+
+- A `DiffLine` carries `old_line` and `new_line` only for the side it exists
+  on. A removed line has no new-file number and an added line has no old-file
+  number; those fields are absent rather than `0`, which a client would render
+  as a real line. Numbers come from the `@@` header Git wrote, so a client
+  renders Git's numbering rather than counting rows itself.
+- `DiffFile.binary` says Git reported binary content, so there are no rows to
+  render. It is its own flag because "no hunks" alone is ambiguous.
+- `DiffFile.old_path` is present only for a rename, and holds the pre-rename
+  path; `path` is always the post-change path.
+- **`truncated` and `omitted` are the honesty pair.** `DiffDocument.byte_limit`
+  is the bound the document was built under. A file whose rows would cross that
+  bound is published with `omitted: true` and no hunks, while `additions` and
+  `deletions` stay real, and the document sets `truncated: true`. Entries are
+  never dropped: a reviewer must always be able to tell "not shown" from
+  "unchanged". `WorkspaceDiffPage.truncated` says the same thing for a page.
+- `None` for a diff means Core produced none — a `git diff` that failed, or a
+  tool Core cannot preview. It never means "nothing changed".
+
+`ApprovalRequestView.decision_context` carries what Core knows about the change
+an approval would make. It is produced for two proposals and no others:
+
+- `edit_file` and `write_file`, by reading the target file read-only through
+  the same filesystem capability the tool uses and computing the proposed
+  content in memory. **No mutation happens at approval time**, which is what
+  keeps a denial meaningful. `base_sha256` is the SHA-256 of the bytes Core
+  read; it is absent for a file Core could not read, because there is no
+  preimage to hash and publishing the hash of nothing would let a client
+  believe it held a real base.
+- The trust loop's `MergeAgentPatch`, from the canonical patch bytes Core
+  already holds. This is the multi-file case. It carries no `base_sha256`: one
+  hash cannot describe several files, and naming one would invite a client to
+  verify the wrong one.
+
+Every other tool, including `shell` and the `git_*` family, carries no context,
+because Core cannot predict an external process's effect without running it.
+
+**Stated limitation.** The preview is computed at approval time and execution
+runs the proposed tool input against whatever the file holds then. A file
+changed in between can produce a different result. `base_sha256` is what lets a
+client or an audit reader detect that afterwards. Core does not re-check before
+execution in `0.3.3`.
+
+`WorkspaceChangeView.diff` carries the completed change as the same rows, under
+the same 64 KiB bound as `patch`. `patch` stays for base clients; the two are
+two views of one computation, never two independent ones.
+
+`QueryWorkspaceDiff { command_id, query }` -> `WorkspaceDiffLoaded { command_id,
+page }` is the operator read:
+
+- **Target, not path.** `SourceTarget` names the workspace or one Lane; a
+  client never passes a path. Core resolves a Lane's worktree from its own
+  records, and an unknown, archived, or cancelled Lane is a rejection rather
+  than a silent fall back to the workspace root, which would describe one tree
+  with another tree's facts. A Lane with no worktree is a direct-workspace
+  Lane, so it resolves to the workspace root.
+- **Gate first.** `PermissionEngine::decide` runs on the existing non-mutating
+  `git_diff` tool with the resolved target root as the input path, before any
+  process spawns. One `viden.toml` rule set therefore governs an operator's
+  review pane and an agent's `git_diff` call. A deny, an unresolved ask, an
+  escaping path, and an unresolvable Lane all come back as
+  `CommandRejected { command_id, reason }` naming this exact read with the
+  actionable hint folded into the reason — never an empty page, which reads as
+  "nothing changed", and never a bare `Error`, which carries no command id.
+  Plan mode still answers, because the tool mutates nothing.
+- **Source.** `git status --porcelain=v2 -z` is the authority for which paths
+  changed and how; `git diff` and `git diff --cached` supply rows per scope.
+  `-z` because a path containing a space or a quote is a real path and the
+  escaped spelling would open the wrong file. Untracked entries follow the same
+  unconditional exclusions the file inventory applies — `.git/`, `.viden/`,
+  `.omx/`, `.worktrees/`, `.ref/` — and an untracked file's diff is its whole
+  content as an addition, subject to the bound, because `git diff` says nothing
+  about it and silence would read as "this file does not exist".
+- **Scope `Both`.** A path changed on both sides carries its *worktree* rows,
+  because that is the content the operator's file holds right now. The staged
+  half stays visible through the entry's `index` classification and `staged`,
+  so nothing is hidden; only the rows pick one side.
+- `byte_limit` is clamped to `1..=1 MiB` with a 256 KiB default. Entries are
+  lexicographic by path.
+- The page is a query answer like `WorkspaceFilesLoaded`, not view state: it is
+  never folded into `RuntimeViewState`, so publishing one moves no snapshot
+  digest. `command_id` is required, so a client never attributes a page by
+  arrival order.
 
 ## Approval And Permission UI Contract
 

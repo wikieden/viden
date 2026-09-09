@@ -108,14 +108,30 @@ Core 自身的 `reviewer_owner_from_requester` 形状——评审 owner 改指�
 而非本请求编码：已裁决为 `D2-REVIEW-SETTLED`，无法推导出可用评审方身份为
 `D2-NO-REVIEWER-ACTOR`。
 
-## GUI-CORE-012：审批的结构化决策上下文
+## GUI-CORE-012：审批的结构化决策上下文 — 已关闭（Core 侧，2026-09-09）
 
-`ApprovalRequestView` 只携带 `input_preview` 这一不透明展示字符串。D2 设计稿要求
-按行渲染待执行变更的 diff。D2 原样渲染该预览并声明 diff 不可用，而不是把展示文本
-解析成 diff 行。
+历史：`ApprovalRequestView` 只携带 `input_preview` 这一不透明展示字符串。D2 设计稿
+要求按行渲染待执行变更的 diff。D2 原样渲染该预览并声明 diff 不可用，而不是把展示
+文本解析成 diff 行。
 
-当 Core 发布审批的类型化决策上下文（带文件路径、行号与变更类型的有序 hunk，或
-客户端可解析的不可变内容引用），且规范审批 fixture 覆盖多文件变更时，关闭此请求。
+Core 状态：由类型化结构化 diff（capability `runtime.structured_diff`）交付。
+`ApprovalRequestView.decision_context` 携带 `DiffDocument`——带文件路径、两侧行号与
+变更类型的有序 hunk，正是本请求要求的形状。Core 是其唯一生产者：**应用**补丁的那个
+unified diff 解析器（`crates/tools/src/patch.rs`）被提升为发布该文档，因此应用路径与
+所有客户端对"什么是一个 hunk"的理解一致，前端不再解析展示文本。对 `edit_file` 与
+`write_file`，上下文由只读读取目标文件、在内存中计算拟议内容得到——审批时不写入任何
+字节，这正是让"拒绝"仍然有意义的前提；对 trust loop 的 `MergeAgentPatch`，则来自 Core
+已持有的规范补丁字节。后者就是本请求点名的多文件情形，schema-1 扩展 fixture
+`structured-diff.json` 与单文件 `edit_file` 预览一起将其规范化。
+
+两条限制被记录而非隐藏。`base_sha256` 命名单文件预览所基于的字节，因为执行时才会把
+拟议的工具输入作用到当时的文件内容上；客户端或审计读者可以据此发现文件在期间发生了
+变化，但 Core 在 `0.3.3` 中不会在执行前重新校验。多文件补丁完全不携带 `base_sha256`：
+一个哈希无法描述多个文件，给出其中之一只会诱导客户端去校验错误的对象。
+
+GUI 状态：尚未接入。D2 与 D1 权限坞仍原样渲染预览并保留不可用标记；渲染
+`decision_context` 行并移除该标记将随 DiffReview 宿主批次落地，与 GUI-CORE-020、
+GUI-CORE-015 一同进行。
 
 ## GUI-CORE-013：待确认契约事实
 

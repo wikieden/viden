@@ -130,17 +130,40 @@ disabled with a local reason instead of this code: `D2-REVIEW-SETTLED` for an
 already-decided review, `D2-NO-REVIEWER-ACTOR` when no acceptable reviewer
 identity is derivable.
 
-## GUI-CORE-012: Structured decision context for an approval
+## GUI-CORE-012: Structured decision context for an approval — CLOSED (Core side, 2026-09-09)
 
-`ApprovalRequestView` carries only `input_preview`, an opaque display string.
-The D2 design shows line-level diff rows for the pending mutation. D2 renders
-the preview verbatim and declares the diff unavailable rather than parsing
-display text into diff rows.
+History: `ApprovalRequestView` carried only `input_preview`, an opaque display
+string. The D2 design shows line-level diff rows for the pending mutation. D2
+rendered the preview verbatim and declared the diff unavailable rather than
+parsing display text into diff rows.
 
-Close this request when Core publishes a typed decision context for an
-approval — ordered hunks with file path, line numbers, and change kind, or an
-immutable content reference the client can resolve — and the canonical
-approval fixture covers a multi-file mutation.
+Core status: delivered by the typed structured diff (capability
+`runtime.structured_diff`). `ApprovalRequestView.decision_context` carries a
+`DiffDocument` — ordered hunks with file path, per-side line numbers, and a
+change kind — exactly the shape this request asked for. Core is its only
+producer: the unified-diff parser that *applies* patches
+(`crates/tools/src/patch.rs`) is promoted to emit it, so the apply path and
+every client agree about what a hunk is and no frontend parses display text.
+The context is produced for `edit_file` and `write_file` by reading the target
+file read-only and computing the proposed content in memory — nothing is
+written at approval time, which is what keeps a denial meaningful — and for the
+trust loop's `MergeAgentPatch` from the canonical patch bytes Core already
+holds. That last one is the multi-file case this request named, and the
+schema-1 extension fixture `structured-diff.json` makes it canonical alongside
+the single-file `edit_file` preview.
+
+Two limitations are recorded rather than hidden. `base_sha256` names the bytes
+a single-file preview was computed against, because execution later runs the
+proposed tool input against whatever the file holds then; a client or an audit
+reader can detect a file that moved in between, but Core does not re-check
+before execution in `0.3.3`. A multi-file patch carries no `base_sha256` at
+all: one hash cannot describe several files, and naming one would invite a
+client to verify the wrong one.
+
+GUI status: not yet adopted. D2 and the D1 permission dock still render the
+preview verbatim and keep the unavailable marker; rendering `decision_context`
+rows and dropping that marker lands with the DiffReview host batch, together
+with GUI-CORE-020 and GUI-CORE-015.
 
 ## GUI-CORE-013: Pending contract-confirmation fact
 

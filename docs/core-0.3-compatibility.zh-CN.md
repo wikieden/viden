@@ -81,6 +81,7 @@ runtime.lane_owner_projection
 runtime.project_onboarding
 runtime.recent_work
 runtime.starter_lane_preview
+runtime.structured_diff
 runtime.trust_loop
 runtime.workspace_eligibility
 runtime.workspace_files
@@ -135,6 +136,32 @@ work 要求 `core.workspace_host` 与 `runtime.recent_work`；TUI/GUI reviewed D
   读取，绝不需要退回到"关联自己被接受的查询"。
 - 缺少该 capability 的客户端零发送，并明确显示清单不可用，而不是自行遍历文件系统——那超出了
   客户端边界，也会绕过这道门禁。
+
+结构化 diff（`ApprovalRequestView.decision_context`、`WorkspaceChangeView.diff`，以及
+`QueryWorkspaceDiff` -> `WorkspaceDiffLoaded`）需要 `runtime.structured_diff`
+（GUI-CORE-012）。它在严格意义上是叠加式的：两个新字段都是带 `skip_serializing_if` 的
+`Option`，因此不携带它们发布的审批或变更编码出的字节与此前完全一致，九个冻结 base
+fixture 保持其字节与摘要身份。
+
+- Core 是 diff 行的唯一生产者。**应用**补丁的那个 unified diff 解析器被提升为发布
+  `DiffDocument`，因此应用路径与所有客户端对"什么是一个 hunk"的理解一致，前端不再把
+  展示文本解析成行。
+- 决策上下文以只读方式计算。`edit_file` 或 `write_file` 预览读取目标文件并在内存中应用
+  拟议替换；审批时不写入任何字节，这正是让"拒绝"仍然有意义的前提。trust loop 的
+  `MergeAgentPatch` 上下文来自 Core 已持有的规范补丁字节，即多文件情形。
+- `base_sha256` 命名单文件预览所基于的字节。已记录的限制是：执行时才把拟议的工具输入
+  作用到当时的文件内容上，因此期间被修改的文件会产生不同结果；该哈希让客户端或审计
+  读者事后能够发现这一点，而 `0.3.3` 不做执行前重新校验。多文件补丁完全不携带哈希，
+  因为一个哈希无法描述多个文件。
+- 操作者读取与文件清单一样过权限门禁，但使用**既有的**非变更工具 `git_diff`，输入路径
+  为解析后的目标根，因此同一套规则同时约束操作者的评审面板与 agent 的 `git_diff` 调用。
+  deny、未解决的 ask、越出目标的路径、未知或已归档的 Lane，都以 `CommandRejected` 指名
+  该次读取返回——绝不发布空 page，因为空 page 会被读成"没有变更"。该工具不产生变更，
+  因此 plan mode 仍可回答。
+- 边界降级的是行，绝不是条目。`byte_limit` 钳制到 `1..=1 MiB`，默认 256 KiB；越界文件以
+  `omitted` 发布并保留真实计数，page 置 `truncated`，因此"未展示"始终可与"未变更"区分。
+  该 page 与 `WorkspaceFilesLoaded` 一样是查询结果，绝不折叠进 `RuntimeViewState`，因此
+  不会移动任何快照摘要。
 
 自 core-0.3.5 起还新增一处 additive schema-1 扩展，使实时工作可归属（GUI-CORE-010）。
 `AgentTaskRecord`、`ToolCallView`、`QueuedInputView` 与 `EvidenceView` 各自新增一个
@@ -277,6 +304,7 @@ Fixture 文件位于 `crates/types/tests/fixtures/frontend-contract-v1/`。下�
 | `owner-scoped-live-work` | 两个并发 Lane 在各自精确绑定的 owner 下交错发布 task、tool call、排队输入与 evidence 事实，另有同样四类事实在没有 owner 的情况下发布 | `6972686f93d9d2653fa3510a0f74c50d4b7905426ac0554362a07945ac2541d4` | `87dc66790932f819f84903b3efd457dca1c85e3992c862a44919d0fe5bdeefc2` |
 | `audit-ordering` | 一页 newest-first 的 audit 记录横跨两个交错的项目，且有一对跨项目、时间戳相同的记录靠降序 audit id 定序 | `4da28fdd43503046033cf65b5362c2cdd482c42ade083bb32f45a014b942c842` | `6c7de7344afb54cf58793c5878672c435da848aea426e5e0a89253ee98d9c3e4` |
 | `workspace-files` | 同一项目上的两次并发清单读取以相反顺序被回答，每个 page 都携带必填的 `command_id`；带 prefix 的读取对其子树返回 `complete`，而未加 prefix 的读取仍未完；另有第二个已挂载项目只发布 lane 事实、完全没有清单读取 | `9f1c95e59ff5c4a172791d8c0c862f6286326311853b228cc5b83674e4775c37` | `f907b793d2817372fc71c95122e4e33152755682fff5fe46aa20150704bcb949` |
+| `structured-diff` | 一个 `edit_file` 审批，其决策上下文含一个文件、一个 hunk，以及其所基于字节的 `base_sha256`；一个 `MergeAgentPatch` 审批，携带两文件变更且不含基线哈希；一页 diff，其中一条为已暂存条目，另一条被字节边界省略但计数保持真实；以及第二次读取被 `CommandRejected` 以其自身 command id 拒绝 | `3f5f4caf39cee2c46162999a35618599c0197aae15a3abfdd3a098e080676b8a` | `e24915b31f4192d85349be99da4c0ea81b6fb0b126b2076de17775d70de21cd0` |
 
 2026-09-07 语义修正（评审发现 4）：`RuntimeViewState.assistant_stream` 此前没有生命
 周期——它在整个 view 生命期内只追加，因此启动重放会把每个历史会话的回复串接成一整块
@@ -304,6 +332,14 @@ agent-session facts——没有终态事件，其文本照旧留在 stream 中�
    而 `crates/agents/src/glue.rs` 用已发布的 Agent session 为同一个 gate 划定范围。
    Gate 自身的 id 为保持连续性仍沿用协议句柄，2026-09-07 加入的 owner 绑定才使其可
    join；这两个键仍须一并读取。
+
+`structured-diff` fixture 是 `runtime.structured_diff`（GUI-CORE-012）的生成式证据。
+它刻意不是顺利路径：一次读取被回答、一次被拒绝，被回答的 page 中一条带行数据，另一条
+被字节边界剥掉了行。若客户端把空 page、被边界省略的条目与拒绝渲染成同一种样子，就会
+三次说出"没有变更"，而这正是本 capability 要防止的失败。两个审批都出现，是因为单文件与
+多文件生产者能够诚实主张的内容不同：`edit_file` 预览给出其读取字节的 `base_sha256`，
+多文件补丁则不给出，因为一个哈希无法描述多个文件。这些行的唯一生产者是 Core——应用补丁
+的那个 unified diff 解析器被提升为发布它们——因此客户端永不把 diff 文本解析成行。
 
 `context-budgets` fixture 为 `ContextScope` 与 `ContextBudgetRecord` 的 frontend-neutral
 facade 导出提供依据。Budget 只能通过该 Lane 精确绑定的 runtime owner 所指名的 typed task
