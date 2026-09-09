@@ -1,0 +1,464 @@
+{
+  "fixture_id": "structured-diff",
+  "schema_version": 1,
+  "required_capabilities": [
+    "runtime.approvals",
+    "runtime.commands",
+    "runtime.events",
+    "runtime.snapshot",
+    "runtime.structured_diff"
+  ],
+  "initial_snapshot": {
+    "cwd": "workspace/viden",
+    "provider_family": "deepseek",
+    "model_label": "deepseek-v4-flash",
+    "work_mode": "build",
+    "permission_mode": "default",
+    "permission_level": "ask",
+    "config_summary": "{\"design_entry\":{\"d11\":\"onboarding subordinate\",\"gui\":\"GUI index -> component library -> D1 desktop cockpit\",\"hierarchy\":[\"docs/viden-design/Viden/index.html\",\"client design index\",\"component library\",\"TUI unified prototype or GUI D1 desktop cockpit\"],\"tui\":\"TUI index -> component library -> unified prototype\"},\"ui\":{\"density\":[\"compact\",\"regular\",\"comfy\"],\"effective\":{\"density\":\"regular\",\"locale\":\"zh-CN\",\"mode\":\"dark\",\"motion\":\"reduced\",\"skin\":\"aurora\"},\"locales\":[\"en\",\"zh-CN\"],\"motion\":[\"system\",\"reduced\",\"full\"],\"skin_mode_pairs\":[[\"aurora\",\"dark\"],[\"aurora\",\"light\"],[\"ice\",\"dark\"],[\"ice\",\"light\"],[\"mono\",\"dark\"],[\"mono\",\"light\"],[\"amber\",\"dark\"],[\"phosphor\",\"dark\"]]}}",
+    "loaded_config_files": [
+      "config/viden.toml"
+    ],
+    "startup_overrides": [
+      "--provider=deepseek"
+    ],
+    "ui_preferences": {
+      "locale": "zh-CN",
+      "skin": "aurora",
+      "mode": "dark",
+      "density": "regular",
+      "motion": "reduced",
+      "diagnostics": []
+    }
+  },
+  "events": [
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_structured_diff",
+        "session_id": "session_structured_diff",
+        "task_id": "task_structured_diff",
+        "turn_id": "turn_structured_diff"
+      },
+      "cursor": {
+        "stream_id": "fixture:structured-diff",
+        "sequence": 1
+      },
+      "event": {
+        "sequence": 1,
+        "timestamp": 1700001001,
+        "kind": {
+          "type": "command_accepted",
+          "payload": {
+            "command_id": "structured_diff_read",
+            "command": {
+              "type": "query_workspace_diff",
+              "query": {
+                "target": "workspace",
+                "scope": "both",
+                "paths": [
+                  "crates/types"
+                ],
+                "byte_limit": 4096
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_structured_diff",
+        "session_id": "session_structured_diff",
+        "task_id": "task_structured_diff",
+        "turn_id": "turn_structured_diff"
+      },
+      "cursor": {
+        "stream_id": "fixture:structured-diff",
+        "sequence": 2
+      },
+      "event": {
+        "sequence": 2,
+        "timestamp": 1700001002,
+        "kind": {
+          "type": "command_accepted",
+          "payload": {
+            "command_id": "structured_diff_refused",
+            "command": {
+              "type": "query_workspace_diff",
+              "query": {
+                "target": {
+                  "lane": {
+                    "lane_id": "lane_structured_diff"
+                  }
+                },
+                "scope": "worktree",
+                "paths": []
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_structured_diff",
+        "session_id": "session_structured_diff",
+        "task_id": "task_structured_diff",
+        "turn_id": "turn_structured_diff"
+      },
+      "cursor": {
+        "stream_id": "fixture:structured-diff",
+        "sequence": 3
+      },
+      "event": {
+        "sequence": 3,
+        "timestamp": 1700001003,
+        "kind": {
+          "type": "approval_requested",
+          "payload": {
+            "approval": {
+              "id": "approval_structured_edit",
+              "tool_name": "edit_file",
+              "title": "Approve edit_file",
+              "message": "edit_file requires approval",
+              "input_preview": "path: crates/types/src/diff.rs",
+              "is_mutating": true,
+              "reason": "edit_file requires approval",
+              "owner": {
+                "workspace_id": "workspace_contract_v1",
+                "project_id": "project_viden",
+                "lane_id": "lane_structured_diff",
+                "session_id": "session_structured_diff",
+                "task_id": "task_structured_diff",
+                "turn_id": "turn_structured_diff"
+              },
+              "risk": "medium",
+              "target": {
+                "kind": "edit_file",
+                "display": "path: crates/types/src/diff.rs"
+              },
+              "allowed_scopes": [
+                "once"
+              ],
+              "policy_reason_key": "permission.requires_approval",
+              "policy_reason_args": {},
+              "expires_at": 1700001100,
+              "default_action": "deny",
+              "audit_id": "audit_approval_structured_edit",
+              "decision_context": {
+                "diff": {
+                  "files": [
+                    {
+                      "path": "crates/types/src/diff.rs",
+                      "kind": "modified",
+                      "binary": false,
+                      "omitted": false,
+                      "additions": 1,
+                      "deletions": 1,
+                      "hunks": [
+                        {
+                          "old_start": 42,
+                          "old_lines": 3,
+                          "new_start": 42,
+                          "new_lines": 3,
+                          "header": "pub struct DiffDocument {",
+                          "lines": [
+                            {
+                              "kind": "context",
+                              "content": "    pub files: Vec<DiffFile>,",
+                              "old_line": 42,
+                              "new_line": 42
+                            },
+                            {
+                              "kind": "removed",
+                              "content": "    pub truncated: bool,",
+                              "old_line": 43
+                            },
+                            {
+                              "kind": "added",
+                              "content": "    pub truncated: bool, // bounded",
+                              "new_line": 43
+                            },
+                            {
+                              "kind": "context",
+                              "content": "    pub byte_limit: u32,",
+                              "old_line": 44,
+                              "new_line": 44
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ],
+                  "truncated": false,
+                  "byte_limit": 65536
+                },
+                "base_sha256": "3f79bb7b435b05321651daefd374cdc681dc06faa65e374e38337b88ca046dea"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_structured_diff",
+        "session_id": "session_structured_diff",
+        "task_id": "task_structured_diff",
+        "turn_id": "turn_structured_diff"
+      },
+      "cursor": {
+        "stream_id": "fixture:structured-diff",
+        "sequence": 4
+      },
+      "event": {
+        "sequence": 4,
+        "timestamp": 1700001004,
+        "kind": {
+          "type": "approval_requested",
+          "payload": {
+            "approval": {
+              "id": "approval_structured_merge",
+              "tool_name": "workflow_merge_agent_patch",
+              "title": "Approve workflow_merge_agent_patch",
+              "message": "workflow_merge_agent_patch requires approval",
+              "input_preview": "action: merge_agent_patch",
+              "is_mutating": true,
+              "reason": "workflow_merge_agent_patch requires approval",
+              "owner": {
+                "workspace_id": "workspace_contract_v1",
+                "project_id": "project_viden",
+                "lane_id": "lane_structured_diff",
+                "session_id": "session_structured_diff",
+                "task_id": "task_structured_diff",
+                "turn_id": "turn_structured_diff"
+              },
+              "risk": "medium",
+              "target": {
+                "kind": "workflow_merge_agent_patch",
+                "display": "action: merge_agent_patch"
+              },
+              "allowed_scopes": [
+                "once"
+              ],
+              "policy_reason_key": "permission.requires_approval",
+              "policy_reason_args": {},
+              "expires_at": 1700001100,
+              "default_action": "deny",
+              "audit_id": "audit_approval_structured_merge",
+              "decision_context": {
+                "diff": {
+                  "files": [
+                    {
+                      "path": "crates/runtime/src/frontend_services.rs",
+                      "kind": "modified",
+                      "binary": false,
+                      "omitted": false,
+                      "additions": 1,
+                      "deletions": 0,
+                      "hunks": [
+                        {
+                          "old_start": 10,
+                          "old_lines": 1,
+                          "new_start": 10,
+                          "new_lines": 2,
+                          "lines": [
+                            {
+                              "kind": "context",
+                              "content": "use crate::SessionEngine;",
+                              "old_line": 10,
+                              "new_line": 10
+                            },
+                            {
+                              "kind": "added",
+                              "content": "use viden_tools::render_diff;",
+                              "new_line": 11
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "path": "crates/runtime/src/decision_context.rs",
+                      "kind": "added",
+                      "binary": false,
+                      "omitted": false,
+                      "additions": 2,
+                      "deletions": 0,
+                      "hunks": [
+                        {
+                          "old_start": 0,
+                          "old_lines": 0,
+                          "new_start": 1,
+                          "new_lines": 2,
+                          "lines": [
+                            {
+                              "kind": "added",
+                              "content": "//! Approval decision context.",
+                              "new_line": 1
+                            },
+                            {
+                              "kind": "added",
+                              "content": "pub(crate) fn tool_decision_context() {}",
+                              "new_line": 2
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ],
+                  "truncated": false,
+                  "byte_limit": 65536
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_structured_diff",
+        "session_id": "session_structured_diff",
+        "task_id": "task_structured_diff",
+        "turn_id": "turn_structured_diff"
+      },
+      "cursor": {
+        "stream_id": "fixture:structured-diff",
+        "sequence": 5
+      },
+      "event": {
+        "sequence": 5,
+        "timestamp": 1700001005,
+        "kind": {
+          "type": "workspace_diff_loaded",
+          "payload": {
+            "command_id": "structured_diff_read",
+            "page": {
+              "target": "workspace",
+              "source": {
+                "status": "ready",
+                "branch": "codex/v3-core-runtime",
+                "worktree": "workspace/viden",
+                "ahead": 1,
+                "behind": 0,
+                "added": 2,
+                "deleted": 0,
+                "dirty": true
+              },
+              "entries": [
+                {
+                  "path": "crates/types/src/diff.rs",
+                  "index": "modified",
+                  "staged": true,
+                  "diff": {
+                    "path": "crates/types/src/diff.rs",
+                    "kind": "modified",
+                    "binary": false,
+                    "omitted": false,
+                    "additions": 1,
+                    "deletions": 1,
+                    "hunks": [
+                      {
+                        "old_start": 42,
+                        "old_lines": 3,
+                        "new_start": 42,
+                        "new_lines": 3,
+                        "header": "pub struct DiffDocument {",
+                        "lines": [
+                          {
+                            "kind": "context",
+                            "content": "    pub files: Vec<DiffFile>,",
+                            "old_line": 42,
+                            "new_line": 42
+                          },
+                          {
+                            "kind": "removed",
+                            "content": "    pub truncated: bool,",
+                            "old_line": 43
+                          },
+                          {
+                            "kind": "added",
+                            "content": "    pub truncated: bool, // bounded",
+                            "new_line": 43
+                          },
+                          {
+                            "kind": "context",
+                            "content": "    pub byte_limit: u32,",
+                            "old_line": 44,
+                            "new_line": 44
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                },
+                {
+                  "path": "crates/types/tests/fixtures/frontend-contract-v1/structured-diff.json",
+                  "worktree": "added",
+                  "staged": false,
+                  "diff": {
+                    "path": "crates/types/tests/fixtures/frontend-contract-v1/structured-diff.json",
+                    "kind": "added",
+                    "binary": false,
+                    "omitted": true,
+                    "additions": 1284,
+                    "deletions": 0,
+                    "hunks": []
+                  }
+                }
+              ],
+              "truncated": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_structured_diff",
+        "session_id": "session_structured_diff",
+        "task_id": "task_structured_diff",
+        "turn_id": "turn_structured_diff"
+      },
+      "cursor": {
+        "stream_id": "fixture:structured-diff",
+        "sequence": 6
+      },
+      "event": {
+        "sequence": 6,
+        "timestamp": 1700001006,
+        "kind": {
+          "type": "command_rejected",
+          "payload": {
+            "command_id": "structured_diff_refused",
+            "reason": "permission denied\ntool: git_diff\nreason: DenyRule\nmessage: git_diff is denied by a workspace rule\nhint: grant the `git_diff` permission to read structured workspace changes"
+          }
+        }
+      }
+    }
+  ],
+  "expected_final_cursor": {
+    "stream_id": "fixture:structured-diff",
+    "sequence": 6
+  },
+  "expected_view_sha256": "3f5f4caf39cee2c46162999a35618599c0197aae15a3abfdd3a098e080676b8a"
+}

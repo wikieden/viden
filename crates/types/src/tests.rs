@@ -5557,3 +5557,16 @@ fn a_workspace_change_without_a_structured_diff_encodes_as_it_did_before() {
     assert_eq!(decoded, change);
 }
 
+/// `runtime.structured_diff` is a post-checkpoint addition, so it belongs to
+/// the extension list and never to the frozen base capabilities.
+#[test]
+fn the_structured_diff_capability_is_an_advertised_extension() {
+    assert!(FRONTEND_V1_EXTENSION_CAPABILITIES.contains(&"runtime.structured_diff"));
+    assert!(!FRONTEND_V1_CAPABILITIES.contains(&"runtime.structured_diff"));
+    assert!(
+        FRONTEND_V1_EXTENSION_CAPABILITIES
+            .windows(2)
+            .all(|pair| pair[0] < pair[1]),
+        "extension capabilities must stay sorted and unique"
+    );
+}

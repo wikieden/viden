@@ -3,7 +3,7 @@ base_component_version = "0.3.0"
 candidate_component_version = "0.3.5"
 base_contract_checkpoint = "5bd2b80b0953f4194d082940a7b9164c7231ca2d"
 compatibility = "additive_capability_gated"
-capabilities = ["core.workspace_host", "runtime.agent_adapters", "runtime.agent_conversation", "runtime.agent_permission_bridge", "runtime.agent_session_input", "runtime.agent_sessions", "runtime.audit", "runtime.cockpit_context_v1", "runtime.credential_handles", "runtime.credential_staging", "runtime.lane_lifecycle", "runtime.lane_owner_projection", "runtime.project_onboarding", "runtime.recent_work", "runtime.starter_lane_preview", "runtime.trust_loop", "runtime.workspace_eligibility", "runtime.workspace_files", "ui.preference_persistence"]
+capabilities = ["core.workspace_host", "runtime.agent_adapters", "runtime.agent_conversation", "runtime.agent_permission_bridge", "runtime.agent_session_input", "runtime.agent_sessions", "runtime.audit", "runtime.cockpit_context_v1", "runtime.credential_handles", "runtime.credential_staging", "runtime.lane_lifecycle", "runtime.lane_owner_projection", "runtime.project_onboarding", "runtime.recent_work", "runtime.starter_lane_preview", "runtime.structured_diff", "runtime.trust_loop", "runtime.workspace_eligibility", "runtime.workspace_files", "ui.preference_persistence"]
 extension_fixture = "frontend-host-services.json"
 extension_fixture_sha256 = "96dd5fde9f1241eb50f9d8978cf478d0ac5d3327448dc6ccde9d0e5018ce1580"
 interaction_fixture = "interaction-closed-loop.json"
@@ -33,6 +33,9 @@ audit_ordering_view_sha256 = "4da28fdd43503046033cf65b5362c2cdd482c42ade083bb32f
 workspace_files_fixture = "workspace-files.json"
 workspace_files_fixture_sha256 = "f907b793d2817372fc71c95122e4e33152755682fff5fe46aa20150704bcb949"
 workspace_files_view_sha256 = "9f1c95e59ff5c4a172791d8c0c862f6286326311853b228cc5b83674e4775c37"
+structured_diff_fixture = "structured-diff.json"
+structured_diff_fixture_sha256 = "e24915b31f4192d85349be99da4c0ea81b6fb0b126b2076de17775d70de21cd0"
+structured_diff_view_sha256 = "3f5f4caf39cee2c46162999a35618599c0197aae15a3abfdd3a098e080676b8a"
 
 [live_work_owner]
 facts = ["agent_task_record", "tool_call_view", "queued_input_view", "evidence_view"]
@@ -126,3 +129,15 @@ boundary = "permission-gated read: Core consults the permission engine under the
 exclusions = "gitignore-aware walk (honored outside a Git repository, without global or parent ignore files so the same workspace enumerates identically on two machines) plus unconditional removal of `.git/`, `.viden/`, `.omx/`, `.worktrees/`, and `.ref/`, which hold runtime and agent state rather than workspace content"
 ordering = "entries are sorted lexicographically before the prefix filter, the exclusive `after` cursor, and the limit clamp of 1..=500, so `complete` and `next_after` describe the filtered ordered inventory; a prefix that leaves the workspace is rejected rather than clamped or answered with an empty page"
 correlation = "workspace_files_loaded carries the command id of the query it answers as a required field, so unlike audit_page_loaded there is no uncorrelated page and a client never falls back to attributing a page to its own acceptance"
+
+[runtime_structured_diff]
+commands = ["query_workspace_diff"]
+events = ["workspace_diff_loaded"]
+facts = ["approval_request_view.decision_context", "workspace_change_view.diff"]
+boundary = "Core is the only producer of diff rows: the unified-diff parser that applies patches (`crates/tools/src/patch.rs`) is promoted to emit `DiffDocument`, so a hunk means the same thing to the apply path and to every client, and no frontend parses diff text itself"
+gate = "the read is permission-gated under the existing non-mutating `git_diff` tool with the resolved target root as the input path, so one viden.toml rule set governs an operator's review pane and an agent's `git_diff` call; a deny, and an unresolved ask, both come back as `command_rejected` naming this exact read with the hint folded into the reason, never an empty page (which reads as `nothing changed`) and never a bare error (which carries no command id); plan mode still answers through the engine's SafeRead branch because the tool mutates nothing"
+target = "reads name the workspace or one Lane, never a path; Core resolves a Lane's worktree from its own records and rejects an unknown, archived, or cancelled Lane rather than answering from the workspace root"
+bounds = "`byte_limit` is clamped to 1..=1048576 with a 256 KiB default; the bound drops rows, never entries or counts, and sets `omitted` per file and `truncated` on the document and the page, so `not shown` is always distinguishable from `unchanged`"
+decision_context = "produced for `edit_file` and `write_file` by reading the target file read-only and computing the proposed content in memory — no mutation happens at approval time — and for the trust loop's `merge_agent_patch` from the canonical patch bytes it already holds; `base_sha256` names the bytes a single-file preview was computed against and is absent for a multi-file patch and for a file Core could not read"
+limitation = "the preview is computed at approval time and execution runs the proposed tool input, so a file changed in between can produce a different result; `base_sha256` lets a client or an audit reader detect that afterwards, and a pre-execution recheck is not in 0.3.3"
+scope = "`both` gives a path changed on both sides its worktree rows, because that is the content the operator's file holds; the staged half stays visible through the entry's `index` classification"

@@ -128,6 +128,7 @@ mod tests {
         assert!(std::any::type_name::<WorkspaceDiffEntry>().contains("WorkspaceDiffEntry"));
         assert_eq!(DEFAULT_WORKSPACE_DIFF_BYTES, 256 * 1024);
         assert_eq!(MAX_WORKSPACE_DIFF_BYTES, 1024 * 1024);
+        assert!(CORE_EXTENSION_CAPABILITIES.contains(&"runtime.structured_diff"));
         // GUI-CORE-008: the typed context budget and its scope. A frontend must
         // be able to prove that a budget belongs to the selected Lane's task
         // instead of reconstructing a private serialization of the scope shape.

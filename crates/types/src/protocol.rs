@@ -43,6 +43,7 @@ pub const FRONTEND_V1_EXTENSION_CAPABILITIES: &[&str] = &[
     "runtime.project_onboarding",
     "runtime.recent_work",
     "runtime.starter_lane_preview",
+    "runtime.structured_diff",
     "runtime.trust_loop",
     "runtime.workspace_eligibility",
     "runtime.workspace_files",

@@ -740,7 +740,7 @@ mod tests {
 
     #[test]
     fn each_missing_extension_is_feature_gated_without_blocking_startup() {
-        assert_eq!(CORE_EXTENSION_CAPABILITIES.len(), 19);
+        assert_eq!(CORE_EXTENSION_CAPABILITIES.len(), 20);
         for capability in CORE_EXTENSION_CAPABILITIES {
             let mut fake = FakeCoreClient::compatible();
             let capability = CapabilityId((*capability).to_string());

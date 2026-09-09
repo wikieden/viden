@@ -18,17 +18,19 @@ use viden_types::{
     ApprovalTarget, AuditActor, AuditActorFilter, AuditObjectRef, AuditOutcome, AuditPage,
     AuditQuery, AuditRecord, CapabilityId, ContextBudgetRecord, ContextBundleRecord,
     ContextOmittedSourceRecord, ContextScope, ContextSourceRecord, CostScope, CostUsageOutcome,
-    CostUsageRecord, EventCursor, EvidenceView, ExecutionTarget, FRONTEND_SCHEMA_V1, GateStrength,
-    LaneBudget, LaneRuntimeOwnerBinding, LaneStatus, MergeGateDecision, MergeGateDecisionOutcome,
+    CostUsageRecord, DecisionContext, DiffDocument, DiffFile, DiffHunk, DiffLine, DiffLineKind,
+    EventCursor, EvidenceView, ExecutionTarget, FRONTEND_SCHEMA_V1, GateStrength, LaneBudget,
+    LaneRuntimeOwnerBinding, LaneStatus, MergeGateDecision, MergeGateDecisionOutcome,
     MergeGatePolicySnapshot, MergeGateRecord, MergeGateStatus, MergeGateType, MergeGateValidator,
     MutationPolicy, PermissionLevel, PermissionMode, ProjectConfigState, ProjectProbe,
     QueuedInputView, RecentProjectSummary, RecentSessionSummary, ResolvedUiPreferences,
     ReviewRequestStatus, RuntimeCommand, RuntimeErrorView, RuntimeEvent, RuntimeEventEnvelope,
     RuntimeEventKind, RuntimeOwner, RuntimeSnapshot, RuntimeViewState, RuntimeWireEvent,
-    SchemaVersion, StarterLanePreview, StarterLanePreviewInvalidationReason, StarterLaneReceipt,
-    TokenCostView, TokenUsage, UiColorMode, UiDensity, UiMotion, UiPreferences, UiSkin, WorkMode,
-    WorkspaceEligibility, WorkspaceFileEntry, WorkspaceFileKind, WorkspaceFilePage,
-    WorkspaceFilesQuery,
+    SchemaVersion, SourceTarget, StarterLanePreview, StarterLanePreviewInvalidationReason,
+    StarterLaneReceipt, TokenCostView, TokenUsage, UiColorMode, UiDensity, UiMotion, UiPreferences,
+    UiSkin, WorkMode, WorkspaceChangeKind, WorkspaceDiffEntry, WorkspaceDiffPage,
+    WorkspaceDiffQuery, WorkspaceDiffScope, WorkspaceEligibility, WorkspaceFileEntry,
+    WorkspaceFileKind, WorkspaceFilePage, WorkspaceFilesQuery,
 };
 
 const FIXTURE_DIR: &str = "tests/fixtures/frontend-contract-v1";
@@ -181,6 +183,10 @@ fn frontend_host_capabilities_are_schema_one_core_0_3_5_and_additive() {
         "runtime.project_onboarding",
         "runtime.recent_work",
         "runtime.starter_lane_preview",
+        // GUI-CORE-012. Additive like the row below it: the frozen base list
+        // is untouched, which is what keeps the nine base fixtures
+        // byte-identical.
+        "runtime.structured_diff",
         "runtime.trust_loop",
         "runtime.workspace_eligibility",
         // GUI-CORE-022. The frozen base list above is unchanged, which is what
@@ -1259,6 +1265,194 @@ fn refresh_workspace_files_extension_fixture() {
     let fixture = workspace_files_fixture();
     fs::write(
         root.join("workspace-files.json"),
+        serde_json::to_string_pretty(&fixture).unwrap() + "\n",
+    )
+    .unwrap();
+}
+
+/// GUI-CORE-012: canonical proof that Core publishes diffs as rows rather than
+/// as text a client has to parse, at every site the 0.3.3 contract design
+/// names.
+///
+/// One `edit_file` approval whose `decision_context` holds a single file and a
+/// single hunk with its `base_sha256`; one `MergeAgentPatch` approval carrying
+/// the two-file change the trust loop would apply; one `WorkspaceDiffLoaded`
+/// page whose two entries prove that a staged path and a bounded one are
+/// distinguishable; and one refused read answered by `CommandRejected` with
+/// the same command id. The refusal is in the fixture on purpose: an empty
+/// page and a refused page are different facts, and this is the corpus that
+/// says so.
+#[test]
+fn structured_diff_fixture_carries_decision_context_pages_and_a_refusal() {
+    let name = "structured-diff.json";
+    let root = fixture_root();
+    let fixture_bytes = fs::read(root.join(name)).expect("read structured diff fixture bytes");
+    let fixture_sha256 = format!("{:x}", Sha256::digest(&fixture_bytes));
+    let extension_manifest = include_str!("../frontend-contract-extensions.toml");
+    assert!(
+        extension_manifest.contains(&format!(
+            "structured_diff_fixture_sha256 = \"{fixture_sha256}\""
+        )),
+        "the extension manifest must register the exact structured diff fixture bytes"
+    );
+    assert!(extension_manifest.contains("structured_diff_fixture = \"structured-diff.json\""));
+
+    let fixture = read_fixture(&root, name);
+    assert_fixture_identity(name, &fixture);
+    assert_capabilities_are_sorted_unique_and_advertised(name, &fixture);
+    assert_cursors_are_contiguous(name, &fixture);
+
+    let (_, first_cursor, first_digest) = replay_fixture(&fixture);
+    let (_, second_cursor, second_digest) = replay_fixture(&fixture);
+    assert_eq!(first_cursor, second_cursor);
+    assert_eq!(first_digest, second_digest);
+    assert_eq!(first_cursor, fixture.expected_final_cursor);
+    assert_eq!(first_digest, fixture.expected_view_sha256);
+    assert!(
+        extension_manifest.contains(&format!("structured_diff_view_sha256 = \"{first_digest}\"")),
+        "the extension manifest must register the replayed view digest"
+    );
+
+    let kinds = fixture
+        .events
+        .iter()
+        .map(|envelope| match &envelope.event {
+            RuntimeWireEvent::Known(event) => event.kind.clone(),
+            RuntimeWireEvent::Unknown { event_type, .. } => panic!(
+                "structured diff fixture events must all be known, got {event_type} — a \
+                 quarantined diff page reads to a reviewer as `nothing changed`"
+            ),
+        })
+        .collect::<Vec<_>>();
+
+    // A diff page is a query answer, not view state: reducing every page must
+    // leave the view exactly as the snapshot published it.
+    let mut pages_only = RuntimeViewState::new(fixture.initial_snapshot.clone());
+    for kind in &kinds {
+        if matches!(kind, RuntimeEventKind::WorkspaceDiffLoaded { .. }) {
+            pages_only.apply_event(&RuntimeEvent::new(1, kind.clone()));
+        }
+    }
+    assert_eq!(
+        canonical_view_sha256(&pages_only),
+        canonical_view_sha256(&RuntimeViewState::new(fixture.initial_snapshot.clone())),
+        "a workspace diff page must never fold into RuntimeViewState"
+    );
+
+    let approvals = kinds
+        .iter()
+        .filter_map(|kind| match kind {
+            RuntimeEventKind::ApprovalRequested { approval } => Some(approval.clone()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(approvals.len(), 2);
+
+    // The single-file case: one file, one hunk, and the hash of the bytes the
+    // preview was computed against, which is what lets a client detect the
+    // file moving between preview and execution.
+    let edit = &approvals[0];
+    assert_eq!(edit.tool_name, "edit_file");
+    let edit_context = edit
+        .decision_context
+        .as_ref()
+        .expect("an edit_file approval carries its decision context");
+    assert_eq!(edit_context.base_sha256.as_ref().map(String::len), Some(64));
+    let edit_diff = edit_context.diff.as_ref().expect("the previewed rows");
+    assert_eq!(edit_diff.files.len(), 1);
+    assert_eq!(edit_diff.files[0].hunks.len(), 1);
+    assert!(!edit_diff.truncated);
+    for line in &edit_diff.files[0].hunks[0].lines {
+        match line.kind {
+            DiffLineKind::Added => assert_eq!(line.old_line, None),
+            DiffLineKind::Removed => assert_eq!(line.new_line, None),
+            _ => assert!(line.old_line.is_some() && line.new_line.is_some()),
+        }
+    }
+
+    // The multi-file case GUI-CORE-012 asked for. No `base_sha256`: one hash
+    // cannot describe several files, and naming one would invite a client to
+    // check the wrong one.
+    let merge = &approvals[1];
+    assert_eq!(merge.tool_name, "workflow_merge_agent_patch");
+    let merge_context = merge
+        .decision_context
+        .as_ref()
+        .expect("a patch merge approval carries the change it applies");
+    assert_eq!(merge_context.base_sha256, None);
+    let merge_diff = merge_context.diff.as_ref().expect("the patch rows");
+    assert_eq!(merge_diff.files.len(), 2);
+
+    let pages = kinds
+        .iter()
+        .filter_map(|kind| match kind {
+            RuntimeEventKind::WorkspaceDiffLoaded { command_id, page } => {
+                Some((command_id.clone(), page.clone()))
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(pages.len(), 1);
+    let (page_command_id, page) = &pages[0];
+    assert!(
+        kinds.iter().any(|kind| matches!(
+            kind,
+            RuntimeEventKind::CommandAccepted { command_id, command: RuntimeCommand::QueryWorkspaceDiff { .. } }
+                if command_id == page_command_id
+        )),
+        "a page must name a read Core actually accepted"
+    );
+    assert_eq!(page.entries.len(), 2);
+    let staged = &page.entries[0];
+    assert!(staged.staged);
+    assert_eq!(staged.index, Some(WorkspaceChangeKind::Modified));
+    assert!(!staged.diff.as_ref().expect("a staged entry's rows").omitted);
+    // The bounded entry keeps real counts with no rows, so "not shown" can
+    // never be read as "unchanged".
+    let bounded = page.entries[1]
+        .diff
+        .as_ref()
+        .expect("a bounded entry still names its file");
+    assert!(bounded.omitted);
+    assert!(bounded.hunks.is_empty());
+    assert!(bounded.additions > 0 || bounded.deletions > 0);
+    assert!(page.truncated);
+
+    // The refusal: same command id as the read it answers, no page beside it.
+    let refused = kinds
+        .iter()
+        .find_map(|kind| match kind {
+            RuntimeEventKind::CommandRejected { command_id, reason } => {
+                Some((command_id.clone(), reason.clone()))
+            }
+            _ => None,
+        })
+        .expect("the fixture must carry a refused read");
+    assert!(
+        kinds.iter().any(|kind| matches!(
+            kind,
+            RuntimeEventKind::CommandAccepted { command_id, command: RuntimeCommand::QueryWorkspaceDiff { .. } }
+                if *command_id == refused.0
+        )),
+        "the refusal must name the exact read it answers"
+    );
+    assert_ne!(refused.0, *page_command_id);
+    assert!(refused.1.contains("git_diff"));
+    assert!(refused.1.contains("hint:"));
+    assert!(
+        pages.iter().all(|(command_id, _)| *command_id != refused.0),
+        "a refused read must never also be answered with a page"
+    );
+}
+
+#[test]
+#[ignore = "manual structured diff fixture refresh; normal tests validate committed JSON only"]
+fn refresh_structured_diff_extension_fixture() {
+    let root = fixture_root();
+    fs::create_dir_all(&root).unwrap();
+    let fixture = structured_diff_fixture();
+    fs::write(
+        root.join("structured-diff.json"),
         serde_json::to_string_pretty(&fixture).unwrap() + "\n",
     )
     .unwrap();
@@ -2893,6 +3087,300 @@ fn audit_ordering_fixture() -> FrontendContractFixtureOut {
         ],
         snapshot(WorkMode::Build),
         owned_envelopes(fixture_id, read_owner, kinds, 1_700_000_800),
+    )
+}
+
+/// Canonical proof of the structured diff contract at each site the 0.3.3
+/// design names (GUI-CORE-012).
+///
+/// The scenario is deliberately not a happy path: one read is answered and one
+/// is refused, and the answered page carries one entry with rows and one the
+/// byte bound stripped. A client that treated an empty page, a bounded entry,
+/// and a refusal as the same thing would render all three as "nothing
+/// changed", which is the failure this capability exists to prevent.
+fn structured_diff_fixture() -> FrontendContractFixtureOut {
+    let fixture_id = "structured-diff";
+    let owner = RuntimeOwner {
+        workspace_id: "workspace_contract_v1".to_string(),
+        project_id: "project_viden".to_string(),
+        lane_id: Some("lane_structured_diff".to_string()),
+        session_id: Some("session_structured_diff".to_string()),
+        task_id: Some("task_structured_diff".to_string()),
+        turn_id: Some("turn_structured_diff".to_string()),
+    };
+    let line = |kind: DiffLineKind, content: &str, old_line, new_line| DiffLine {
+        kind,
+        content: content.to_string(),
+        old_line,
+        new_line,
+    };
+    // The single-file preview: what `edit_file` would do to one file, computed
+    // read-only against the bytes `base_sha256` names.
+    let edit_document = DiffDocument {
+        files: vec![DiffFile {
+            path: "crates/types/src/diff.rs".to_string(),
+            old_path: None,
+            kind: WorkspaceChangeKind::Modified,
+            binary: false,
+            omitted: false,
+            additions: 1,
+            deletions: 1,
+            hunks: vec![DiffHunk {
+                old_start: 42,
+                old_lines: 3,
+                new_start: 42,
+                new_lines: 3,
+                header: Some("pub struct DiffDocument {".to_string()),
+                lines: vec![
+                    line(
+                        DiffLineKind::Context,
+                        "    pub files: Vec<DiffFile>,",
+                        Some(42),
+                        Some(42),
+                    ),
+                    line(
+                        DiffLineKind::Removed,
+                        "    pub truncated: bool,",
+                        Some(43),
+                        None,
+                    ),
+                    line(
+                        DiffLineKind::Added,
+                        "    pub truncated: bool, // bounded",
+                        None,
+                        Some(43),
+                    ),
+                    line(
+                        DiffLineKind::Context,
+                        "    pub byte_limit: u32,",
+                        Some(44),
+                        Some(44),
+                    ),
+                ],
+            }],
+        }],
+        truncated: false,
+        byte_limit: 65_536,
+    };
+    // The multi-file case: the trust loop's canonical patch, with no single
+    // preimage to hash.
+    let merge_document = DiffDocument {
+        files: vec![
+            DiffFile {
+                path: "crates/runtime/src/frontend_services.rs".to_string(),
+                old_path: None,
+                kind: WorkspaceChangeKind::Modified,
+                binary: false,
+                omitted: false,
+                additions: 1,
+                deletions: 0,
+                hunks: vec![DiffHunk {
+                    old_start: 10,
+                    old_lines: 1,
+                    new_start: 10,
+                    new_lines: 2,
+                    header: None,
+                    lines: vec![
+                        line(
+                            DiffLineKind::Context,
+                            "use crate::SessionEngine;",
+                            Some(10),
+                            Some(10),
+                        ),
+                        line(
+                            DiffLineKind::Added,
+                            "use viden_tools::render_diff;",
+                            None,
+                            Some(11),
+                        ),
+                    ],
+                }],
+            },
+            DiffFile {
+                path: "crates/runtime/src/decision_context.rs".to_string(),
+                old_path: None,
+                kind: WorkspaceChangeKind::Added,
+                binary: false,
+                omitted: false,
+                additions: 2,
+                deletions: 0,
+                hunks: vec![DiffHunk {
+                    old_start: 0,
+                    old_lines: 0,
+                    new_start: 1,
+                    new_lines: 2,
+                    header: None,
+                    lines: vec![
+                        line(
+                            DiffLineKind::Added,
+                            "//! Approval decision context.",
+                            None,
+                            Some(1),
+                        ),
+                        line(
+                            DiffLineKind::Added,
+                            "pub(crate) fn tool_decision_context() {}",
+                            None,
+                            Some(2),
+                        ),
+                    ],
+                }],
+            },
+        ],
+        truncated: false,
+        byte_limit: 65_536,
+    };
+
+    let approval =
+        |id: &str, tool_name: &str, input_preview: &str, decision_context: DecisionContext| {
+            ApprovalRequestView {
+                id: id.to_string(),
+                tool_name: tool_name.to_string(),
+                title: format!("Approve {tool_name}"),
+                message: format!("{tool_name} requires approval"),
+                input_preview: input_preview.to_string(),
+                is_mutating: true,
+                reason: Some(format!("{tool_name} requires approval")),
+                owner: owner.clone(),
+                risk: ApprovalRisk::Medium,
+                target: ApprovalTarget {
+                    kind: tool_name.to_string(),
+                    display: input_preview.to_string(),
+                    canonical_ref: None,
+                },
+                allowed_scopes: vec![ApprovalScope::Once],
+                policy_reason_key: "permission.requires_approval".to_string(),
+                policy_reason_args: BTreeMap::new(),
+                expires_at: 1_700_001_100,
+                default_action: ApprovalDefaultAction::Deny,
+                audit_id: format!("audit_{id}"),
+                decision_context: Some(decision_context),
+            }
+        };
+
+    let source = WorkspaceSourceView {
+        status: viden_types::WorkspaceSourceStatus::Ready,
+        branch: Some("codex/v3-core-runtime".to_string()),
+        worktree: Some("workspace/viden".to_string()),
+        ahead: 1,
+        behind: 0,
+        added: 2,
+        deleted: 0,
+        dirty: true,
+    };
+    let page = WorkspaceDiffPage {
+        target: SourceTarget::Workspace,
+        source,
+        entries: vec![
+            WorkspaceDiffEntry {
+                path: "crates/types/src/diff.rs".to_string(),
+                index: Some(WorkspaceChangeKind::Modified),
+                worktree: None,
+                staged: true,
+                diff: Some(edit_document.files[0].clone()),
+            },
+            // Dropped by the bound, and still visible with real counts: a
+            // reviewer must be able to tell "not shown" from "unchanged".
+            WorkspaceDiffEntry {
+                path: "crates/types/tests/fixtures/frontend-contract-v1/structured-diff.json"
+                    .to_string(),
+                index: None,
+                worktree: Some(WorkspaceChangeKind::Added),
+                staged: false,
+                diff: Some(DiffFile {
+                    path: "crates/types/tests/fixtures/frontend-contract-v1/structured-diff.json"
+                        .to_string(),
+                    old_path: None,
+                    kind: WorkspaceChangeKind::Added,
+                    binary: false,
+                    omitted: true,
+                    additions: 1_284,
+                    deletions: 0,
+                    hunks: Vec::new(),
+                }),
+            },
+        ],
+        truncated: true,
+    };
+
+    let kinds = vec![
+        // Both reads are accepted before either is settled, so neither the
+        // page nor the refusal can be attributed by arrival order.
+        RuntimeEventKind::CommandAccepted {
+            command_id: "structured_diff_read".to_string(),
+            command: RuntimeCommand::QueryWorkspaceDiff {
+                query: WorkspaceDiffQuery {
+                    target: SourceTarget::Workspace,
+                    scope: WorkspaceDiffScope::Both,
+                    paths: vec!["crates/types".to_string()],
+                    byte_limit: Some(4_096),
+                },
+            },
+        },
+        RuntimeEventKind::CommandAccepted {
+            command_id: "structured_diff_refused".to_string(),
+            command: RuntimeCommand::QueryWorkspaceDiff {
+                query: WorkspaceDiffQuery {
+                    target: SourceTarget::Lane {
+                        lane_id: "lane_structured_diff".to_string(),
+                    },
+                    scope: WorkspaceDiffScope::Worktree,
+                    paths: Vec::new(),
+                    byte_limit: None,
+                },
+            },
+        },
+        RuntimeEventKind::ApprovalRequested {
+            approval: approval(
+                "approval_structured_edit",
+                "edit_file",
+                "path: crates/types/src/diff.rs",
+                DecisionContext {
+                    diff: Some(edit_document),
+                    base_sha256: Some(
+                        "3f79bb7b435b05321651daefd374cdc681dc06faa65e374e38337b88ca046dea"
+                            .to_string(),
+                    ),
+                },
+            ),
+        },
+        RuntimeEventKind::ApprovalRequested {
+            approval: approval(
+                "approval_structured_merge",
+                "workflow_merge_agent_patch",
+                "action: merge_agent_patch",
+                DecisionContext {
+                    diff: Some(merge_document),
+                    base_sha256: None,
+                },
+            ),
+        },
+        RuntimeEventKind::WorkspaceDiffLoaded {
+            command_id: "structured_diff_read".to_string(),
+            page,
+        },
+        // The refusal answers the *other* read, names the gate, and carries
+        // the actionable hint folded into the reason.
+        RuntimeEventKind::CommandRejected {
+            command_id: "structured_diff_refused".to_string(),
+            reason: "permission denied\ntool: git_diff\nreason: DenyRule\nmessage: git_diff is \
+                     denied by a workspace rule\nhint: grant the `git_diff` permission to read \
+                     structured workspace changes"
+                .to_string(),
+        },
+    ];
+
+    fixture(
+        fixture_id,
+        &[
+            "runtime.approvals",
+            "runtime.commands",
+            "runtime.events",
+            "runtime.snapshot",
+            "runtime.structured_diff",
+        ],
+        snapshot(WorkMode::Build),
+        owned_envelopes(fixture_id, owner, kinds, 1_700_001_000),
     )
 }
 
