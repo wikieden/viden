@@ -229,6 +229,41 @@ fn d2_contract_decision_sends_confirm_contract_with_the_core_owned_identity() {
     }
 }
 
+/// A published `ContractRecord` is always already decided — `ContractDecision`
+/// has only `Confirmed` and `Rejected` — and Core rejects a second
+/// `ConfirmContract` for an id it has recorded. The detail therefore offers no
+/// live verdict: both actions stay visible, disabled, and named by the request
+/// that would make a pending contract exist.
+#[test]
+fn d2_contract_detail_keeps_both_verdicts_visible_and_non_actionable() {
+    let (view, _) = decision_view();
+    let (adapter, _) = connected(view);
+    let projection = adapter
+        .d2_decisions_for("contract-feel-v1-1")
+        .expect("contract detail");
+    let detail = projection.detail.expect("detail");
+
+    assert_eq!(detail.kind, "contract");
+    let kinds: Vec<&str> = detail
+        .actions
+        .iter()
+        .map(|action| action.kind.as_str())
+        .collect();
+    assert_eq!(
+        kinds,
+        vec!["confirm_contract", "reject_contract"],
+        "both verdicts stay visible rather than being hidden"
+    );
+    for action in &detail.actions {
+        assert!(
+            !action.available,
+            "{} must not be actionable against a decided record",
+            action.kind
+        );
+        assert_eq!(action.code.as_deref(), Some("GUI-CORE-013"));
+    }
+}
+
 #[test]
 fn d2_review_items_expose_evidence_and_enable_the_decision_core_now_accepts() {
     let (view, _) = decision_view();

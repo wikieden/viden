@@ -37,6 +37,11 @@ pub const D2_REVIEW_NO_ACTOR_CODE: &str = "D2-NO-REVIEWER-ACTOR";
 /// review, so a recorded verdict is never re-offered.
 pub const D2_REVIEW_SETTLED_CODE: &str = "D2-REVIEW-SETTLED";
 
+/// A `ContractRecord` Core has already decided. Unlike the two codes above this
+/// one *is* a contract request: schema 1 carries no pending-confirmation fact,
+/// so D2 lists contracts as decided history and offers no verdict on them.
+pub const D2_CONTRACT_DECIDED_CODE: &str = "GUI-CORE-013";
+
 /// A capability the design shows but `frontend-contract-v1` does not carry.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]

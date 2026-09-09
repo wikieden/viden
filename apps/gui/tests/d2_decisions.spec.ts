@@ -128,6 +128,70 @@ describe("D2 decision center", () => {
     expect(codes).toContain("GUI-CORE-012");
   });
 
+  test("keeps a decided contract's verdicts visible but non-actionable", () => {
+    // Every `ContractRecord` schema 1 publishes is already decided, and Core
+    // refuses a second `ConfirmContract` for an id it has recorded. An enabled
+    // Confirm or Reject here could only ever produce a refusal.
+    const decided: D2DecisionsProjection = {
+      ...PROJECTION,
+      selectedId: "contract-1",
+      detail: {
+        id: "contract-1",
+        kind: "contract",
+        title: "feel-v1 contract",
+        projectId: "project-viden",
+        laneId: "lane-contract",
+        taskId: "task-lane-contract",
+        auditId: "audit-contract",
+        auditScope: { kind: "contract", id: "contract-1" },
+        policyReasonKey: null,
+        blockedByPlan: false,
+        context: {
+          source: "contract_summary",
+          text: "feel-v1 contract",
+          unavailable: null,
+        },
+        evidence: [],
+        actions: [
+          {
+            kind: "confirm_contract",
+            available: false,
+            sessionId: null,
+            paths: [],
+            code: "GUI-CORE-013",
+          },
+          {
+            kind: "reject_contract",
+            available: false,
+            sessionId: null,
+            paths: [],
+            code: "GUI-CORE-013",
+          },
+        ],
+      },
+    };
+    const { root, send } = setup(decided);
+
+    const buttons = [...root.querySelectorAll<HTMLButtonElement>("[data-d2-action]")];
+    expect(buttons.map((button) => button.dataset.d2Action)).toEqual([
+      "confirm_contract",
+      "reject_contract",
+    ]);
+    for (const button of buttons) {
+      // Disabled and labelled, never hidden and never enabled-and-inert.
+      expect(button.disabled).toBe(true);
+      expect(button.dataset.d2ActionCode).toBe("GUI-CORE-013");
+      expect(button.textContent).toContain("GUI-CORE-013");
+      button.click();
+    }
+    expect(send).not.toHaveBeenCalled();
+
+    // The reason is spelled out once below the bar, in words rather than as a
+    // bare code.
+    const notes = [...root.querySelectorAll<HTMLElement>("[data-d2-unavailable='GUI-CORE-013']")];
+    expect(notes.some((note) => note.textContent?.includes("already recorded"))).toBe(true);
+  });
+
   test("renders the Core input preview verbatim and never a synthesized diff", () => {
     const { root } = setup();
     const pane = root.querySelector<HTMLElement>("[data-d2-context]");

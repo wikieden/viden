@@ -178,6 +178,16 @@ with its proposer, target contract version, subscribers, and audit id, and the
 canonical fixture proves that a pending contract becomes decided through
 `ConfirmContract`.
 
+GUI status, corrected on `claude/hygiene-h1`: the contract *group* declared the
+gap while the contract *detail* still rendered live Confirm and Reject buttons
+against a record Core had already decided. `confirm_contract` in
+`RuntimeSupervisor` rejects an id it has recorded, so those controls could only
+ever produce a refusal. Both verdicts now project `available: false` with this
+code and render disabled-and-labelled — visible, so the operator can see the
+decision exists, and inert, so the client never sends a doomed command. They
+become conditional on the record's own state once Core publishes the pending
+fact this request asks for.
+
 ## GUI-CORE-014: Ordered event log in the view state — CLOSED
 
 History: `RuntimeViewState` published current facts but no ordered event log.

@@ -148,6 +148,8 @@ const COPY: Record<Locale, Copy> = {
     "D2-NO-REVIEWER-ACTOR":
       "Core published no independent reviewer identity for this review, so this client cannot decide it.",
     "D2-REVIEW-SETTLED": "Core already settled this review; a verdict is recorded once.",
+    "GUI-CORE-013":
+      "Core already recorded this contract's decision, and publishes no pending contract to confirm.",
     "d2.contract.noPendingFact":
       "Core records decided contracts only; there is no pending-confirmation fact.",
     "d2.context.noStructuredDiff":
@@ -185,6 +187,7 @@ const COPY: Record<Locale, Copy> = {
     outcome_rejected: "Core 拒绝了该决策。",
     "D2-NO-REVIEWER-ACTOR": "Core 未为该评审发布独立评审方身份，本客户端无法代为裁决。",
     "D2-REVIEW-SETTLED": "Core 已裁决该评审；裁决只记录一次。",
+    "GUI-CORE-013": "Core 已记录该契约的裁决，且不发布任何待确认契约。",
     "d2.contract.noPendingFact": "Core 只记录已决契约，没有「待确认」这一事实。",
     "d2.context.noStructuredDiff": "Core 只提供不透明入参预览，结构化 diff 行不可用。",
     empty: "Core 当前没有等你处理的决策。",

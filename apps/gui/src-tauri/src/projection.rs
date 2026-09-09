@@ -600,20 +600,28 @@ impl RuntimeProjection {
                 unavailable: None,
             },
             evidence: owner_evidence(view, contract.owner.lane_id.as_deref()),
+            // Every `ContractRecord` schema 1 publishes is already decided —
+            // `ContractDecision` has only `Confirmed` and `Rejected` — and
+            // Core rejects a second `ConfirmContract` for an id it already
+            // recorded. A live verdict here could only ever produce a refusal,
+            // so both stay visible and disabled under the request that would
+            // make a pending contract exist (GUI-CORE-013). They become
+            // conditional on the record's own state, not unconditionally dead,
+            // the moment Core publishes that fact.
             actions: vec![
                 D2ActionProjection {
                     kind: "confirm_contract".to_string(),
-                    available: !blocked_by_plan,
+                    available: false,
                     session_id: None,
                     paths: Vec::new(),
-                    code: None,
+                    code: Some(crate::D2_CONTRACT_DECIDED_CODE),
                 },
                 D2ActionProjection {
                     kind: "reject_contract".to_string(),
-                    available: !blocked_by_plan,
+                    available: false,
                     session_id: None,
                     paths: Vec::new(),
-                    code: None,
+                    code: Some(crate::D2_CONTRACT_DECIDED_CODE),
                 },
             ],
         })

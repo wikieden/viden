@@ -36,10 +36,11 @@ pub use d1::{
     D1WorkspaceSourceProjection,
 };
 pub use d2::{
-    D2_KIND_CONTRACT, D2_KIND_GATE, D2_KIND_REVIEW, D2_REVIEW_FEEDBACK_MAX_CHARS,
-    D2_REVIEW_NO_ACTOR_CODE, D2_REVIEW_SETTLED_CODE, D2ActionProjection, D2ContextProjection,
-    D2DecisionsProjection, D2DetailProjection, D2EvidenceProjection, D2GroupProjection, D2Intent,
-    D2IntentResult, D2QueueItemProjection, D2UnavailableProjection,
+    D2_CONTRACT_DECIDED_CODE, D2_KIND_CONTRACT, D2_KIND_GATE, D2_KIND_REVIEW,
+    D2_REVIEW_FEEDBACK_MAX_CHARS, D2_REVIEW_NO_ACTOR_CODE, D2_REVIEW_SETTLED_CODE,
+    D2ActionProjection, D2ContextProjection, D2DecisionsProjection, D2DetailProjection,
+    D2EvidenceProjection, D2GroupProjection, D2Intent, D2IntentResult, D2QueueItemProjection,
+    D2UnavailableProjection,
 };
 pub use d4::{
     D4_STARTER_LANE_CAPABILITY, D4ApprovalIntent, D4Intent, D4IntentResult, D4LaneCreateProjection,
