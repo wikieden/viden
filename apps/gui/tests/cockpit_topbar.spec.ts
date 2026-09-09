@@ -1,14 +1,27 @@
 // @vitest-environment jsdom
 
 // The cockpit titlebar's git block renders host-projected workspace facts and
-// nothing else. It is read-only: frontend-contract-v1 carries no operator git
-// command, so the only interactive element is the worktrees chip, which
-// navigates to the Lane monitor.
+// nothing else. Since `runtime.operator_git` (GUI-CORE-020) the sync chip is
+// also a control — push when Core's resampled counts say there is local work,
+// fetch otherwise, and never a pull, which the contract excludes for `0.3.3`.
+// The direction and the availability both come from Core; the chip derives
+// neither from display text.
 import { describe, expect, test, vi } from "vitest";
 
 import { renderCockpitTopbar } from "../src/components/cockpit_topbar";
+import { IDLE_OPERATOR_GIT, type OperatorGitProjection } from "../src/models/operator_git";
 import type { D1CockpitProjection, TopbarSourceProjection } from "../src/models/workspace";
 import { D1_PROJECTION } from "./support/d1_projection";
+
+/// A Core that publishes operator git and one owner this client may act as.
+function syncReady(overrides: Partial<OperatorGitProjection> = {}): OperatorGitProjection {
+  return {
+    ...IDLE_OPERATOR_GIT,
+    capabilityAvailable: true,
+    ownerAvailable: true,
+    ...overrides,
+  };
+}
 
 const SOURCE: TopbarSourceProjection = {
   project: "viden",
@@ -100,7 +113,7 @@ describe("cockpit titlebar git block", () => {
     expect(element.querySelector(".projsel")?.getAttribute("aria-expanded")).toBe("true");
   });
 
-  test("the sync chip states ahead and behind as status, not as an action", () => {
+  test("an unbound host keeps the sync chip a readout rather than a control", () => {
     const { element } = renderCockpitTopbar(projection(), "en", false);
     const sync = element.querySelector<HTMLElement>("[data-topbar-sync]")!;
 
@@ -108,7 +121,92 @@ describe("cockpit titlebar git block", () => {
     expect(sync.querySelector(".down")?.textContent).toBe("↓1");
     expect(sync.tagName).toBe("SPAN");
     expect(sync.getAttribute("role")).toBe("status");
-    expect(sync.title).toContain("GUI-CORE-020");
+  });
+
+  test("local commits make the chip a Push, and the tooltip says pull is excluded", () => {
+    const onSync = vi.fn();
+    const { element } = renderCockpitTopbar(projection(), "en", false, undefined, {
+      onSync,
+      syncState: syncReady(),
+    });
+    const sync = element.querySelector<HTMLButtonElement>("[data-topbar-sync]")!;
+
+    expect(sync.tagName).toBe("BUTTON");
+    expect(sync.dataset.topbarSyncAction).toBe("push");
+    expect(sync.disabled).toBe(false);
+    expect(sync.title.toLowerCase()).toContain("pull is excluded");
+    sync.click();
+    expect(onSync).toHaveBeenCalledWith("push");
+  });
+
+  test("behind with nothing local, and a clean tree, both offer Fetch", () => {
+    for (const source of [
+      { ...SOURCE, ahead: 0, behind: 3 },
+      { ...SOURCE, ahead: 0, behind: 0 },
+    ]) {
+      const onSync = vi.fn();
+      const { element } = renderCockpitTopbar(projection(source), "en", false, undefined, {
+        onSync,
+        syncState: syncReady(),
+      });
+      const sync = element.querySelector<HTMLButtonElement>("[data-topbar-sync]")!;
+      expect(sync.dataset.topbarSyncAction).toBe("fetch");
+      sync.click();
+      expect(onSync).toHaveBeenCalledWith("fetch");
+    }
+  });
+
+  test("an absent capability disables the chip and names it, never hides it", () => {
+    const { element } = renderCockpitTopbar(projection(), "en", false, undefined, {
+      onSync: vi.fn(),
+      syncState: syncReady({ capabilityAvailable: false }),
+    });
+    const sync = element.querySelector<HTMLButtonElement>("[data-topbar-sync]")!;
+
+    expect(sync).not.toBeNull();
+    expect(sync.disabled).toBe(true);
+    expect(sync.title).toContain("runtime.operator_git");
+    // The direction is still named: a disabled control must say what it would
+    // have done.
+    expect(sync.dataset.topbarSyncAction).toBe("push");
+  });
+
+  test("an action in flight and an incomplete Core sample each disable the chip", () => {
+    const busy = renderCockpitTopbar(projection(), "en", false, undefined, {
+      onSync: vi.fn(),
+      syncState: syncReady({
+        outcome: { state: "pending", reason: null },
+        pendingCommandId: "gui-git-1",
+        pendingAction: "push",
+      }),
+    });
+    expect(
+      busy.element.querySelector<HTMLButtonElement>("[data-topbar-sync]")!.disabled,
+    ).toBe(true);
+
+    const truncated = renderCockpitTopbar(
+      projection({ ...SOURCE, status: "truncated", truncated: true }),
+      "en",
+      false,
+      undefined,
+      { onSync: vi.fn(), syncState: syncReady() },
+    );
+    const chip = truncated.element.querySelector<HTMLButtonElement>("[data-topbar-sync]")!;
+    expect(chip.disabled).toBe(true);
+    expect(chip.dataset.topbarSyncBlocked).toBe("true");
+  });
+
+  test("no Core owner disables the chip with the client-local reason", () => {
+    const { element } = renderCockpitTopbar(projection(), "en", false, undefined, {
+      onSync: vi.fn(),
+      syncState: syncReady({
+        ownerAvailable: false,
+        ownerUnavailableReason: "D1-OPERATOR-GIT-OWNER: no Lane is selected",
+      }),
+    });
+    const sync = element.querySelector<HTMLButtonElement>("[data-topbar-sync]")!;
+    expect(sync.disabled).toBe(true);
+    expect(sync.title).toContain("D1-OPERATOR-GIT-OWNER");
   });
 
   test("a dirty workspace is marked next to the branch and a clean one is not", () => {

@@ -1,5 +1,10 @@
 import { translate, type Locale } from "../i18n/catalog";
 import { formatShortcut } from "../i18n/format";
+import {
+  IDLE_OPERATOR_GIT,
+  OPERATOR_GIT_CAPABILITY,
+  type OperatorGitProjection,
+} from "../models/operator_git";
 import type { D1CockpitProjection, TopbarSourceProjection } from "../models/workspace";
 import { createCanonicalGuiIcon } from "./activity_rail";
 
@@ -50,34 +55,106 @@ export interface CockpitTopbarOptions {
   /** Core published `runtime.structured_diff`; false disables the control. */
   reviewAvailable?: boolean;
   reviewOpen?: boolean;
+  /**
+   * Runs one operator sync action (`runtime.operator_git`, GUI-CORE-020).
+   *
+   * Only `push` and `fetch` reach here. `pull` is excluded by the contract for
+   * `0.3.3` — it moves `HEAD` and can create conflicts that belong to the Lane
+   * conflict machinery — so the chip never offers one and its tooltip says so
+   * rather than leaving the operator to wonder.
+   *
+   * Absent while no host is bound, which leaves the design's `role=status`
+   * chip: a control with nothing behind it would be worse than a readout.
+   */
+  onSync?: (action: "push" | "fetch") => void;
+  /**
+   * Core's action projection, which decides whether the chip may act:
+   * the capability, an owner this client may act as, and whether an action is
+   * already in flight. Absent is treated as "nothing available".
+   */
+  syncState?: OperatorGitProjection;
+}
+
+/**
+ * What the sync chip would do, and why it cannot.
+ *
+ * The direction is read off Core's resampled counts and nothing else:
+ * `ahead > 0` means there is local work to publish, and every other state —
+ * behind, or clean — offers a fetch, which is the only read the contract
+ * allows. The blocked reason is separate from the direction on purpose: a
+ * disabled chip must still say *what* it would have done.
+ */
+function syncControlState(
+  source: TopbarSourceProjection,
+  locale: Locale,
+  options: CockpitTopbarOptions,
+): { action: "push" | "fetch"; label: string; blocked: string | null } {
+  const state = options.syncState ?? IDLE_OPERATOR_GIT;
+  const action: "push" | "fetch" = source.ahead > 0 ? "push" : "fetch";
+  const label =
+    action === "push"
+      ? translate(locale, "d1.topbar.sync.push", { ahead: String(source.ahead) })
+      : translate(locale, "d1.topbar.sync.fetch", { behind: String(source.behind) });
+  let blocked: string | null = null;
+  if (!state.capabilityAvailable) {
+    blocked = translate(locale, "d1.topbar.sync.unavailable", {
+      capability: OPERATOR_GIT_CAPABILITY,
+    });
+  } else if (!state.ownerAvailable) {
+    blocked = state.ownerUnavailableReason ?? translate(locale, "d1.topbar.sync.noOwner", {});
+  } else if (state.outcome.state === "pending") {
+    blocked = translate(locale, "d1.topbar.sync.busy", {});
+  } else if (source.status !== "ready") {
+    // A truncated sample cannot vouch for ahead/behind, and an action decided
+    // from partial counts would push or fetch against facts Core disowned.
+    blocked = translate(locale, "d1.topbar.sync.notReady", {});
+  }
+  return { action, label, blocked };
 }
 
 /// The `.gitops` block: the workspace's source-control facts exactly as the
 /// host projected them.
 ///
-/// Read-only by contract. frontend-contract-v1 publishes no operator git
-/// command (`GUI-CORE-020`), so the sync chip is a status element rather than
-/// a button, and the only control is the worktree chip, which navigates.
+/// The sync chip is a *control* since `runtime.operator_git` (GUI-CORE-020):
+/// push when Core's resampled counts say there is local work, fetch otherwise.
+/// It becomes a plain `role=status` readout only when no host is bound, and it
+/// is disabled-and-labelled rather than hidden whenever it cannot act. The
+/// worktree chip beside it still only navigates.
 function renderGitOps(
   source: TopbarSourceProjection,
   locale: Locale,
   onNavigate?: (route: string) => void,
+  options: CockpitTopbarOptions = {},
 ): HTMLElement {
   const gitops = document.createElement("span");
   gitops.className = "gitops d1-topbar-gitops";
   gitops.dataset.topbarGitops = "true";
   gitops.dataset.tauriDragRegion = "true";
 
-  const sync = document.createElement("span");
-  sync.className = "gitchip d1-topbar-sync";
-  sync.dataset.topbarSync = "true";
-  // Status, not a control: there is nothing to press, so it must not be
-  // announced or focused as if there were.
-  sync.setAttribute("role", "status");
-  sync.title = translate(locale, "d1.topbar.syncTitle", {
+  const readout = translate(locale, "d1.topbar.syncTitle", {
     ahead: String(source.ahead),
     behind: String(source.behind),
   });
+  const sync = document.createElement(options.onSync ? "button" : "span");
+  sync.className = "gitchip d1-topbar-sync";
+  sync.dataset.topbarSync = "true";
+  if (sync instanceof HTMLButtonElement) {
+    const { action, label, blocked } = syncControlState(source, locale, options);
+    sync.type = "button";
+    sync.dataset.topbarSyncAction = action;
+    // Visible and disabled, never hidden: an operator must be able to read the
+    // reason off the chrome instead of discovering a missing control.
+    sync.disabled = blocked !== null;
+    sync.title = blocked ? `${readout} ${blocked}` : `${readout} ${label}`;
+    sync.setAttribute("aria-label", label);
+    if (blocked) sync.dataset.topbarSyncBlocked = "true";
+    sync.addEventListener("click", () => options.onSync?.(action));
+  } else {
+    // Status, not a control: there is nothing to press, so it must not be
+    // announced or focused as if there were.
+    sync.setAttribute("role", "status");
+    sync.title = readout;
+  }
   const ahead = document.createElement("span");
   ahead.className = "up";
   ahead.textContent = `↑${source.ahead}`;
@@ -280,7 +357,7 @@ export function renderCockpitTopbar(
   if (!nativeShell) titlebar.append(lights);
   titlebar.append(brand, project);
   if (reviewEntry) titlebar.append(reviewEntry);
-  if (source) titlebar.append(renderGitOps(source, locale, onNavigate));
+  if (source) titlebar.append(renderGitOps(source, locale, onNavigate, options));
   titlebar.append(laneSummary, tools);
   return { element: titlebar, contextDrawerToggle, commandPaletteToggle };
 }
