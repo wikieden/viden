@@ -260,7 +260,7 @@ fn d2_contract_detail_keeps_both_verdicts_visible_and_non_actionable() {
             "{} must not be actionable against a decided record",
             action.kind
         );
-        assert_eq!(action.code.as_deref(), Some("GUI-CORE-013"));
+        assert_eq!(action.code, Some("GUI-CORE-013"));
     }
 }
 
