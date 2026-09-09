@@ -566,14 +566,39 @@ fn d12_surfaces_the_post_merge_revert_for_its_own_gate() {
 }
 
 #[test]
-fn d12_declares_the_conflict_hunk_unavailable_instead_of_rendering_one() {
-    let projection = connected(gate_view()).d12_integration_gate().unwrap();
+fn d12_names_the_missing_capability_rather_than_the_closed_request() {
+    // GUI-CORE-015 is closed, so the row must not cite it any more. What can
+    // still be absent is the capability, and a Core without it publishes the
+    // bounce reason and nothing else.
+    let mut client = TestCoreClient::new(gate_view(), Arc::new(Mutex::new(Vec::new())));
+    client
+        .capabilities
+        .remove(viden_gui::CONFLICT_CONTENT_CAPABILITY);
+    let mut adapter = GuiCoreAdapter::new(Box::new(client));
+    adapter.connect().unwrap();
+    let projection = adapter.d12_integration_gate().unwrap();
+
+    assert!(!projection.conflict_content_available);
     let entry = projection
         .unavailable
         .iter()
-        .find(|entry| entry.code == "GUI-CORE-015")
-        .expect("the conflict hunk gap must be declared");
-    assert_eq!(entry.key, "d12.conflict.noStructuredHunk");
+        .find(|entry| entry.key == "d12.conflict.noStructuredHunk")
+        .expect("an absent capability must be declared");
+    assert_eq!(entry.code, viden_gui::CONFLICT_CONTENT_CAPABILITY);
+    assert!(
+        projection
+            .unavailable
+            .iter()
+            .all(|entry| entry.code != "GUI-CORE-015"),
+        "the closed request must not be cited"
+    );
+
+    // With the capability advertised the screen declares nothing unavailable:
+    // a bounce that carries no content is the screen's own per-bounce
+    // sentence, which is a different fact.
+    let available = connected(gate_view()).d12_integration_gate().unwrap();
+    assert!(available.conflict_content_available);
+    assert!(available.unavailable.is_empty());
 }
 
 #[test]
@@ -604,4 +629,190 @@ fn d12_scopes_a_revert_row_to_the_audit_object_core_actually_linked() {
         .expect("a revert row must offer its audit trail");
     assert_eq!(scope.kind, "revert");
     assert_eq!(scope.id, "revert-1");
+}
+
+/* ------------------------------------------------------------------ */
+/* Structured conflict content (`runtime.conflict_content`)            */
+/* ------------------------------------------------------------------ */
+
+const CONFLICT_CONTENT_FIXTURE: &str =
+    include_str!("../../../crates/types/tests/fixtures/frontend-contract-v1/conflict-content.json");
+
+/// The canonical `conflict-content.json` view: Lane A merges, Lane B's patch
+/// is refused with one hunk, and a Lane apply conflict carries the same shape.
+fn conflict_view() -> RuntimeViewState {
+    #[derive(serde::Deserialize)]
+    struct Fixture {
+        initial_snapshot: RuntimeSnapshot,
+        events: Vec<viden_core::RuntimeEventEnvelope>,
+    }
+    let fixture: Fixture = serde_json::from_str(CONFLICT_CONTENT_FIXTURE).unwrap();
+    let mut view = RuntimeViewState::new(fixture.initial_snapshot);
+    for envelope in fixture.events {
+        if let viden_core::RuntimeWireEvent::Known(event) = envelope.event {
+            view.apply_event(&event);
+        }
+    }
+    view
+}
+
+#[test]
+fn d12_projects_the_hunks_two_sides_and_preimage_core_published_for_a_bounce() {
+    let detail = connected(conflict_view())
+        .d12_integration_gate_for("gate_conflict_b")
+        .unwrap()
+        .detail
+        .expect("the conflicting gate has a detail");
+
+    let content = detail.bounces[0]
+        .content
+        .as_ref()
+        .expect("the fixture's bounce carries structured content");
+    assert!(!content.truncated);
+
+    // The merge path's baseline is the gate's canonical evidence bindings,
+    // not a bare commit, and each binding routes to its own audit object.
+    assert_eq!(content.baseline.kind, "evidence");
+    assert!(content.baseline.sha.is_none());
+    let binding = &content.baseline.bindings[0];
+    assert_eq!(binding.evidence_id, "ev_conflict_patch_b");
+    assert_eq!(binding.source_hash, "cf".repeat(32));
+    assert_eq!(binding.short_hash, "cfcfcfcfcfcf");
+    assert_eq!(binding.audit_scope.kind, "evidence");
+    assert_eq!(binding.audit_scope.id, "ev_conflict_patch_b");
+
+    let file = &content.files[0];
+    assert_eq!(file.path, "crates/runtime/src/trust_loop.rs");
+    assert!(!file.omitted);
+
+    // Two sides plus the patch preimage. Nothing here is a merge result.
+    let hunk = &file.hunks[0];
+    assert_eq!(hunk.ours_start, 42);
+    assert_eq!(
+        hunk.ours,
+        vec!["    let bounce = record_conflict_bounce(gate)?;\n".to_string()]
+    );
+    assert_eq!(hunk.theirs_start, 42);
+    assert_eq!(
+        hunk.theirs,
+        vec!["    let bounce = bounce_with_reason(gate, reason)?;\n".to_string()]
+    );
+    assert_eq!(
+        hunk.base,
+        Some(vec!["    let bounce = record_bounce(gate)?;\n".to_string()])
+    );
+    assert_eq!(hunk.reason, "context_mismatch");
+}
+
+#[test]
+fn d12_projects_lane_apply_conflicts_with_the_same_content_and_a_revision_baseline() {
+    let detail = connected(conflict_view())
+        .d12_integration_gate_for("gate_conflict_b")
+        .unwrap()
+        .detail
+        .expect("detail");
+
+    // The Lane apply path is keyed by Lane; this gate's own Lane is the link,
+    // never a client-invented association.
+    let conflict = detail
+        .lane_conflicts
+        .iter()
+        .find(|conflict| conflict.lane_id == "lane_conflict_b")
+        .expect("the fixture publishes a Lane apply conflict for this Lane");
+    assert_eq!(
+        conflict.paths,
+        vec!["crates/runtime/src/trust_loop.rs".to_string()]
+    );
+    let content = conflict
+        .content
+        .as_ref()
+        .expect("the Lane apply conflict carries content");
+    // The apply path names a revision rather than evidence bindings.
+    assert_eq!(content.baseline.kind, "revision");
+    assert_eq!(content.baseline.sha.as_deref(), Some(&"9f".repeat(20)[..]));
+    assert_eq!(content.baseline.short_sha.as_deref(), Some("9f9f9f9f9f9f"));
+    assert!(content.baseline.bindings.is_empty());
+    assert_eq!(content.files[0].hunks[0].reason, "context_mismatch");
+}
+
+#[test]
+fn d12_keeps_an_omitted_file_and_a_truncated_payload_distinct_from_an_empty_conflict() {
+    let mut view = gate_view();
+    let gate_id = view.merge_gates[0].gate_id.clone();
+    // Built through Core's own wire form: the facade re-exports `ConflictBounce`
+    // but not the `ConflictContent` family it carries, so the fixture is the
+    // exact JSON Core publishes rather than a client-side literal.
+    view.conflict_bounces.push(
+        serde_json::from_value(serde_json::json!({
+            "bounce_id": "bounce-omitted",
+            "gate_id": gate_id,
+            "task_id": "task-lane-3",
+            "original_lane_id": "lane-3",
+            "owner": { "workspace_id": "workspace-viden", "project_id": "project-boss-rush" },
+            "reason": "patch conflict",
+            "status": "pending",
+            "evidence_ids": [],
+            "baseline_evidence": [],
+            "revalidation_evidence": [],
+            "content": {
+                "baseline": "unknown",
+                "files": [{
+                    "path": "assets/atlas.png",
+                    "hunks": [],
+                    "omitted": true
+                }],
+                "truncated": true
+            },
+            "audit_id": "audit-bounce-omitted",
+            "created_at": 1_700_000_700,
+            "revalidated_at": null
+        }))
+        .expect("Core's own conflict-bounce encoding"),
+    );
+
+    let detail = connected(view)
+        .d12_integration_gate()
+        .unwrap()
+        .detail
+        .expect("detail");
+    let content = detail.bounces[0].content.as_ref().expect("content");
+    assert!(content.truncated);
+    // `Unknown` is a real Core answer — Core held no baseline it could name —
+    // and must never be silently rendered as `HEAD`.
+    assert_eq!(content.baseline.kind, "unknown");
+    assert!(content.baseline.sha.is_none());
+    assert!(content.files[0].omitted);
+    assert!(content.files[0].hunks.is_empty());
+}
+
+#[test]
+fn d12_leaves_a_bounce_without_content_absent_rather_than_empty() {
+    let mut view = gate_view();
+    view.conflict_bounces.push(ConflictBounce {
+        bounce_id: "bounce-operator".to_string(),
+        gate_id: view.merge_gates[0].gate_id.clone(),
+        task_id: "task-lane-3".to_string(),
+        original_lane_id: "lane-3".to_string(),
+        owner: owner("lane-3"),
+        reason: "cancel window needs a rethink".to_string(),
+        status: ConflictBounceStatus::Pending,
+        evidence_ids: Vec::new(),
+        baseline_evidence: Vec::new(),
+        revalidation_evidence: Vec::new(),
+        content: None,
+        audit_id: "audit-bounce-operator".to_string(),
+        created_at: 1_700_000_700,
+        revalidated_at: None,
+    });
+
+    let detail = connected(view)
+        .d12_integration_gate()
+        .unwrap()
+        .detail
+        .expect("detail");
+    // An operator bounce is a human judgement with no failed apply behind it,
+    // so Core publishes no content. Absent stays absent: it is not an empty
+    // conflict and not a missing capability.
+    assert!(detail.bounces[0].content.is_none());
+    assert_eq!(detail.bounces[0].reason, "cancel window needs a rethink");
 }

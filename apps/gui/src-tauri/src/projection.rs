@@ -38,8 +38,11 @@ use crate::d10::{
     D10AgentProjection, D10EvidenceProjection, D10LaneMonitorProjection, D10LaneProjection,
 };
 use crate::d12::{
-    D12ActionProjection, D12BounceProjection, D12CheckProjection, D12GateDetailProjection,
-    D12GateProjection, D12IntegrationGateProjection, D12RevertProjection, d12_action_code,
+    CONFLICT_CONTENT_CAPABILITY, D12ActionProjection, D12BounceProjection, D12CheckProjection,
+    D12ConflictBaselineProjection, D12ConflictContentProjection, D12ConflictEvidenceProjection,
+    D12ConflictFileProjection, D12ConflictHunkProjection, D12GateDetailProjection,
+    D12GateProjection, D12IntegrationGateProjection, D12LaneConflictProjection,
+    D12RevertProjection, d12_action_code,
 };
 use crate::d13::{
     D13BlockerProjection, D13FleetWorkflowProjection, D13HandoffProjection, D13NodeProjection,
@@ -730,7 +733,15 @@ impl RuntimeProjection {
         &self,
         selected: Option<&str>,
     ) -> Option<D12IntegrationGateProjection> {
-        let view = self.view()?;
+        let confirmed = self.confirmed.as_ref()?;
+        let view = &confirmed.view;
+        // Structured conflict lines ride `runtime.conflict_content`. Without
+        // it the conflict is still only Core's reason text, which is a
+        // different fact from a bounce Core published no content for.
+        let supports_conflict_content = confirmed
+            .capabilities
+            .iter()
+            .any(|capability| capability.0 == CONFLICT_CONTENT_CAPABILITY);
         let mut gates: Vec<D12GateProjection> = view
             .merge_gates
             .iter()
@@ -782,7 +793,7 @@ impl RuntimeProjection {
                 .filter(|required| !gate.evidence_ids.contains(required))
                 .cloned()
                 .collect();
-            let bounces = view
+            let bounces: Vec<D12BounceProjection> = view
                 .conflict_bounces
                 .iter()
                 .filter(|bounce| bounce.gate_id == gate_id)
@@ -793,6 +804,36 @@ impl RuntimeProjection {
                     reason: bounce.reason.clone(),
                     status: conflict_bounce_status(bounce.status).to_string(),
                     evidence_ids: bounce.evidence_ids.clone(),
+                    content: bounce
+                        .content
+                        .as_ref()
+                        .and_then(conflict_content_projection),
+                })
+                .collect();
+            // The Lane apply path publishes its own collisions as
+            // `LaneConflictView`, keyed by Lane. Scope them to the Lanes this
+            // gate actually involves — its owning Lane and every origin Lane a
+            // bounce names — so the association is Core's link, not a
+            // client-invented one.
+            let mut conflict_lanes: Vec<&str> = gate.lane_id.as_deref().into_iter().collect();
+            conflict_lanes.extend(
+                bounces
+                    .iter()
+                    .map(|bounce| bounce.original_lane_id.as_str()),
+            );
+            let lane_conflicts: Vec<D12LaneConflictProjection> = view
+                .lane_conflicts
+                .iter()
+                .filter(|conflict| conflict_lanes.contains(&conflict.lane_id.as_str()))
+                .map(|conflict| D12LaneConflictProjection {
+                    lane_id: conflict.lane_id.clone(),
+                    summary: conflict.summary.clone(),
+                    paths: conflict.paths.clone(),
+                    timestamp: conflict.timestamp,
+                    content: conflict
+                        .content
+                        .as_ref()
+                        .and_then(conflict_content_projection),
                 })
                 .collect();
             let reverts = view
@@ -841,6 +882,7 @@ impl RuntimeProjection {
                 gate,
                 missing_evidence,
                 bounces,
+                lane_conflicts,
                 reverts,
                 checks,
             })
@@ -850,12 +892,21 @@ impl RuntimeProjection {
             gates,
             selected_gate_id,
             detail,
-            // The design renders the conflicting hunk side by side. Schema 1
-            // carries no structured conflict content.
-            unavailable: vec![D2UnavailableProjection {
-                key: "d12.conflict.noStructuredHunk",
-                code: "GUI-CORE-015",
-            }],
+            conflict_content_available: supports_conflict_content,
+            // GUI-CORE-015 is closed, so the row no longer cites it. What can
+            // still be missing is the capability itself, and that is what the
+            // row names: a Core without `runtime.conflict_content` publishes
+            // the reason text and nothing else. A bounce that simply carries
+            // no content is the screen's own per-bounce sentence instead,
+            // because "Core cannot publish this" and "Core published none for
+            // this bounce" are different facts.
+            unavailable: (!supports_conflict_content)
+                .then_some(D2UnavailableProjection {
+                    key: "d12.conflict.noStructuredHunk",
+                    code: CONFLICT_CONTENT_CAPABILITY,
+                })
+                .into_iter()
+                .collect(),
         })
     }
 
@@ -2069,6 +2120,178 @@ fn merge_gate_type(gate_type: MergeGateType) -> &'static str {
         MergeGateType::Handoff => "handoff",
         MergeGateType::Artifact => "artifact",
     }
+}
+
+/// Projects one `ConflictContent` through Core's own canonical encoding.
+///
+/// `viden-core` re-exports `ConflictBounce` and `LaneConflictView` but not the
+/// `ConflictContent` family they carry, and the GUI may hold no second
+/// `viden-*` dependency (`tests/architecture_boundary.rs`), so those types
+/// cannot be named here at all. The value is therefore read through the exact
+/// serde encoding Core publishes on the wire — the same precedent the client
+/// already uses for a Core event kind's canonical tag — and never through a
+/// second parser: every field below is either Core's own value or an explicit
+/// unnamed marker, never a guess. A Core-side re-export would remove this hop
+/// and is recorded against GUI-CORE-015.
+fn conflict_content_projection<T: serde::Serialize>(
+    content: &T,
+) -> Option<D12ConflictContentProjection> {
+    let value = serde_json::to_value(content).ok()?;
+    Some(D12ConflictContentProjection {
+        baseline: conflict_baseline_projection(value.get("baseline")),
+        files: value
+            .get("files")
+            .and_then(serde_json::Value::as_array)
+            .map(|files| files.iter().map(conflict_file_projection).collect())
+            .unwrap_or_default(),
+        truncated: value
+            .get("truncated")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false),
+    })
+}
+
+/// What the `ours` side was read against.
+///
+/// `ConflictBaseline` is `#[non_exhaustive]`: a unit variant encodes as a bare
+/// tag string and a struct variant as a single-key object, so an unnamed
+/// future kind keeps Core's own tag and reaches the screen as itself instead
+/// of collapsing into `unknown` — which is a real answer Core gives, not a
+/// place to put everything this build cannot read.
+fn conflict_baseline_projection(
+    value: Option<&serde_json::Value>,
+) -> D12ConflictBaselineProjection {
+    let unnamed = D12ConflictBaselineProjection {
+        kind: String::new(),
+        sha: None,
+        short_sha: None,
+        bindings: Vec::new(),
+    };
+    let Some(value) = value else {
+        return unnamed;
+    };
+    if let Some(kind) = value.as_str() {
+        return D12ConflictBaselineProjection {
+            kind: kind.to_string(),
+            ..unnamed
+        };
+    }
+    let Some((kind, payload)) = value.as_object().and_then(|map| map.iter().next()) else {
+        return unnamed;
+    };
+    let sha = payload
+        .get("sha")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string);
+    D12ConflictBaselineProjection {
+        kind: kind.clone(),
+        short_sha: sha.as_deref().map(short_conflict_hash),
+        sha,
+        bindings: payload
+            .get("bindings")
+            .and_then(serde_json::Value::as_array)
+            .map(|bindings| {
+                bindings
+                    .iter()
+                    .filter_map(conflict_evidence_projection)
+                    .collect()
+            })
+            .unwrap_or_default(),
+    }
+}
+
+/// One baseline evidence binding, carrying the audit object it routes to.
+///
+/// A binding without an evidence id is dropped rather than rendered as a chip
+/// that can open nothing.
+fn conflict_evidence_projection(
+    value: &serde_json::Value,
+) -> Option<D12ConflictEvidenceProjection> {
+    let evidence_id = value
+        .get("evidence_id")
+        .and_then(serde_json::Value::as_str)?;
+    let source_hash = value
+        .get("source_hash")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+    Some(D12ConflictEvidenceProjection {
+        evidence_id: evidence_id.to_string(),
+        source_hash: source_hash.to_string(),
+        short_hash: short_conflict_hash(source_hash),
+        // `AuditQuery` filters by object, never by id alone, so the chip
+        // carries the evidence object Core links — the same route D12's revert
+        // rows already take to their own trail.
+        audit_scope: audit_scope(AuditObjectRef::KIND_EVIDENCE, evidence_id),
+    })
+}
+
+fn conflict_file_projection(value: &serde_json::Value) -> D12ConflictFileProjection {
+    D12ConflictFileProjection {
+        path: value
+            .get("path")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        hunks: value
+            .get("hunks")
+            .and_then(serde_json::Value::as_array)
+            .map(|hunks| hunks.iter().map(conflict_hunk_projection).collect())
+            .unwrap_or_default(),
+        omitted: value
+            .get("omitted")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false),
+    }
+}
+
+fn conflict_hunk_projection(value: &serde_json::Value) -> D12ConflictHunkProjection {
+    let lines = |key: &str| -> Vec<String> {
+        value
+            .get(key)
+            .and_then(serde_json::Value::as_array)
+            .map(|lines| conflict_lines(lines))
+            .unwrap_or_default()
+    };
+    let start = |key: &str| -> u32 {
+        value
+            .get(key)
+            .and_then(serde_json::Value::as_u64)
+            .and_then(|start| u32::try_from(start).ok())
+            .unwrap_or(0)
+    };
+    D12ConflictHunkProjection {
+        ours_start: start("ours_start"),
+        ours: lines("ours"),
+        theirs_start: start("theirs_start"),
+        theirs: lines("theirs"),
+        // Absent and empty are different facts and stay different here: absent
+        // is "this hunk had no preimage at all", empty is "it expected an
+        // empty region", which is what a creation hunk expects.
+        base: value
+            .get("base")
+            .and_then(serde_json::Value::as_array)
+            .map(|lines| conflict_lines(lines)),
+        reason: value
+            .get("reason")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("unnamed")
+            .to_string(),
+    }
+}
+
+fn conflict_lines(lines: &[serde_json::Value]) -> Vec<String> {
+    lines
+        .iter()
+        .filter_map(serde_json::Value::as_str)
+        .map(str::to_string)
+        .collect()
+}
+
+/// Twelve characters, the length the design's hash chips use. Cut by character
+/// so a non-ASCII value can never be split mid-character; the full value stays
+/// on the projection beside it.
+fn short_conflict_hash(hash: &str) -> String {
+    hash.chars().take(12).collect()
 }
 
 fn conflict_bounce_status(status: ConflictBounceStatus) -> &'static str {

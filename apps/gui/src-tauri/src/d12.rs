@@ -110,6 +110,13 @@ pub struct D12BounceProjection {
     pub reason: String,
     pub status: String,
     pub evidence_ids: Vec<String>,
+    /// The lines the failed merge collided with
+    /// (`runtime.conflict_content`, GUI-CORE-015).
+    ///
+    /// `None` means Core published nothing for this bounce — an operator
+    /// `BounceMergeConflict` has a reason and no failed apply behind it, so it
+    /// carries none by contract — and never that the conflict was empty.
+    pub content: Option<D12ConflictContentProjection>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -150,6 +157,9 @@ pub struct D12GateDetailProjection {
     /// Evidence ids the policy requires that Core has not recorded yet.
     pub missing_evidence: Vec<String>,
     pub bounces: Vec<D12BounceProjection>,
+    /// Lane apply conflicts Core recorded for the Lanes this gate involves:
+    /// the gate's own Lane and every bounce's origin Lane.
+    pub lane_conflicts: Vec<D12LaneConflictProjection>,
     pub reverts: Vec<D12RevertProjection>,
     pub checks: Vec<D12CheckProjection>,
     pub actions: Vec<D12ActionProjection>,
@@ -161,5 +171,110 @@ pub struct D12IntegrationGateProjection {
     pub gates: Vec<D12GateProjection>,
     pub selected_gate_id: Option<String>,
     pub detail: Option<D12GateDetailProjection>,
+    /// Core advertised `runtime.conflict_content`. False means the client must
+    /// keep rendering the reason text alone and must not claim there was
+    /// nothing to show.
+    pub conflict_content_available: bool,
     pub unavailable: Vec<D2UnavailableProjection>,
+}
+
+/* ------------------------------------------------------------------ */
+/* Structured conflict content (`runtime.conflict_content`, GUI-CORE-015) */
+/* ------------------------------------------------------------------ */
+
+/// The `frontend-contract-v1` extension that carries conflict lines.
+///
+/// Without it Core publishes the bounce `reason` and the Lane conflict
+/// `summary` and nothing else, which is a different fact from "this bounce had
+/// no content": the screen names the capability instead of the per-bounce
+/// sentence.
+pub const CONFLICT_CONTENT_CAPABILITY: &str = "runtime.conflict_content";
+
+/// One reviewed-evidence binding a conflict baseline names.
+///
+/// The chip routes the same way D12's revert rows already do: through the
+/// audit object Core links, never through the bare id, because `AuditQuery`
+/// filters by object.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct D12ConflictEvidenceProjection {
+    pub evidence_id: String,
+    pub source_hash: String,
+    /// Short display form of `source_hash`; the full hash stays available.
+    pub short_hash: String,
+    pub audit_scope: crate::D14AuditScopeProjection,
+}
+
+/// What the `ours` side was read against.
+///
+/// `kind` is Core's own serde tag (`revision` / `evidence` / `unknown`), kept
+/// as a string because `ConflictBaseline` is `#[non_exhaustive]`: a later
+/// baseline kind must reach the screen as its real name rather than collapse
+/// into one of today's three.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct D12ConflictBaselineProjection {
+    pub kind: String,
+    /// Present only for `revision`.
+    pub sha: Option<String>,
+    /// Short display form of `sha`.
+    pub short_sha: Option<String>,
+    /// Present only for `evidence`.
+    pub bindings: Vec<D12ConflictEvidenceProjection>,
+}
+
+/// One hunk the strict apply refused: two sides plus the patch preimage.
+///
+/// Never a merge result. Core computes no merge base and resolves nothing, so
+/// there is no merged text to project and no resolve action to offer.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct D12ConflictHunkProjection {
+    pub ours_start: u32,
+    pub ours: Vec<String>,
+    pub theirs_start: u32,
+    pub theirs: Vec<String>,
+    /// `None` means the hunk had no preimage at all (a binary file); an empty
+    /// vector means it expected an empty region, which is what a creation hunk
+    /// expects. The two are different facts and stay encoded differently.
+    pub base: Option<Vec<String>>,
+    /// Core's own `ConflictHunkReason` tag. `#[non_exhaustive]`, so an unnamed
+    /// reason reaches the screen raw instead of being folded into a known one.
+    pub reason: String,
+}
+
+/// One file the apply refused.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct D12ConflictFileProjection {
+    pub path: String,
+    pub hunks: Vec<D12ConflictHunkProjection>,
+    /// The file conflicted but its lines were dropped by Core's byte bound.
+    /// Rendered as "not shown", never as "no conflict here".
+    pub omitted: bool,
+}
+
+/// What a failed apply collided with, as lines rather than prose.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct D12ConflictContentProjection {
+    pub baseline: D12ConflictBaselineProjection,
+    pub files: Vec<D12ConflictFileProjection>,
+    /// At least one file's hunks were dropped by Core's byte bound.
+    pub truncated: bool,
+}
+
+/// One Lane apply conflict Core recorded for a Lane this gate involves.
+///
+/// `LaneConflictView` rides the Lane apply path rather than the merge path, so
+/// it is a separate list: the gate's own bounces stay the recovery timeline,
+/// and these are the collisions the Lane hit while applying.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct D12LaneConflictProjection {
+    pub lane_id: String,
+    pub summary: String,
+    pub paths: Vec<String>,
+    pub timestamp: Option<u64>,
+    pub content: Option<D12ConflictContentProjection>,
 }

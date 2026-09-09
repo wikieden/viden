@@ -56,9 +56,11 @@ pub use d10::{
     D10LaneProjection, D10RunStatsProjection,
 };
 pub use d12::{
-    D12ActionProjection, D12BounceProjection, D12CheckProjection, D12GateDetailProjection,
+    CONFLICT_CONTENT_CAPABILITY, D12ActionProjection, D12BounceProjection, D12CheckProjection,
+    D12ConflictBaselineProjection, D12ConflictContentProjection, D12ConflictEvidenceProjection,
+    D12ConflictFileProjection, D12ConflictHunkProjection, D12GateDetailProjection,
     D12GateProjection, D12IntegrationGateProjection, D12Intent, D12IntentResult,
-    D12RevertProjection, D12ReviewedEvidenceInput, d12_action_code,
+    D12LaneConflictProjection, D12RevertProjection, D12ReviewedEvidenceInput, d12_action_code,
 };
 pub use d13::{
     D13BlockerProjection, D13FleetWorkflowProjection, D13HandoffProjection, D13NodeProjection,
