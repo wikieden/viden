@@ -3,7 +3,7 @@ base_component_version = "0.3.0"
 candidate_component_version = "0.3.5"
 base_contract_checkpoint = "5bd2b80b0953f4194d082940a7b9164c7231ca2d"
 compatibility = "additive_capability_gated"
-capabilities = ["core.workspace_host", "runtime.agent_adapters", "runtime.agent_conversation", "runtime.agent_permission_bridge", "runtime.agent_session_input", "runtime.agent_sessions", "runtime.audit", "runtime.cockpit_context_v1", "runtime.conflict_content", "runtime.credential_handles", "runtime.credential_staging", "runtime.lane_lifecycle", "runtime.lane_owner_projection", "runtime.operator_git", "runtime.project_onboarding", "runtime.recent_work", "runtime.starter_lane_preview", "runtime.structured_diff", "runtime.trust_loop", "runtime.workspace_eligibility", "runtime.workspace_files", "ui.preference_persistence"]
+capabilities = ["core.workspace_host", "runtime.agent_adapters", "runtime.agent_conversation", "runtime.agent_permission_bridge", "runtime.agent_session_input", "runtime.agent_sessions", "runtime.audit", "runtime.cockpit_context_v1", "runtime.conflict_content", "runtime.credential_handles", "runtime.credential_staging", "runtime.evidence_reads", "runtime.lane_lifecycle", "runtime.lane_owner_projection", "runtime.operator_git", "runtime.project_onboarding", "runtime.recent_work", "runtime.starter_lane_preview", "runtime.structured_diff", "runtime.trust_loop", "runtime.workspace_eligibility", "runtime.workspace_files", "ui.preference_persistence"]
 extension_fixture = "frontend-host-services.json"
 extension_fixture_sha256 = "96dd5fde9f1241eb50f9d8978cf478d0ac5d3327448dc6ccde9d0e5018ce1580"
 interaction_fixture = "interaction-closed-loop.json"
@@ -42,6 +42,9 @@ operator_git_view_sha256 = "07eadb0e93c8e151ba5e3dd0f069035ff5e97ca20156b6f1f0c0
 conflict_content_fixture = "conflict-content.json"
 conflict_content_fixture_sha256 = "830afb77c04cf807926d0010309b07c3f1802e580daf48bc0715d4722c96ce1f"
 conflict_content_view_sha256 = "d73ea2a144cd2682f3c5121f124c952dfad158e4befdd1a60ec9b9dc1c4d01bf"
+evidence_reads_fixture = "evidence-reads.json"
+evidence_reads_fixture_sha256 = "4d33513151bda26aa8e11242a9963d7fde25cc332980a40306f6393e6fc4caa0"
+evidence_reads_view_sha256 = "b15cb2fd024f60a1abb3a5a39b5c5736fca8bec443ae1a99a69e99f51edf8ef9"
 
 [live_work_owner]
 facts = ["agent_task_record", "tool_call_view", "queued_input_view", "evidence_view"]
@@ -171,3 +174,18 @@ not_a_merge = "this is two sides plus the patch preimage and nothing else — Co
 honesty = "only hunks the apply actually rejected are listed; a hunk after the refusal was never attempted, a patch the scanner could not parse and a refusal with no hunk shape produce no content at all, and an operator `bounce_merge_conflict` carries `None` because a human judgement has no apply failure behind it — `None` means Core has nothing to show, never that the conflict was empty"
 reasons = "context_mismatch, already_applied when the file already holds the hunk's new side, file_missing, file_deleted when a deletion's preimage would leave the file behind, and binary, which the local apply cannot produce because a binary file carries no rows to reject"
 bounds = "256 KiB across the published lines; a file over the bound keeps its entry with `omitted` set and no hunks, and the content sets `truncated`, so `not shown` stays distinguishable from `no conflict here`"
+
+[runtime_evidence_reads]
+commands = ["query_evidence", "read_evidence_content"]
+events = ["evidence_page_loaded", "evidence_content_loaded"]
+source = "the durable evidence archive Core rebuilds at open from the append-only workflow agent log (`runtime_projection` / `runtime_projection_batch` rows carrying `evidence_recorded`), never `RuntimeViewState.latest_evidence`, which is a client-side reduction of whatever stream that client received and carries no ordering, no cursor, and no content"
+ordering = "ascending on `(timestamp, id)` where timestamp is `EvidenceView.timestamp`; a row Core never dated sorts first, before every dated row, because undated is the oldest thing Core can honestly say about it and a forward-paging client must meet it once at the start rather than after rows it already rendered as newer"
+cursor = "opaque: `next_after` is a string a client passes back verbatim as `after`, and clients must not parse, construct, or compare it; it is tagged so the undated position stays distinct from `timestamp = 0`, and an id containing the separator still round-trips"
+scope = "`owner` is a prefix scope match over `RuntimeOwner` that fails closed on both sides — a query naming a task is not satisfied by a row that only knows its lane, and a row with no recorded owner never satisfies a scoped read, because answering one with it would turn `Core did not know` into `this lane produced it`; empty `kinds` means every kind, never nothing"
+filtering = "every filter is applied before the page is cut, so `complete` and `next_after` describe the filtered archive; a client filtering a page it already holds cannot see a matching row on a page it never loaded, so its `no patch evidence for this lane` would be a completeness claim it has no evidence for"
+gate = "the same posture as `query_audit` and deliberately not `query_workspace_files`: bounded and owner-scoped, never tool-gated, because the evidence archive is Viden's own state rather than the operator's tree — there is no workspace read to authorize and no `git_*` or file tool whose viden.toml rule would describe one, so gating it on a tool spec would invent a permission with no meaning and let a rule written about the filesystem hide facts Core already holds; it mutates nothing and prompts for nothing, so it stays answerable in plan mode"
+content = "read only from the canonical ContextStore bytes named by `EvidenceView.canonical` and only after they verify against that reference's `source_hash`; no canonical reference answers `unavailable { summary_only }`, an unopenable store or a missing blob or handle answers `unavailable { missing_canonical_bytes }`, bytes that fail their own hash answer `unavailable { hash_mismatch }` and are never served, verified non-UTF-8 bytes answer `unavailable { binary }`, kind `patch` answers `diff` through the same `parse_diff_document` the structured diff capability uses, and everything else answers bounded `text`"
+never_unverified = "there is no variant for bytes Core could not verify — content that fails its own hash is exactly the content a reviewer must not be shown as canonical, and `hash_mismatch` is kept apart from every other store failure because it is the opposite fact: the bytes are present and are the wrong ones"
+refusals = "an over-limit `kinds` list, a cursor this build did not issue, and an evidence id never recorded are pre-answer refusals published as `command_rejected` carrying the caller's own command id, never an empty page a client would render as an empty archive; `limit` is clamped to 1..=200 rather than refused, as `audit_query` does, because a client that asked for too many rows still means something answerable"
+bounds = "50 rows per page by default and at most 200, at most 32 `kinds` filters, and 256 KiB of content with `truncated` on the text path and the document's own `truncated` on the diff path"
+state = "both answers are query results and neither is folded into `RuntimeViewState`; the view already carries `latest_evidence`, so folding an archive page in would let a paged read of old rows overwrite the live projection with no way for a client to tell the two apart"

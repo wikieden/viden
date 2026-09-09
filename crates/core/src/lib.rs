@@ -32,29 +32,32 @@ pub use viden_types::{
     CommandAction, ConflictBounce, ConflictBounceStatus, ContextBudgetRecord, ContextBundleRecord,
     ContextOmittedSourceRecord, ContextScope, ContextSourceRecord, ContractDecision,
     ContractRecord, CoreHandshake, CostLedgerTotals, CostMeterability, CostUsageRecord,
-    CredentialHandle, CredentialRequestId, CredentialStatus, DEFAULT_WORKSPACE_DIFF_BYTES,
-    DataEgressPolicy, DecisionContext, DependencyRecord, DependencyState, DiffDocument, DiffFile,
-    DiffHunk, DiffLine, DiffLineKind, EventCursor, EvidenceView, ExecutionTarget,
-    FRONTEND_SCHEMA_V1, GapRecovery, GateStrength, HandoffAcceptance, HandoffRecord, LaneBudget,
-    LaneConflictView, LaneRunStats, LaneRuntimeOwnerBinding, LaneStatus, LocaleId,
-    MAX_OPERATOR_COMMIT_MESSAGE_BYTES, MAX_OPERATOR_GIT_OUTPUT_BYTES, MAX_WORKSPACE_DIFF_BYTES,
-    MergeGatePolicySnapshot, MergeGateRecord, MergeGateStatus, MergeGateType, MergeGateValidator,
-    MutationPolicy, OperatorGitAction, OperatorGitFailureClass, OperatorGitOutcome,
-    PermissionLevel, PermissionMode, ProjectConfigPreview, ProjectConfigState, ProjectProbe,
-    ProviderHealthView, QueuedInputView, RecentProjectSummary, RecentSessionSummary,
-    RecentWorkQuery, ReplayBatch, ReplayRequest, ResolvedUiPreferences, RevertRecord,
-    ReviewRequestRecord, ReviewRequestStatus, ReviewVerdict, ReviewedEvidenceBinding,
-    RuntimeCommand, RuntimeCommandEnvelope, RuntimeErrorView, RuntimeEvent, RuntimeEventEnvelope,
-    RuntimeEventKind, RuntimeOwner, RuntimeServiceHealthView, RuntimeServiceKind,
-    RuntimeServiceStatus, RuntimeSnapshot, RuntimeSnapshotEnvelope, RuntimeViewState,
-    RuntimeWireEvent, SchemaVersion, SourceTarget, StarterLanePreset, StarterLanePreview,
-    StarterLanePreviewInvalidationReason, StarterLaneReceipt, StarterLaneRequest, TokenCostView,
-    ToolCallView, TranscriptPage, TranscriptPageRequest, TranscriptRow, TranscriptRowId,
-    TranscriptRowKind, TuiColorDepth, UiColorMode, UiDensity, UiMotion, UiPreferenceDiagnostic,
-    UiPreferencePatch, UiPreferences, UiSkin, WorkMode, WorkspaceChangeKind, WorkspaceChangeView,
-    WorkspaceDiffEntry, WorkspaceDiffPage, WorkspaceDiffQuery, WorkspaceDiffScope,
-    WorkspaceEligibility, WorkspaceFileEntry, WorkspaceFileKind, WorkspaceFilePage,
-    WorkspaceFilesQuery, WorkspaceSourceStatus, WorkspaceSourceView,
+    CredentialHandle, CredentialRequestId, CredentialStatus, DEFAULT_EVIDENCE_PAGE_SIZE,
+    DEFAULT_WORKSPACE_DIFF_BYTES, DataEgressPolicy, DecisionContext, DependencyRecord,
+    DependencyState, DiffDocument, DiffFile, DiffHunk, DiffLine, DiffLineKind, EventCursor,
+    EvidenceContent, EvidenceCursor, EvidencePage, EvidenceQuery, EvidenceUnavailableReason,
+    EvidenceView, ExecutionTarget, FRONTEND_SCHEMA_V1, GapRecovery, GateStrength,
+    HandoffAcceptance, HandoffRecord, LaneBudget, LaneConflictView, LaneRunStats,
+    LaneRuntimeOwnerBinding, LaneStatus, LocaleId, MAX_EVIDENCE_CONTENT_BYTES,
+    MAX_EVIDENCE_PAGE_SIZE, MAX_EVIDENCE_QUERY_KINDS, MAX_OPERATOR_COMMIT_MESSAGE_BYTES,
+    MAX_OPERATOR_GIT_OUTPUT_BYTES, MAX_WORKSPACE_DIFF_BYTES, MergeGatePolicySnapshot,
+    MergeGateRecord, MergeGateStatus, MergeGateType, MergeGateValidator, MutationPolicy,
+    OperatorGitAction, OperatorGitFailureClass, OperatorGitOutcome, PermissionLevel,
+    PermissionMode, ProjectConfigPreview, ProjectConfigState, ProjectProbe, ProviderHealthView,
+    QueuedInputView, RecentProjectSummary, RecentSessionSummary, RecentWorkQuery, ReplayBatch,
+    ReplayRequest, ResolvedUiPreferences, RevertRecord, ReviewRequestRecord, ReviewRequestStatus,
+    ReviewVerdict, ReviewedEvidenceBinding, RuntimeCommand, RuntimeCommandEnvelope,
+    RuntimeErrorView, RuntimeEvent, RuntimeEventEnvelope, RuntimeEventKind, RuntimeOwner,
+    RuntimeServiceHealthView, RuntimeServiceKind, RuntimeServiceStatus, RuntimeSnapshot,
+    RuntimeSnapshotEnvelope, RuntimeViewState, RuntimeWireEvent, SchemaVersion, SourceTarget,
+    StarterLanePreset, StarterLanePreview, StarterLanePreviewInvalidationReason,
+    StarterLaneReceipt, StarterLaneRequest, TokenCostView, ToolCallView, TranscriptPage,
+    TranscriptPageRequest, TranscriptRow, TranscriptRowId, TranscriptRowKind, TuiColorDepth,
+    UiColorMode, UiDensity, UiMotion, UiPreferenceDiagnostic, UiPreferencePatch, UiPreferences,
+    UiSkin, WorkMode, WorkspaceChangeKind, WorkspaceChangeView, WorkspaceDiffEntry,
+    WorkspaceDiffPage, WorkspaceDiffQuery, WorkspaceDiffScope, WorkspaceEligibility,
+    WorkspaceFileEntry, WorkspaceFileKind, WorkspaceFilePage, WorkspaceFilesQuery,
+    WorkspaceSourceStatus, WorkspaceSourceView,
 };
 
 /// Temporary compatibility imports for the pre-v3 TUI bootstrap.
@@ -142,6 +145,25 @@ mod tests {
         assert_eq!(MAX_OPERATOR_GIT_OUTPUT_BYTES, 8 * 1024);
         assert_eq!(MAX_OPERATOR_COMMIT_MESSAGE_BYTES, 4 * 1024);
         assert!(CORE_EXTENSION_CAPABILITIES.contains(&"runtime.operator_git"));
+        // GUI-CORE-025: the typed evidence archive read. A frontend must page
+        // the archive and read canonical content through Core instead of
+        // deriving either from `latest_evidence`, which is a recent-window
+        // projection with no ordering, no cursor, and no content, or reading
+        // the ContextStore itself, which is outside the client boundary and
+        // bypasses the hash verification every canonical read goes through.
+        assert!(std::any::type_name::<EvidenceQuery>().contains("EvidenceQuery"));
+        assert!(std::any::type_name::<EvidencePage>().contains("EvidencePage"));
+        assert!(std::any::type_name::<EvidenceCursor>().contains("EvidenceCursor"));
+        assert!(std::any::type_name::<EvidenceContent>().contains("EvidenceContent"));
+        assert!(
+            std::any::type_name::<EvidenceUnavailableReason>()
+                .contains("EvidenceUnavailableReason")
+        );
+        assert_eq!(DEFAULT_EVIDENCE_PAGE_SIZE, 50);
+        assert_eq!(MAX_EVIDENCE_PAGE_SIZE, 200);
+        assert_eq!(MAX_EVIDENCE_QUERY_KINDS, 32);
+        assert_eq!(MAX_EVIDENCE_CONTENT_BYTES, 256 * 1024);
+        assert!(CORE_EXTENSION_CAPABILITIES.contains(&"runtime.evidence_reads"));
         // GUI-CORE-008: the typed context budget and its scope. A frontend must
         // be able to prove that a budget belongs to the selected Lane's task
         // instead of reconstructing a private serialization of the scope shape.

@@ -1,0 +1,690 @@
+{
+  "fixture_id": "evidence-reads",
+  "schema_version": 1,
+  "required_capabilities": [
+    "runtime.commands",
+    "runtime.events",
+    "runtime.evidence_reads",
+    "runtime.snapshot"
+  ],
+  "initial_snapshot": {
+    "cwd": "workspace/viden",
+    "provider_family": "deepseek",
+    "model_label": "deepseek-v4-flash",
+    "work_mode": "build",
+    "permission_mode": "default",
+    "permission_level": "ask",
+    "config_summary": "{\"design_entry\":{\"d11\":\"onboarding subordinate\",\"gui\":\"GUI index -> component library -> D1 desktop cockpit\",\"hierarchy\":[\"docs/viden-design/Viden/index.html\",\"client design index\",\"component library\",\"TUI unified prototype or GUI D1 desktop cockpit\"],\"tui\":\"TUI index -> component library -> unified prototype\"},\"ui\":{\"density\":[\"compact\",\"regular\",\"comfy\"],\"effective\":{\"density\":\"regular\",\"locale\":\"zh-CN\",\"mode\":\"dark\",\"motion\":\"reduced\",\"skin\":\"aurora\"},\"locales\":[\"en\",\"zh-CN\"],\"motion\":[\"system\",\"reduced\",\"full\"],\"skin_mode_pairs\":[[\"aurora\",\"dark\"],[\"aurora\",\"light\"],[\"ice\",\"dark\"],[\"ice\",\"light\"],[\"mono\",\"dark\"],[\"mono\",\"light\"],[\"amber\",\"dark\"],[\"phosphor\",\"dark\"]]}}",
+    "loaded_config_files": [
+      "config/viden.toml"
+    ],
+    "startup_overrides": [
+      "--provider=deepseek"
+    ],
+    "ui_preferences": {
+      "locale": "zh-CN",
+      "skin": "aurora",
+      "mode": "dark",
+      "density": "regular",
+      "motion": "reduced",
+      "diagnostics": []
+    }
+  },
+  "events": [
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_evidence_reads",
+        "session_id": "session_evidence_reads",
+        "task_id": "task_evidence_reads",
+        "turn_id": "turn_evidence_reads"
+      },
+      "cursor": {
+        "stream_id": "fixture:evidence-reads",
+        "sequence": 1
+      },
+      "event": {
+        "sequence": 1,
+        "timestamp": 1700000901,
+        "kind": {
+          "type": "command_accepted",
+          "payload": {
+            "command_id": "evidence_read_first",
+            "command": {
+              "type": "query_evidence",
+              "query": {
+                "owner": null,
+                "kinds": [],
+                "limit": 2,
+                "after": null
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_evidence_reads",
+        "session_id": "session_evidence_reads",
+        "task_id": "task_evidence_reads",
+        "turn_id": "turn_evidence_reads"
+      },
+      "cursor": {
+        "stream_id": "fixture:evidence-reads",
+        "sequence": 2
+      },
+      "event": {
+        "sequence": 2,
+        "timestamp": 1700000902,
+        "kind": {
+          "type": "evidence_page_loaded",
+          "payload": {
+            "command_id": "evidence_read_first",
+            "page": {
+              "entries": [
+                {
+                  "id": "evidence_alpha_patch",
+                  "kind": "patch",
+                  "summary": "canonical patch for the diff module",
+                  "path": null,
+                  "source": "lane_evidence_reads",
+                  "canonical": {
+                    "item_id": "item_evidence_alpha",
+                    "bundle_id": "bundle_evidence_reads",
+                    "source_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "producer": {
+                      "identity": "lane_evidence_reads",
+                      "role": "coder",
+                      "task_id": "task_evidence_reads"
+                    },
+                    "permission_snapshot_id": "permission-receipt-evidence-reads",
+                    "permission_scope": {
+                      "type": "task",
+                      "id": "task_evidence_reads"
+                    },
+                    "evidence_scope": {
+                      "type": "task",
+                      "id": "task_evidence_reads"
+                    },
+                    "verification": "verified",
+                    "quality": {
+                      "status": "pass"
+                    }
+                  },
+                  "timestamp": 1700000100,
+                  "owner": {
+                    "workspace_id": "workspace_contract_v1",
+                    "project_id": "project_viden",
+                    "lane_id": "lane_evidence_reads",
+                    "session_id": "session_evidence_reads",
+                    "task_id": "task_evidence_reads",
+                    "turn_id": "turn_evidence_reads"
+                  }
+                },
+                {
+                  "id": "evidence_bravo_tests",
+                  "kind": "test_result",
+                  "summary": "workspace suite passed",
+                  "path": null,
+                  "source": "lane_evidence_reads",
+                  "canonical": {
+                    "item_id": "item_evidence_bravo",
+                    "bundle_id": "bundle_evidence_reads",
+                    "source_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                    "producer": {
+                      "identity": "lane_evidence_reads",
+                      "role": "coder",
+                      "task_id": "task_evidence_reads"
+                    },
+                    "permission_snapshot_id": "permission-receipt-evidence-reads",
+                    "permission_scope": {
+                      "type": "task",
+                      "id": "task_evidence_reads"
+                    },
+                    "evidence_scope": {
+                      "type": "task",
+                      "id": "task_evidence_reads"
+                    },
+                    "verification": "verified",
+                    "quality": {
+                      "status": "pass"
+                    }
+                  },
+                  "timestamp": 1700000200,
+                  "owner": {
+                    "workspace_id": "workspace_contract_v1",
+                    "project_id": "project_viden",
+                    "lane_id": "lane_evidence_reads",
+                    "session_id": "session_evidence_reads",
+                    "task_id": "task_evidence_reads",
+                    "turn_id": "turn_evidence_reads"
+                  }
+                }
+              ],
+              "complete": false,
+              "next_after": "t:1700000200:evidence_bravo_tests"
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_evidence_reads",
+        "session_id": "session_evidence_reads",
+        "task_id": "task_evidence_reads",
+        "turn_id": "turn_evidence_reads"
+      },
+      "cursor": {
+        "stream_id": "fixture:evidence-reads",
+        "sequence": 3
+      },
+      "event": {
+        "sequence": 3,
+        "timestamp": 1700000903,
+        "kind": {
+          "type": "command_accepted",
+          "payload": {
+            "command_id": "evidence_read_second",
+            "command": {
+              "type": "query_evidence",
+              "query": {
+                "owner": null,
+                "kinds": [],
+                "limit": 2,
+                "after": "t:1700000200:evidence_bravo_tests"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_evidence_reads",
+        "session_id": "session_evidence_reads",
+        "task_id": "task_evidence_reads",
+        "turn_id": "turn_evidence_reads"
+      },
+      "cursor": {
+        "stream_id": "fixture:evidence-reads",
+        "sequence": 4
+      },
+      "event": {
+        "sequence": 4,
+        "timestamp": 1700000904,
+        "kind": {
+          "type": "evidence_page_loaded",
+          "payload": {
+            "command_id": "evidence_read_second",
+            "page": {
+              "entries": [
+                {
+                  "id": "evidence_charlie_summary",
+                  "kind": "task_summary",
+                  "summary": "the model's own account of the turn",
+                  "path": null,
+                  "source": "lane_evidence_reads",
+                  "timestamp": 1700000300,
+                  "owner": {
+                    "workspace_id": "workspace_contract_v1",
+                    "project_id": "project_viden",
+                    "lane_id": "lane_evidence_reads",
+                    "session_id": "session_evidence_reads",
+                    "task_id": "task_evidence_reads",
+                    "turn_id": "turn_evidence_reads"
+                  }
+                }
+              ],
+              "complete": true,
+              "next_after": null
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_evidence_reads",
+        "session_id": "session_evidence_reads",
+        "task_id": "task_evidence_reads",
+        "turn_id": "turn_evidence_reads"
+      },
+      "cursor": {
+        "stream_id": "fixture:evidence-reads",
+        "sequence": 5
+      },
+      "event": {
+        "sequence": 5,
+        "timestamp": 1700000905,
+        "kind": {
+          "type": "command_accepted",
+          "payload": {
+            "command_id": "evidence_read_patches",
+            "command": {
+              "type": "query_evidence",
+              "query": {
+                "owner": null,
+                "kinds": [
+                  "patch"
+                ],
+                "limit": 2,
+                "after": null
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_evidence_reads",
+        "session_id": "session_evidence_reads",
+        "task_id": "task_evidence_reads",
+        "turn_id": "turn_evidence_reads"
+      },
+      "cursor": {
+        "stream_id": "fixture:evidence-reads",
+        "sequence": 6
+      },
+      "event": {
+        "sequence": 6,
+        "timestamp": 1700000906,
+        "kind": {
+          "type": "evidence_page_loaded",
+          "payload": {
+            "command_id": "evidence_read_patches",
+            "page": {
+              "entries": [
+                {
+                  "id": "evidence_alpha_patch",
+                  "kind": "patch",
+                  "summary": "canonical patch for the diff module",
+                  "path": null,
+                  "source": "lane_evidence_reads",
+                  "canonical": {
+                    "item_id": "item_evidence_alpha",
+                    "bundle_id": "bundle_evidence_reads",
+                    "source_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "producer": {
+                      "identity": "lane_evidence_reads",
+                      "role": "coder",
+                      "task_id": "task_evidence_reads"
+                    },
+                    "permission_snapshot_id": "permission-receipt-evidence-reads",
+                    "permission_scope": {
+                      "type": "task",
+                      "id": "task_evidence_reads"
+                    },
+                    "evidence_scope": {
+                      "type": "task",
+                      "id": "task_evidence_reads"
+                    },
+                    "verification": "verified",
+                    "quality": {
+                      "status": "pass"
+                    }
+                  },
+                  "timestamp": 1700000100,
+                  "owner": {
+                    "workspace_id": "workspace_contract_v1",
+                    "project_id": "project_viden",
+                    "lane_id": "lane_evidence_reads",
+                    "session_id": "session_evidence_reads",
+                    "task_id": "task_evidence_reads",
+                    "turn_id": "turn_evidence_reads"
+                  }
+                }
+              ],
+              "complete": true,
+              "next_after": null
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_evidence_reads",
+        "session_id": "session_evidence_reads",
+        "task_id": "task_evidence_reads",
+        "turn_id": "turn_evidence_reads"
+      },
+      "cursor": {
+        "stream_id": "fixture:evidence-reads",
+        "sequence": 7
+      },
+      "event": {
+        "sequence": 7,
+        "timestamp": 1700000907,
+        "kind": {
+          "type": "command_accepted",
+          "payload": {
+            "command_id": "evidence_content_tests",
+            "command": {
+              "type": "read_evidence_content",
+              "evidence_id": "evidence_bravo_tests"
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_evidence_reads",
+        "session_id": "session_evidence_reads",
+        "task_id": "task_evidence_reads",
+        "turn_id": "turn_evidence_reads"
+      },
+      "cursor": {
+        "stream_id": "fixture:evidence-reads",
+        "sequence": 8
+      },
+      "event": {
+        "sequence": 8,
+        "timestamp": 1700000908,
+        "kind": {
+          "type": "evidence_content_loaded",
+          "payload": {
+            "command_id": "evidence_content_tests",
+            "evidence_id": "evidence_bravo_tests",
+            "content": {
+              "type": "text",
+              "text": "running 3 tests\ntest result: ok. 3 passed; 0 failed\n",
+              "truncated": false,
+              "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_evidence_reads",
+        "session_id": "session_evidence_reads",
+        "task_id": "task_evidence_reads",
+        "turn_id": "turn_evidence_reads"
+      },
+      "cursor": {
+        "stream_id": "fixture:evidence-reads",
+        "sequence": 9
+      },
+      "event": {
+        "sequence": 9,
+        "timestamp": 1700000909,
+        "kind": {
+          "type": "command_accepted",
+          "payload": {
+            "command_id": "evidence_content_patch",
+            "command": {
+              "type": "read_evidence_content",
+              "evidence_id": "evidence_alpha_patch"
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_evidence_reads",
+        "session_id": "session_evidence_reads",
+        "task_id": "task_evidence_reads",
+        "turn_id": "turn_evidence_reads"
+      },
+      "cursor": {
+        "stream_id": "fixture:evidence-reads",
+        "sequence": 10
+      },
+      "event": {
+        "sequence": 10,
+        "timestamp": 1700000910,
+        "kind": {
+          "type": "evidence_content_loaded",
+          "payload": {
+            "command_id": "evidence_content_patch",
+            "evidence_id": "evidence_alpha_patch",
+            "content": {
+              "type": "diff",
+              "document": {
+                "files": [
+                  {
+                    "path": "crates/types/src/evidence_reads.rs",
+                    "kind": "modified",
+                    "binary": false,
+                    "omitted": false,
+                    "additions": 1,
+                    "deletions": 1,
+                    "hunks": [
+                      {
+                        "old_start": 12,
+                        "old_lines": 3,
+                        "new_start": 12,
+                        "new_lines": 3,
+                        "header": "impl EvidenceQuery",
+                        "lines": [
+                          {
+                            "kind": "context",
+                            "content": "    pub fn clamped_limit(&self) -> usize {",
+                            "old_line": 12,
+                            "new_line": 12
+                          },
+                          {
+                            "kind": "removed",
+                            "content": "        self.limit as usize",
+                            "old_line": 13
+                          },
+                          {
+                            "kind": "added",
+                            "content": "        self.limit.clamp(1, 200) as usize",
+                            "new_line": 13
+                          },
+                          {
+                            "kind": "context",
+                            "content": "    }",
+                            "old_line": 14,
+                            "new_line": 14
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ],
+                "truncated": false,
+                "byte_limit": 262144
+              },
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_evidence_reads",
+        "session_id": "session_evidence_reads",
+        "task_id": "task_evidence_reads",
+        "turn_id": "turn_evidence_reads"
+      },
+      "cursor": {
+        "stream_id": "fixture:evidence-reads",
+        "sequence": 11
+      },
+      "event": {
+        "sequence": 11,
+        "timestamp": 1700000911,
+        "kind": {
+          "type": "command_accepted",
+          "payload": {
+            "command_id": "evidence_content_summary",
+            "command": {
+              "type": "read_evidence_content",
+              "evidence_id": "evidence_charlie_summary"
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_evidence_reads",
+        "session_id": "session_evidence_reads",
+        "task_id": "task_evidence_reads",
+        "turn_id": "turn_evidence_reads"
+      },
+      "cursor": {
+        "stream_id": "fixture:evidence-reads",
+        "sequence": 12
+      },
+      "event": {
+        "sequence": 12,
+        "timestamp": 1700000912,
+        "kind": {
+          "type": "evidence_content_loaded",
+          "payload": {
+            "command_id": "evidence_content_summary",
+            "evidence_id": "evidence_charlie_summary",
+            "content": {
+              "type": "unavailable",
+              "reason": "summary_only"
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_evidence_reads",
+        "session_id": "session_evidence_reads",
+        "task_id": "task_evidence_reads",
+        "turn_id": "turn_evidence_reads"
+      },
+      "cursor": {
+        "stream_id": "fixture:evidence-reads",
+        "sequence": 13
+      },
+      "event": {
+        "sequence": 13,
+        "timestamp": 1700000913,
+        "kind": {
+          "type": "command_accepted",
+          "payload": {
+            "command_id": "evidence_read_overlimit",
+            "command": {
+              "type": "query_evidence",
+              "query": {
+                "owner": null,
+                "kinds": [
+                  "kind_0",
+                  "kind_1",
+                  "kind_2",
+                  "kind_3",
+                  "kind_4",
+                  "kind_5",
+                  "kind_6",
+                  "kind_7",
+                  "kind_8",
+                  "kind_9",
+                  "kind_10",
+                  "kind_11",
+                  "kind_12",
+                  "kind_13",
+                  "kind_14",
+                  "kind_15",
+                  "kind_16",
+                  "kind_17",
+                  "kind_18",
+                  "kind_19",
+                  "kind_20",
+                  "kind_21",
+                  "kind_22",
+                  "kind_23",
+                  "kind_24",
+                  "kind_25",
+                  "kind_26",
+                  "kind_27",
+                  "kind_28",
+                  "kind_29",
+                  "kind_30",
+                  "kind_31",
+                  "kind_32"
+                ],
+                "limit": 2,
+                "after": null
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_evidence_reads",
+        "session_id": "session_evidence_reads",
+        "task_id": "task_evidence_reads",
+        "turn_id": "turn_evidence_reads"
+      },
+      "cursor": {
+        "stream_id": "fixture:evidence-reads",
+        "sequence": 14
+      },
+      "event": {
+        "sequence": 14,
+        "timestamp": 1700000914,
+        "kind": {
+          "type": "command_rejected",
+          "payload": {
+            "command_id": "evidence_read_overlimit",
+            "reason": "evidence query kinds exceed the 32 entry bound: 33 requested\nhint: ask for fewer kinds, or drop the filter and page the archive"
+          }
+        }
+      }
+    }
+  ],
+  "expected_final_cursor": {
+    "stream_id": "fixture:evidence-reads",
+    "sequence": 14
+  },
+  "expected_view_sha256": "b15cb2fd024f60a1abb3a5a39b5c5736fca8bec443ae1a99a69e99f51edf8ef9"
+}

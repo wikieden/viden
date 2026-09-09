@@ -16,12 +16,15 @@ use viden_types::{
     AgentStartability, AgentTaskKind, AgentTaskRecord, AgentTaskStatus, ApprovalDecision,
     ApprovalDefaultAction, ApprovalRequestView, ApprovalResponse, ApprovalRisk, ApprovalScope,
     ApprovalTarget, AuditActor, AuditActorFilter, AuditObjectRef, AuditOutcome, AuditPage,
-    AuditQuery, AuditRecord, CapabilityId, ConflictBaseline, ConflictBounce, ConflictBounceStatus,
-    ConflictContent, ConflictFile, ConflictHunk, ConflictHunkReason, ContextBudgetRecord,
-    ContextBundleRecord, ContextOmittedSourceRecord, ContextScope, ContextSourceRecord, CostScope,
-    CostUsageOutcome, CostUsageRecord, DecisionContext, DiffDocument, DiffFile, DiffHunk, DiffLine,
-    DiffLineKind, EventCursor, EvidenceView, ExecutionTarget, FRONTEND_SCHEMA_V1, GateStrength,
-    LaneBudget, LaneRuntimeOwnerBinding, LaneStatus, MergeGateDecision, MergeGateDecisionOutcome,
+    AuditQuery, AuditRecord, CanonicalEvidenceReference, CapabilityId, ConflictBaseline,
+    ConflictBounce, ConflictBounceStatus, ConflictContent, ConflictFile, ConflictHunk,
+    ConflictHunkReason, ContextBudgetRecord, ContextBundleRecord, ContextOmittedSourceRecord,
+    ContextScope, ContextSourceRecord, CostScope, CostUsageOutcome, CostUsageRecord,
+    DecisionContext, DiffDocument, DiffFile, DiffHunk, DiffLine, DiffLineKind, EventCursor,
+    EvidenceContent, EvidenceCursor, EvidencePage, EvidenceProducer, EvidenceQualityFacts,
+    EvidenceQualityStatus, EvidenceQuery, EvidenceUnavailableReason, EvidenceVerificationState,
+    EvidenceView, ExecutionTarget, FRONTEND_SCHEMA_V1, GateStrength, LaneBudget,
+    LaneRuntimeOwnerBinding, LaneStatus, MergeGateDecision, MergeGateDecisionOutcome,
     MergeGatePolicySnapshot, MergeGateRecord, MergeGateStatus, MergeGateType, MergeGateValidator,
     MutationPolicy, OperatorGitAction, OperatorGitFailureClass, OperatorGitOutcome,
     PermissionLevel, PermissionMode, ProjectConfigState, ProjectProbe, QueuedInputView,
@@ -184,6 +187,10 @@ fn frontend_host_capabilities_are_schema_one_core_0_3_5_and_additive() {
         "runtime.conflict_content",
         "runtime.credential_handles",
         "runtime.credential_staging",
+        // GUI-CORE-025, the fourth and last capability of the 0.3.3 contract
+        // increment. Additive like the rows around it; the frozen base list is
+        // untouched, which is what keeps the nine base fixtures byte-identical.
+        "runtime.evidence_reads",
         "runtime.lane_lifecycle",
         "runtime.lane_owner_projection",
         // GUI-CORE-020. Additive like the rows below it; the frozen base list
@@ -1463,6 +1470,230 @@ fn refresh_structured_diff_extension_fixture() {
     let fixture = structured_diff_fixture();
     fs::write(
         root.join("structured-diff.json"),
+        serde_json::to_string_pretty(&fixture).unwrap() + "\n",
+    )
+    .unwrap();
+}
+
+/// GUI-CORE-025: canonical proof that the evidence archive is pageable, that a
+/// filter narrows what `complete` describes, that content is typed even when
+/// there is none, and that a refusal is never an empty page.
+///
+/// The four failure modes this guards against all render identically in a
+/// naive client — as "no evidence" — and each is a different fact: a cut page
+/// has more rows behind a cursor, a filtered page is complete for its filter
+/// only, a summary-only row exists and has no canonical bytes, and a refused
+/// query was never answered at all.
+#[test]
+fn evidence_reads_fixture_pages_the_archive_and_types_every_absence() {
+    let name = "evidence-reads.json";
+    let root = fixture_root();
+    let fixture_bytes = fs::read(root.join(name)).expect("read evidence reads fixture bytes");
+    let fixture_sha256 = format!("{:x}", Sha256::digest(&fixture_bytes));
+    let extension_manifest = include_str!("../frontend-contract-extensions.toml");
+    assert!(
+        extension_manifest.contains(&format!(
+            "evidence_reads_fixture_sha256 = \"{fixture_sha256}\""
+        )),
+        "the extension manifest must register the exact evidence reads fixture bytes"
+    );
+    assert!(extension_manifest.contains("evidence_reads_fixture = \"evidence-reads.json\""));
+
+    let fixture = read_fixture(&root, name);
+    assert_fixture_identity(name, &fixture);
+    assert_capabilities_are_sorted_unique_and_advertised(name, &fixture);
+    assert_cursors_are_contiguous(name, &fixture);
+
+    let (_, first_cursor, first_digest) = replay_fixture(&fixture);
+    let (_, second_cursor, second_digest) = replay_fixture(&fixture);
+    assert_eq!(first_cursor, second_cursor);
+    assert_eq!(first_digest, second_digest);
+    assert_eq!(first_cursor, fixture.expected_final_cursor);
+    assert_eq!(first_digest, fixture.expected_view_sha256);
+    assert!(
+        extension_manifest.contains(&format!("evidence_reads_view_sha256 = \"{first_digest}\"")),
+        "the extension manifest must register the replayed view digest"
+    );
+
+    let kinds = fixture
+        .events
+        .iter()
+        .map(|envelope| match &envelope.event {
+            RuntimeWireEvent::Known(event) => event.kind.clone(),
+            RuntimeWireEvent::Unknown { event_type, .. } => panic!(
+                "evidence reads fixture events must all be known, got {event_type} — a \
+                 quarantined page reads to an operator as `no evidence was recorded`"
+            ),
+        })
+        .collect::<Vec<_>>();
+
+    // Both answers are query results: reducing every one of them must leave
+    // the view exactly as the snapshot published it. `latest_evidence` in
+    // particular must stay empty, because an archive page overwriting the
+    // recent window is the one confusion this capability must not create.
+    let mut answers_only = RuntimeViewState::new(fixture.initial_snapshot.clone());
+    for kind in &kinds {
+        if matches!(
+            kind,
+            RuntimeEventKind::EvidencePageLoaded { .. }
+                | RuntimeEventKind::EvidenceContentLoaded { .. }
+        ) {
+            answers_only.apply_event(&RuntimeEvent::new(1, kind.clone()));
+        }
+    }
+    assert!(answers_only.latest_evidence.is_empty());
+    assert_eq!(
+        canonical_view_sha256(&answers_only),
+        canonical_view_sha256(&RuntimeViewState::new(fixture.initial_snapshot.clone())),
+        "an evidence read answer must never fold into RuntimeViewState"
+    );
+
+    let pages = kinds
+        .iter()
+        .filter_map(|kind| match kind {
+            RuntimeEventKind::EvidencePageLoaded { command_id, page } => {
+                Some((command_id.clone(), page.clone()))
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(pages.len(), 3, "two archive pages plus one filtered page");
+
+    // The two archive pages tile: page one is incomplete and names a cursor,
+    // page two resumes from exactly that cursor and completes, and no row
+    // appears on both.
+    let (first_id, first_page) = &pages[0];
+    let (second_id, second_page) = &pages[1];
+    assert_eq!(first_id, "evidence_read_first");
+    assert_eq!(second_id, "evidence_read_second");
+    assert!(!first_page.complete);
+    let resume = first_page
+        .next_after
+        .as_deref()
+        .expect("an incomplete page names where to resume");
+    assert!(second_page.complete);
+    assert_eq!(second_page.next_after, None);
+    let resumed_from = kinds
+        .iter()
+        .find_map(|kind| match kind {
+            RuntimeEventKind::CommandAccepted {
+                command_id,
+                command: RuntimeCommand::QueryEvidence { query },
+            } if command_id == "evidence_read_second" => query.after.clone(),
+            _ => None,
+        })
+        .expect("the second read carries the cursor it resumed from");
+    assert_eq!(
+        resumed_from, resume,
+        "page two resumes from page one's cursor verbatim, never a reconstructed one"
+    );
+    let paged = first_page
+        .entries
+        .iter()
+        .chain(second_page.entries.iter())
+        .map(|entry| (entry.timestamp, entry.id.clone()))
+        .collect::<Vec<_>>();
+    let mut ordered = paged.clone();
+    ordered.sort();
+    ordered.dedup();
+    assert_eq!(
+        paged, ordered,
+        "the archive is ascending on (timestamp, id) and no row is repeated across pages"
+    );
+    assert_eq!(paged.len(), 3);
+
+    // The filtered page is complete for `patch` while the unfiltered archive
+    // above was not. A client that read `complete` as a fact about the archive
+    // would stop paging after one filtered read.
+    let (filtered_id, filtered_page) = &pages[2];
+    assert_eq!(filtered_id, "evidence_read_patches");
+    assert!(filtered_page.complete);
+    assert!(
+        filtered_page
+            .entries
+            .iter()
+            .all(|entry| entry.kind == "patch")
+    );
+    assert!(
+        filtered_page.entries.len() < paged.len(),
+        "the filter kept fewer rows than the archive holds, which is what makes \
+         `complete` a claim about the filter"
+    );
+
+    // Content: three reads, three different typed answers, none of them empty.
+    let contents = kinds
+        .iter()
+        .filter_map(|kind| match kind {
+            RuntimeEventKind::EvidenceContentLoaded {
+                evidence_id,
+                content,
+                ..
+            } => Some((evidence_id.clone(), content.clone())),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(contents.len(), 3);
+    let text = contents
+        .iter()
+        .find(|(id, _)| id == "evidence_bravo_tests")
+        .map(|(_, content)| content.clone())
+        .expect("the test_result row answers with text");
+    let EvidenceContent::Text {
+        truncated, sha256, ..
+    } = text
+    else {
+        panic!("a non-patch canonical row answers with bounded text");
+    };
+    assert!(!truncated);
+    assert_eq!(
+        sha256.len(),
+        64,
+        "the answer names the hash the bytes were verified against"
+    );
+    let patch = contents
+        .iter()
+        .find(|(id, _)| id == "evidence_alpha_patch")
+        .map(|(_, content)| content.clone())
+        .expect("the patch row answers with a diff");
+    let EvidenceContent::Diff { document, .. } = patch else {
+        panic!("a `patch` row answers with parsed diff rows, not raw text");
+    };
+    assert_eq!(document.files.len(), 1);
+    assert_eq!(document.files[0].hunks.len(), 1);
+    assert!(!document.truncated);
+    assert!(matches!(
+        contents
+            .iter()
+            .find(|(id, _)| id == "evidence_charlie_summary")
+            .map(|(_, content)| content.clone()),
+        Some(EvidenceContent::Unavailable {
+            reason: EvidenceUnavailableReason::SummaryOnly
+        }),
+    ));
+
+    // The refusal answers the read that asked and publishes no page. An empty
+    // page here would be indistinguishable from an empty archive.
+    assert!(kinds.iter().any(|kind| matches!(
+        kind,
+        RuntimeEventKind::CommandRejected { command_id, reason }
+            if command_id == "evidence_read_overlimit" && reason.contains("32 entry bound")
+    )));
+    assert!(
+        pages
+            .iter()
+            .all(|(command_id, _)| command_id != "evidence_read_overlimit"),
+        "a refused read must publish no page at all"
+    );
+}
+
+#[test]
+#[ignore = "manual evidence reads fixture refresh; normal tests validate committed JSON only"]
+fn refresh_evidence_reads_extension_fixture() {
+    let root = fixture_root();
+    fs::create_dir_all(&root).unwrap();
+    let fixture = evidence_reads_fixture();
+    fs::write(
+        root.join("evidence-reads.json"),
         serde_json::to_string_pretty(&fixture).unwrap() + "\n",
     )
     .unwrap();
@@ -3682,6 +3913,284 @@ fn structured_diff_fixture() -> FrontendContractFixtureOut {
 /// about a tracking problem and "done" about a push that never left the
 /// machine. Outputs are fixed strings with no machine path in them, so the
 /// bytes are identical on every machine that regenerates this fixture.
+/// Canonical proof of the evidence archive read contract (GUI-CORE-025).
+///
+/// Deliberately not a happy path. Two pages tile one three-row archive through
+/// an opaque cursor; a kind-filtered page is `complete` while the unfiltered
+/// archive is not; one content read answers text, one answers a parsed diff,
+/// one answers `Unavailable { SummaryOnly }` for display-only evidence; and an
+/// over-limit query is refused by `CommandRejected` rather than answered with
+/// an empty page. A client that treated a cut page, a filtered page, a
+/// summary-only row, and a refusal as the same thing would render all four as
+/// "no evidence", which is the fabricated absence this capability exists to
+/// prevent.
+fn evidence_reads_fixture() -> FrontendContractFixtureOut {
+    let fixture_id = "evidence-reads";
+    let owner = RuntimeOwner {
+        workspace_id: "workspace_contract_v1".to_string(),
+        project_id: "project_viden".to_string(),
+        lane_id: Some("lane_evidence_reads".to_string()),
+        session_id: Some("session_evidence_reads".to_string()),
+        task_id: Some("task_evidence_reads".to_string()),
+        turn_id: Some("turn_evidence_reads".to_string()),
+    };
+    let canonical = |item: &str, hash_seed: char| CanonicalEvidenceReference {
+        item_id: item.to_string(),
+        bundle_id: "bundle_evidence_reads".to_string(),
+        source_hash: std::iter::repeat_n(hash_seed, 64).collect::<String>(),
+        producer: EvidenceProducer {
+            identity: "lane_evidence_reads".to_string(),
+            role: "coder".to_string(),
+            task_id: "task_evidence_reads".to_string(),
+        },
+        permission_snapshot_id: Some("permission-receipt-evidence-reads".to_string()),
+        permission_scope: ContextScope::Task("task_evidence_reads".to_string()),
+        evidence_scope: ContextScope::Task("task_evidence_reads".to_string()),
+        verification: EvidenceVerificationState::Verified,
+        quality: EvidenceQualityFacts {
+            status: EvidenceQualityStatus::Pass,
+            reason_codes: Vec::new(),
+        },
+    };
+    let row = |id: &str,
+               kind: &str,
+               summary: &str,
+               timestamp: u64,
+               canonical: Option<CanonicalEvidenceReference>| EvidenceView {
+        id: id.to_string(),
+        kind: kind.to_string(),
+        summary: summary.to_string(),
+        path: None,
+        source: Some("lane_evidence_reads".to_string()),
+        canonical,
+        metadata: None,
+        timestamp: Some(timestamp),
+        owner: Some(owner.clone()),
+    };
+
+    // Oldest first, which is the order the pages must publish.
+    let patch = row(
+        "evidence_alpha_patch",
+        "patch",
+        "canonical patch for the diff module",
+        1_700_000_100,
+        Some(canonical("item_evidence_alpha", 'a')),
+    );
+    let tests = row(
+        "evidence_bravo_tests",
+        "test_result",
+        "workspace suite passed",
+        1_700_000_200,
+        Some(canonical("item_evidence_bravo", 'b')),
+    );
+    // Display-only: provider prose with no canonical reference, which the gate
+    // already refuses as merge evidence and the read path answers as
+    // `SummaryOnly` rather than as content.
+    let summary = row(
+        "evidence_charlie_summary",
+        "task_summary",
+        "the model's own account of the turn",
+        1_700_000_300,
+        None,
+    );
+
+    let cursor_after_tests = EvidenceCursor {
+        timestamp: tests.timestamp,
+        id: tests.id.clone(),
+    }
+    .encode();
+
+    let accepted_query =
+        |command_id: &str, query: EvidenceQuery| RuntimeEventKind::CommandAccepted {
+            command_id: command_id.to_string(),
+            command: RuntimeCommand::QueryEvidence { query },
+        };
+    let loaded = |command_id: &str, page: EvidencePage| RuntimeEventKind::EvidencePageLoaded {
+        command_id: command_id.to_string(),
+        page,
+    };
+    let accepted_content =
+        |command_id: &str, evidence_id: &str| RuntimeEventKind::CommandAccepted {
+            command_id: command_id.to_string(),
+            command: RuntimeCommand::ReadEvidenceContent {
+                evidence_id: evidence_id.to_string(),
+            },
+        };
+    let content = |command_id: &str, evidence_id: &str, content: EvidenceContent| {
+        RuntimeEventKind::EvidenceContentLoaded {
+            command_id: command_id.to_string(),
+            evidence_id: evidence_id.to_string(),
+            content,
+        }
+    };
+
+    let kinds = vec![
+        // Page one of two: limit 2 over three rows, so it is not complete and
+        // names where to resume.
+        accepted_query(
+            "evidence_read_first",
+            EvidenceQuery {
+                limit: 2,
+                ..EvidenceQuery::default()
+            },
+        ),
+        loaded(
+            "evidence_read_first",
+            EvidencePage {
+                entries: vec![patch.clone(), tests.clone()],
+                complete: false,
+                next_after: Some(cursor_after_tests.clone()),
+            },
+        ),
+        // Page two resumes from the opaque cursor page one published, verbatim.
+        accepted_query(
+            "evidence_read_second",
+            EvidenceQuery {
+                limit: 2,
+                after: Some(cursor_after_tests),
+                ..EvidenceQuery::default()
+            },
+        ),
+        loaded(
+            "evidence_read_second",
+            EvidencePage {
+                entries: vec![summary.clone()],
+                complete: true,
+                next_after: None,
+            },
+        ),
+        // The filtered read is `complete` for the `patch` archive even though
+        // two rows the unfiltered pages just published are older than nothing
+        // it returned: `complete` describes the filter, not the archive.
+        accepted_query(
+            "evidence_read_patches",
+            EvidenceQuery {
+                kinds: vec!["patch".to_string()],
+                limit: 2,
+                ..EvidenceQuery::default()
+            },
+        ),
+        loaded(
+            "evidence_read_patches",
+            EvidencePage {
+                entries: vec![patch.clone()],
+                complete: true,
+                next_after: None,
+            },
+        ),
+        // Content: bounded text for a non-patch row.
+        accepted_content("evidence_content_tests", "evidence_bravo_tests"),
+        content(
+            "evidence_content_tests",
+            "evidence_bravo_tests",
+            EvidenceContent::Text {
+                text: "running 3 tests\ntest result: ok. 3 passed; 0 failed\n".to_string(),
+                truncated: false,
+                sha256: std::iter::repeat_n('b', 64).collect::<String>(),
+            },
+        ),
+        // Content: a `patch` row answers diff rows through the same parser the
+        // structured diff capability uses, so "Open in review" renders one
+        // shape rather than two.
+        accepted_content("evidence_content_patch", "evidence_alpha_patch"),
+        content(
+            "evidence_content_patch",
+            "evidence_alpha_patch",
+            EvidenceContent::Diff {
+                document: DiffDocument {
+                    files: vec![DiffFile {
+                        path: "crates/types/src/evidence_reads.rs".to_string(),
+                        old_path: None,
+                        kind: WorkspaceChangeKind::Modified,
+                        binary: false,
+                        omitted: false,
+                        additions: 1,
+                        deletions: 1,
+                        hunks: vec![DiffHunk {
+                            old_start: 12,
+                            old_lines: 3,
+                            new_start: 12,
+                            new_lines: 3,
+                            header: Some("impl EvidenceQuery".to_string()),
+                            lines: vec![
+                                DiffLine {
+                                    kind: DiffLineKind::Context,
+                                    content: "    pub fn clamped_limit(&self) -> usize {"
+                                        .to_string(),
+                                    old_line: Some(12),
+                                    new_line: Some(12),
+                                },
+                                DiffLine {
+                                    kind: DiffLineKind::Removed,
+                                    content: "        self.limit as usize".to_string(),
+                                    old_line: Some(13),
+                                    new_line: None,
+                                },
+                                DiffLine {
+                                    kind: DiffLineKind::Added,
+                                    content: "        self.limit.clamp(1, 200) as usize"
+                                        .to_string(),
+                                    old_line: None,
+                                    new_line: Some(13),
+                                },
+                                DiffLine {
+                                    kind: DiffLineKind::Context,
+                                    content: "    }".to_string(),
+                                    old_line: Some(14),
+                                    new_line: Some(14),
+                                },
+                            ],
+                        }],
+                    }],
+                    truncated: false,
+                    byte_limit: 256 * 1024,
+                },
+                sha256: std::iter::repeat_n('a', 64).collect::<String>(),
+            },
+        ),
+        // Content: display-only evidence has no canonical bytes at all, which
+        // is a stated fact rather than an empty body.
+        accepted_content("evidence_content_summary", "evidence_charlie_summary"),
+        content(
+            "evidence_content_summary",
+            "evidence_charlie_summary",
+            EvidenceContent::Unavailable {
+                reason: EvidenceUnavailableReason::SummaryOnly,
+            },
+        ),
+        // The refusal: an over-limit `kinds` filter. `limit` itself is clamped
+        // rather than refused, so this is the shape a client actually meets,
+        // and it arrives as `CommandRejected` naming this exact read instead of
+        // as an empty page a client would render as an empty archive.
+        accepted_query(
+            "evidence_read_overlimit",
+            EvidenceQuery {
+                kinds: (0..33).map(|index| format!("kind_{index}")).collect(),
+                limit: 2,
+                ..EvidenceQuery::default()
+            },
+        ),
+        RuntimeEventKind::CommandRejected {
+            command_id: "evidence_read_overlimit".to_string(),
+            reason: "evidence query kinds exceed the 32 entry bound: 33 requested\nhint: ask for \
+                     fewer kinds, or drop the filter and page the archive"
+                .to_string(),
+        },
+    ];
+
+    fixture(
+        fixture_id,
+        &[
+            "runtime.commands",
+            "runtime.events",
+            "runtime.evidence_reads",
+            "runtime.snapshot",
+        ],
+        snapshot(WorkMode::Build),
+        owned_envelopes(fixture_id, owner, kinds, 1_700_000_900),
+    )
+}
+
 fn operator_git_fixture() -> FrontendContractFixtureOut {
     let fixture_id = "operator-git";
     let owner = RuntimeOwner {

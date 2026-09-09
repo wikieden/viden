@@ -153,8 +153,11 @@ if release["supported_schema_versions"] != [1]:
 # These counts track the manifest's own [compatibility] and [extensions] lists,
 # which in turn track FRONTEND_V1_CAPABILITIES / FRONTEND_V1_EXTENSION_CAPABILITIES;
 # bump them in the same change that adds a capability.
-if len(base_capabilities) != 15 or len(extension_capabilities) != 22:
-    raise SystemExit("TUI certification capability counts are not base 15 + extension 22")
+# 23 completes the 0.3.3 contract increment's 19 -> 23 gate
+# (docs/release-0.3.3-contract-design.md, "Capability gating"): structured_diff,
+# operator_git, conflict_content, and evidence_reads, in that landing order.
+if len(base_capabilities) != 15 or len(extension_capabilities) != 23:
+    raise SystemExit("TUI certification capability counts are not base 15 + extension 23")
 if set(base_capabilities) & set(extension_capabilities):
     raise SystemExit("TUI certification base and extension capabilities overlap")
 
