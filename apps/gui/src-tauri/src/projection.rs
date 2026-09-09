@@ -8,11 +8,12 @@ use viden_core::{
     CheckRunStatus, ConflictBounceStatus, ContextScope, ContractDecision, ContractRecord,
     CostMeterability, CredentialHandle, DecisionContext, DependencyState, DiffDocument, DiffFile,
     DiffHunk, DiffLine, DiffLineKind, EventCursor, GateStrength, LaneStatus, LocaleId,
-    MergeGateRecord, MergeGateStatus, MergeGateType, MutationPolicy, ProjectConfigPreview,
-    ProjectProbe, ProviderHealthView, ReviewRequestRecord, ReviewRequestStatus, RuntimeOwner,
-    RuntimeServiceKind, RuntimeServiceStatus, RuntimeSnapshotEnvelope, RuntimeViewState,
-    SourceTarget, UiColorMode, UiDensity, UiMotion, UiSkin, WorkMode, WorkspaceChangeKind,
-    WorkspaceDiffEntry, WorkspaceSourceStatus, WorkspaceSourceView,
+    MergeGateRecord, MergeGateStatus, MergeGateType, MutationPolicy, OperatorGitAction,
+    OperatorGitFailureClass, OperatorGitOutcome, ProjectConfigPreview, ProjectProbe,
+    ProviderHealthView, ReviewRequestRecord, ReviewRequestStatus, RuntimeOwner, RuntimeServiceKind,
+    RuntimeServiceStatus, RuntimeSnapshotEnvelope, RuntimeViewState, SourceTarget, UiColorMode,
+    UiDensity, UiMotion, UiSkin, WorkMode, WorkspaceChangeKind, WorkspaceDiffEntry,
+    WorkspaceSourceStatus, WorkspaceSourceView,
 };
 
 use crate::d1::{
@@ -48,6 +49,7 @@ use crate::diff_review::{
     DecisionContextProjection, DiffDocumentProjection, DiffFileProjection, DiffHunkProjection,
     DiffLineProjection, WorkspaceDiffEntryProjection,
 };
+use crate::operator_git::OperatorGitResultProjection;
 use crate::{
     D6ActionProjection, D6ConnectionState, D6RecoveryProjection, D6State,
     PermissionActionProjection, PermissionDockProjection, PermissionRequestProjection,
@@ -1218,6 +1220,10 @@ impl RuntimeProjection {
             .capabilities
             .iter()
             .any(|capability| capability.0 == crate::STRUCTURED_DIFF_CAPABILITY);
+        let supports_operator_git = confirmed
+            .capabilities
+            .iter()
+            .any(|capability| capability.0 == crate::OPERATOR_GIT_CAPABILITY);
         // Native turns publish `turn_id`; typed ACP attempts publish an exact,
         // owner-scoped session status. Both are Core facts, unlike the broad
         // Lane lifecycle state, so either may prove that the composer must queue.
@@ -1714,7 +1720,10 @@ impl RuntimeProjection {
                 None => self.empty_permission_dock()?,
             },
             recovery,
-            unavailable_features: unavailable_features(supports_structured_diff),
+            unavailable_features: unavailable_features(
+                supports_structured_diff,
+                supports_operator_git,
+            ),
         })
     }
 }
@@ -2602,6 +2611,123 @@ pub(crate) fn workspace_diff_source_projection(
         deleted: source.deleted,
         dirty: source.dirty,
     }
+}
+
+/* -- operator source-control actions (`runtime.operator_git`, GUI-CORE-020) -- */
+
+/// Converts one frontend intent to the Core action and runs *Core's* validator.
+///
+/// The validator is imported, never reimplemented: an empty commit message, an
+/// oversized one, and a path that leaves the target must be refused with the
+/// same words here and in Core, or an operator who hits both would think they
+/// met two different problems. Refusing here also keeps a malformed action off
+/// the wire entirely.
+pub(crate) fn operator_git_action(
+    intent: crate::operator_git::OperatorGitIntent,
+) -> Result<OperatorGitAction, String> {
+    use crate::operator_git::OperatorGitIntent;
+    let action = match intent {
+        OperatorGitIntent::Stage { paths } => OperatorGitAction::Stage { paths },
+        OperatorGitIntent::Unstage { paths } => OperatorGitAction::Unstage { paths },
+        OperatorGitIntent::Commit { message } => OperatorGitAction::Commit { message },
+        OperatorGitIntent::Push {
+            remote,
+            set_upstream,
+        } => OperatorGitAction::Push {
+            remote,
+            set_upstream,
+        },
+        OperatorGitIntent::Fetch { remote } => OperatorGitAction::Fetch { remote },
+    };
+    action.validate()?;
+    Ok(action)
+}
+
+/// The stable wire spelling of one failure class.
+///
+/// Matches `#[serde(rename_all = "snake_case")]` on the Core enum, so the
+/// frontend keys its localized copy on the same token an audit reader joins
+/// on. The wildcard is required and deliberate: the enum is
+/// `#[non_exhaustive]`, and a class this build cannot name is reported as
+/// `unknown` with the real `detail` rather than squeezed into the
+/// nearest-looking class, which would offer the wrong recovery.
+pub(crate) fn operator_git_failure_class(class: OperatorGitFailureClass) -> &'static str {
+    match class {
+        OperatorGitFailureClass::NothingToCommit => "nothing_to_commit",
+        OperatorGitFailureClass::NonFastForward => "non_fast_forward",
+        OperatorGitFailureClass::AuthenticationRequired => "authentication_required",
+        OperatorGitFailureClass::RemoteUnreachable => "remote_unreachable",
+        OperatorGitFailureClass::NoUpstream => "no_upstream",
+        OperatorGitFailureClass::PathOutsideRepository => "path_outside_repository",
+        OperatorGitFailureClass::Other => "other",
+        _ => "unknown",
+    }
+}
+
+/// Projects one settled outcome, keeping `Completed` and `Failed` apart.
+pub(crate) fn operator_git_result_projection(
+    action: &OperatorGitAction,
+    target: &SourceTarget,
+    outcome: &OperatorGitOutcome,
+    audit_id: &str,
+) -> OperatorGitResultProjection {
+    let base = OperatorGitResultProjection {
+        kind: "failed",
+        // Core's own audit verb, echoed from the settling event rather than
+        // remembered from the request, so the line names what Core ran.
+        action: action.audit_verb(),
+        target_lane_id: target_lane_id(target),
+        audit_id: audit_id.to_string(),
+        output: None,
+        truncated: false,
+        source: None,
+        failure_class: None,
+        detail: None,
+    };
+    match outcome {
+        OperatorGitOutcome::Completed {
+            output,
+            truncated,
+            source,
+        } => OperatorGitResultProjection {
+            kind: "completed",
+            output: Some(output.clone()),
+            truncated: *truncated,
+            source: Some(workspace_diff_source_projection(source)),
+            ..base
+        },
+        OperatorGitOutcome::Failed { class, detail } => OperatorGitResultProjection {
+            kind: "failed",
+            failure_class: Some(operator_git_failure_class(*class)),
+            detail: Some(detail.clone()),
+            ..base
+        },
+        // `OperatorGitOutcome` is `#[non_exhaustive]`: an outcome this build
+        // cannot name is reported as an unclassified failure, which is the only
+        // direction that fails safe — reading it as a success would let the bar
+        // claim a commit Core never confirmed.
+        _ => OperatorGitResultProjection {
+            failure_class: Some("unknown"),
+            ..base
+        },
+    }
+}
+
+/// Whether Core has a source-control approval outstanding for exactly this
+/// actor.
+///
+/// Owner equality is exact on purpose: another Lane's ask is another Lane's
+/// decision, and treating it as this bar's gate would leave the operator
+/// waiting on a dialog they cannot see. `target.kind` is Core's own grouping
+/// for the five actions, not a tool-name match.
+pub(crate) fn awaits_operator_git_approval(
+    approvals: &[viden_core::ApprovalRequestView],
+    owner: &RuntimeOwner,
+) -> bool {
+    approvals.iter().any(|approval| {
+        approval.target.kind == crate::operator_git::OPERATOR_GIT_APPROVAL_KIND
+            && approval.owner == *owner
+    })
 }
 
 /// The Lane a confirmed page describes, read back from Core's own answer.

@@ -150,5 +150,9 @@ name = "workspace_diff"
 path = "../tests/workspace_diff.rs"
 
 [[test]]
+name = "operator_git"
+path = "../tests/operator_git.rs"
+
+[[test]]
 name = "decision_context"
 path = "../tests/decision_context.rs"

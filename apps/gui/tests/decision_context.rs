@@ -13,7 +13,7 @@ use viden_core::{
     RuntimeCommandEnvelope, RuntimeOwner, RuntimeSnapshot, RuntimeViewState, WorkspaceChangeKind,
     WorkspaceChangeView,
 };
-use viden_gui::{GuiCoreAdapter, STRUCTURED_DIFF_CAPABILITY};
+use viden_gui::{GuiCoreAdapter, OPERATOR_GIT_CAPABILITY, STRUCTURED_DIFF_CAPABILITY};
 
 mod support;
 use support::TestCoreClient;
@@ -233,13 +233,38 @@ fn a_completed_workspace_change_carries_its_rows_onto_the_checklist() {
             .any(|feature| feature.id == "diff"),
         "the GUI-CORE-012 row must not outlive the capability"
     );
-    // `apply` is untouched: operator git actions are still GUI-CORE-020.
+    // `apply` is gone for the same reason: this Core advertises
+    // `runtime.operator_git`, so the commit bar and the titlebar sync control
+    // reach real commands and the row would be a stale claim.
     assert!(
-        projection
+        !projection
             .unavailable_features
             .iter()
-            .any(|feature| feature.id == "apply" && feature.code == "GUI-CORE-020")
+            .any(|feature| feature.id == "apply"),
+        "the GUI-CORE-020 row must not outlive the capability"
     );
+}
+
+/// The other half of the same rule: a Core that really publishes no operator
+/// source-control actions still says so, and names the capability rather than
+/// leaving the operator to discover an inert bar.
+#[test]
+fn a_core_without_operator_git_keeps_the_apply_unavailable_row() {
+    let (view, _) = base();
+    let sent: Arc<Mutex<Vec<RuntimeCommandEnvelope>>> = Arc::new(Mutex::new(Vec::new()));
+    let mut client = TestCoreClient::new(view, sent);
+    client.capabilities.remove(OPERATOR_GIT_CAPABILITY);
+    let mut adapter = GuiCoreAdapter::new(Box::new(client));
+    adapter.connect().expect("connect");
+
+    let projection = adapter.d1_cockpit(None).expect("cockpit");
+    let apply = projection
+        .unavailable_features
+        .iter()
+        .find(|feature| feature.id == "apply")
+        .expect("the row survives a Core without the capability");
+    assert_eq!(apply.code, "GUI-CORE-020");
+    assert!(apply.message.contains("runtime.operator_git"));
 }
 
 #[test]

@@ -1,6 +1,10 @@
 import type { PaletteWorkspaceFiles } from "../components/command_palette";
 import type { PermissionIntent, PermissionIntentResult } from "../components/permission_dock";
 import type { WorkspaceDiffProjection } from "../models/diff_review";
+import type {
+  OperatorGitActionRequest,
+  OperatorGitProjection,
+} from "../models/operator_git";
 import type { RecentWorkResult } from "../models/recent_work";
 import type { D6Intent, D6IntentResult, D6RecoveryProjection } from "../models/workspace";
 import type {
@@ -97,6 +101,35 @@ export interface CoreClient {
    * page, which is what schedules the debounced re-query.
    */
   workspaceDiff(): Promise<WorkspaceDiffProjection>;
+
+  /**
+   * Sends Core's `RunOperatorGitAction` and resolves with whatever the ordered
+   * `OperatorGitActionFinished` published (GUI-CORE-020).
+   *
+   * Core owns the permission gate — on the *mapped agent tool spec*, so one
+   * `viden.toml` rule set governs this commit bar and an agent's `git_commit`
+   * alike — the audit record, the effect, and the classification of git's
+   * stderr. The frontend never runs git, never falls back to a shell command,
+   * and never parses `output`.
+   *
+   * `laneId` names both halves: the `SourceTarget` Core acts on and the Lane
+   * whose Core-bound owner this client acts as. `null` has no owner binding and
+   * is refused by the host rather than sent with an owner nobody published.
+   */
+  runOperatorGitAction(
+    commandId: string,
+    laneId: string | null,
+    action: OperatorGitActionRequest,
+  ): Promise<OperatorGitProjection>;
+  /** Drains ordered Core events while an operator action is still pending. */
+  operatorGitPoll(laneId: string | null): Promise<OperatorGitProjection>;
+  /**
+   * The current action projection with no Core traffic. The commit bar and the
+   * titlebar sync control read it for the capability, the owner, and whether an
+   * action is in flight; an approval-gated action settles only when the dock is
+   * answered, so this is also what the cockpit's ordered wake re-reads.
+   */
+  operatorGit(laneId: string | null): Promise<OperatorGitProjection>;
 
   d1Cockpit(selectedLaneId: string | null): Promise<D1CockpitProjection | null>;
   d1SendIntent(commandId: string, intent: D1Intent): Promise<D1IntentResult>;

@@ -138,14 +138,13 @@ fn canonical_d1_projects_cockpit_regions_only_from_the_core_view() {
         // missing. `diff` is absent for the same reason as of
         // `runtime.structured_diff`, which this fixture's Core advertises:
         // the row said Core publishes only an opaque patch string, and that
-        // stopped being true. Every remaining code must name an open register
+        // stopped being true. `apply` is absent as of `runtime.operator_git`,
+        // which this fixture's Core advertises: the commit bar and the titlebar
+        // sync control now reach real `RunOperatorGitAction` commands, so a row
+        // claiming operator source-control is unavailable would be a stale
+        // claim about Core. Every remaining code must name an open register
         // entry or a documented client-local reason.
-        vec![
-            "apply",
-            "recovery",
-            "transcript_user",
-            "transcript_assistant",
-        ]
+        vec!["recovery", "transcript_user", "transcript_assistant"]
     );
 }
 

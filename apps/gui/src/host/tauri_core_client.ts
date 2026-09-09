@@ -34,6 +34,11 @@ export function createTauriCoreClient(): CoreClient {
     workspaceDiffPoll: () => invoke("workspace_diff_poll"),
     workspaceDiff: () => invoke("workspace_diff"),
 
+    runOperatorGitAction: (commandId, laneId, action) =>
+      invoke("run_operator_git_action", { commandId, laneId, action }),
+    operatorGitPoll: (laneId) => invoke("operator_git_poll", { laneId }),
+    operatorGit: (laneId) => invoke("operator_git", { laneId }),
+
     d1Cockpit: (selectedLaneId) => invoke("d1_cockpit", { selectedLaneId }),
     d1SendIntent: (commandId, intent) => invoke("d1_send_intent", { commandId, intent }),
     d1Poll: (selectedLaneId, waitForEvent) =>

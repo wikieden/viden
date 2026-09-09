@@ -11,6 +11,7 @@ mod d2;
 mod d4;
 mod d6;
 mod diff_review;
+mod operator_git;
 mod permission;
 mod presentation;
 mod projection;
@@ -71,6 +72,10 @@ pub use d14::{
 pub use diff_review::{
     DiffFileProjection, DiffHunkProjection, DiffLineProjection, STRUCTURED_DIFF_CAPABILITY,
     WorkspaceDiffEntryProjection, WorkspaceDiffProjection,
+};
+pub use operator_git::{
+    OPERATOR_GIT_APPROVAL_KIND, OPERATOR_GIT_CAPABILITY, OPERATOR_GIT_NO_OWNER_CODE,
+    OperatorGitIntent, OperatorGitProjection, OperatorGitResultProjection,
 };
 pub use permission::{
     PermissionActionProjection, PermissionChoice, PermissionDockProjection, PermissionIntent,
@@ -334,6 +339,73 @@ fn workspace_diff(
         .as_ref()
         .ok_or_else(|| "Core adapter is not connected".to_string())?
         .workspace_diff())
+}
+
+/// Sends one `RunOperatorGitAction` and waits briefly for Core's ordered answer.
+///
+/// Mutating and permission-gated by Core on the *mapped agent tool spec*
+/// (`git_add`, `git_restore`, `git_commit`, `git_push`, `git_fetch`), so one
+/// `viden.toml` rule set governs this commit bar and an agent's commit alike.
+/// `laneId` names both the `SourceTarget` Core acts on and the Lane whose
+/// Core-bound owner this client acts as; without one the action is refused
+/// locally rather than sent with an owner nobody published.
+#[tauri::command]
+fn run_operator_git_action(
+    command_id: String,
+    lane_id: Option<String>,
+    action: OperatorGitIntent,
+    state: tauri::State<'_, DesktopState>,
+) -> Result<OperatorGitProjection, String> {
+    state
+        .adapter
+        .lock()
+        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?
+        .as_mut()
+        .ok_or_else(|| "Core adapter is not connected".to_string())?
+        .run_operator_git_action_and_wait(
+            &command_id,
+            lane_id.as_deref(),
+            action,
+            Duration::from_millis(250),
+        )
+}
+
+/// Drains ordered Core events for an operator action still in flight.
+///
+/// An action waiting on an approval settles only when the operator answers the
+/// dock, so the commit bar polls this on the cockpit's ordered Core wake
+/// rather than holding a timer of its own.
+#[tauri::command]
+fn operator_git_poll(
+    lane_id: Option<String>,
+    state: tauri::State<'_, DesktopState>,
+) -> Result<OperatorGitProjection, String> {
+    state
+        .adapter
+        .lock()
+        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?
+        .as_mut()
+        .ok_or_else(|| "Core adapter is not connected".to_string())?
+        .poll_operator_git(lane_id.as_deref(), Duration::from_millis(250))
+}
+
+/// The current operator-action projection with no Core traffic.
+///
+/// The commit bar and the titlebar sync control read it to learn the
+/// capability, whether this client has a Core owner to act as, and whether an
+/// action is in flight. Reading it must not itself send a command.
+#[tauri::command]
+fn operator_git(
+    lane_id: Option<String>,
+    state: tauri::State<'_, DesktopState>,
+) -> Result<OperatorGitProjection, String> {
+    Ok(state
+        .adapter
+        .lock()
+        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?
+        .as_ref()
+        .ok_or_else(|| "Core adapter is not connected".to_string())?
+        .operator_git(lane_id.as_deref()))
 }
 
 #[tauri::command]
@@ -821,6 +893,9 @@ pub fn run_with_adapter(adapter: Option<GuiCoreAdapter>) {
             query_workspace_diff,
             workspace_diff_poll,
             workspace_diff,
+            run_operator_git_action,
+            operator_git_poll,
+            operator_git,
             d11_intake,
             d11_send_intent,
             d11_poll,

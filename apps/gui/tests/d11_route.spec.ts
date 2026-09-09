@@ -71,6 +71,9 @@ function fakeCoreClient(overrides: Partial<CoreClient> = {}): CoreClient {
     queryWorkspaceDiff: unreachable("query_workspace_diff"),
     workspaceDiffPoll: unreachable("workspace_diff_poll"),
     workspaceDiff: unreachable("workspace_diff"),
+    runOperatorGitAction: unreachable("run_operator_git_action"),
+    operatorGitPoll: unreachable("operator_git_poll"),
+    operatorGit: unreachable("operator_git"),
     d1Cockpit: async () => D1_PROJECTION,
     d1SendIntent: async () => ({
       projection: D1_PROJECTION,

@@ -552,7 +552,10 @@ pub struct D1IntentResult {
 /// A row here is a claim about Core, so it is removed the moment the fact
 /// arrives rather than left standing as a stale sentence, and it never cites a
 /// code the register does not carry.
-pub(crate) fn unavailable_features(structured_diff: bool) -> Vec<D1UnavailableFeatureProjection> {
+pub(crate) fn unavailable_features(
+    structured_diff: bool,
+    operator_git: bool,
+) -> Vec<D1UnavailableFeatureProjection> {
     let mut features = Vec::new();
     // `diff` was unconditional until Core published `runtime.structured_diff`.
     // The row is a claim about Core — "Core publishes an opaque patch string"
@@ -566,13 +569,24 @@ pub(crate) fn unavailable_features(structured_diff: bool) -> Vec<D1UnavailableFe
             message: "Structured diff rows are unavailable; Core publishes an opaque patch string.",
         });
     }
-    features.extend([
-        D1UnavailableFeatureProjection {
+    // `apply` was unconditional under GUI-CORE-020 until Core published
+    // `runtime.operator_git`. Keeping it after C2 landed would have been a
+    // stale claim about Core: the DiffReview commit bar and the titlebar sync
+    // control now reach real `RunOperatorGitAction` commands, and the real
+    // state is what those controls render. The row survives only for a Core
+    // build that genuinely publishes no operator source-control actions, and
+    // it then names the capability rather than implying the register entry is
+    // still open.
+    if !operator_git {
+        features.push(D1UnavailableFeatureProjection {
             id: "apply",
             available: false,
             code: "GUI-CORE-020",
-            message: "Operator-initiated apply and commit actions are unavailable.",
-        },
+            message: "Operator source-control actions are unavailable; Core publishes no \
+                      `runtime.operator_git`.",
+        });
+    }
+    features.extend([
         // `audit` was here under GUI-CORE-004 until Core published the
         // append-only audit timeline (`QueryAudit` -> `AuditPageLoaded`,
         // capability `runtime.audit`), which closed GUI-CORE-014 and

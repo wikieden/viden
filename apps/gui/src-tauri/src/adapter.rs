@@ -31,8 +31,13 @@ use crate::d14::{
 use crate::diff_review::{
     STRUCTURED_DIFF_CAPABILITY, WorkspaceDiffEntryProjection, WorkspaceDiffProjection,
 };
+use crate::operator_git::{
+    OPERATOR_GIT_CAPABILITY, OPERATOR_GIT_NO_OWNER_CODE, OperatorGitIntent, OperatorGitProjection,
+    OperatorGitResultProjection,
+};
 use crate::projection::{
-    PreferenceDiagnosticProjection, ResolvedPreferencesProjection, exact_terminal_agent_session,
+    PreferenceDiagnosticProjection, ResolvedPreferencesProjection, awaits_operator_git_approval,
+    exact_terminal_agent_session, operator_git_action, operator_git_result_projection,
     preference_diagnostic_projection, target_lane_id, workspace_diff_entry_projection,
     workspace_diff_source_projection,
 };
@@ -132,6 +137,18 @@ pub struct GuiCoreAdapter {
     /// a loaded page was read at; it is a "re-read" signal, never a claim
     /// about what changed.
     workspace_revision: u64,
+    /// One operator source-control action at a time (`runtime.operator_git`,
+    /// GUI-CORE-020).
+    ///
+    /// The commit bar is one surface with one message box; a second action in
+    /// flight could only race the first for the same index. "Commit and push"
+    /// is therefore two sequential commands, and the second is sent by the
+    /// caller only after the first reports `Completed`.
+    pending_operator_git: Option<PendingOperatorGit>,
+    operator_git_outcome: D1OutcomeProjection,
+    /// What Core answered for the last settled action. Cleared when the next
+    /// action leaves, so a stale success line can never sit under a new one.
+    operator_git_result: Option<OperatorGitResultProjection>,
 }
 
 struct HostedCoreClient {
@@ -1001,6 +1018,48 @@ impl PendingWorkspaceDiff {
     }
 }
 
+/// One in-flight `RunOperatorGitAction` awaiting its ordered Core answer.
+struct PendingOperatorGit {
+    /// The only correlation an action needs: both events that can settle it —
+    /// `OperatorGitActionFinished` and `CommandRejected` — name the command id
+    /// they answer, and the finished event's id is a *required* field.
+    command_id: String,
+    /// The audit verb the bar names while it waits.
+    verb: &'static str,
+    /// The exact Core owner the action was sent as. An `Ask` for this action
+    /// reaches the dock owner-scoped, so the "awaiting approval" state is
+    /// matched on this owner rather than on any pending `git` approval.
+    owner: RuntimeOwner,
+}
+
+impl PendingOperatorGit {
+    /// Reconciles one ordered event against this action.
+    ///
+    /// `RuntimeEventKind::Error` is deliberately not observed, for the reason
+    /// every correlated command here documents: it carries no command id, so
+    /// treating one as this action's refusal because an action happened to be
+    /// outstanding would fabricate a refusal Core never issued — and here it
+    /// would also hide a mutation that may well have run.
+    fn observe(&self, envelope: &RuntimeEventEnvelope) -> AuditObservation {
+        let RuntimeWireEvent::Known(event) = &envelope.event else {
+            return AuditObservation::Continue;
+        };
+        match &event.kind {
+            RuntimeEventKind::CommandRejected { command_id, reason }
+                if command_id == &self.command_id =>
+            {
+                AuditObservation::Rejected(reason.clone())
+            }
+            RuntimeEventKind::OperatorGitActionFinished { command_id, .. }
+                if command_id == &self.command_id =>
+            {
+                AuditObservation::Confirmed
+            }
+            _ => AuditObservation::Continue,
+        }
+    }
+}
+
 /// What Core published for the diff reads confirmed so far.
 #[derive(Default)]
 struct WorkspaceDiffReceipt {
@@ -1344,6 +1403,9 @@ impl GuiCoreAdapter {
             pending_workspace_diff: None,
             workspace_diff_outcome: D1OutcomeProjection::idle(),
             workspace_diff_receipt: WorkspaceDiffReceipt::default(),
+            pending_operator_git: None,
+            operator_git_outcome: D1OutcomeProjection::idle(),
+            operator_git_result: None,
             workspace_revision: 0,
         }
     }
@@ -1988,6 +2050,216 @@ impl GuiCoreAdapter {
             // never answered is "pending", which is a different sentence.
             stale: self.workspace_diff_receipt.loaded
                 && self.workspace_revision != self.workspace_diff_receipt.read_revision,
+        }
+    }
+
+    /// Whether Core's handshake published operator source-control actions.
+    ///
+    /// Independent of `runtime.structured_diff`: a Core that publishes diff
+    /// rows but no operator git shows the read-only review with the commit bar
+    /// disabled and labelled, naming this capability.
+    pub fn supports_operator_git(&self) -> bool {
+        self.supports(OPERATOR_GIT_CAPABILITY)
+    }
+
+    /// The exact Core owner this client may run an operator action as.
+    ///
+    /// Core's supervisor refuses a command whose actor differs from its
+    /// envelope owner, and the audit record the action appends needs a real
+    /// owner rather than a default one. So the actor is the one binding Core
+    /// itself published for the acting Lane — never a rebuilt identity, and
+    /// never `RuntimeOwner::default()`, which would record an authorized
+    /// mutation as belonging to nobody.
+    fn operator_git_owner(&self, lane_id: Option<&str>) -> Result<RuntimeOwner, String> {
+        let lane_id = lane_id.ok_or_else(|| {
+            format!(
+                "{OPERATOR_GIT_NO_OWNER_CODE}: no Lane is selected, so this client has no Core \
+                 owner to run a source-control action as"
+            )
+        })?;
+        self.exact_lane_owner(lane_id, "operator git")
+            .map_err(|error| format!("{OPERATOR_GIT_NO_OWNER_CODE}: {error}"))
+    }
+
+    /// Sends one `RunOperatorGitAction` and waits for Core's ordered answer.
+    ///
+    /// `lane_id` names both halves of the action: the `SourceTarget` Core acts
+    /// on and the Lane whose Core-bound owner this client acts as. `None` is
+    /// the workspace root, which has no owner binding and is therefore refused
+    /// locally rather than sent — see [`Self::operator_git_owner`].
+    ///
+    /// A missing capability and a malformed action are refused before anything
+    /// is sent, using Core's own validator so the wording cannot drift. Once
+    /// the command is out, only an event naming its `command_id` settles it.
+    pub fn run_operator_git_action_and_wait(
+        &mut self,
+        command_id: &str,
+        lane_id: Option<&str>,
+        intent: OperatorGitIntent,
+        event_timeout: Duration,
+    ) -> Result<OperatorGitProjection, String> {
+        if !self.supports_operator_git() {
+            return Err(format!(
+                "missing Core capability `{OPERATOR_GIT_CAPABILITY}`"
+            ));
+        }
+        if let Some(pending) = &self.pending_operator_git {
+            return Err(format!(
+                "operator git action `{}` is still pending",
+                pending.command_id
+            ));
+        }
+        let owner = self.operator_git_owner(lane_id)?;
+        let action = operator_git_action(intent)?;
+        let target = match lane_id {
+            Some(lane_id) => SourceTarget::Lane {
+                lane_id: lane_id.to_string(),
+            },
+            None => SourceTarget::Workspace,
+        };
+        let verb = action.audit_verb();
+        self.client
+            .send(RuntimeCommandEnvelope {
+                schema_version: FRONTEND_SCHEMA_V1,
+                client_id: "viden-gui".to_string(),
+                command_id: command_id.to_string(),
+                owner: owner.clone(),
+                command: RuntimeCommand::RunOperatorGitAction {
+                    // The same owner on both halves: the supervisor rejects a
+                    // command whose actor does not match its envelope owner.
+                    owner: owner.clone(),
+                    target,
+                    action,
+                },
+            })
+            .map_err(|error| error.to_string())?;
+        self.pending_operator_git = Some(PendingOperatorGit {
+            command_id: command_id.to_string(),
+            verb,
+            owner,
+        });
+        self.operator_git_outcome = D1OutcomeProjection::pending();
+        // The previous answer goes with the previous action. Leaving a success
+        // line standing while a new action is in flight would let an operator
+        // read the old commit as this push's result.
+        self.operator_git_result = None;
+        self.poll_operator_git(lane_id, event_timeout)
+    }
+
+    /// Drains ordered Core events for an operator action still in flight.
+    ///
+    /// The drain deliberately continues *past* the settling event, with no
+    /// further waiting: Core publishes `WorkspaceSourceUpdated` right after
+    /// `OperatorGitActionFinished`, and that fact is what invalidates an open
+    /// DiffReview page. Stopping at the settling event would leave the source
+    /// update queued, and the review would keep showing the pre-action tree
+    /// until some unrelated poll happened to consume it.
+    pub fn poll_operator_git(
+        &mut self,
+        lane_id: Option<&str>,
+        event_timeout: Duration,
+    ) -> Result<OperatorGitProjection, String> {
+        let mut received = false;
+        let mut receive_failed = false;
+        let mut settled = false;
+        for _ in 0..8 {
+            let event = match self.receive_event_until(if settled {
+                Duration::ZERO
+            } else {
+                event_timeout
+            }) {
+                Ok(Some(event)) => event,
+                Ok(None) => break,
+                Err(_) => {
+                    receive_failed = true;
+                    break;
+                }
+            };
+            received = true;
+            if self.observe_pending_operator_git(&event) {
+                settled = true;
+            }
+        }
+        if received && !receive_failed {
+            self.refresh_projection()
+                .map_err(|error| error.to_string())?;
+        }
+        Ok(self.operator_git(lane_id))
+    }
+
+    /// Reconciles one ordered event against the in-flight operator action.
+    ///
+    /// Returns whether the action reached a terminal outcome. The desktop
+    /// event pump calls this too, so a background drain can never swallow the
+    /// only answer the commit bar is waiting for.
+    pub(crate) fn observe_pending_operator_git(&mut self, event: &RuntimeEventEnvelope) -> bool {
+        let observation = self
+            .pending_operator_git
+            .as_ref()
+            .map_or(AuditObservation::Continue, |pending| pending.observe(event));
+        match observation {
+            AuditObservation::Continue => false,
+            AuditObservation::Confirmed => {
+                self.pending_operator_git = None;
+                self.operator_git_outcome = D1OutcomeProjection::confirmed();
+                // The settling event is the authority for what happened, down
+                // to which action it was: the verb is echoed from Core rather
+                // than remembered from the request.
+                if let RuntimeWireEvent::Known(known) = &event.event
+                    && let RuntimeEventKind::OperatorGitActionFinished {
+                        target,
+                        action,
+                        outcome,
+                        audit_id,
+                        ..
+                    } = &known.kind
+                {
+                    self.operator_git_result = Some(operator_git_result_projection(
+                        action, target, outcome, audit_id,
+                    ));
+                }
+                true
+            }
+            AuditObservation::Rejected(reason) => {
+                self.pending_operator_git = None;
+                self.operator_git_outcome = D1OutcomeProjection::rejected(reason);
+                // A refusal happened before any effect, so there is no attempt
+                // to report. Keeping a previous result here would let the bar
+                // show a success beside a denial.
+                self.operator_git_result = None;
+                true
+            }
+        }
+    }
+
+    /// The commit bar's current projection, with no Core traffic.
+    ///
+    /// `lane_id` is the cockpit's current selection, which is what decides
+    /// whether this client has an owner to act as at all.
+    pub fn operator_git(&self, lane_id: Option<&str>) -> OperatorGitProjection {
+        let owner = self.operator_git_owner(lane_id);
+        let awaiting_approval = self
+            .pending_operator_git
+            .as_ref()
+            .zip(self.projection.view())
+            .is_some_and(|(pending, view)| {
+                awaits_operator_git_approval(&view.pending_approvals, &pending.owner)
+            });
+        OperatorGitProjection {
+            outcome: self.operator_git_outcome.clone(),
+            pending_command_id: self
+                .pending_operator_git
+                .as_ref()
+                .map(|pending| pending.command_id.clone()),
+            pending_action: self
+                .pending_operator_git
+                .as_ref()
+                .map(|pending| pending.verb),
+            awaiting_approval,
+            result: self.operator_git_result.clone(),
+            capability_available: self.supports_operator_git(),
+            owner_available: owner.is_ok(),
+            owner_unavailable_reason: owner.err(),
         }
     }
 
@@ -3833,6 +4105,7 @@ impl GuiCoreAdapter {
             self.observe_pending_audit(&event);
             self.observe_pending_workspace_files(&event);
             self.observe_pending_workspace_diff(&event);
+            self.observe_pending_operator_git(&event);
             self.observe_pending(&event);
             self.observe_pending_d12(&event);
             self.observe_d4(&event);
