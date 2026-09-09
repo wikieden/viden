@@ -319,19 +319,31 @@ base fixture 发生移动：九个 base fixture 都没有把终态 agent-session
 agent-session facts——没有终态事件，其文本照旧留在 stream 中。这是本次修复已记录的
 限制，而非疏漏：没有为本地路径发明新事件。
 
-2026-09-07 延后的评审跟进项。在审计上述修复时确认了三处不一致，并有意留给后续独立改动
+2026-09-07 延后的评审跟进项，三项已于 2026-09-09 在 `claude/hygiene-h1`（`0.3.3`
+批次 H1）全部关闭。在审计上述修复时确认了三处不一致，并有意留给后续独立改动
 处理：三者都是客户端内部清理，不影响契约。记录于此，以免被当作新发现重新提出：
 
-1. `CockpitProjection.assistant_stream`（`apps/tui/src/tui/projection.rs:26`，
-   构建于 `:77`）是死字段：无人读取。TUI 直接从 `RuntimeViewState` 渲染该 stream，
-   因此该字段是一份会与原件各自独立结算的副本。
-2. TUI 中存在两套"是否有活跃工作"的定义——`apps/tui/src/tui/app.rs:1878` 用于
-   命令路由，`apps/tui/src/tui/state.rs:234` 用于状态文本。二者读取的 fact 集合
-   重叠但不相等，因此 composer 与状态行可能对"回合是否在进行"给出不同判断。
-3. ACP merge gate 被两种标识键控：`crates/agents/src/acp.rs:1126` 发出协议会话句柄，
-   而 `crates/agents/src/glue.rs` 用已发布的 Agent session 为同一个 gate 划定范围。
-   Gate 自身的 id 为保持连续性仍沿用协议句柄，2026-09-07 加入的 owner 绑定才使其可
-   join；这两个键仍须一并读取。
+1. **2026-09-09 关闭。** `CockpitProjection.assistant_stream`
+   （`apps/tui/src/tui/projection.rs:26`，构建于 `:77`）是死字段：无人读取。TUI 直接
+   从 `RuntimeViewState` 渲染该 stream，因此该字段是一份会与原件各自独立结算的副本。
+   该字段及其构建已删除；本地 supervision fixture 矩阵改为点名该回合产出的 typed
+   evidence，而不再引用投影已不再携带的回复文本。
+2. **2026-09-09 关闭。** TUI 中存在两套「是否有活跃工作」的定义——
+   `apps/tui/src/tui/app.rs` 用于命令路由，`apps/tui/src/tui/state.rs` 用于状态文本。
+   路由判据读取 `agent_sessions` 而状态文本不读，因此一个尚未发布其他事实的 Agent
+   回合在 composer 看来是忙、在状态行看来是闲。二者现在都调用同一个
+   `state::runtime_has_active_work`，读取同一组事实。`assistant_stream` 刻意保留在
+   该集合中：内建 provider 回合不发布 Agent session 也不发布 task，而 supervisor 在
+   worker 线程上流式发出它的 delta，此时 composer 是活的，因此它是 Core 为该路径发布
+   的唯一活跃性事实。该回合结束后残留的文本正是上文记录的限制；要消除它需要为内建路径
+   提供回合活跃性事实，而不是让客户端去猜回合已结束。
+3. **2026-09-09 关闭。** ACP merge gate 被两种标识键控：`crates/agents/src/acp.rs`
+   以协议会话句柄发出开场的 `Proposed` 事实，而 `crates/agents/src/glue.rs` 用已发布的
+   Agent session 为同一个 gate 的后续每次更新划定范围，于是一个受监督回合产出了两条
+   gate 记录。源头现在用同一个 scoped id 构建开场事实。Gate id 对客户端不透明——没有
+   生产代码解析它，也没有任何持久化交叉引用以它为键——已用协议句柄写入的 gate 在回放时
+   保留原 id，并仍由 `tracked_agent_job_runtime_events` 中的 owner 回填绑定，该路径有
+   一条基于旧日志的测试覆盖。
 
 `structured-diff` fixture 是 `runtime.structured_diff`（GUI-CORE-012）的生成式证据。
 它刻意不是顺利路径：一次读取被回答、一次被拒绝，被回答的 page 中一条带行数据，另一条

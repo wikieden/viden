@@ -399,26 +399,41 @@ agent-session facts at all — has no terminal event, so its text stays in the
 stream exactly as before. That is a recorded limitation of this fix, not an
 oversight: no new event was invented for the local path.
 
-Deferred review follow-ups 2026-09-07. Three inconsistencies were confirmed
+Deferred review follow-ups 2026-09-07, all three closed 2026-09-09 on
+`claude/hygiene-h1` (`0.3.3` batch H1). Three inconsistencies were confirmed
 while auditing the fix above and deliberately left for a separate change,
 because each is a client-internal cleanup with no contract effect. Recorded
 here so they are not rediscovered as new findings:
 
-1. `CockpitProjection.assistant_stream` (`apps/tui/src/tui/projection.rs:26`,
-   built at `:77`) is dead: nothing reads it. The TUI renders the stream
-   straight from `RuntimeViewState`, so this field is a second copy that
-   settles independently of the first.
-2. The TUI carries two definitions of "active work" —
-   `apps/tui/src/tui/app.rs:1878` gates command routing, and
-   `apps/tui/src/tui/state.rs:234` drives status text. They read overlapping
-   but unequal fact sets, so the composer and the status line can disagree
-   about whether a turn is running.
-3. An ACP merge gate is keyed on two different identifiers:
-   `crates/agents/src/acp.rs:1126` emits the protocol session handle while
-   `crates/agents/src/glue.rs` scopes the same gate by the published Agent
-   session. The gate's own id keeps the protocol handle for continuity, and
-   the owner binding added on 2026-09-07 is what makes it joinable; the two
-   keys still have to be read together.
+1. **Closed 2026-09-09.** `CockpitProjection.assistant_stream`
+   (`apps/tui/src/tui/projection.rs:26`, built at `:77`) was dead: nothing read
+   it. The TUI renders the stream straight from `RuntimeViewState`, so the
+   field was a second copy that settled independently of the first. The field
+   and its construction are gone, and the local supervision fixture matrix now
+   names the typed evidence that turn produced instead of the reply text the
+   projection no longer carries.
+2. **Closed 2026-09-09.** The TUI carried two definitions of "active work" —
+   `apps/tui/src/tui/app.rs` gated command routing, and
+   `apps/tui/src/tui/state.rs` drove status text. The routing gate read
+   `agent_sessions` and the status text did not, so an Agent turn that had
+   published nothing else read as busy to the composer and idle to the status
+   row. Both now call one `state::runtime_has_active_work` over the same facts.
+   `assistant_stream` stays in that set on purpose: a built-in-provider turn
+   publishes no Agent session and no task, and the supervisor streams its
+   deltas from a worker thread while the composer is live, so it is the only
+   liveness fact Core publishes for that path. Its residue after such a turn
+   ends is the limitation recorded above, and closing it needs a turn-liveness
+   fact for the built-in path rather than a client-side guess.
+3. **Closed 2026-09-09.** An ACP merge gate was keyed on two different
+   identifiers: `crates/agents/src/acp.rs` emitted the opening `Proposed` fact
+   under the protocol session handle while `crates/agents/src/glue.rs` scoped
+   every later update of the same gate by the published Agent session, so one
+   supervised turn produced two gate records. The source now builds the opening
+   fact from the same scoped id. The gate id is opaque to clients — no
+   production code parses it and no persisted cross-reference is keyed on it —
+   and gates already written under the protocol handle keep that id on replay
+   and are still bound by the owner backfill in
+   `tracked_agent_job_runtime_events`, which a legacy-log test covers.
 
 The `structured-diff` fixture is the generated evidence for
 `runtime.structured_diff` (GUI-CORE-012). It is deliberately not a happy path:
