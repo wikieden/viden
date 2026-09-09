@@ -59,6 +59,7 @@ typechecks the harness against the production render signatures.
 | `d14-raw-fallback` | [`../gui-screen-restore/projections/d14-raw.json`](../gui-screen-restore/projections/d14-raw.json) | **generated** by the same test through `CoreClient::replay` |
 | `d11`, `d11-recent` | mirrors the fixtures in `tests/d11_intake.spec.ts`, plus the hand-written `RecentWorkResult` below for the history panel | hand-written; D11 has no generated capture projection yet |
 | `review*` | one `WorkspaceDiffLoaded` page: the same two entries the canonical extension fixture carries — a staged `modified` file with one real hunk and an `omitted` addition whose counts stay real — plus the same `truncated: true` page flag. `review-rejected` replaces the outcome with the fixture's own `CommandRejected` reason; `review-empty` keeps the page and empties `entries` | the `structured-diff.json` extension fixture and the page shape asserted in `tests/workspace_diff.rs` |
+| `review-commit*`, `review-push-no-upstream`, `review-rejected-action` | the same page plus one `OperatorGitProjection`, each a delta on a Core that publishes `runtime.operator_git` and one owner this client may act as. The three answers are the canonical `operator-git.json` fixture's own three: an approved `Commit` that completed with `ahead: 2` and a clean tree, a `Push` that failed with `NoUpstream` and git's own sentence, and a `Stage` refused before anything ran with the fixture's `git_add` deny reason | the `operator-git.json` extension fixture and the projections asserted in `tests/operator_git.rs` |
 | `approval-hunks` | the shared pending approval retargeted to `edit_file` and given the fixture's one-file `decision_context` and `base_sha256`. The tool is changed on purpose: `edit_file` is one of exactly three proposals Core attaches a context to, and a `shell` approval carrying hunks would be a screenshot of something Core never publishes | the `edit_file` approval in `structured-diff.json` and `an_approval_with_a_decision_context_projects_its_rows_and_base_hash` in `tests/decision_context.rs` |
 | `lane-rail`, `project-picker`, `project-switch-confirm` | the shared D1 fixture plus a hand-written `RecentWorkResult` | hand-written; `frontend-contract-v1` has no canonical recent-work capture projection yet, so the shapes mirror `tests/recent_work.rs` and `tests/project_picker.spec.ts` |
 
@@ -144,7 +145,12 @@ All URLs share the prefix
 | `palette` | `…/qa.html?state=palette` | the ⌘K command palette open over the cockpit from the titlebar toggle, with all four sections visible — Actions, Jump to (the cross-Lane gate and ask plus the Lane), Settings, and the Files section listing the workspace inventory Core published |
 | `palette-files` | `…/qa.html?state=palette-files` | the same palette pre-scoped to `~`, framing the Core-published inventory alone: six paths in Core's lexicographic order, each with the entry kind Core reported and no path the client discovered itself (`GUI-CORE-022`) |
 | `d10-ticker` | `…/qa.html?state=d10-ticker` | the D10 event ticker under the lane cards: one bounded newest-first page of Core's audit timeline, with two projects interleaved so the strip shows one order across projects rather than a per-project list, each row carrying Core's stable id, raw dotted action key, owner, and timestamp (`GUI-CORE-014`) |
-| `review` | `…/qa.html?state=review` | DiffReview opened from the titlebar changes marker: the file tree with its `M`/`A` glyphs, Core's staged `✓`, per-file counts and the header total; the unified body with Git's own `@@` header and per-side line numbers; the page truncation banner; `Split` visible and disabled; the commit bar disabled and naming `GUI-CORE-020` |
+| `review` | `…/qa.html?state=review` | DiffReview opened from the titlebar changes marker: the file tree with its `M`/`A` glyphs, the per-row stage toggle carrying Core's own `staged` fact, per-file counts and the header total; the unified body with Git's own `@@` header and per-side line numbers; the page truncation banner; `Split` visible and disabled; the live commit bar with `Commit` and `Commit & Push` disabled because no message is typed yet |
+| `review-commit` | `…/qa.html?state=review-commit` | the commit bar acting: a message typed through the production input listener, all three actions enabled, and the titlebar sync chip a live `Push` |
+| `review-commit-pending-approval` | `…/qa.html?state=review-commit-pending-approval` | the `Ask` path — Core published a `git` approval for the acting owner, so the bar says the permission dock owns the decision and every control, including the sync chip, is inert |
+| `review-commit-completed` | `…/qa.html?state=review-commit-completed` | the success line built from Core's *resampled* source (`↑2 ↓0`, working tree clean), with git's transcript collapsed behind `Git output` |
+| `review-push-no-upstream` | `…/qa.html?state=review-push-no-upstream` | a `Failed { NoUpstream }` outcome: the localized sentence for the class, git's own detail verbatim below it, and the `Push and set upstream` recovery the contract names — never a `Pull` |
+| `review-rejected-action` | `…/qa.html?state=review-rejected-action` | a pre-effect `CommandRejected` for the same bar, Core's words unedited in a `role=alert`, with no failure line and no recovery |
 | `review-omitted` | `…/qa.html?state=review-omitted` | the same view with the second entry selected, so the "rows not shown" note appears beside counts that stayed real (`omitted`) |
 | `review-rejected` | `…/qa.html?state=review-rejected` | Core's refusal verbatim in a `role=alert`, with no file count in the header and no empty-tree sentence |
 | `review-empty` | `…/qa.html?state=review-empty` | "No changes in the working tree" — the only state drawn that way, over a page Core actually answered |
@@ -494,6 +500,11 @@ Captured 2026-09-09 with headless Chrome
 --virtual-time-budget=6000`) against the vite dev server on port 4211, then
 visually reviewed (all six sampled in review).
 
+The five `review*` images were recaptured on 2026-09-09 against port 4173 after
+the commit bar became live: the message box is a real `<input>`, each file row
+carries its stage/unstage toggle, and the disabled `Commit` drops its solid
+green fill, because a solid primary at 55% opacity still reads as "press me".
+
 | File | State | Viewport | Mode | Locale |
 | --- | --- | --- | --- | --- |
 | [review-1440x900-dark-en.png](review-1440x900-dark-en.png) | review | 1440x900 | dark | en |
@@ -541,3 +552,51 @@ would push Approve and Deny out of sight behind the very rows they answer
 than the 236px file tree still ellipsizes; the split only guarantees that the
 directory half disappears first, and the full path stays in the row's title and
 in the pane header.
+
+## DiffReview action captures
+
+Captured 2026-09-09 with headless Chrome
+(`--headless --disable-gpu --hide-scrollbars --window-size=1440,900
+--virtual-time-budget=6000`) against the vite dev server on port 4173, then
+visually reviewed (all six sampled in review).
+
+| File | State | Viewport | Mode | Locale |
+| --- | --- | --- | --- | --- |
+| [review-commit-1440x900-dark-en.png](review-commit-1440x900-dark-en.png) | review-commit | 1440x900 | dark | en |
+| [review-commit-pending-approval-1440x900-dark-en.png](review-commit-pending-approval-1440x900-dark-en.png) | review-commit-pending-approval | 1440x900 | dark | en |
+| [review-commit-completed-1440x900-dark-en.png](review-commit-completed-1440x900-dark-en.png) | review-commit-completed | 1440x900 | dark | en |
+| [review-push-no-upstream-1440x900-dark-en.png](review-push-no-upstream-1440x900-dark-en.png) | review-push-no-upstream | 1440x900 | dark | en |
+| [review-rejected-action-1440x900-dark-en.png](review-rejected-action-1440x900-dark-en.png) | review-rejected-action | 1440x900 | dark | en |
+| [review-commit-completed-1440x900-light-zh-CN.png](review-commit-completed-1440x900-light-zh-CN.png) | review-commit-completed | 1440x900 | light | zh-CN |
+
+This is the action half of the same registered family
+(`runtime.operator_git`, GUI-CORE-020). Each image is chosen so exactly one
+contract rule can falsify it:
+
+| Image | The rule it proves |
+| --- | --- |
+| `review-commit` | the bar acts: a typed message enables `Commit` and `Commit & Push`, `Stage all` needs no message, every file row carries its stage toggle, and the titlebar chip is a live `Push` |
+| `review-commit-pending-approval` | an `Ask` belongs to the permission dock. The bar names the action it is waiting on and every control — including the sync chip — is disabled rather than hidden |
+| `review-commit-completed` | the success line is built from the outcome's resampled `source` (`↑2 ↓0`, working tree clean) and **not** from git's transcript, which is collapsed behind `Git output` |
+| `review-push-no-upstream` | a failure *after* the gate is an outcome, not a denial: the localized sentence for Core's `NoUpstream` class, git's own detail verbatim, and the one recovery the contract names |
+| `review-rejected-action` | a refusal *before* the gate is Core's own reason, verbatim, in a `role=alert` — with no failure sentence and no recovery beside it |
+
+`review-push-no-upstream` and `review-rejected-action` are the pair worth
+reading together, and they are the reason both exist. Both are red; neither is
+the other. One says git ran and rejected the push, and offers the next git
+command. The other says nothing ran and names the `viden.toml` rule that
+stopped it. A client that drew them alike would send an operator to their
+permission file about a problem in their own branch.
+
+Two absences are deliberate and visible. No image offers a `Pull`: the contract
+excludes it for `0.3.3` because it moves `HEAD` and can create conflicts that
+belong to the Lane conflict machinery, and every sync tooltip says so in both
+languages. And `review-push-no-upstream` offers `Push and set upstream` rather
+than a bare retry, because Core refuses an untracked push outright — after
+`git push <remote> <branch>` succeeded, ahead/behind would be unknowable and
+the chip would read "in sync" forever.
+
+The light/`zh-CN` capture is the locale and skin proof for the action copy: the
+completion sentence, the working-tree state, the `Git 输出` disclosure, and all
+three button labels translate, while the branch name, the resampled counts, and
+git's own output stay exactly as Core published them.

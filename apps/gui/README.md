@@ -401,11 +401,11 @@ the host from Core's `workspace_source` sample and projected as `topbarSource`.
 The project selector shows the project name Core published — or the workspace
 path when Core named none, never a name derived from the path — followed by
 `⎇ <branch>` and a dirty marker when the sample reports uncommitted changes.
-The `.gitops` block beside it holds two chips: `↑ahead ↓behind`, a `role=status`
-element rather than a button because frontend-contract-v1 publishes no operator
-git command (contract request `GUI-CORE-020`), and `⎇ N worktrees`, the block's
-only control, which opens the D10 Lane monitor and is disabled when no
-navigation handler is injected. `N` counts the distinct worktrees of the
+The `.gitops` block beside it holds two chips: `↑ahead ↓behind`, which is an
+operator control since `runtime.operator_git` (see the DiffReview section for
+its push/fetch rule, and note it stays a `role=status` readout on a host that
+carries no action port), and `⎇ N worktrees`, which opens the D10 Lane monitor
+and is disabled when no navigation handler is injected. `N` counts the distinct worktrees of the
 project's active Lanes: Core publishes no git worktree inventory, and two Lanes
 sharing a worktree are one worktree. When Core publishes no workspace source,
 or reports it unavailable, the whole block is omitted rather than rendering
@@ -435,13 +435,14 @@ Aurora dark/regular English, Ice light/regular English, Aurora dark/regular
 Chinese, compact density, responsive drawer states, and an independent
 same-state design reference populated from `d1-main-cockpit.json`. It also
 includes a supplemental Context Dock bottom-state capture that proves lower
-facts are reachable by internal scrolling. Structured diff rows
-(`GUI-CORE-012`), operator apply and commit (`GUI-CORE-020`), and checkpoint
-capture and restore (rendered as `GUI-CORE-003`, contract request
-`GUI-CORE-018`) remain explicit unavailable facts; D1 never fabricates a
-successful placeholder. The `audit` row is gone: Core's audit timeline closed
-that gap, and a dock row claiming otherwise would be a stale statement about
-Core rather than a fact.
+facts are reachable by internal scrolling. Checkpoint capture and restore
+(rendered as `GUI-CORE-003`, contract request `GUI-CORE-018`) remains an
+explicit unavailable fact; D1 never fabricates a successful placeholder. The
+`audit`, `diff`, and `apply` rows are gone: Core's audit timeline,
+`runtime.structured_diff`, and `runtime.operator_git` closed those gaps, and a
+row claiming otherwise would be a stale statement about Core rather than a
+fact. `diff` and `apply` still appear against a Core build that really
+publishes neither capability, and then name the capability itself.
 
 ## Projects, recent work, and the grouped rail
 
@@ -664,11 +665,62 @@ carry the `WorkspaceChangeKind` glyph (M/A/D/R/?), Core's own `staged` mark,
 and per-file counts. A long path keeps its basename: the directory half gives
 way a hundred times faster, and the full path is the row's title.
 
-**What waits for C2.** The commit bar the family draws is present, entirely
-disabled, carries no handlers at all, and states `GUI-CORE-020` — operator git
-actions need `runtime.operator_git`, which `frontend-contract-v1` does not
-carry. Split is visible and disabled because only the unified body is built.
-Conflict content is `GUI-CORE-015` and a separate batch.
+**Action side** (`runtime.operator_git`, GUI-CORE-020). The commit bar acts and
+so does the titlebar sync chip. Every button sends one `RunOperatorGitAction`
+through the CoreClient seam with a client-chosen `command_id`, and only an
+ordered event naming that id settles it. The client runs no git, never falls
+back to a shell command, and never reads a fact out of `output`.
+
+- **Bar.** A commit message box bounded at Core's 4 KiB — counted in UTF-8
+  bytes, the unit Core measures, so a Chinese message cannot slip past a bound
+  Core then refuses — plus `Stage all` (`Stage { paths: [] }`), `Commit`, and
+  `Commit & Push`. Each file row carries a stage/unstage toggle whose direction
+  follows Core's own `staged` flag; the client never re-derives it from the
+  index classification Core already derived it from.
+- **"Commit and push" is two commands.** The push is sent only after the commit
+  reports `Completed` — Core's typed answer, never a reading of git's output. A
+  commit that failed or was refused stops the pair and the bar says the push
+  was not sent, because a silently dropped second half would leave the operator
+  believing the branch was published.
+- **One action at a time**, correlated strictly by `command_id`. The bar is one
+  surface with one message box; a second action in flight could only race the
+  first for the same index.
+- **The actor is Core's.** `RunOperatorGitAction` requires an owner matching its
+  envelope owner, and the audit record needs a real one, so an action is sent
+  only with the exact `RuntimeOwner` Core bound to the acting Lane. Without one
+  the host refuses locally under `D1-OPERATOR-GIT-OWNER` rather than sending a
+  default owner, which would record an authorized mutation as belonging to
+  nobody. `target` is the same `SourceTarget` the open review is reading.
+- **Re-read, never patch.** After an action settles, the `WorkspaceSourceUpdated`
+  Core publishes behind it invalidates the page, and the review re-reads through
+  the same debounced staleness path a Core-side write goes through.
+
+**Action honesty rules**, each with its own sentence and its own test:
+
+| Core fact | What the view renders |
+| --- | --- |
+| `CommandRejected` | Core's reason verbatim in a `role=alert`. A refusal happened **before** anything ran |
+| `Failed { class, detail }` | the localized sentence for the class plus git's `detail` verbatim. The effect **was** attempted and audited; this is never drawn as a denial |
+| `Completed` | a line built from the outcome's resampled `source` — branch, ahead, behind, clean or dirty — never from the output text |
+| `Completed.output` | collapsed behind a `Git output` disclosure, with its own note when `truncated` |
+| an `ApprovalRequested` with `target.kind = "git"` | the permission dock owns the decision; the bar names the action it is waiting on and stays inert |
+| no `runtime.operator_git` | every control visible, disabled, and naming the capability — not `GUI-CORE-020`, which is closed |
+| an in-flight action, or `workspace_source.status != Ready` | the sync chip disabled and labelled, with the direction it would have taken still named |
+
+The recovery offered is the one the contract names for the class, and only
+that one: fetch for `NonFastForward`, `Push and set upstream` for `NoUpstream`,
+and **nothing** for `AuthenticationRequired`, where a retry button would only
+be a retry loop against a credential this client cannot supply. An
+unrecognized class keeps its own sentence and Core's `detail` rather than
+borrowing the nearest-looking one, which would offer the wrong next step.
+
+**The titlebar sync chip** is a control: `Push` when Core's resampled counts
+say there is local work, `Fetch` in every other state — behind, or clean. It
+never offers a `Pull`, and its tooltip says why: the contract excludes pull,
+merge, rebase, `commit --amend`, reset, force push, branch delete, switch, and
+stash for `0.3.3`, each for a reason recorded in the frontend integration
+contract. Split is still visible and disabled because only the unified body is
+built. Conflict content is `GUI-CORE-015` and a separate batch.
 
 **Approval decision context.** The same row renderer draws
 `ApprovalRequestView.decision_context` in the D1 permission dock and the D2

@@ -97,6 +97,7 @@ harness 补充的每个值都是上述来源之上的 delta，`qa.ts` 中每条�
 | `palette`、`palette-files` | 交给 `loadPaletteFiles` 的六条真实 Viden 路径，按 Core 的字典序排列，字节大小固定 | `tests/command_palette.spec.ts` 的已加载清单 fixture，以及 `tests/workspace_files.rs` 断言的 page 形状 |
 | `d10-ticker` | 一页四条、横跨两个交错项目的 audit 记录，经屏幕自己的 `applyEvents` 应用 | 规范 fixture `audit-ordering.json` 与 `crates/core/tests/frontend_contract_v1.rs` 中的 `audit_ordering_fixture_orders_two_projects_as_one_newest_first_timeline` |
 | `review*` | 一页 `WorkspaceDiffLoaded`：与规范扩展 fixture 相同的两个条目 —— 一个带真实 hunk 的已暂存 `modified` 文件，以及一个计数仍真实的 `omitted` 新增 —— 加上同样的 `truncated: true` 页标志。`review-rejected` 把 outcome 换成该 fixture 自己的 `CommandRejected` 原因；`review-empty` 保留页并清空 `entries` | 扩展 fixture `structured-diff.json` 与 `tests/workspace_diff.rs` 断言的页形状 |
+| `review-commit*`、`review-push-no-upstream`、`review-rejected-action` | 同一页，外加一份 `OperatorGitProjection`：基线是「Core 发布了 `runtime.operator_git`、且本客户端有一个可代行的 owner」，其余都是它的增量。三个答案取自规范 fixture `operator-git.json` 自己的三条：一次批准后完成的 `Commit`（`ahead: 2`、工作区干净），一次以 `NoUpstream` 失败并带 git 原话的 `Push`，以及一次在执行任何效果前就被 `git_add` deny 规则拒绝的 `Stage` | 扩展 fixture `operator-git.json` 与 `tests/operator_git.rs` 断言的投影 |
 | `approval-hunks` | 共享的待审批被改指到 `edit_file`，并附上该 fixture 的单文件 `decision_context` 与 `base_sha256`。改工具是刻意的：`edit_file` 正是 Core 会附上下文的三种提议之一，而带 hunk 的 `shell` 审批会是一张 Core 从不发布的东西的截图 | `structured-diff.json` 中的 `edit_file` 审批，以及 `tests/decision_context.rs` 中的 `an_approval_with_a_decision_context_projects_its_rows_and_base_hash` |
 | `lane-rail`、`project-picker`、`project-switch-confirm` | 一份两项目的 `RecentWorkResult`，时间戳是相对冻结时钟的偏移，因此渲染出的相对时间稳定。当前打开的根目录被刻意包含在内——选择器必须把它从「最近」中剔除，而不是提供切换到已经打开的项目 | `tests/recent_work.rs` 断言的 `RecentWorkLoaded` 载荷 |
 
@@ -151,7 +152,12 @@ URL 与尺寸，不在该运行时之外调用浏览器自动化。
 | `palette` | `…/qa.html?state=palette` | 从标题栏按钮打开、覆盖在驾驶舱之上的 ⌘K 命令面板，四个分区全部可见——动作、跳转到（跨 Lane 的闸与询问，加上本 Lane）、设置，以及列出 Core 已发布工作区清单的「文件」分区 |
 | `palette-files` | `…/qa.html?state=palette-files` | 同一个面板但预先限定到 `~`，单独框出 Core 发布的清单：六条路径按 Core 的字典序排列，每条带 Core 报告的条目类型，没有任何一条是客户端自行发现的（`GUI-CORE-022`） |
 | `d10-ticker` | `…/qa.html?state=d10-ticker` | Lane 卡片下方的 D10 事件走马灯：Core 审计时间线的一页有界 newest-first 记录，两个项目交错出现，因此该条展示的是跨项目的同一个顺序而不是按项目分组的列表；每行携带 Core 的稳定 id、原样的点分 action key、owner 与时间戳（`GUI-CORE-014`） |
-| `review` | `…/qa.html?state=review` | 由标题栏变更标记打开的 DiffReview：文件树带 `M`/`A` 字形、Core 的暂存 `✓`、逐文件计数与表头合计；统一视图带 Git 自己的 `@@` 头与逐侧行号；页级截断横幅；`分栏` 可见且禁用；提交栏禁用并标注 `GUI-CORE-020` |
+| `review` | `…/qa.html?state=review` | 由标题栏变更标记打开的 DiffReview：文件树带 `M`/`A` 字形、承载 Core 自身 `staged` 事实的逐行暂存开关、逐文件计数与表头合计；统一视图带 Git 自己的 `@@` 头与逐侧行号；页级截断横幅；`分栏` 可见且禁用；提交栏已可用，但因尚未输入信息，`提交` 与 `提交并推送` 处于禁用 |
+| `review-commit` | `…/qa.html?state=review-commit` | 提交栏在动作中：通过生产环境的 input 监听器输入的提交信息、三个动作全部可用、标题栏同步芯片是一个可按的 `Push` |
+| `review-commit-pending-approval` | `…/qa.html?state=review-commit-pending-approval` | `Ask` 路径 —— Core 为该 owner 发布了一条 `git` 审批，因此提交栏声明决策归权限坞所有，包括同步芯片在内的每个控件都不可用 |
+| `review-commit-completed` | `…/qa.html?state=review-commit-completed` | 成功行由 Core *重新采样* 的 source 构成（`↑2 ↓0`、工作区干净），git 的输出收折在 `Git 输出` 之后 |
+| `review-push-no-upstream` | `…/qa.html?state=review-push-no-upstream` | 一次 `Failed { NoUpstream }` 结果：该类别的本地化句子、其下 git 自己的原话，以及契约指名的那一个恢复动作 `推送并设置 upstream` —— 绝不是 `Pull` |
+| `review-rejected-action` | `…/qa.html?state=review-rejected-action` | 同一条提交栏上的效果前 `CommandRejected`：Core 的原话未经编辑，置于 `role=alert` 中，既没有失败行也没有恢复动作 |
 | `review-omitted` | `…/qa.html?state=review-omitted` | 同一视图选中第二个条目，于是「未显示 diff 行」的说明与依然真实的计数并列（`omitted`） |
 | `review-rejected` | `…/qa.html?state=review-rejected` | Core 的拒绝在 `role=alert` 中原样呈现，表头没有文件计数，也没有空树句子 |
 | `review-empty` | `…/qa.html?state=review-empty` | 「工作区没有变更」—— 唯一可以这样渲染的状态，且建立在 Core 确实回答过的页之上 |
@@ -432,6 +438,10 @@ this contract's decision, and publishes no pending contract to confirm."，中�
 --virtual-time-budget=6000`），针对 4211 端口上的 vite 开发服务器，随后人工复核
 （六张全部抽检）。
 
+五张 `review*` 已于 2026-09-09 针对 4173 端口重新采集：提交栏已经可用 —— 信息框是
+真正的 `<input>`、每个文件行带暂存/取消暂存开关，且禁用的 `提交` 不再保留实心绿底，
+因为 55% 不透明度的实心主按钮看上去仍像「可以按」。
+
 | 文件 | 状态 | 视口 | 模式 | 语言 |
 | --- | --- | --- | --- | --- |
 | [review-1440x900-dark-en.png](review-1440x900-dark-en.png) | review | 1440x900 | dark | en |
@@ -469,3 +479,44 @@ light/`zh-CN` 那张是新增文案的语言与皮肤佐证：标题、分段控
 整个坞会把「允许」「拒绝」挤到它们所要回答的那些行后面（`permission-ask` 未变，是
 改动前的对照图）。另外，长于 236px 文件树的文件名仍会省略；拆分只保证目录一半先消失，
 完整路径保留在该行的 title 与面板表头里。
+
+## DiffReview 动作侧截图
+
+2026-09-09 以无头 Chrome 采集
+（`--headless --disable-gpu --hide-scrollbars --window-size=1440,900
+--virtual-time-budget=6000`），针对 4173 端口上的 vite 开发服务器，随后人工复核
+（六张全部抽检）。
+
+| 文件 | 状态 | 视口 | 模式 | 语言 |
+| --- | --- | --- | --- | --- |
+| [review-commit-1440x900-dark-en.png](review-commit-1440x900-dark-en.png) | review-commit | 1440x900 | dark | en |
+| [review-commit-pending-approval-1440x900-dark-en.png](review-commit-pending-approval-1440x900-dark-en.png) | review-commit-pending-approval | 1440x900 | dark | en |
+| [review-commit-completed-1440x900-dark-en.png](review-commit-completed-1440x900-dark-en.png) | review-commit-completed | 1440x900 | dark | en |
+| [review-push-no-upstream-1440x900-dark-en.png](review-push-no-upstream-1440x900-dark-en.png) | review-push-no-upstream | 1440x900 | dark | en |
+| [review-rejected-action-1440x900-dark-en.png](review-rejected-action-1440x900-dark-en.png) | review-rejected-action | 1440x900 | dark | en |
+| [review-commit-completed-1440x900-light-zh-CN.png](review-commit-completed-1440x900-light-zh-CN.png) | review-commit-completed | 1440x900 | light | zh-CN |
+
+这是同一个登记族的动作一半（`runtime.operator_git`、GUI-CORE-020）。每张图都挑成
+「恰好只有一条契约规则能被它证伪」：
+
+| 图 | 它证明的规则 |
+| --- | --- |
+| `review-commit` | 提交栏真的会动作：输入信息后 `提交` 与 `提交并推送` 可用，`全部暂存` 不需要信息，每个文件行都带暂存开关，标题栏芯片是一个可按的 `Push` |
+| `review-commit-pending-approval` | `Ask` 属于权限坞。提交栏说明它在等哪个动作，包括同步芯片在内的每个控件都是禁用而不是隐藏 |
+| `review-commit-completed` | 成功行由结果里重新采样的 `source` 构成（`↑2 ↓0`、工作区干净），**不是**由 git 的输出文本得出 —— 后者收折在 `Git 输出` 之后 |
+| `review-push-no-upstream` | 通过权限门之后的失败是「结果」而不是「拒绝」：Core `NoUpstream` 类别的本地化句子、git 自己的原话，以及契约指名的那一个恢复动作 |
+| `review-rejected-action` | 权限门之前的拒绝是 Core 的原话，逐字放在 `role=alert` 里 —— 旁边既没有失败句子，也没有恢复动作 |
+
+`review-push-no-upstream` 与 `review-rejected-action` 值得成对阅读，这也是两张都要
+存在的原因。两张都是红的，但它们不是同一件事：一张说 git 跑了并拒绝了这次推送，并给出
+下一条 git 命令；另一张说什么都没跑，并指名是哪条 `viden.toml` 规则挡下的。把两者画成
+一样的客户端，会因为操作者自己分支上的问题把他们指向权限文件。
+
+有两处「缺席」是刻意的，而且看得见。没有任何一张图提供 `Pull`：契约在 `0.3.3` 排除了
+它，因为它会移动 `HEAD` 并可能制造属于 Lane 冲突机制的冲突，两种语言的同步提示都把这
+一点写了出来。而 `review-push-no-upstream` 提供的是「推送并设置 upstream」而不是原样
+重试，因为 Core 会直接拒绝一次不带跟踪的推送 —— 一旦 `git push <remote> <branch>`
+成功，领先/落后就无从得知，同步芯片会永远显示「已同步」。
+
+light/`zh-CN` 那张是动作文案的语言与皮肤佐证：完成句子、工作区状态、`Git 输出` 折叠标题
+与三个按钮标签都翻译，而分支名、重新采样的计数以及 git 自己的输出与 Core 发布的完全一致。

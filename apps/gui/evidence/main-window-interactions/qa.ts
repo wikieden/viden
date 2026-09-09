@@ -44,6 +44,10 @@ import type { PaletteWorkspaceFiles } from "../../src/components/command_palette
 import type { Locale } from "../../src/i18n/catalog";
 import type { ComposerControlIntent } from "../../src/models/composer";
 import type { WorkspaceDiffProjection } from "../../src/models/diff_review";
+import {
+  IDLE_OPERATOR_GIT,
+  type OperatorGitProjection,
+} from "../../src/models/operator_git";
 import type { RecentWorkResult } from "../../src/models/recent_work";
 import type { PreferenceIntentOutcome } from "../../src/preferences";
 import {
@@ -389,6 +393,13 @@ interface CockpitOptions {
   projectPicker?: boolean;
   /** The `WorkspaceDiffLoaded` page the DiffReview entry points resolve to. */
   workspaceDiff?: WorkspaceDiffProjection;
+  /**
+   * The `OperatorGitActionFinished` answer the commit bar resolves to.
+   *
+   * Present makes the bar and the titlebar sync chip live; absent leaves both
+   * in their unbound-host shape, which is a different capture.
+   */
+  operatorGit?: OperatorGitProjection;
 }
 
 function mountCockpit(options: CockpitOptions): void {
@@ -422,6 +433,16 @@ function mountCockpit(options: CockpitOptions): void {
         ? {
             read: async () => options.workspaceDiff!,
             query: async () => options.workspaceDiff!,
+          }
+        : undefined,
+      // The same triple the shell injects. Every call resolves to one fixed
+      // answer, so the capture cannot move after it settles — including the
+      // pending states, whose answer is itself "still pending".
+      operatorGit: options.operatorGit
+        ? {
+            read: async () => options.operatorGit!,
+            run: async () => options.operatorGit!,
+            poll: async () => options.operatorGit!,
           }
         : undefined,
       loadRecentWork: options.projectPicker ? async () => RECENT_WORK : undefined,
@@ -1044,13 +1065,116 @@ const REVIEW_EMPTY: WorkspaceDiffProjection = {
   loaded: true,
 };
 
+/* ------------------------------------------------------------------ */
+/* Operator source-control answers (runtime.operator_git)              */
+/* ------------------------------------------------------------------ */
+
+/// A Core that publishes operator git, with one owner this client may act as.
+/// The base every action state below is a delta on.
+const OPERATOR_GIT_READY: OperatorGitProjection = {
+  ...IDLE_OPERATOR_GIT,
+  capabilityAvailable: true,
+  ownerAvailable: true,
+};
+
+/// The commit message the capture types, mirroring the canonical
+/// `operator-git.json` fixture's own `Commit` action.
+const COMMIT_MESSAGE = "feat(types): add operator git actions";
+
+/// The `Ask` path: Core published an approval with `target.kind = "git"` for
+/// the acting owner, so the dock owns the decision and the bar is inert.
+const OPERATOR_GIT_AWAITING: OperatorGitProjection = {
+  ...OPERATOR_GIT_READY,
+  outcome: { state: "pending", reason: null },
+  pendingCommandId: "gui-git-commit",
+  pendingAction: "commit",
+  awaitingApproval: true,
+};
+
+/// The fixture's own completed `Commit`: git's transcript verbatim, and the
+/// source Core resampled *after* the effect — `ahead` up by one and the tree
+/// clean, neither of which is read out of the output text.
+const OPERATOR_GIT_COMPLETED: OperatorGitProjection = {
+  ...OPERATOR_GIT_READY,
+  outcome: { state: "confirmed", reason: null },
+  result: {
+    kind: "completed",
+    action: "commit",
+    targetLaneId: null,
+    auditId: "audit_operator_git_commit",
+    output:
+      "[codex/v3-core-runtime 1a2b3c4] feat(types): add operator git actions\n 1 file changed, 2 insertions(+)",
+    truncated: false,
+    source: {
+      status: "ready",
+      branch: "codex/v3-core-runtime",
+      worktree: "workspace/viden",
+      ahead: 2,
+      behind: 0,
+      added: 0,
+      deleted: 0,
+      dirty: false,
+    },
+    failureClass: null,
+    detail: null,
+  },
+};
+
+/// The fixture's own failed `Push`: the effect was attempted after the gate
+/// granted it, so this is an outcome and never a denial.
+const OPERATOR_GIT_NO_UPSTREAM: OperatorGitProjection = {
+  ...OPERATOR_GIT_READY,
+  outcome: { state: "confirmed", reason: null },
+  result: {
+    kind: "failed",
+    action: "push",
+    targetLaneId: null,
+    auditId: "audit_operator_git_push",
+    output: null,
+    truncated: false,
+    source: null,
+    failureClass: "no_upstream",
+    detail: "the current branch has no upstream branch; push with set_upstream to create one",
+  },
+};
+
+/// The fixture's own refused `Stage`: a pre-effect `CommandRejected`, carried
+/// verbatim. Nothing ran, so there is no outcome beside it.
+const OPERATOR_GIT_REJECTED: OperatorGitProjection = {
+  ...OPERATOR_GIT_READY,
+  outcome: {
+    state: "rejected",
+    reason:
+      "permission denied\ntool: git_add\nreason: DenyRule\nmessage: git_add is denied by a workspace rule\nhint: grant the `git_add` permission to run source-control actions from this client",
+  },
+};
+
+/// Types the commit message through the production input listener, the way an
+/// operator does, so the capture frames the bar's real enabled state.
+async function typeCommitMessage(message: string): Promise<void> {
+  const input = await waitFor<HTMLInputElement>("[data-review-commit-message]");
+  if (input) {
+    // Typed through the real input listener, so the captured bar is in the
+    // state production puts it in rather than one the harness set by hand.
+    input.value = message;
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+  await tick();
+}
+
 /// Opens DiffReview from the titlebar's changes marker, the way an operator
 /// does, rather than by mounting the screen directly.
-async function openReview(page: WorkspaceDiffProjection): Promise<void> {
+async function openReview(
+  page: WorkspaceDiffProjection,
+  // The shell always binds the action port, so every capture does too: an
+  // inert bar is what an *unbound host* shows, which no operator ever sees.
+  operatorGit: OperatorGitProjection = OPERATOR_GIT_READY,
+): Promise<void> {
   mountCockpit({
     projection: d1Base(),
     preferencesAvailable: true,
     workspaceDiff: page,
+    operatorGit,
   });
   await waitFor("[data-topbar-review]:not([disabled])");
   click("[data-topbar-review]");
@@ -1245,6 +1369,50 @@ async function renderState(): Promise<void> {
       // entries.
       await openReview(REVIEW_EMPTY);
       await waitFor("[data-review-state='empty']");
+      return;
+    }
+
+    case "review-commit": {
+      // The commit bar live: a typed message, the three actions enabled, and
+      // every file row carrying its stage/unstage toggle beside Core's own
+      // staged mark.
+      await openReview(REVIEW_PAGE, OPERATOR_GIT_READY);
+      await typeCommitMessage(COMMIT_MESSAGE);
+      await waitFor("[data-review-action='commit']:not([disabled])");
+      return;
+    }
+
+    case "review-commit-pending-approval": {
+      // The `Ask` path. The approval itself is the permission dock's; the bar
+      // only says the decision is out and stays inert until it is answered.
+      await openReview(REVIEW_PAGE, OPERATOR_GIT_AWAITING);
+      await typeCommitMessage(COMMIT_MESSAGE);
+      await waitFor("[data-review-action-state='awaiting_approval']");
+      return;
+    }
+
+    case "review-commit-completed": {
+      // The success line reads the resampled branch, ahead, behind, and clean
+      // tree Core put on the outcome — never the transcript below it, which is
+      // collapsed display text.
+      await openReview(REVIEW_PAGE, OPERATOR_GIT_COMPLETED);
+      await waitFor("[data-review-action-state='completed']");
+      return;
+    }
+
+    case "review-push-no-upstream": {
+      // A failure *after* the gate granted the action, with the recovery the
+      // contract names for the class: resend the push with `set_upstream`.
+      await openReview(REVIEW_PAGE, OPERATOR_GIT_NO_UPSTREAM);
+      await waitFor("[data-review-recovery='set_upstream']");
+      return;
+    }
+
+    case "review-rejected-action": {
+      // A pre-effect refusal, Core's words unedited. Deliberately captured
+      // beside `review-push-no-upstream`: the two must never read alike.
+      await openReview(REVIEW_PAGE, OPERATOR_GIT_REJECTED);
+      await waitFor("[data-review-action-state='rejected']");
       return;
     }
 

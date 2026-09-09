@@ -294,7 +294,10 @@ export function renderDiffReview(
       counts.textContent = `+${entry.diff.additions} −${entry.diff.deletions}`;
       row.append(counts);
     }
-    if (entry.staged) {
+    // The registered `.ck` staged mark. When the action side is bound the
+    // toggle beside the row carries the same fact *and* the affordance, so a
+    // second, inert ✓ would only be noise.
+    if (entry.staged && !actions) {
       const staged = document.createElement("span");
       staged.className = "ck";
       staged.textContent = "✓";
@@ -319,13 +322,19 @@ export function renderDiffReview(
       toggle.className = "review-stage";
       toggle.dataset.reviewStageToggle = entry.path;
       toggle.dataset.reviewStaged = String(entry.staged);
+      // The family's own `✓` for staged and an empty mark for not, because a
+      // 236 px tree cannot spend fifty pixels on a word without eating the
+      // path — and the path is the thing the operator is reading. The verb
+      // lives in the accessible name and the tooltip, where it is not
+      // competing with `+1 −1` two columns to the left.
       const toggleLabel = translate(
         locale,
         entry.staged ? "d1.review.unstage" : "d1.review.stage",
         {},
       );
-      toggle.textContent = toggleLabel;
+      toggle.textContent = entry.staged ? "✓" : "○";
       toggle.setAttribute("aria-label", `${toggleLabel} ${entry.path}`);
+      toggle.setAttribute("aria-pressed", String(entry.staged));
       const blocked = actionBlockedReason(actions.state, locale);
       toggle.disabled = blocked !== null;
       toggle.title = blocked ?? toggleLabel;
@@ -522,7 +531,7 @@ function renderActionState(
 ): void {
   const block = document.createElement("div");
   block.className = "review-action";
-  block.dataset.reviewAction = "true";
+  block.dataset.reviewActionBlock = "true";
 
   if (state.outcome.state === "pending") {
     const line = document.createElement("p");

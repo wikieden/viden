@@ -138,10 +138,9 @@ GUI 状态：2026-09-09（G1a）已接入读侧。DiffReview 视图在 D1 中央
 上下文，那里的预览就是全部上下文。`base_sha256` 渲染为「预览基于 <8 位> 计算」，
 陈述的是预览所依据的原像，而非「文件此后没有变过」的保证。
 
-宿主的两部分刻意尚未接入。DiffReview 族画出的提交栏保留在位、整体禁用、不挂任何
-处理器，并标注 GUI-CORE-020：操作者 git 动作需要 `frontend-contract-v1` 尚未携带的
-`runtime.operator_git`。统一/分栏切换中的「分栏」出于同样的诚实原因可见且禁用 ——
-本版本只实现了统一视图。冲突内容（GUI-CORE-015）属于另一个批次。
+DiffReview 族画出的提交栏自 2026-09-09 起已经可用；动作侧以及客户端刻意不做的事见
+GUI-CORE-020。统一/分栏切换中的「分栏」出于诚实仍然可见且禁用 —— 本版本只实现了统一
+视图。冲突内容（GUI-CORE-015）属于另一个批次。
 
 ## GUI-CORE-013：待确认契约事实
 
@@ -334,9 +333,34 @@ Viden 中始终只有一份 git 实现。
 与 `stash` 被刻意排除，每一项的理由都记录在前端集成契约中；`pull` 待 `0.3.4` 冲突内容
 能够呈现其结果后再议。
 
-GUI 状态：尚未采纳。sync chip 仍是 `role=status`，提交栏仍未构建；把 chip 升级为控件
-（`ahead > 0` 时 push，否则 fetch；capability 缺失时禁用并标注而非隐藏）以及补上
-DiffReview 提交栏，将随 DiffReview 宿主批次落地，与 GUI-CORE-012、GUI-CORE-015 一并进行。
+GUI 状态：已采纳，2026-09-09（G1b）。DiffReview 提交栏与标题栏同步芯片都会动作。每个
+控件通过 CoreClient 缝隙发送一条带客户端自选 `command_id` 的 `RunOperatorGitAction`；
+只有点名该 id 的有序事件才能结算它；同一时刻只有一个动作在途。客户端渲染本请求的答案
+所区分的三件事实，并且从不把它们合并：`CommandRejected` 是 Core 效果前的原话，逐字放进
+alert；`Failed` 结果是该类别的本地化句子加上 git 的 `detail` 原文；`Completed` 的成功行
+由结果中**重新采样**的 `source` 构成，而不是由 git 的输出得出 —— 输出收折在折叠区之后，
+并带自己的截断说明。提供的恢复动作就是本契约为该类别指名的那一个 —— `NonFastForward`
+给 fetch、`NoUpstream` 给「推送并设置 upstream」—— 而 `AuthenticationRequired` 不给，
+因为那里的重试按钮只会变成针对本客户端无法提供的凭据的重试循环。`Ask` 以普通的、按
+owner 限定并带 `target.kind = "git"` 的 `ApprovalRequested` 抵达既有权限坞；提交栏说明
+它在等哪个动作，并在坞给出结论之前保持不可用。
+
+按本契约，客户端**不做**的事：不做 pull、merge、rebase、`commit --amend`、reset、强制
+推送、删除分支、switch、checkout 或 stash —— 界面上任何位置都不提供，且同步芯片的提示在
+两种语言里都写明 pull 被排除，而不是让操作者去猜为什么一个「同步」控件只会 fetch。它不
+自己驱动 `git`，也不退化成 shell 命令。它不从 `output` 推断成功；在提交回报 `Completed`
+之前绝不发送「提交并推送」的后一半 —— 提交失败或被拒绝会中止这一对并如实说明。
+
+有一条客户端本地的限制值得记录，而不是留给以后重新发现。`RunOperatorGitAction` 要求
+`owner` 与信封 owner 一致，而 Core 按 Lane 发布 owner 绑定，因此本客户端只以 Core 为
+驾驶舱当前选中 Lane 绑定的那个精确 `RuntimeOwner` 代行。没有精确绑定 Lane 的驾驶舱就
+没有可指名的执行身份：此时提交栏与芯片禁用并标注客户端本地编码
+`D1-OPERATOR-GIT-OWNER`，而不是发送 `RuntimeOwner::default()` —— 那会把一次已授权的
+变更记成「不属于任何人」。这不是重新打开一条 Core 请求 —— 该能力完全按规范工作 —— 但
+一个工作区级的操作者身份会消除这条限制，未来的请求也会是这个形状。
+
+D1 的 `apply` 不可用行不再是无条件的：只有在 Core 构建确实没有发布
+`runtime.operator_git` 时它才保留，并且直接指名那项能力，而不是暗示本条目仍然开启。
 
 ## GUI-CORE-021：Pull request 与 forge 状态
 

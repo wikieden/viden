@@ -173,13 +173,11 @@ the whole context there. `base_sha256` renders as "Preview computed against
 <8 chars>", stated as the preimage the preview was computed against rather
 than as a guarantee that the file has not moved since.
 
-Two parts of the host are deliberately not adopted yet. The commit bar the
-DiffReview family draws is present, fully disabled, carries no handlers, and
-names GUI-CORE-020: operator git actions need `runtime.operator_git`, which
-`frontend-contract-v1` does not carry. The Split half of the Unified/Split
-segmented control is visible and disabled for the same reason of honesty —
-only the unified body is built. Conflict content (GUI-CORE-015) is a separate
-batch.
+The commit bar the DiffReview family draws is live as of 2026-09-09; see
+GUI-CORE-020 for the action side and what the client deliberately does not do.
+The Split half of the Unified/Split segmented control is still visible and
+disabled, for honesty — only the unified body is built. Conflict content
+(GUI-CORE-015) is a separate batch.
 
 ## GUI-CORE-013: Pending contract-confirmation fact
 
@@ -436,11 +434,46 @@ unknowable and the sync chip would read "in sync" forever. And `pull`, `merge`,
 the frontend integration contract; `pull` is revisited in `0.3.4` once conflict
 content can render its result.
 
-GUI status: not yet adopted. The sync chip is still `role=status` and the commit
-bar is still unbuilt; promoting the chip to a control (push when `ahead > 0`,
-fetch otherwise, disabled and labelled rather than hidden when the capability is
-absent) and adding the DiffReview commit bar land with the DiffReview host
-batch, together with GUI-CORE-012 and GUI-CORE-015.
+GUI status: adopted 2026-09-09 (G1b). The DiffReview commit bar and the titlebar
+sync chip both act. Each control sends one `RunOperatorGitAction` through the
+CoreClient seam with a client-chosen `command_id`; only an ordered event naming
+that id settles it; one action is in flight at a time. The client renders the
+three facts this request's answer keeps apart and never merges them: a
+`CommandRejected` is Core's pre-effect reason verbatim in an alert, a `Failed`
+outcome is the localized sentence for Core's class plus git's `detail` verbatim,
+and a `Completed` success line is built from the outcome's *resampled* `source`
+rather than from git's output, which is collapsed behind a disclosure with its
+own truncation note. The recovery offered is the one this contract names for the
+class — fetch for `NonFastForward`, `Push and set upstream` for `NoUpstream` —
+and `AuthenticationRequired` gets none, because a retry button there is a retry
+loop against a credential the client cannot supply. An `Ask` reaches the
+existing permission dock as an ordinary owner-scoped `ApprovalRequested` with
+`target.kind = "git"`; the bar names the action it is waiting on and stays
+inert until the dock resolves it.
+
+What the client does **not** do, by this contract: no pull, merge, rebase,
+`commit --amend`, reset, force push, branch delete, switch, checkout, or stash —
+none of them is offered anywhere, and the sync chip's tooltip states in both
+languages that pull is excluded rather than leaving the operator to wonder why a
+"sync" control only fetches. It does not drive `git` itself and does not fall
+back to a shell command. It does not infer success from `output`, and it never
+sends the push half of "commit and push" until the commit reports `Completed`;
+a failed or refused commit stops the pair and says so.
+
+One client-local limit is worth recording rather than leaving to be
+rediscovered. `RunOperatorGitAction` requires an `owner` matching its envelope
+owner, and Core publishes owner bindings per Lane, so this client acts only as
+the exact `RuntimeOwner` Core bound to the cockpit's selected Lane. A cockpit
+with no exactly-bound Lane has no actor to name: the bar and the chip are then
+disabled and labelled `D1-OPERATOR-GIT-OWNER`, a client-local code, rather than
+sending `RuntimeOwner::default()`, which would record an authorized mutation as
+belonging to nobody. This is not a re-opened Core request — the capability works
+as specified — but a workspace-scoped operator identity would remove the limit,
+and it is the shape a future request would take.
+
+D1's `apply` unavailable row is no longer unconditional: it survives only for a
+Core build that genuinely publishes no `runtime.operator_git`, and then names
+the capability rather than implying this entry is still open.
 
 ## GUI-CORE-021: Pull request and forge status
 

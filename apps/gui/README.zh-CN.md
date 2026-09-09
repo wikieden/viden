@@ -311,9 +311,9 @@ CLI 标识符，以及一行说明——从同一个 `statusbar.permissionLevel`
 驾驶舱标题栏承载工作区的源码管理事实：host 依据 Core 的 `workspace_source` 采样
 计算，投影为 `topbarSource`。项目选择器显示 Core 发布的项目名——Core 未命名时显示
 它确实发布的工作区路径，绝不从路径推导名称——其后是 `⎇ <分支>`，采样报告有未提交
-更改时再加一个 dirty 标记。旁边的 `.gitops` 块含两个 chip：`↑ahead ↓behind` 是
-`role=status` 元素而非按钮，因为 frontend-contract-v1 没有发布任何面向操作者的 git
-命令（契约请求 `GUI-CORE-020`）；`⎇ N 个工作树` 是该块唯一的控件，点击进入 D10 Lane
+更改时再加一个 dirty 标记。旁边的 `.gitops` 块含两个 chip：`↑ahead ↓behind` 自
+`runtime.operator_git` 起是一个操作者控件（push/fetch 规则见 DiffReview 一节；在没有
+动作端口的宿主上它仍退回 `role=status` 只读芯片）；`⎇ N 个工作树` 点击进入 D10 Lane
 监视墙，未注入导航回调时禁用。`N` 统计项目活跃 Lane 的去重工作树：Core 没有发布 git
 worktree 清单，且两个 Lane 共用一个工作树只算一个。Core 未发布工作区源或报告其
 unavailable 时，整块省略，而不是渲染会被读成「干净且已同步」的零值；truncated 采样
@@ -334,10 +334,11 @@ Transcript 最多保留 240 行。离开最新输出边缘后会设为 `follow_l
 dark/regular 英文、Ice light/regular 英文、Aurora dark/regular 中文、compact density
 和 responsive drawer 状态，并包含一个由 `d1-main-cockpit.json` 填充的独立同状态设计
 reference。它还包含一个补充 Context Dock bottom-state capture，用于证明下方事实可通过内部
-滚动到达。结构化 diff 行（`GUI-CORE-012`）、操作者 apply 与 commit（`GUI-CORE-020`）、
-checkpoint 捕获与恢复（渲染为 `GUI-CORE-003`，契约请求 `GUI-CORE-018`）始终是明确
-unavailable facts；D1 不会伪造成功占位。`audit` 行已移除：Core 的审计时间线已关闭该缺口，
-再保留该行只会是关于 Core 的过期陈述，而不是事实。
+滚动到达。checkpoint 捕获与恢复（渲染为 `GUI-CORE-003`，契约请求 `GUI-CORE-018`）
+仍是明确的 unavailable fact；D1 不会伪造成功占位。`audit`、`diff` 与 `apply` 三行已
+移除：Core 的审计时间线、`runtime.structured_diff` 与 `runtime.operator_git` 已关闭
+这些缺口，再保留只会是关于 Core 的过期陈述而不是事实。面对真正没有这两项能力的 Core
+构建，`diff` 与 `apply` 仍会出现，并直接指名那项能力。
 
 ## 项目、最近工作与分组侧栏
 
@@ -510,10 +511,51 @@ Core。客户端不执行 git，也不解析 diff 文本。
 Core 自己的 `staged` 标记与逐文件计数。长路径保住文件名：目录一半让位的速度快一百倍，
 完整路径挂在该行的 title 上。
 
-**等待 C2 的部分。** 该族画出的提交栏保留在位、整体禁用、不挂任何处理器，并标注
-`GUI-CORE-020` —— 操作者 git 动作需要 `frontend-contract-v1` 尚未携带的
-`runtime.operator_git`。「分栏」可见且禁用，因为只实现了统一视图。冲突内容属于
-`GUI-CORE-015`，是另一个批次。
+**动作侧**（`runtime.operator_git`、GUI-CORE-020）。提交栏会动作，标题栏同步芯片也会。
+每个按钮通过 CoreClient 缝隙发送一条带客户端自选 `command_id` 的
+`RunOperatorGitAction`，并且只有点名该 id 的有序事件才能结算它。客户端不跑 git、不退化
+成 shell 命令，也绝不从 `output` 里读取任何事实。
+
+- **提交栏。** 一个以 Core 的 4 KiB 为界的提交信息框 —— 按 UTF-8 字节计，也就是 Core
+  自己度量的单位，这样中文信息不会先越过一个 Core 随后拒绝的上限 —— 外加「全部暂存」
+  （`Stage { paths: [] }`）、「提交」与「提交并推送」。每个文件行带一个暂存/取消暂存
+  开关，方向由 Core 自身的 `staged` 决定；客户端绝不从 Core 已据以推导的 index 分类中
+  重新推导它。
+- **「提交并推送」是两条命令。** 只有在提交回报 `Completed`（Core 的类型化答案，而不是
+  对 git 输出的解读）之后才发送推送。提交失败或被拒绝会中止这一对，并且提交栏会说明推送
+  没有发出 —— 悄悄丢掉后一半，会让操作者以为分支已经发布。
+- **一次只有一个动作**，严格按 `command_id` 关联。提交栏是一个只有一个信息框的界面，
+  第二个在途动作只能和第一个抢同一个 index。
+- **执行身份来自 Core。** `RunOperatorGitAction` 要求 owner 与信封 owner 一致，审计记录
+  也需要一个真实的 owner，因此动作只会带着 Core 为该 Lane 绑定的那个精确 `RuntimeOwner`
+  发出。没有它时 host 以 `D1-OPERATOR-GIT-OWNER` 在本地拒绝，而不是发一个默认 owner ——
+  那会把一次已授权的变更记成「不属于任何人」。`target` 就是当前评审正在读取的那个
+  `SourceTarget`。
+- **重新读取，而不是打补丁。** 动作结算后，Core 随之发布的 `WorkspaceSourceUpdated` 会
+  使该页失效，评审沿着 Core 侧写入所走的同一条去抖失效路径重新读取。
+
+**动作侧的诚实规则**，每条都有自己的句子和自己的测试：
+
+| Core 事实 | 视图渲染 |
+| --- | --- |
+| `CommandRejected` | Core 的原因逐字放进 `role=alert`。拒绝发生在任何东西运行**之前** |
+| `Failed { class, detail }` | 该类别的本地化句子，加上 git 的 `detail` 原文。效果**确实**被尝试并已审计；绝不画成「拒绝」 |
+| `Completed` | 由结果中重新采样的 `source` 构成的一行 —— 分支、领先、落后、干净或有变更 —— 绝不来自输出文本 |
+| `Completed.output` | 收折在「Git 输出」之后，`truncated` 时另配一条说明 |
+| `target.kind = "git"` 的 `ApprovalRequested` | 决策归权限坞所有；提交栏说明它在等哪个动作并保持不可用 |
+| 没有 `runtime.operator_git` | 每个控件可见、禁用并指名那项能力 —— 而不是已经关闭的 `GUI-CORE-020` |
+| 有在途动作，或 `workspace_source.status != Ready` | 同步芯片禁用并标注原因，同时仍说明它本来会做什么 |
+
+提供的恢复动作只有契约为该类别指名的那一个：`NonFastForward` 给 fetch、`NoUpstream`
+给「推送并设置 upstream」，而 `AuthenticationRequired` **什么都不给** —— 那里的重试按钮
+只会变成针对本客户端无法提供的凭据的重试循环。无法识别的类别保留自己的句子和 Core 的
+`detail`，而不是借用最接近的那一个，后者会给出错误的下一步。
+
+**标题栏同步芯片**是控件：Core 重新采样的计数说明有本地工作时是 `Push`，其余状态
+（落后，或干净）都是 `Fetch`。它绝不提供 `Pull`，提示里也写明了原因：契约在 `0.3.3`
+排除了 pull、merge、rebase、`commit --amend`、reset、强制推送、删除分支、switch 与
+stash，每一项的理由都记录在前端集成契约里。「分栏」仍然可见且禁用，因为只实现了统一
+视图。冲突内容属于 `GUI-CORE-015`，是另一个批次。
 
 **审批决策上下文。** 同一个行渲染器在 D1 权限坞与 D2 决策详情中渲染
 `ApprovalRequestView.decision_context`，在 D1 变更文件卡片中渲染
