@@ -25,8 +25,12 @@ use super::input::{
 use super::jump::{JumpIndex, JumpItem, JumpKind};
 use super::keymap::{InputIntent, InputMode, OverlayKind, RuntimeFacts, reduce_input};
 use super::modal::{
-    AcpPickerRowKind, DEFAULT_APPROVAL_FOCUS, acp_picker_rows, interaction_panel_choice_count,
-    selected_interaction_command,
+    AcpPickerRowKind, DEFAULT_APPROVAL_FOCUS, GitPickerRowKind, acp_picker_rows, git_picker_rows,
+    git_target, interaction_panel_choice_count, selected_interaction_command,
+};
+use super::operator_git::{
+    OPERATOR_GIT_CAPABILITY, OperatorGitSettlement, action_label_key, collapsed_output,
+    failure_copy,
 };
 use super::preferences::{
     ColorDepth, PreferenceField, SettingsPanel, TerminalCapabilities,
@@ -34,8 +38,8 @@ use super::preferences::{
 };
 use super::projection::{CancelOwnerProjection, CockpitProjection};
 use super::state::{
-    AcpPickerPhase, FocusedConversation, InteractionPanel, Lens, OverlayState, PendingAcpStart,
-    PendingNativeLane, SupervisionInput, SupervisionPanel, TuiEntry, TuiState,
+    AcpPickerPhase, FocusedConversation, GitPickerPhase, InteractionPanel, Lens, OverlayState,
+    PendingAcpStart, PendingNativeLane, SupervisionInput, SupervisionPanel, TuiEntry, TuiState,
     runtime_has_active_work,
 };
 use super::terminal::TerminalGuard;
@@ -1442,11 +1446,228 @@ fn open_local_picker_command<C: CoreClient>(
                 phase: AcpPickerPhase::Browse,
             })
         }
+        // Selector-first, exactly like `/acp`: opening the picker sends no
+        // command and takes no lock. The rows stay listed without the
+        // capability, so an operator can see the surface and why it is inert.
+        "/git" | "/source" => Some(InteractionPanel::GitPicker {
+            selected: 0,
+            phase: GitPickerPhase::Browse,
+        }),
         _ => return Ok(false),
     };
     state.ui.input.clear();
     reset_for_input_change(state);
     Ok(true)
+}
+
+/// Picks one `/git` row: open the commit prompt, or send exactly one action.
+///
+/// Nothing here decides anything. The client sends `RunOperatorGitAction` and
+/// waits for Core's ordered answer; it never runs `git`, never falls back to a
+/// shell, and never treats the acceptance receipt as an outcome.
+fn apply_git_picker_selection<C: CoreClient>(
+    driver: &mut TuiClientDriver<C>,
+    state: &mut TuiState,
+    selected: usize,
+    phase: &GitPickerPhase,
+) -> Result<(), TuiClientError> {
+    if !driver.has_capability(OPERATOR_GIT_CAPABILITY) {
+        return Ok(());
+    }
+    let action = match phase {
+        GitPickerPhase::Browse => match git_picker_rows(state).get(selected).map(|row| &row.kind) {
+            Some(GitPickerRowKind::Send(action)) => action.clone(),
+            Some(GitPickerRowKind::Commit) => {
+                state.ui.interaction_panel = Some(InteractionPanel::GitPicker {
+                    selected,
+                    phase: GitPickerPhase::CommitMessage {
+                        draft: String::new(),
+                    },
+                });
+                return Ok(());
+            }
+            Some(GitPickerRowKind::Dismiss) => {
+                // Local escape only: Core still owns the command and may still
+                // apply it, so this settles nothing and composes no outcome.
+                state.operator_git.abandon();
+                state.ui.entries.push(TuiEntry {
+                    label: "system".to_string(),
+                    body: super::i18n::text(state, "git.dismiss.hint"),
+                });
+                state.ui.interaction_panel = None;
+                return Ok(());
+            }
+            Some(GitPickerRowKind::Disabled) | None => return Ok(()),
+        },
+        GitPickerPhase::CommitMessage { draft } => {
+            let message = draft.trim();
+            // Core refuses an empty message and an empty `git commit` would
+            // open an editor in a non-interactive child. Refusing here means
+            // nothing is sent, which is a different fact from "Core said no".
+            if message.is_empty() {
+                return Ok(());
+            }
+            viden_core::OperatorGitAction::Commit {
+                message: message.to_string(),
+            }
+        }
+    };
+    // One action at a time: a second correlation against the same ordered
+    // stream could not be attributed honestly, so it is refused before `send`
+    // and "nothing was sent" stays true.
+    if let Some(pending) = state.operator_git.pending() {
+        state.ui.entries.push(TuiEntry {
+            label: "system".to_string(),
+            body: super::i18n::translate(
+                state,
+                "git.busy",
+                &[("command_id", &pending.command_id.clone())],
+            ),
+        });
+        state.ui.interaction_panel = None;
+        return Ok(());
+    }
+    let target = git_target(state);
+    let owner = operator_git_owner(driver, state, &target);
+    let command_id = driver.send_for_owner(
+        owner.clone(),
+        RuntimeCommand::RunOperatorGitAction {
+            owner,
+            target: target.clone(),
+            action: action.clone(),
+        },
+    )?;
+    state
+        .operator_git
+        .begin(command_id, target, action)
+        .expect("no operator git action is pending; checked above");
+    state.ui.interaction_panel = None;
+    Ok(())
+}
+
+/// The envelope owner one operator action is attributed to.
+///
+/// Core requires the command's `owner` and its envelope owner to be the same
+/// value, so both come from here. For a Lane target it is the runtime owner
+/// *Core published* for that exact Lane; the client never manufactures an owner
+/// naming a Lane whose runtime identity Core has not published, and the audit
+/// record still names the Lane through the action's own target. Everything else
+/// carries this client's default envelope owner, as every other unscoped TUI
+/// command does.
+fn operator_git_owner<C: CoreClient>(
+    driver: &TuiClientDriver<C>,
+    state: &TuiState,
+    target: &viden_core::SourceTarget,
+) -> RuntimeOwner {
+    let viden_core::SourceTarget::Lane { lane_id } = target else {
+        return RuntimeOwner::default();
+    };
+    let capabilities = driver.capabilities();
+    let projection =
+        CockpitProjection::from_with_capabilities(&state.runtime, &state.ui, &capabilities);
+    match projection.cancel_owner_for_lane(lane_id) {
+        CancelOwnerProjection::Available(owner) => owner,
+        CancelOwnerProjection::Unavailable(_) => RuntimeOwner::default(),
+    }
+}
+
+/// Renders one settled operator action as a typed system transcript entry.
+///
+/// Every fact comes from the typed outcome or from the resampled
+/// `WorkspaceSourceView` beside it. `Completed.output` is folded to a line
+/// count and its first line — display text that is rendered, never parsed.
+fn operator_git_entry(state: &TuiState, settlement: &OperatorGitSettlement) -> TuiEntry {
+    let body = match settlement {
+        // Core's own reason, verbatim: only Core knows which rule refused, and
+        // a locally composed sentence would be this client inventing a policy.
+        OperatorGitSettlement::Rejected { reason } => {
+            super::i18n::translate(state, "git.outcome.rejected", &[("reason", reason)])
+        }
+        OperatorGitSettlement::Finished {
+            action,
+            outcome,
+            audit_id,
+        } => {
+            let verb = super::i18n::text(state, action_label_key(action));
+            let detail = match outcome.as_ref() {
+                viden_core::OperatorGitOutcome::Completed {
+                    output,
+                    truncated,
+                    source,
+                } => {
+                    let (lines, first) = collapsed_output(output);
+                    let truncated_note = if *truncated {
+                        super::i18n::text(state, "git.output.truncated")
+                    } else {
+                        String::new()
+                    };
+                    super::i18n::translate(
+                        state,
+                        "git.outcome.completed",
+                        &[
+                            ("action", &verb),
+                            (
+                                "branch",
+                                source
+                                    .branch
+                                    .as_deref()
+                                    .unwrap_or(&super::i18n::text(state, "git.source.no_branch")),
+                            ),
+                            ("ahead", &source.ahead.to_string()),
+                            ("behind", &source.behind.to_string()),
+                            (
+                                "dirty",
+                                &super::i18n::text(
+                                    state,
+                                    if source.dirty {
+                                        "git.source.dirty"
+                                    } else {
+                                        "git.source.clean"
+                                    },
+                                ),
+                            ),
+                            ("lines", &lines.to_string()),
+                            ("output", &first),
+                            ("truncated", &truncated_note),
+                        ],
+                    )
+                }
+                viden_core::OperatorGitOutcome::Failed { class, detail } => {
+                    let (message_key, recovery_key) = failure_copy(*class);
+                    super::i18n::translate(
+                        state,
+                        "git.outcome.failed",
+                        &[
+                            ("action", &verb),
+                            ("message", &super::i18n::text(state, message_key)),
+                            ("recovery", &super::i18n::text(state, recovery_key)),
+                            ("detail", detail),
+                        ],
+                    )
+                }
+                // `#[non_exhaustive]`: an outcome this build cannot read is
+                // named as unknown rather than reported as a success.
+                _ => super::i18n::translate(state, "git.outcome.unknown", &[("action", &verb)]),
+            };
+            format!(
+                "{detail}\n{}",
+                super::i18n::translate(state, "git.outcome.audit", &[("audit_id", audit_id)])
+            )
+        }
+    };
+    TuiEntry {
+        label: "system".to_string(),
+        body,
+    }
+}
+
+/// Deterministic previews render the same settled entries the event loop does,
+/// so the evidence cannot drift from the production rendering.
+pub(super) fn operator_git_entry_for_preview(
+    state: &TuiState,
+    settlement: &OperatorGitSettlement,
+) -> TuiEntry {
+    operator_git_entry(state, settlement)
 }
 
 fn move_interaction_selection(state: &mut TuiState, delta: i8) {
@@ -1471,7 +1692,8 @@ fn interaction_selected(state: &TuiState) -> usize {
         | Some(InteractionPanel::ConnectProvider { selected, .. })
         | Some(InteractionPanel::ProviderConfig { selected, .. })
         | Some(InteractionPanel::ModelPicker { selected, .. })
-        | Some(InteractionPanel::AcpPicker { selected, .. }) => *selected,
+        | Some(InteractionPanel::AcpPicker { selected, .. })
+        | Some(InteractionPanel::GitPicker { selected, .. }) => *selected,
         Some(InteractionPanel::NewLaneTask { .. }) => 0,
         _ => 0,
     }
@@ -1505,7 +1727,8 @@ fn set_interaction_panel_selected(state: &mut TuiState, index: usize) {
         | Some(InteractionPanel::ConnectProvider { selected, .. })
         | Some(InteractionPanel::ProviderConfig { selected, .. })
         | Some(InteractionPanel::ModelPicker { selected, .. })
-        | Some(InteractionPanel::AcpPicker { selected, .. }) => *selected = index,
+        | Some(InteractionPanel::AcpPicker { selected, .. })
+        | Some(InteractionPanel::GitPicker { selected, .. }) => *selected = index,
         Some(InteractionPanel::NewLaneTask { .. }) => {}
         _ => {}
     }
@@ -1534,6 +1757,16 @@ fn edit_interaction_panel_text(state: &mut TuiState, value: Option<char>) {
         },
         Some(InteractionPanel::AcpPicker { phase, .. }) => {
             if let AcpPickerPhase::TaskEntry { draft, .. } = phase {
+                match value {
+                    Some(value) => draft.push(value),
+                    None => {
+                        draft.pop();
+                    }
+                }
+            }
+        }
+        Some(InteractionPanel::GitPicker { phase, .. }) => {
+            if let GitPickerPhase::CommitMessage { draft } = phase {
                 match value {
                     Some(value) => draft.push(value),
                     None => {
@@ -1678,6 +1911,12 @@ fn apply_interaction_panel_selection<C: CoreClient>(
         }
         return Ok(false);
     }
+    if let Some(InteractionPanel::GitPicker { selected, phase }) =
+        state.ui.interaction_panel.clone()
+    {
+        apply_git_picker_selection(driver, state, selected, &phase)?;
+        return Ok(false);
+    }
     if let Some(InteractionPanel::NewLaneTask { task }) = state.ui.interaction_panel.clone() {
         if task.trim().is_empty()
             || !driver.has_capability(WORKSPACE_ELIGIBILITY_CAPABILITY)
@@ -1815,6 +2054,16 @@ fn close_interaction_panel_or_palette(key: KeyEvent, state: &mut TuiState) {
         *phase = AcpPickerPhase::Browse;
         return;
     }
+    // Esc unwinds the commit prompt to the action rows before it closes the
+    // panel, and discards the draft: nothing was sent, so nothing is pending.
+    if let Some(InteractionPanel::GitPicker { selected, phase }) =
+        state.ui.interaction_panel.as_mut()
+        && matches!(phase, GitPickerPhase::CommitMessage { .. })
+    {
+        *selected = 1;
+        *phase = GitPickerPhase::Browse;
+        return;
+    }
     if state.ui.interaction_panel.take().is_none() {
         close_on_escape(key, state);
     }
@@ -1829,6 +2078,13 @@ fn observe_driver_events<C: CoreClient>(
         // Confirm-on-fact: a supervision decision settles only when Core
         // publishes the business fact it asked for, never on the receipt.
         state.supervision.observe_event(event);
+        // The operator source-control slot correlates on this client's own
+        // command id, so a `/git` action and a supervision decision never
+        // settle each other and neither can block the other.
+        if let Some(settlement) = state.operator_git.observe_event(event) {
+            let entry = operator_git_entry(state, &settlement);
+            state.ui.entries.push(entry);
+        }
         // The audit read correlates independently of the supervision slot, so a
         // pending decision can never block a page and a page can never settle a
         // decision. With no overlay open there is no panel and the page is
@@ -2559,6 +2815,248 @@ mod tests {
                 ..
             }]
         ));
+    }
+
+    /// `/git` mirrors `/acp`: opening the picker is local and sends nothing,
+    /// and picking a row sends exactly one `RunOperatorGitAction` whose command
+    /// `owner` equals its envelope owner — the equality Core's supervisor
+    /// requires.
+    #[test]
+    fn git_command_opens_a_local_picker_and_sends_one_targeted_action() {
+        let client = FakeCoreClient::default();
+        let sent = Arc::clone(&client.sent);
+        let mut driver = TuiClientDriver::connect(client).expect("connect");
+        let mut state = TuiState {
+            capabilities: driver.capabilities(),
+            ..TuiState::default()
+        };
+        state.ui.input = "/git".into();
+
+        submit_composer(&mut driver, &mut state).expect("open the source-control picker");
+
+        assert!(matches!(
+            state.ui.interaction_panel,
+            Some(InteractionPanel::GitPicker {
+                phase: GitPickerPhase::Browse,
+                ..
+            })
+        ));
+        assert!(
+            sent.lock().expect("sent commands").is_empty(),
+            "opening a selector must send no command"
+        );
+
+        // Row 0 is Stage; empty paths mean "every changed path", so the client
+        // never enumerates a working tree Core owns.
+        apply_git_picker_selection(&mut driver, &mut state, 0, &GitPickerPhase::Browse)
+            .expect("send stage");
+
+        let commands = sent.lock().expect("sent commands");
+        let envelope = commands.first().expect("one action");
+        let RuntimeCommand::RunOperatorGitAction {
+            owner,
+            target,
+            action,
+        } = &envelope.command
+        else {
+            panic!("expected an operator git action: {:?}", envelope.command);
+        };
+        assert_eq!(
+            owner, &envelope.owner,
+            "command actor must match the envelope"
+        );
+        assert_eq!(target, &viden_core::SourceTarget::Workspace);
+        assert_eq!(
+            action,
+            &viden_core::OperatorGitAction::Stage { paths: Vec::new() }
+        );
+        assert_eq!(
+            state.operator_git.pending().map(|p| p.command_id.as_str()),
+            Some(envelope.command_id.as_str())
+        );
+        assert!(state.ui.interaction_panel.is_none());
+    }
+
+    /// Commit is the only action with text, and an empty draft must not reach
+    /// Core: `git commit` with no message opens an editor in a non-interactive
+    /// child. A focused Lane makes the action name that Lane, never a path.
+    #[test]
+    fn git_commit_needs_a_message_and_a_focused_lane_targets_that_lane() {
+        let client = FakeCoreClient::default();
+        let sent = Arc::clone(&client.sent);
+        let mut driver = TuiClientDriver::connect(client).expect("connect");
+        let mut state = TuiState {
+            capabilities: driver.capabilities(),
+            ..TuiState::default()
+        };
+        state.runtime.lanes = serde_json::from_str(include_str!(
+            "../../../../crates/types/tests/fixtures/frontend-contract-v1/typed-lanes.json"
+        ))
+        .expect("typed lanes");
+        let lane_id = state.runtime.lanes[0].id.clone();
+        state.ui.focused_lane = Some(lane_id.clone());
+
+        // Picking Commit opens the prompt and sends nothing.
+        apply_git_picker_selection(&mut driver, &mut state, 1, &GitPickerPhase::Browse)
+            .expect("open the commit prompt");
+        assert!(matches!(
+            state.ui.interaction_panel,
+            Some(InteractionPanel::GitPicker {
+                phase: GitPickerPhase::CommitMessage { .. },
+                ..
+            })
+        ));
+        assert!(sent.lock().expect("sent commands").is_empty());
+
+        // A blank draft is refused locally: nothing sent, nothing pending.
+        apply_git_picker_selection(
+            &mut driver,
+            &mut state,
+            1,
+            &GitPickerPhase::CommitMessage {
+                draft: "   ".to_string(),
+            },
+        )
+        .expect("refuse the blank message");
+        assert!(sent.lock().expect("sent commands").is_empty());
+        assert!(state.operator_git.pending().is_none());
+
+        apply_git_picker_selection(
+            &mut driver,
+            &mut state,
+            1,
+            &GitPickerPhase::CommitMessage {
+                draft: "  feat(tui): add the /git picker  ".to_string(),
+            },
+        )
+        .expect("send the commit");
+
+        let commands = sent.lock().expect("sent commands");
+        let RuntimeCommand::RunOperatorGitAction { target, action, .. } =
+            &commands.first().expect("one action").command
+        else {
+            panic!("expected an operator git action");
+        };
+        assert_eq!(target, &viden_core::SourceTarget::Lane { lane_id });
+        assert_eq!(
+            action,
+            &viden_core::OperatorGitAction::Commit {
+                message: "feat(tui): add the /git picker".to_string()
+            }
+        );
+    }
+
+    /// Without the capability every row stays listed, rendered disabled with
+    /// the capability's own name, and Enter sends nothing. Grouping, never
+    /// hiding — and never a shell fallback.
+    #[test]
+    fn git_rows_stay_listed_and_inert_without_the_operator_git_capability() {
+        let mut capabilities = viden_core::frontend_capabilities();
+        capabilities.remove(&viden_core::CapabilityId(
+            OPERATOR_GIT_CAPABILITY.to_string(),
+        ));
+        let client = FakeCoreClient {
+            transport: FakeCoreTransport {
+                capabilities: Some(capabilities),
+                ..FakeCoreTransport::default()
+            },
+            ..FakeCoreClient::default()
+        };
+        let sent = Arc::clone(&client.sent);
+        let mut driver =
+            TuiClientDriver::connect(client).expect("a missing extension must not block startup");
+        let mut state = TuiState {
+            capabilities: driver.capabilities(),
+            ..TuiState::default()
+        };
+
+        let rows = crate::tui::modal::git_picker_rows(&state);
+
+        assert_eq!(rows.len(), 4, "grouping never hides the surface");
+        assert!(
+            rows.iter()
+                .all(|row| matches!(row.kind, GitPickerRowKind::Disabled)
+                    && row.label.contains(OPERATOR_GIT_CAPABILITY)),
+            "{rows:?}"
+        );
+
+        apply_git_picker_selection(&mut driver, &mut state, 0, &GitPickerPhase::Browse)
+            .expect("a disabled row sends nothing");
+        assert!(sent.lock().expect("sent commands").is_empty());
+    }
+
+    /// Replays the shared `operator-git.json` fixture: a refusal before
+    /// anything ran, a completed commit, and a push that failed *after* the
+    /// gate. All three reach the transcript as typed system entries, and none
+    /// of them is read out of git's output text.
+    #[test]
+    fn operator_git_fixture_replays_into_typed_outcome_entries() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../crates/types/tests/fixtures/frontend-contract-v1/operator-git.json"
+        ))
+        .expect("operator git fixture");
+        let events = fixture["events"]
+            .as_array()
+            .expect("fixture events")
+            .iter()
+            .filter_map(|value| {
+                let envelope: RuntimeEventEnvelope =
+                    serde_json::from_value(value.clone()).expect("fixture envelope");
+                match envelope.event {
+                    RuntimeWireEvent::Known(event) => Some(event),
+                    RuntimeWireEvent::Unknown { .. } => None,
+                }
+            })
+            .collect::<Vec<_>>();
+
+        let mut state = TuiState {
+            capabilities: viden_core::frontend_capabilities(),
+            ..TuiState::default()
+        };
+        let mut settled = Vec::new();
+        for command_id in [
+            "operator_git_stage_refused",
+            "operator_git_commit",
+            "operator_git_push",
+        ] {
+            let mut machine = crate::tui::state::OperatorGitMachine::default();
+            machine
+                .begin(
+                    command_id,
+                    viden_core::SourceTarget::Workspace,
+                    viden_core::OperatorGitAction::Fetch { remote: None },
+                )
+                .expect("nothing in flight");
+            for event in &events {
+                if let Some(settlement) = machine.observe_event(event) {
+                    settled.push(operator_git_entry(&state, &settlement));
+                    break;
+                }
+            }
+        }
+        state.ui.entries.extend(settled.clone());
+
+        assert_eq!(settled.len(), 3, "every fixture command must settle");
+        // Refused before anything ran: Core's reason verbatim, no recovery
+        // invented, and never labelled as a failure of git itself.
+        assert!(settled[0].body.contains("refused before anything ran"));
+        assert!(
+            settled[0]
+                .body
+                .contains("git_add is denied by a workspace rule")
+        );
+        // Completed: the resampled source, not a fact read out of the output.
+        assert!(settled[1].body.contains("completed"));
+        assert!(settled[1].body.contains("codex/v3-core-runtime"));
+        assert!(settled[1].body.contains("ahead 2"));
+        assert!(settled[1].body.contains("clean"));
+        assert!(settled[1].body.contains("audit_operator_git_commit"));
+        // Failed after the gate: the localized class and its recovery, plus
+        // Core's own detail. This is an event, not a `CommandRejected`.
+        assert!(settled[2].body.contains("failed"));
+        assert!(settled[2].body.contains("this branch has no upstream"));
+        assert!(settled[2].body.contains("push again with set upstream"));
+        assert!(!settled[2].body.contains("refused before anything ran"));
     }
 
     #[test]
@@ -6430,7 +6928,10 @@ mod tests {
         }
         assert_eq!(state.ui.overlay.as_ref().expect("jump").selected, 0);
 
-        state.ui.overlay.as_mut().expect("jump").selected = 13;
+        // The last command row: fifteen registered commands since `/git`
+        // joined the registry, so the clamp sits one row further down.
+        let last_command = super::super::command_palette::command_registry().len() - 1;
+        state.ui.overlay.as_mut().expect("jump").selected = last_command;
         for code in [KeyCode::Down, KeyCode::Char('j')] {
             handle_ui_event(
                 &mut driver,
@@ -6440,7 +6941,10 @@ mod tests {
             )
             .expect("clamp at last result");
         }
-        assert_eq!(state.ui.overlay.as_ref().expect("jump").selected, 13);
+        assert_eq!(
+            state.ui.overlay.as_ref().expect("jump").selected,
+            last_command
+        );
 
         let overlay = state.ui.overlay.as_mut().expect("jump");
         overlay.filter = ">no-such-command".to_string();

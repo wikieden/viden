@@ -36,6 +36,11 @@ const COMMANDS: &[CommandDefinition] = &[
         keywords: "agent codex claude kiro session",
     },
     CommandDefinition {
+        command: "/git",
+        summary: "Run a Core operator source-control action",
+        keywords: "git source control stage commit push fetch",
+    },
+    CommandDefinition {
         command: "/decisions",
         summary: "Open approvals and gates",
         keywords: "approval gate ask",
@@ -185,6 +190,7 @@ fn is_exact_command(state: &TuiState) -> bool {
             | "/permissions read-only"
             | "/status"
             | "/acp"
+            | "/git"
     ) || state
         .runtime
         .lanes

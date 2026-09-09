@@ -666,6 +666,9 @@ mod tests {
                 .map(|item| item.kind)
                 .collect::<Vec<_>>(),
             vec![
+                // Fifteen registered commands since `/git` joined the registry
+                // (`runtime.operator_git`, GUI-CORE-020).
+                JumpKind::Command,
                 JumpKind::Command,
                 JumpKind::Command,
                 JumpKind::Command,

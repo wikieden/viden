@@ -14,6 +14,7 @@ use super::{
     glyphs::Glyph,
     jump::JumpIndex,
     keymap::OverlayKind,
+    operator_git::{OPERATOR_GIT_CAPABILITY, action_label_key},
     panel::panel,
     pending::SupervisionOutcome,
     preferences::{
@@ -21,7 +22,7 @@ use super::{
         color_depth_label_key, density_label_key, mode_label_key, motion_label_key, skin_label_key,
     },
     projection::CockpitProjection,
-    state::{AcpPickerPhase, InteractionPanel, TuiState, has_active_work},
+    state::{AcpPickerPhase, GitPickerPhase, InteractionPanel, TuiState, has_active_work},
     text::{truncate, truncate_tail},
 };
 
@@ -50,6 +51,34 @@ pub(super) enum AcpPickerRowKind {
         startability: viden_core::AgentStartability,
     },
     Disabled,
+}
+
+/// What one `/git` row does when it is picked.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum GitPickerRowKind {
+    /// Sends this exact action. `Stage` carries no paths, so Core stages every
+    /// changed path — the client never enumerates a working tree it does not
+    /// own.
+    Send(viden_core::OperatorGitAction),
+    /// Opens the one-line message prompt. Nothing is sent yet: Core refuses an
+    /// empty commit message, and an empty `git commit` would open an editor in
+    /// a non-interactive child.
+    Commit,
+    /// Rendered, selectable, and inert. Grouping, never hiding: an operator has
+    /// to be able to see that the surface exists and why it cannot act.
+    Disabled,
+    /// Local escape from a stranded correlation, offered only while one action
+    /// is in flight and appended last so it never shifts a real row's index.
+    /// It sends nothing and settles nothing: Core owns the command and the
+    /// effect may still land.
+    Dismiss,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct GitPickerRow {
+    pub(super) id: String,
+    pub(super) label: String,
+    pub(super) kind: GitPickerRowKind,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -164,6 +193,10 @@ pub(super) fn render_overlays(frame: &mut Frame, state: &TuiState, _right_rail_w
             Some(InteractionPanel::AcpPicker { phase, .. }) => match phase {
                 AcpPickerPhase::Browse => "interaction.acp",
                 AcpPickerPhase::TaskEntry { .. } => "interaction.acp.task",
+            },
+            Some(InteractionPanel::GitPicker { phase, .. }) => match phase {
+                GitPickerPhase::Browse => "interaction.git",
+                GitPickerPhase::CommitMessage { .. } => "interaction.git.commit",
             },
             Some(InteractionPanel::NewLaneTask { .. }) => "interaction.native_lane.task",
             None => unreachable!("panel presence checked above"),
@@ -897,6 +930,30 @@ fn interaction_rows(state: &TuiState) -> Vec<String> {
                 format!("> {draft}"),
             ],
         },
+        Some(InteractionPanel::GitPicker { selected, phase }) => match phase {
+            GitPickerPhase::Browse => {
+                let mut rows = git_picker_rows(state)
+                    .into_iter()
+                    .enumerate()
+                    .map(|(index, row)| {
+                        format!(
+                            "{} {}",
+                            if index == *selected { ">" } else { " " },
+                            row.label
+                        )
+                    })
+                    .collect::<Vec<_>>();
+                // Appended *after* every pickable row, so it can never shift
+                // the index a keyboard or mouse selection resolves to.
+                rows.push(git_target_row(state));
+                rows
+            }
+            GitPickerPhase::CommitMessage { draft } => vec![
+                git_target_row(state),
+                super::i18n::text(state, "git.commit.prompt"),
+                format!("> {draft}"),
+            ],
+        },
         Some(InteractionPanel::NewLaneTask { task }) => {
             let eligibility = state.runtime.workspace_eligibility.as_ref();
             let status = match eligibility {
@@ -922,6 +979,134 @@ fn interaction_rows(state: &TuiState) -> Vec<String> {
         }
         None => Vec::new(),
     }
+}
+
+/// The Core source-control target this client's `/git` rows act on.
+///
+/// A focused Lane names that Lane; anything else is the workspace. The client
+/// passes the *target*, never a path: Core validates the Lane and resolves its
+/// worktree from its own records, so a stale or archived Lane comes back as a
+/// refusal instead of quietly acting on the workspace root.
+pub(super) fn git_target(state: &TuiState) -> viden_core::SourceTarget {
+    match state.ui.focused_lane.as_deref() {
+        Some(lane_id) if state.runtime.lanes.iter().any(|lane| lane.id == lane_id) => {
+            viden_core::SourceTarget::Lane {
+                lane_id: lane_id.to_string(),
+            }
+        }
+        _ => viden_core::SourceTarget::Workspace,
+    }
+}
+
+/// The context row under the `/git` choices: which tree, and what Core last
+/// said about it.
+///
+/// The source facts are the ones Core published; nothing here is sampled or
+/// derived locally, and an unpublished source renders as unknown rather than as
+/// a clean tree.
+fn git_target_row(state: &TuiState) -> String {
+    let target = match git_target(state) {
+        viden_core::SourceTarget::Lane { lane_id } => lane_id,
+        _ => super::i18n::text(state, "git.target.workspace"),
+    };
+    let Some(source) = state.runtime.workspace_source.as_ref() else {
+        return super::i18n::translate(state, "git.source.unknown", &[("target", &target)]);
+    };
+    super::i18n::translate(
+        state,
+        "git.source",
+        &[
+            ("target", &target),
+            (
+                "branch",
+                source
+                    .branch
+                    .as_deref()
+                    .unwrap_or(&super::i18n::text(state, "git.source.no_branch")),
+            ),
+            ("ahead", &source.ahead.to_string()),
+            ("behind", &source.behind.to_string()),
+            (
+                "dirty",
+                &super::i18n::text(
+                    state,
+                    if source.dirty {
+                        "git.source.dirty"
+                    } else {
+                        "git.source.clean"
+                    },
+                ),
+            ),
+        ],
+    )
+}
+
+/// The four operator source-control rows, in the fixed order Stage, Commit,
+/// Push, Fetch.
+///
+/// Without the capability every row stays listed and is rendered disabled with
+/// the capability's own name, because a client that hid them would tell an
+/// operator this surface does not exist. Without it the client also does not
+/// drive `git` itself and does not fall back to a shell.
+pub(super) fn git_picker_rows(state: &TuiState) -> Vec<GitPickerRow> {
+    let available = state.has_capability(OPERATOR_GIT_CAPABILITY);
+    let unavailable = super::i18n::translate(
+        state,
+        "git.unavailable",
+        &[("capability", OPERATOR_GIT_CAPABILITY)],
+    );
+    [
+        (
+            "stage",
+            GitPickerRowKind::Send(viden_core::OperatorGitAction::Stage { paths: Vec::new() }),
+        ),
+        ("commit", GitPickerRowKind::Commit),
+        (
+            "push",
+            GitPickerRowKind::Send(viden_core::OperatorGitAction::Push {
+                remote: None,
+                set_upstream: false,
+            }),
+        ),
+        (
+            "fetch",
+            GitPickerRowKind::Send(viden_core::OperatorGitAction::Fetch { remote: None }),
+        ),
+    ]
+    .into_iter()
+    .map(|(id, kind)| {
+        let label_key = match &kind {
+            GitPickerRowKind::Send(action) => action_label_key(action),
+            // The picker row opens a prompt, so it is labelled as such; the
+            // outcome entry names the same action as a plain verb.
+            GitPickerRowKind::Commit => "git.action.commit_prompt",
+            GitPickerRowKind::Disabled | GitPickerRowKind::Dismiss => "git.unavailable",
+        };
+        let label = super::i18n::text(state, label_key);
+        GitPickerRow {
+            id: format!("git:{id}"),
+            label: if available {
+                label
+            } else {
+                format!("{label} · {unavailable}")
+            },
+            kind: if available {
+                kind
+            } else {
+                GitPickerRowKind::Disabled
+            },
+        }
+    })
+    .chain(state.operator_git.pending().map(|pending| GitPickerRow {
+        id: "git:dismiss".to_string(),
+        label: super::i18n::translate(
+            state,
+            "git.action.dismiss",
+            &[("command_id", &pending.command_id)],
+        ),
+        kind: GitPickerRowKind::Dismiss,
+    }))
+    .collect()
 }
 
 pub(super) fn acp_picker_rows(state: &TuiState) -> Vec<AcpPickerRow> {
@@ -1329,6 +1514,10 @@ pub(super) fn interaction_panel_choice_count(state: &TuiState) -> usize {
                     .is_some_and(|preview| setup_preview_matches_draft(preview, draft)),
             )
         }
+        Some(InteractionPanel::GitPicker { phase, .. }) => match phase {
+            GitPickerPhase::Browse => git_picker_rows(state).len(),
+            GitPickerPhase::CommitMessage { .. } => 1,
+        },
         Some(InteractionPanel::AcpPicker { phase, .. }) => match phase {
             AcpPickerPhase::Browse => acp_picker_rows(state).len(),
             AcpPickerPhase::TaskEntry { .. } => 1,
@@ -1362,7 +1551,9 @@ pub(super) fn selected_interaction_command(state: &TuiState) -> Option<String> {
                     .map(|parts| format!("/model use {} {}", parts[0], parts[1]))
             })
         }
-        InteractionPanel::AcpPicker { .. } | InteractionPanel::NewLaneTask { .. } => None,
+        InteractionPanel::AcpPicker { .. }
+        | InteractionPanel::GitPicker { .. }
+        | InteractionPanel::NewLaneTask { .. } => None,
     }
 }
 
@@ -1549,7 +1740,8 @@ mod tests {
     fn global_jump_windows_rows_to_keep_selected_item_visible() {
         let mut state = TuiState::default();
         let mut overlay = OverlayState::global_jump(None);
-        overlay.selected = 12;
+        // One row further down since `/git` joined the command registry.
+        overlay.selected = 13;
         state.ui.overlay = Some(overlay);
         let mut frame = Frame::new(120, 40);
 
@@ -1770,7 +1962,9 @@ mod tests {
     fn global_jump_window_keeps_default_disabled_tail_selected() {
         let mut state = TuiState::default();
         let mut overlay = OverlayState::global_jump(None);
-        overlay.selected = 14;
+        // The disabled FILES tail, one row further down since `/git` joined
+        // the command registry.
+        overlay.selected = 15;
         state.ui.overlay = Some(overlay);
 
         let rows = global_jump_rows(&state, "");

@@ -1,11 +1,15 @@
-use super::state::{InteractionPanel, Lens, ProviderAuthMode, ProviderOption, TuiEntry, TuiState};
+use super::operator_git::OperatorGitSettlement;
+use super::state::{
+    GitPickerPhase, InteractionPanel, Lens, ProviderAuthMode, ProviderOption, TuiEntry, TuiState,
+};
 use super::{render, terminal};
 use viden_core::{
     AgentLaneRecord, AgentRole, AgentRoute, ApprovalDefaultAction, ApprovalRequestView,
     ApprovalRisk, ApprovalScope, ApprovalTarget, DataEgressPolicy, DecisionContext, DiffDocument,
     DiffFile, DiffHunk, DiffLine, DiffLineKind, ExecutionTarget, GateStrength, LaneBudget,
-    LaneStatus, MutationPolicy, ProjectConfigState, ProjectProbe, ProviderHealthView,
-    WorkspaceChangeKind,
+    LaneStatus, MutationPolicy, OperatorGitAction, OperatorGitFailureClass, OperatorGitOutcome,
+    ProjectConfigState, ProjectProbe, ProviderHealthView, WorkspaceChangeKind,
+    WorkspaceSourceStatus, WorkspaceSourceView,
 };
 
 pub fn render_preview(provider: &str, model: &str) -> String {
@@ -50,6 +54,16 @@ pub fn render_lane_selector_preview(provider: &str, model: &str) -> String {
 
 pub fn render_approval_hunks_preview(provider: &str, model: &str) -> String {
     let state = approval_hunks_preview_state(provider, model, "aurora-cyan");
+    render::render_frame(&state, 140, 40)
+}
+
+pub fn render_git_picker_preview(provider: &str, model: &str) -> String {
+    let state = git_picker_preview_state(provider, model, "aurora-cyan");
+    render::render_frame(&state, 140, 40)
+}
+
+pub fn render_git_outcome_preview(provider: &str, model: &str) -> String {
+    let state = git_outcome_preview_state(provider, model, "aurora-cyan");
     render::render_frame(&state, 140, 40)
 }
 
@@ -166,6 +180,32 @@ pub fn render_ansi_approval_hunks_preview_with_theme(
 ) -> String {
     let theme_name = theme_name.unwrap_or("aurora-cyan");
     let state = approval_hunks_preview_state(provider, model, theme_name);
+    terminal::render_ansi_preview_with_theme(
+        &render::render_frame(&state, 140, 40),
+        Some(theme_name),
+    )
+}
+
+pub fn render_ansi_git_picker_preview_with_theme(
+    provider: &str,
+    model: &str,
+    theme_name: Option<&str>,
+) -> String {
+    let theme_name = theme_name.unwrap_or("aurora-cyan");
+    let state = git_picker_preview_state(provider, model, theme_name);
+    terminal::render_ansi_preview_with_theme(
+        &render::render_frame(&state, 140, 40),
+        Some(theme_name),
+    )
+}
+
+pub fn render_ansi_git_outcome_preview_with_theme(
+    provider: &str,
+    model: &str,
+    theme_name: Option<&str>,
+) -> String {
+    let theme_name = theme_name.unwrap_or("aurora-cyan");
+    let state = git_outcome_preview_state(provider, model, theme_name);
     terminal::render_ansi_preview_with_theme(
         &render::render_frame(&state, 140, 40),
         Some(theme_name),
@@ -662,6 +702,82 @@ fn preview_diff_line(
         old_line,
         new_line,
     }
+}
+
+/// The `/git` operator source-control picker
+/// (`runtime.operator_git`, GUI-CORE-020).
+///
+/// The context row under the choices names the target and the source facts
+/// Core published; nothing in it is sampled locally.
+fn git_picker_preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState {
+    let mut state = preview_state(provider, model, theme_name);
+    state.ui.input = "".into();
+    state.runtime.workspace_source = Some(WorkspaceSourceView {
+        status: WorkspaceSourceStatus::Ready,
+        branch: Some("codex/v3-tui-client".to_string()),
+        worktree: Some("workspace/viden".to_string()),
+        ahead: 2,
+        behind: 0,
+        added: 3,
+        deleted: 1,
+        dirty: true,
+    });
+    state.ui.interaction_panel = Some(InteractionPanel::GitPicker {
+        selected: 1,
+        phase: GitPickerPhase::Browse,
+    });
+    state
+}
+
+/// Both settled shapes of one operator action, side by side: a `Completed`
+/// outcome rendered from the resampled source, and a `Failed` outcome rendered
+/// from the typed class plus its recovery. Neither reads a fact out of git's
+/// output text.
+fn git_outcome_preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState {
+    let mut state = preview_state(provider, model, theme_name);
+    state.ui.input = "".into();
+    state.ui.entries.clear();
+    let source = WorkspaceSourceView {
+        status: WorkspaceSourceStatus::Ready,
+        branch: Some("codex/v3-tui-client".to_string()),
+        worktree: Some("workspace/viden".to_string()),
+        ahead: 3,
+        behind: 0,
+        added: 0,
+        deleted: 0,
+        dirty: false,
+    };
+    for settlement in [
+        OperatorGitSettlement::Finished {
+            action: OperatorGitAction::Commit {
+                message: "feat(tui): add the /git operator action picker".to_string(),
+            },
+            outcome: Box::new(OperatorGitOutcome::Completed {
+                output: "main 1a2b3c4 feat(tui): add the /git operator action picker\n                          2 files changed, 118 insertions"
+                    .to_string(),
+                truncated: false,
+                source: source.clone(),
+            }),
+            audit_id: "audit-preview-commit".to_string(),
+        },
+        OperatorGitSettlement::Finished {
+            action: OperatorGitAction::Push {
+                remote: None,
+                set_upstream: false,
+            },
+            outcome: Box::new(OperatorGitOutcome::Failed {
+                class: OperatorGitFailureClass::NoUpstream,
+                detail: "the current branch has no upstream branch; push with set_upstream                          to create one"
+                    .to_string(),
+            }),
+            audit_id: "audit-preview-push".to_string(),
+        },
+    ] {
+        let entry = super::app::operator_git_entry_for_preview(&state, &settlement);
+        state.ui.entries.push(entry);
+    }
+    state.ui.lens = Lens::Session;
+    state
 }
 
 fn cjk_input_preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState {

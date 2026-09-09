@@ -9,11 +9,12 @@ use viden_core::{
 };
 use viden_types::{AgentNextAction, CapabilityId};
 
+pub(super) use super::operator_git::OperatorGitMachine;
 pub(super) use super::pending::SupervisionMachine;
 pub(super) use super::ui_state::{
-    AcpPickerPhase, FocusedConversation, InteractionPanel, Lens, OverlayState, PendingAcpStart,
-    PendingNativeLane, ProviderAuthMode, ProviderOption, SupervisionInput, SupervisionPanel,
-    TuiEntry, TuiUiState,
+    AcpPickerPhase, FocusedConversation, GitPickerPhase, InteractionPanel, Lens, OverlayState,
+    PendingAcpStart, PendingNativeLane, ProviderAuthMode, ProviderOption, SupervisionInput,
+    SupervisionPanel, TuiEntry, TuiUiState,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -27,6 +28,10 @@ pub(super) struct TuiState {
     /// holds no authoritative record: it only remembers which command id the
     /// Core client issued and which published Core fact would settle it.
     pub(super) supervision: SupervisionMachine,
+    /// The same discipline for one in-flight operator source-control action.
+    /// It is a separate slot because a `/git` action and a merge-gate decision
+    /// answer different questions and must not block each other.
+    pub(super) operator_git: OperatorGitMachine,
 }
 
 impl TuiState {
@@ -36,6 +41,7 @@ impl TuiState {
             ui: TuiUiState::default(),
             capabilities: BTreeSet::new(),
             supervision: SupervisionMachine::default(),
+            operator_git: OperatorGitMachine::default(),
         }
     }
 

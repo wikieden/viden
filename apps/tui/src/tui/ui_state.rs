@@ -157,6 +157,18 @@ pub(super) enum AcpPickerPhase {
     TaskEntry { agent_id: String, draft: String },
 }
 
+/// Where the `/git` picker is: choosing an action, or typing the one piece of
+/// text an action needs.
+///
+/// Only `Commit` carries text, and Core refuses an empty commit message
+/// outright, so the prompt is a phase rather than an optional field: an empty
+/// draft can never be sent by accident.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum GitPickerPhase {
+    Browse,
+    CommitMessage { draft: String },
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum FocusedConversation {
     NativeLane(String),
@@ -205,6 +217,12 @@ pub(super) enum InteractionPanel {
     AcpPicker {
         selected: usize,
         phase: AcpPickerPhase,
+    },
+    /// The `/git` operator source-control picker
+    /// (`runtime.operator_git`, GUI-CORE-020).
+    GitPicker {
+        selected: usize,
+        phase: GitPickerPhase,
     },
     NewLaneTask {
         task: String,
