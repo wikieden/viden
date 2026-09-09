@@ -945,7 +945,10 @@ impl SessionEngine {
             &format!("gate={gate_id} origin={original_lane_id}"),
             approver,
         )?;
-        self.record_conflict_bounce(gate_index, original_lane_id, owner, reason)
+        // An operator bounce is a human judgement with a reason behind it, not
+        // a refused apply. There is no rejected hunk to read, so it publishes
+        // no content rather than an empty one (`runtime.conflict_content`).
+        self.record_conflict_bounce(gate_index, original_lane_id, owner, reason, None)
     }
 
     pub(crate) fn validate_conflict_bounce(
@@ -964,12 +967,16 @@ impl SessionEngine {
             })
     }
 
+    /// `content` is the structured collision when a failed apply stands behind
+    /// this bounce, and `None` when nothing was refused at hunk level. It is
+    /// stored verbatim: this function never derives lines of its own.
     pub(crate) fn record_conflict_bounce(
         &mut self,
         gate_index: usize,
         original_lane_id: String,
         owner: RuntimeOwner,
         reason: String,
+        content: Option<viden_types::ConflictContent>,
     ) -> Result<Vec<RuntimeEvent>, String> {
         let now = now_timestamp();
         let gate_id = self.runtime_merge_gates[gate_index].gate_id.clone();
@@ -1001,7 +1008,7 @@ impl SessionEngine {
             evidence_ids: self.runtime_merge_gates[gate_index].evidence_ids.clone(),
             baseline_evidence,
             revalidation_evidence: Vec::new(),
-            content: None,
+            content,
             audit_id: audit_id.clone(),
             created_at: now,
             revalidated_at: None,

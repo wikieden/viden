@@ -21,6 +21,26 @@ pub(crate) const MAX_COCKPIT_PATCH_BYTES: usize = 64 * 1024;
 const MAX_GIT_OUTPUT_BYTES: usize = 64 * 1024;
 pub(crate) const GIT_COMMAND_TIMEOUT: Duration = Duration::from_secs(2);
 
+/// The commit `HEAD` resolves to in `cwd`, when `cwd` is a Git worktree that
+/// has one.
+///
+/// Used as the fallback baseline a conflict's `ours` side was read from. It is
+/// deliberately best-effort: a directory that is not a repository, a
+/// repository with no commit yet, an unavailable or slow `git` all answer
+/// `None`, and `None` becomes `ConflictBaseline::Unknown` rather than a
+/// guessed revision.
+pub(crate) fn head_revision(cwd: &Path, timeout: Duration) -> Option<String> {
+    match run_git_bounded(
+        cwd,
+        Path::new("git"),
+        &["rev-parse", "--verify", "HEAD^{commit}"],
+        timeout,
+    ) {
+        GitOutput::Complete(output) => first_non_empty_line(&output).map(str::to_string),
+        GitOutput::Truncated | GitOutput::Failed | GitOutput::Unavailable => None,
+    }
+}
+
 pub(crate) fn sample_workspace_source(cwd: &Path) -> WorkspaceSourceView {
     sample_workspace_source_with_git(cwd, Path::new("git"), GIT_COMMAND_TIMEOUT)
 }

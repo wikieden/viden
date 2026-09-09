@@ -1,3 +1,5 @@
+use std::path::Path;
+use std::process::Command;
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicBool, Ordering},
@@ -9,8 +11,9 @@ use std::time::Duration;
 use viden_permissions::PermissionEngine;
 use viden_types::{
     AgentLaneRecord, ApprovalDecision, ApprovalRequestView, ApprovalResponse, ApprovalScope,
-    LaneStatus, PermissionDecision, PermissionMode, PermissionRuleSource, RuntimeCommand,
-    RuntimeErrorView, RuntimeEventKind, RuntimeOwner, ToolInput, ToolSpec, fresh_id, now_timestamp,
+    ConflictBaseline, ConflictContent, LaneStatus, PermissionDecision, PermissionMode,
+    PermissionRuleSource, RuntimeCommand, RuntimeErrorView, RuntimeEventKind, RuntimeOwner,
+    ToolInput, ToolSpec, fresh_id, now_timestamp,
 };
 use viden_workflows::lanes::{LaneEvent, LaneRunObservation};
 
@@ -991,6 +994,15 @@ impl LaneWorker {
             LaneEffectRequest::Apply { unified_diff, .. } => unified_diff.len() as u64,
             _ => 0,
         };
+        // Kept for the same reason: a conflict has to re-examine the exact
+        // bytes and target the apply used, and the request is about to move
+        // into the executor.
+        let apply_target = match &request {
+            LaneEffectRequest::Apply { cwd, unified_diff } => {
+                Some((cwd.clone(), unified_diff.clone()))
+            }
+            _ => None,
+        };
         let event = LaneEvent::status_changed(
             fresh_id("lane-event"),
             self.lane.id.clone(),
@@ -1012,11 +1024,16 @@ impl LaneWorker {
                 self.observe_run(LaneRunObservation::Applied { diff_bytes });
             }
             Ok(result) => {
+                // The apply refused and rolled back, so the target still holds
+                // what the hunks collided with and can be read for the
+                // published content (`runtime.conflict_content`).
+                let content = apply_target
+                    .and_then(|(cwd, unified_diff)| lane_conflict_content(&cwd, &unified_diff));
                 self.emit(RuntimeEventKind::LaneConflictDetected {
                     lane_id: self.lane.id.clone(),
                     summary: result.output,
                     paths: result.conflict_paths,
-                    content: None,
+                    content,
                 });
                 let _ = self.change_status(LaneStatus::Blocked, "lane patch conflict");
             }
@@ -1267,5 +1284,42 @@ fn lane_approval(
         // them. `None` means Core previewed nothing, never "this changes
         // nothing" (`runtime.structured_diff`).
         decision_context: None,
+    }
+}
+
+/// What a refused Lane apply collided with (`runtime.conflict_content`,
+/// GUI-CORE-015).
+///
+/// The lines come from the single producer in `viden_tools::patch`. The
+/// baseline is decided here because it is a different rule from the merge
+/// path's: a Lane holds no reviewed evidence the way a merge gate does, so the
+/// honest answer is the revision the `ours` side was actually read from — the
+/// apply target's `HEAD`. A target that is not a Git worktree, or one with no
+/// commit yet, is `Unknown` rather than a guessed revision.
+fn lane_conflict_content(cwd: &Path, unified_diff: &str) -> Option<ConflictContent> {
+    viden_tools::patch::conflict_content(
+        &viden_tools::patch::PatchRequest {
+            cwd: cwd.to_path_buf(),
+            unified_diff: unified_diff.to_string(),
+        },
+        lane_conflict_baseline(cwd),
+    )
+}
+
+fn lane_conflict_baseline(cwd: &Path) -> ConflictBaseline {
+    let output = Command::new("git")
+        .args(["rev-parse", "--verify", "HEAD^{commit}"])
+        .current_dir(cwd)
+        .output();
+    let revision = match output {
+        Ok(output) if output.status.success() => String::from_utf8(output.stdout)
+            .ok()
+            .map(|revision| revision.trim().to_string())
+            .filter(|revision| !revision.is_empty()),
+        _ => None,
+    };
+    match revision {
+        Some(sha) => ConflictBaseline::Revision { sha },
+        None => ConflictBaseline::Unknown,
     }
 }

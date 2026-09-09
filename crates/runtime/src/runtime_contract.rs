@@ -3498,15 +3498,19 @@ impl SessionEngine {
         let patch_backend = LocalPatchBackend;
         let patch_application = match patch_backend.prepare(&PatchRequest {
             cwd: self.cwd.clone(),
-            unified_diff: patch_content,
+            unified_diff: patch_content.clone(),
         }) {
             Ok(application) => application,
             Err(err) => {
+                // The apply refused before anything was written, so the same
+                // canonical bytes can be re-examined read-only to publish what
+                // collided (`runtime.conflict_content`).
                 return self.mark_agent_patch_conflict(
                     gate_index,
                     &dag_id,
                     &task_id,
                     format!("patch conflict: {}", err),
+                    Some(&patch_content),
                 );
             }
         };
@@ -3524,11 +3528,15 @@ impl SessionEngine {
         self.persist_merge_gate_precommit(gate_index, "audit-merge-precommit")?;
         if let Err(err) = patch_backend.write_application(&patch_application) {
             self.restore_transaction_files()?;
+            // No hunk was refused here: the apply resolved every one and the
+            // write or the rollback failed afterwards. There is no collision
+            // to show, so the bounce carries the reason alone.
             return self.mark_agent_patch_conflict(
                 gate_index,
                 &dag_id,
                 &task_id,
                 format!("patch conflict: {}", err),
+                None,
             );
         }
         if let Err(err) = self.verify_patch_postimages(&patch_application) {
@@ -3538,6 +3546,7 @@ impl SessionEngine {
                 &dag_id,
                 &task_id,
                 format!("patch postimage verification failed: {err}"),
+                None,
             );
         }
 
@@ -3827,19 +3836,32 @@ impl SessionEngine {
             .map_err(|_| "canonical patch evidence is not valid utf-8".to_string())
     }
 
+    /// `rejected_patch` is the canonical patch text the apply refused, and is
+    /// `None` for a failure with no rejected hunk behind it. Content is built
+    /// only from a real refusal, so a bounce never carries invented lines.
     fn mark_agent_patch_conflict(
         &mut self,
         gate_index: usize,
         _dag_id: &str,
         task_id: &str,
         reason: String,
+        rejected_patch: Option<&str>,
     ) -> Result<Vec<RuntimeEvent>, String> {
         let gate_owner = self.runtime_merge_gates[gate_index].owner.clone();
         let original_lane_id = gate_owner
             .lane_id
             .clone()
             .unwrap_or_else(|| format!("lane-{task_id}"));
-        self.record_conflict_bounce(gate_index, original_lane_id, gate_owner, reason)
+        let content = rejected_patch.and_then(|patch| {
+            // The same bindings the bounce will record as its baseline. A gate
+            // whose evidence no longer validates still publishes its lines,
+            // with a revision or `Unknown` baseline instead of a false one.
+            let baseline_evidence = self
+                .validate_conflict_bounce(gate_index, &original_lane_id, &gate_owner)
+                .unwrap_or_default();
+            crate::conflict_content::merge_conflict_content(&self.cwd, patch, &baseline_evidence)
+        });
+        self.record_conflict_bounce(gate_index, original_lane_id, gate_owner, reason, content)
     }
 
     fn dag_id_for_task(&self, task_id: &str) -> Result<String, String> {

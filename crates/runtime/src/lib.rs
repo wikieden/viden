@@ -12,6 +12,7 @@ mod agent_dispatch;
 mod bootstrap;
 mod brief_commands;
 mod command_dispatch;
+mod conflict_content;
 mod context_bundle;
 mod decision_context;
 mod doctor;

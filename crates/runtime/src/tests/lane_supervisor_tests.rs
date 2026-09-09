@@ -4618,3 +4618,108 @@ fn archiving_a_lane_that_never_ran_records_no_observation() {
         None
     );
 }
+
+/// `runtime.conflict_content` on the Lane apply path: a refused lane apply
+/// publishes the lines that collided, against the revision the `ours` side was
+/// read from.
+#[test]
+fn a_lane_apply_conflict_publishes_the_lines_that_collided() {
+    let cwd = temp_dir("lane_conflict_content_cwd");
+    let home = temp_dir("lane_conflict_content_home");
+    for args in [
+        vec!["init"],
+        vec!["config", "user.email", "test@example.com"],
+        vec!["config", "user.name", "Viden Test"],
+    ] {
+        assert!(
+            std::process::Command::new("git")
+                .args(args)
+                .current_dir(&cwd)
+                .status()
+                .unwrap()
+                .success()
+        );
+    }
+    std::fs::write(cwd.join("a.txt"), "current\n").unwrap();
+    for args in [vec!["add", "a.txt"], vec!["commit", "-m", "initial"]] {
+        assert!(
+            std::process::Command::new("git")
+                .args(args)
+                .current_dir(&cwd)
+                .status()
+                .unwrap()
+                .success()
+        );
+    }
+    let head = String::from_utf8(
+        std::process::Command::new("git")
+            .args(["rev-parse", "--verify", "HEAD^{commit}"])
+            .current_dir(&cwd)
+            .output()
+            .unwrap()
+            .stdout,
+    )
+    .unwrap()
+    .trim()
+    .to_string();
+
+    let mut record = autonomous_lane("lane-conflict-content");
+    record.status = LaneStatus::Done;
+    persist_lane(&home, &cwd, record);
+    let provider: Box<dyn ModelProvider> = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    engine.set_permission_mode(PermissionMode::DontAsk).unwrap();
+    let supervisor = RuntimeSupervisor::start_with_lane_effects_for_test(
+        engine,
+        Arc::new(LocalLaneEffectExecutor::default()) as Arc<dyn LaneEffectExecutor>,
+    );
+    supervisor
+        .send_command_from_owner(
+            owner("lane-conflict-content"),
+            "apply_lane_conflict_content",
+            RuntimeCommand::ApplyLaneChanges {
+                lane_id: "lane-conflict-content".to_string(),
+                unified_diff: "--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-old\n+new\n".to_string(),
+            },
+        )
+        .unwrap();
+
+    let events = collect_envelopes_until(&supervisor, |events| {
+        events.iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::LaneConflictDetected { .. },
+                    ..
+                })
+            )
+        })
+    });
+    let content = events
+        .iter()
+        .find_map(|envelope| match &envelope.event {
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::LaneConflictDetected { content, .. },
+                ..
+            }) => content.clone(),
+            _ => None,
+        })
+        .expect("a refused lane apply must publish its content");
+
+    assert_eq!(
+        content.baseline,
+        viden_types::ConflictBaseline::Revision { sha: head },
+        "a Lane holds no reviewed baseline, so the revision the file was read from is the answer"
+    );
+    assert!(!content.truncated);
+    assert_eq!(content.files.len(), 1);
+    assert_eq!(content.files[0].path, "a.txt");
+    let hunk = &content.files[0].hunks[0];
+    assert_eq!(
+        hunk.reason,
+        viden_types::ConflictHunkReason::ContextMismatch
+    );
+    assert_eq!(hunk.ours, vec!["current\n"]);
+    assert_eq!(hunk.theirs, vec!["new\n"]);
+    assert_eq!(hunk.base.as_deref(), Some(["old\n".to_string()].as_slice()));
+}

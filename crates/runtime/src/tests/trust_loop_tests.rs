@@ -3,11 +3,12 @@ use std::time::{Duration, Instant};
 
 use viden_context::{ContextEngine, ContextPutRequest};
 use viden_types::{
-    AgentDagTaskSpec, AgentRole, ApprovalResponse, CanonicalEvidenceReference,
-    ConflictBounceStatus, ContextContentKind, ContextScope, ContractDecision, DependencyState,
-    EvidenceProducer, EvidenceQualityFacts, EvidenceQualityStatus, EvidenceVerificationState,
-    HandoffAcceptance, MergeGateDecisionOutcome, MergeGateStatus, ReviewedEvidenceBinding,
-    RuntimeCommand, RuntimeEvent, RuntimeEventKind, RuntimeOwner, RuntimeViewState,
+    AgentDagTaskSpec, AgentRole, ApprovalResponse, CanonicalEvidenceReference, ConflictBaseline,
+    ConflictBounceStatus, ConflictHunkReason, ContextContentKind, ContextScope, ContractDecision,
+    DependencyState, EvidenceProducer, EvidenceQualityFacts, EvidenceQualityStatus,
+    EvidenceVerificationState, HandoffAcceptance, MergeGateDecisionOutcome, MergeGateStatus,
+    ReviewedEvidenceBinding, RuntimeCommand, RuntimeEvent, RuntimeEventKind, RuntimeOwner,
+    RuntimeViewState,
 };
 use viden_workflows::stores::WorkflowStore;
 
@@ -2068,4 +2069,187 @@ fn record_canonical_patch(
             .any(|event| matches!(event.kind, RuntimeEventKind::MergeGateUpdated { .. }))
     );
     binding
+}
+
+/// `runtime.conflict_content` on the merge path: a bounce raised by a failed
+/// apply carries the lines that collided, and its baseline is the gate's
+/// canonical evidence rather than a revision, because a gate's baseline *is*
+/// its bindings.
+#[test]
+fn a_failed_merge_bounce_carries_the_lines_that_collided() {
+    let cwd = temp_dir("merge_conflict_content_cwd");
+    let home = temp_dir("merge_conflict_content_home");
+    fs::create_dir_all(cwd.join("src")).unwrap();
+    fs::write(cwd.join("src/lib.rs"), "current\n").unwrap();
+    let mut engine = SessionEngine::new_with_home(
+        &cwd,
+        Box::new(SequenceProvider::new(Vec::new())),
+        Some(home),
+    )
+    .unwrap();
+    let mut allow = |_prompt| ApprovalResponse::allow_once(None);
+    let task_id = "task-conflict-content";
+    start_gate(&mut engine, &mut allow, task_id, vec!["patch".to_string()]);
+    engine
+        .handle_runtime_command(
+            "handoff-conflict-content",
+            RuntimeCommand::CreateHandoff {
+                handoff_id: "handoff-conflict-content".to_string(),
+                task_id: task_id.to_string(),
+                from_lane_id: "lane-planner".to_string(),
+                to_lane_id: "lane-origin".to_string(),
+                owner: owner("lane-origin", task_id),
+                summary: "origin owns the merge".to_string(),
+                acceptance: HandoffAcceptance::Accepted,
+            },
+            &mut allow,
+        )
+        .unwrap();
+    let binding = record_canonical_patch(
+        &cwd,
+        &mut engine,
+        &mut allow,
+        task_id,
+        b"diff --git a/src/lib.rs b/src/lib.rs\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1 +1 @@\n-old\n+merged\n",
+    );
+    engine
+        .handle_runtime_command(
+            "request-conflict-content-review",
+            RuntimeCommand::RequestReview {
+                review_id: "review-conflict-content".to_string(),
+                gate_id: format!("gate-{task_id}"),
+                requester_lane_id: "lane-origin".to_string(),
+                reviewer_lane_id: "lane-reviewer".to_string(),
+                owner: owner("lane-origin", task_id),
+                evidence_ids: vec![binding.evidence_id.clone()],
+            },
+            &mut allow,
+        )
+        .unwrap();
+    engine
+        .handle_runtime_command(
+            "accept-conflict-content",
+            RuntimeCommand::AcceptMergeGate {
+                gate_id: format!("gate-{task_id}"),
+                actor: owner("lane-reviewer", task_id),
+                reviewed_evidence: vec![binding.clone()],
+                decision: Some("reviewed".to_string()),
+            },
+            &mut allow,
+        )
+        .unwrap();
+
+    let events = engine
+        .handle_runtime_command(
+            "merge-conflict-content",
+            RuntimeCommand::MergeAgentPatch {
+                gate_id: format!("gate-{task_id}"),
+                actor: owner("lane-origin", task_id),
+                decision: Some("apply reviewed patch".to_string()),
+            },
+            &mut allow,
+        )
+        .unwrap();
+
+    let bounced = events
+        .iter()
+        .find_map(|event| match &event.kind {
+            RuntimeEventKind::MergeConflictBounced { conflict } => Some(conflict),
+            _ => None,
+        })
+        .expect("a failed apply must bounce the conflict");
+    let content = bounced
+        .content
+        .as_ref()
+        .expect("a bounce raised by a failed apply must carry its content");
+    assert_eq!(
+        content.baseline,
+        ConflictBaseline::Evidence {
+            bindings: bounced.baseline_evidence.clone()
+        },
+        "the gate's canonical bindings are its baseline"
+    );
+    assert!(!content.truncated);
+    assert_eq!(content.files.len(), 1);
+    assert_eq!(content.files[0].path, "src/lib.rs");
+    let hunk = &content.files[0].hunks[0];
+    assert_eq!(hunk.reason, ConflictHunkReason::ContextMismatch);
+    assert_eq!(hunk.ours, vec!["current\n"]);
+    assert_eq!(hunk.theirs, vec!["merged\n"]);
+    assert_eq!(hunk.base.as_deref(), Some(["old\n".to_string()].as_slice()));
+
+    // The view carries the same content, so a client reads it from
+    // `RuntimeViewState` rather than holding the event.
+    let view = engine.runtime_view_state();
+    assert_eq!(
+        view.merge_gates[0]
+            .conflict
+            .as_ref()
+            .and_then(|conflict| conflict.content.as_ref()),
+        Some(content)
+    );
+}
+
+/// An operator bounce is a human judgement with a reason, not a failed apply.
+/// There is no rejected hunk behind it, so it publishes no content rather than
+/// an empty one.
+#[test]
+fn an_operator_bounce_publishes_no_content() {
+    let cwd = temp_dir("operator_bounce_content_cwd");
+    let home = temp_dir("operator_bounce_content_home");
+    fs::create_dir_all(cwd.join("src")).unwrap();
+    fs::write(cwd.join("src/lib.rs"), "old\n").unwrap();
+    let mut engine = SessionEngine::new_with_home(
+        &cwd,
+        Box::new(SequenceProvider::new(Vec::new())),
+        Some(home),
+    )
+    .unwrap();
+    let mut allow = |_prompt| ApprovalResponse::allow_once(None);
+    let task_id = "task-operator-bounce-content";
+    start_gate(&mut engine, &mut allow, task_id, vec!["patch".to_string()]);
+    engine
+        .handle_runtime_command(
+            "handoff-operator-bounce-content",
+            RuntimeCommand::CreateHandoff {
+                handoff_id: "handoff-operator-bounce-content".to_string(),
+                task_id: task_id.to_string(),
+                from_lane_id: "lane-planner".to_string(),
+                to_lane_id: "lane-origin".to_string(),
+                owner: owner("lane-origin", task_id),
+                summary: "origin owns the merge".to_string(),
+                acceptance: HandoffAcceptance::Accepted,
+            },
+            &mut allow,
+        )
+        .unwrap();
+    record_canonical_patch(
+        &cwd,
+        &mut engine,
+        &mut allow,
+        task_id,
+        b"diff --git a/src/lib.rs b/src/lib.rs\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1 +1 @@\n-old\n+new\n",
+    );
+
+    let events = engine
+        .handle_runtime_command(
+            "operator-bounce-content",
+            RuntimeCommand::BounceMergeConflict {
+                gate_id: format!("gate-{task_id}"),
+                original_lane_id: "lane-origin".to_string(),
+                owner: owner("lane-origin", task_id),
+                reason: "the approach is wrong, not the lines".to_string(),
+            },
+            &mut allow,
+        )
+        .unwrap();
+
+    let bounced = events
+        .iter()
+        .find_map(|event| match &event.kind {
+            RuntimeEventKind::MergeConflictBounced { conflict } => Some(conflict),
+            _ => None,
+        })
+        .expect("the operator bounce must be recorded");
+    assert!(bounced.content.is_none());
 }
