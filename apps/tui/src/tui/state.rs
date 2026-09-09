@@ -4,8 +4,8 @@ use std::{
 };
 
 use viden_core::{
-    AgentTaskRecord, CostLedgerTotals, PermissionLevel, ProviderHealthView, RuntimeSnapshot,
-    RuntimeViewState, WorkMode,
+    AgentSessionStatus, AgentTaskRecord, CostLedgerTotals, PermissionLevel, ProviderHealthView,
+    RuntimeSnapshot, RuntimeViewState, WorkMode,
 };
 use viden_types::{AgentNextAction, CapabilityId};
 
@@ -232,19 +232,49 @@ pub(super) fn agent_lanes(state: &TuiState) -> Vec<AgentLane> {
         .collect()
 }
 
+/// The single "Core is busy" predicate for this client.
+///
+/// Command routing (queue versus submit, and what `Ctrl-C` cancels) and the
+/// status line must never disagree about whether a turn is running, so both
+/// read exactly these facts and nothing else. It is deliberately a function of
+/// [`RuntimeViewState`] alone: no TUI-local presentation state may make Core
+/// look busier or idler than the facts it published. The status line used to
+/// omit `agent_sessions`, so an Agent turn that had published nothing else yet
+/// read as busy to the composer and as idle to the status row.
+///
+/// `assistant_stream` stays in the set because for a built-in-provider turn it
+/// is the only liveness fact Core publishes at all: that path emits no Agent
+/// session and no task, and the supervisor streams its deltas from a worker
+/// thread, so the composer is live while the turn runs. The known cost is that
+/// Core settles the stream only on a terminal agent-session fact, so a
+/// built-in turn's text stays there after it ends and this predicate stays
+/// true. That residue is Core's recorded limitation (see the streaming
+/// semantics note in `docs/core-0.3-compatibility.md`); closing it needs a
+/// turn-liveness fact for the built-in path, not a client-side guess that a
+/// turn ended.
+pub(super) fn runtime_has_active_work(view: &RuntimeViewState) -> bool {
+    !view.active_tool_calls.is_empty()
+        || !view.pending_approvals.is_empty()
+        || !view.assistant_stream.is_empty()
+        || view.tasks.iter().any(|task| task.is_active())
+        || view.lanes.iter().any(|lane| lane.is_active())
+        || view.agent_sessions.iter().any(|session| {
+            matches!(
+                session.status,
+                AgentSessionStatus::Starting
+                    | AgentSessionStatus::Running
+                    | AgentSessionStatus::WaitingApproval
+            )
+        })
+        || !view.queued_inputs.is_empty()
+}
+
 /// Presentation-level "something is happening" signal.
 ///
-/// Like [`super::app::runtime_has_active_work`] this treats a non-empty
-/// `assistant_stream` as in-flight work, which holds because Core settles the
-/// stream on a terminal agent-session fact. It deliberately checks fewer facts
-/// than that predicate: it drives status text, not command routing.
+/// This is the same predicate command routing uses; the status line and the
+/// composer cannot describe one turn two ways.
 pub(super) fn has_active_work(state: &TuiState) -> bool {
-    !state.runtime.active_tool_calls.is_empty()
-        || !state.runtime.pending_approvals.is_empty()
-        || !state.runtime.assistant_stream.is_empty()
-        || state.runtime.tasks.iter().any(|task| task.is_active())
-        || state.runtime.lanes.iter().any(|lane| lane.is_active())
-        || !state.runtime.queued_inputs.is_empty()
+    runtime_has_active_work(&state.runtime)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -340,7 +370,93 @@ pub(super) fn provider_health(state: &TuiState) -> Option<&ProviderHealthView> {
 
 #[cfg(test)]
 mod tests {
-    use std::{fs, path::Path};
+    use std::{fs, path::Path, path::PathBuf};
+
+    use viden_core::{
+        AgentSessionStatus, AgentSessionView, PermissionLevel, PermissionMode, RuntimeSnapshot,
+        RuntimeViewState, WorkMode,
+    };
+
+    use super::{TuiState, has_active_work, runtime_has_active_work};
+
+    fn empty_view() -> RuntimeViewState {
+        RuntimeViewState::new(RuntimeSnapshot {
+            cwd: PathBuf::from("/workspace"),
+            provider_family: "fallback".to_string(),
+            model_label: "test-local".to_string(),
+            work_mode: WorkMode::Build,
+            permission_mode: PermissionMode::Default,
+            permission_level: PermissionLevel::Ask,
+            config_summary: "fixture".to_string(),
+            loaded_config_files: Vec::new(),
+            startup_overrides: Vec::new(),
+            ui_preferences: Default::default(),
+        })
+    }
+
+    fn running_session() -> AgentSessionView {
+        AgentSessionView {
+            session_id: "agent-session_1".to_string(),
+            lane_id: "lane-a".to_string(),
+            agent_id: "codex".to_string(),
+            model: None,
+            status: AgentSessionStatus::Running,
+            owner: Default::default(),
+            task: "review the gate".to_string(),
+            diagnostic: None,
+            output: None,
+        }
+    }
+
+    /// The first case where the two definitions disagreed: a live Agent session
+    /// is the only fact in the view. Command routing already queued against it
+    /// while the status line called the client idle, so the composer and the
+    /// status row described one turn two ways.
+    #[test]
+    fn a_live_agent_session_is_active_work_for_routing_and_for_status_text() {
+        let mut view = empty_view();
+        view.agent_sessions.push(running_session());
+        let state = TuiState::new(view);
+
+        assert!(runtime_has_active_work(&state.runtime));
+        assert_eq!(
+            has_active_work(&state),
+            runtime_has_active_work(&state.runtime)
+        );
+    }
+
+    /// A finished Agent session is not live work: the published status is the
+    /// fact, not the presence of a session record. This is the other half of
+    /// the case above — folding `agent_sessions` into the status line must not
+    /// make a workspace with history read as permanently busy.
+    #[test]
+    fn a_completed_agent_session_is_not_active_work() {
+        let mut view = empty_view();
+        let mut session = running_session();
+        session.status = AgentSessionStatus::Completed;
+        view.agent_sessions.push(session);
+        let state = TuiState::new(view);
+
+        assert!(!runtime_has_active_work(&state.runtime));
+        assert!(!has_active_work(&state));
+    }
+
+    /// A built-in-provider turn publishes no Agent session and no task, and the
+    /// supervisor streams its deltas from a worker thread while the composer is
+    /// live. `assistant_stream` is therefore the only fact that says the turn is
+    /// running; dropping it from the unified predicate would submit a second
+    /// concurrent turn instead of queueing a follow-up.
+    #[test]
+    fn a_streaming_built_in_turn_is_active_work_with_no_session_or_task_fact() {
+        let mut view = empty_view();
+        view.assistant_stream = "Working on the config loader...".to_string();
+        let state = TuiState::new(view);
+
+        assert!(state.runtime.agent_sessions.is_empty());
+        assert!(state.runtime.tasks.is_empty());
+        assert!(runtime_has_active_work(&state.runtime));
+        assert!(has_active_work(&state));
+    }
 
     #[test]
     fn tui_state_has_no_flat_ui_deref_compatibility() {

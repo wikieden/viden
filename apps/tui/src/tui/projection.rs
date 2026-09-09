@@ -23,7 +23,6 @@ pub(super) struct CockpitProjection {
     pub(super) lane_outputs: Vec<LaneOutputView>,
     pub(super) lane_conflicts: Vec<LaneConflictView>,
     pub(super) lane_recoveries: Vec<LaneRecoveryView>,
-    pub(super) assistant_stream: String,
     pub(super) evidence: Vec<EvidenceView>,
     pub(super) evidence_decisions: Vec<EvidenceDecisionProjection>,
     pub(super) merge_gates: Vec<MergeGateProjection>,
@@ -74,7 +73,6 @@ impl CockpitProjection {
             lane_outputs: runtime.lane_outputs.clone(),
             lane_conflicts: runtime.lane_conflicts.clone(),
             lane_recoveries: runtime.lane_recoveries.clone(),
-            assistant_stream: runtime.assistant_stream.clone(),
             evidence: runtime.latest_evidence.clone(),
             evidence_decisions: evidence_decisions(&merge_gates),
             merge_gates,
@@ -1191,7 +1189,12 @@ mod tests {
                     "{:?}",
                     CockpitProjection::from(&stream, &TuiUiState::default())
                 ),
-                vec!["Checking repository", "ev_tool_ok", "tool_log"],
+                // The streamed reply itself is deliberately absent: the
+                // projection no longer carries a second copy of Core's
+                // `assistant_stream`, which the transcript renders straight
+                // from `RuntimeViewState`. What must survive here is the typed
+                // evidence the same turn produced.
+                vec!["ev_tool_ok", "tool_log", "rg completed"],
             ),
             (
                 "four-choice approval + auto deny",
