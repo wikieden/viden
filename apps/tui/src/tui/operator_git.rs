@@ -24,7 +24,12 @@
 
 use viden_core::{
     OperatorGitAction, OperatorGitFailureClass, OperatorGitOutcome, RuntimeEvent, RuntimeEventKind,
-    SourceTarget,
+    RuntimeOwner, SourceTarget,
+};
+
+use super::{
+    projection::{CancelOwnerProjection, CockpitProjection},
+    state::TuiState,
 };
 
 /// The capability that publishes `RunOperatorGitAction`.
@@ -147,6 +152,87 @@ impl OperatorGitMachine {
     /// so this settles nothing and composes no outcome.
     pub(super) fn abandon(&mut self) -> bool {
         self.pending.take().is_some()
+    }
+}
+
+/// Why one operator source-control action cannot name a Core-published owner.
+///
+/// `RunOperatorGitAction` is an audited mutation, and Core requires the
+/// command's `owner` to equal its envelope owner — that owner is the actor the
+/// audit record names. `RuntimeOwner::default()` names nobody, so sending it
+/// would file an authorized source-control change as belonging to no one.
+/// Both cases below are therefore refused locally, before anything is sent,
+/// which is the same refusal the GUI makes at `D1-OPERATOR-GIT-OWNER`: the two
+/// clients state one shared gap rather than two different behaviors.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum OperatorGitOwnerRefusal {
+    /// Core publishes no workspace-scoped operator identity yet
+    /// (GUI-CORE-027), so no workspace-target action can be attributed.
+    WorkspaceUnscoped,
+    /// Core has published no runtime owner for this exact Lane. The client
+    /// never manufactures one: an owner naming a Lane whose runtime identity
+    /// Core has not published would be this client inventing the actor.
+    LaneOwnerUnpublished { lane_id: String },
+}
+
+impl OperatorGitOwnerRefusal {
+    /// The transcript sentence stating what was refused and why.
+    pub(super) fn message(&self, state: &TuiState) -> String {
+        match self {
+            Self::WorkspaceUnscoped => super::i18n::text(state, "git.owner.workspace_unscoped"),
+            Self::LaneOwnerUnpublished { lane_id } => {
+                super::i18n::translate(state, "git.owner.lane_unpublished", &[("lane", lane_id)])
+            }
+        }
+    }
+
+    /// The short reason appended to every disabled `/git` row, so the surface
+    /// is grouped and labelled rather than hidden.
+    pub(super) fn row_label(&self, state: &TuiState) -> String {
+        match self {
+            Self::WorkspaceUnscoped => {
+                super::i18n::text(state, "git.owner.workspace_unscoped.short")
+            }
+            Self::LaneOwnerUnpublished { lane_id } => super::i18n::translate(
+                state,
+                "git.owner.lane_unpublished.short",
+                &[("lane", lane_id)],
+            ),
+        }
+    }
+}
+
+/// The envelope owner one operator action is attributed to, or the refusal
+/// that stops it from being sent.
+///
+/// Core requires the command's `owner` and its envelope owner to be the same
+/// value, so both come from here. For a Lane target it is the runtime owner
+/// *Core published* for that exact Lane; the audit record still names the Lane
+/// through the action's own target. Every other target — the workspace
+/// included — has no Core-published operator identity yet, so it is refused
+/// rather than filled in with a default.
+///
+/// The picker rows and the send path both read this one answer, so a row can
+/// never be offered as pickable and then refused after the fact.
+pub(super) fn operator_git_owner(
+    state: &TuiState,
+    target: &SourceTarget,
+) -> Result<RuntimeOwner, OperatorGitOwnerRefusal> {
+    let SourceTarget::Lane { lane_id } = target else {
+        return Err(OperatorGitOwnerRefusal::WorkspaceUnscoped);
+    };
+    let projection =
+        CockpitProjection::from_with_capabilities(&state.runtime, &state.ui, &state.capabilities);
+    match projection.cancel_owner_for_lane(lane_id) {
+        CancelOwnerProjection::Available(owner) => Ok(owner),
+        // Every unavailable reason — no binding, an ambiguous pair, a stale
+        // binding, a missing projection capability — means the same thing to
+        // this surface: Core has published no owner this client may name.
+        CancelOwnerProjection::Unavailable(_) => {
+            Err(OperatorGitOwnerRefusal::LaneOwnerUnpublished {
+                lane_id: lane_id.clone(),
+            })
+        }
     }
 }
 

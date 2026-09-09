@@ -32,8 +32,16 @@ TUI 针对 `0.3.3` 三项源代码管理能力的最小对等实现：
   丢弃草稿。空信息在本地被拒绝，不会发送任何内容。
 - 每一行发送一条 `RunOperatorGitAction { owner, target, action }`。目标是聚焦的
   Lane，否则是工作区；TUI 从不传递路径，`Stage` 不携带路径，由 Core 暂存全部更改。
-- 命令的 `owner` 与信封 owner 相同，这是 Core 监督器的要求。Lane 目标使用 Core
-  为该 Lane 发布的运行时 owner，其余情况使用本客户端的默认信封 owner。
+- 命令的 `owner` 与信封 owner 相同，这是 Core 监督器的要求，该 owner 也是审计记录
+  写明的执行者。Lane 目标使用 Core 为该 Lane 发布的运行时 owner。
+- 凡是 Core 未发布 owner 的目标，一律在发送之前于本地拒绝；`RunOperatorGitAction`
+  绝不发送 `RuntimeOwner::default()`。相关行仍然列出并标注原因，选中该行会以带类型
+  的系统条目说明拒绝理由。GUI 在 `D1-OPERATOR-GIT-OWNER` 处拒绝同样的两种情况，因此
+  两个客户端指向同一个缺口而不会各行其是：
+  - Core 尚未为其发布运行时 owner 的 Lane——条目写明该 Lane；
+  - 工作区——Core 尚未发布工作区范围的操作者身份（GUI-CORE-027），条目引用该编号。
+    面板的目标行仍然展示 Core 已发布的工作区源状态：被拒绝的是执行者，而不是这棵
+    工作树。
 - 等待的事件依次为：`CommandAccepted`（回执，绝非结果），若权限门需要则
   `ApprovalRequested`（由常规审批浮层处理，并以差异块行渲染已暂存的变更），随后
   `OperatorGitActionFinished`，其后是 `WorkspaceSourceUpdated`。
@@ -81,15 +89,18 @@ TUI 针对 `0.3.3` 三项源代码管理能力的最小对等实现：
 ## 离线实机检查
 
 在暂存目录中对 `.viden` 的副本运行（绝不使用线上目录），命令为
-`--provider fallback --model test-local`，在 tmux 中执行。抓取结果：
+`--provider fallback --model test-local`，在 tmux 中执行。下方两段结果抓取于本地
+owner 拒绝落地**之前**、且目标为工作区；它们仍然展示 `OperatorGitActionFinished`
+结算后的渲染，但工作区目标现在已不会到达 Core。面板一段是当前的渲染，由
+`scripts/tui-previews.sh` 重新生成到 `main-git-picker.txt`：
 
 ```
 ┌ Source control ──────────────────────────────────────────────────────┐
-│ > Stage all changes                                                  │
-│   Commit…                                                            │
-│   Push                                                               │
-│   Fetch                                                              │
-│ TARGET  workspace · main · ahead 0 behind 0 · dirty                  │
+│   Stage all changes · no workspace owner · GUI-CORE-027              │
+│ > Commit… · no workspace owner · GUI-CORE-027                        │
+│   Push · no workspace owner · GUI-CORE-027                           │
+│   Fetch · no workspace owner · GUI-CORE-027                          │
+│ TARGET  workspace · codex/v3-tui-client · ahead 2 behind 0 · dirty   │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -136,3 +147,8 @@ SYSTEM
 - `runtime.evidence_reads` 的证据检视面板属于独立批次。
 - `QueryWorkspaceDiff` / `WorkspaceDiffLoaded` 尚无 TUI 读取方：TUI 渲染 Core 附加在
   审批上的差异，而不是操作者差异面板。
+- Core 尚未发布工作区范围的操作者身份（GUI-CORE-027），因此 `/git` 行项只有在 Core
+  已为该 Lane 发布运行时 owner 时才可操作。其余目标一律在本地拒绝并说明原因。TUI 不
+  用默认 owner 顶替，否则这类动作写下的审计记录将无人归属；GUI 在
+  `D1-OPERATOR-GIT-OWNER` 处作出完全相同的拒绝。解除该限制需要 Core 提供事实，而不是
+  客户端改动。

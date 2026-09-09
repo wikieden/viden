@@ -30,7 +30,7 @@ use super::modal::{
 };
 use super::operator_git::{
     OPERATOR_GIT_CAPABILITY, OperatorGitSettlement, action_label_key, collapsed_output,
-    failure_copy,
+    failure_copy, operator_git_owner,
 };
 use super::preferences::{
     ColorDepth, PreferenceField, SettingsPanel, TerminalCapabilities,
@@ -1571,7 +1571,25 @@ fn apply_git_picker_selection<C: CoreClient>(
                 state.ui.interaction_panel = None;
                 return Ok(());
             }
-            Some(GitPickerRowKind::Disabled) | None => return Ok(()),
+            Some(GitPickerRowKind::Disabled) => {
+                // A row disabled for a missing capability has already said so
+                // in its own label, and there is no further fact to state. A
+                // row disabled because Core published no owner for this target
+                // states that as a transcript fact: the audit record such an
+                // action would write is the reason it cannot be sent, and an
+                // operator has to be told which fact is missing.
+                if driver.has_capability(OPERATOR_GIT_CAPABILITY)
+                    && let Err(refusal) = operator_git_owner(state, &git_target(state))
+                {
+                    state.ui.entries.push(TuiEntry {
+                        label: "system".to_string(),
+                        body: refusal.message(state),
+                    });
+                    state.ui.interaction_panel = None;
+                }
+                return Ok(());
+            }
+            None => return Ok(()),
         },
         GitPickerPhase::CommitMessage { draft } => {
             let message = draft.trim();
@@ -1608,7 +1626,22 @@ fn apply_git_picker_selection<C: CoreClient>(
         return Ok(());
     }
     let target = git_target(state);
-    let owner = operator_git_owner(driver, state, &target);
+    // Refused locally, before `send`: `RunOperatorGitAction` is an audited
+    // mutation whose `owner` is the actor Core records, so an owner Core has
+    // not published cannot be substituted with `RuntimeOwner::default()` —
+    // that would file an authorized source-control change as belonging to
+    // nobody. "Nothing was sent" stays true.
+    let owner = match operator_git_owner(state, &target) {
+        Ok(owner) => owner,
+        Err(refusal) => {
+            state.ui.entries.push(TuiEntry {
+                label: "system".to_string(),
+                body: refusal.message(state),
+            });
+            state.ui.interaction_panel = None;
+            return Ok(());
+        }
+    };
     let command_id = driver.send_for_owner(
         owner.clone(),
         RuntimeCommand::RunOperatorGitAction {
@@ -1623,32 +1656,6 @@ fn apply_git_picker_selection<C: CoreClient>(
         .expect("no operator git action is pending; checked above");
     state.ui.interaction_panel = None;
     Ok(())
-}
-
-/// The envelope owner one operator action is attributed to.
-///
-/// Core requires the command's `owner` and its envelope owner to be the same
-/// value, so both come from here. For a Lane target it is the runtime owner
-/// *Core published* for that exact Lane; the client never manufactures an owner
-/// naming a Lane whose runtime identity Core has not published, and the audit
-/// record still names the Lane through the action's own target. Everything else
-/// carries this client's default envelope owner, as every other unscoped TUI
-/// command does.
-fn operator_git_owner<C: CoreClient>(
-    driver: &TuiClientDriver<C>,
-    state: &TuiState,
-    target: &viden_core::SourceTarget,
-) -> RuntimeOwner {
-    let viden_core::SourceTarget::Lane { lane_id } = target else {
-        return RuntimeOwner::default();
-    };
-    let capabilities = driver.capabilities();
-    let projection =
-        CockpitProjection::from_with_capabilities(&state.runtime, &state.ui, &capabilities);
-    match projection.cancel_owner_for_lane(lane_id) {
-        CancelOwnerProjection::Available(owner) => owner,
-        CancelOwnerProjection::Unavailable(_) => RuntimeOwner::default(),
-    }
 }
 
 /// Renders one settled operator action as a typed system transcript entry.
@@ -2900,7 +2907,8 @@ mod tests {
     /// `/git` mirrors `/acp`: opening the picker is local and sends nothing,
     /// and picking a row sends exactly one `RunOperatorGitAction` whose command
     /// `owner` equals its envelope owner — the equality Core's supervisor
-    /// requires.
+    /// requires — and that owner is the one Core published for the target Lane,
+    /// never a default.
     #[test]
     fn git_command_opens_a_local_picker_and_sends_one_targeted_action() {
         let client = FakeCoreClient::default();
@@ -2910,6 +2918,7 @@ mod tests {
             capabilities: driver.capabilities(),
             ..TuiState::default()
         };
+        let (lane_id, published_owner) = focus_lane_with_published_owner(&mut state);
         state.ui.input = "/git".into();
 
         submit_composer(&mut driver, &mut state).expect("open the source-control picker");
@@ -2945,7 +2954,12 @@ mod tests {
             owner, &envelope.owner,
             "command actor must match the envelope"
         );
-        assert_eq!(target, &viden_core::SourceTarget::Workspace);
+        assert_eq!(
+            owner, &published_owner,
+            "the actor is the owner Core published, never RuntimeOwner::default()"
+        );
+        assert_ne!(owner, &RuntimeOwner::default());
+        assert_eq!(target, &viden_core::SourceTarget::Lane { lane_id });
         assert_eq!(
             action,
             &viden_core::OperatorGitAction::Stage { paths: Vec::new() }
@@ -2969,12 +2983,7 @@ mod tests {
             capabilities: driver.capabilities(),
             ..TuiState::default()
         };
-        state.runtime.lanes = serde_json::from_str(include_str!(
-            "../../../../crates/types/tests/fixtures/frontend-contract-v1/typed-lanes.json"
-        ))
-        .expect("typed lanes");
-        let lane_id = state.runtime.lanes[0].id.clone();
-        state.ui.focused_lane = Some(lane_id.clone());
+        let (lane_id, _) = focus_lane_with_published_owner(&mut state);
 
         // Picking Commit opens the prompt and sends nothing.
         apply_git_picker_selection(&mut driver, &mut state, 1, &GitPickerPhase::Browse)
@@ -3023,6 +3032,150 @@ mod tests {
             &viden_core::OperatorGitAction::Commit {
                 message: "feat(tui): add the /git picker".to_string()
             }
+        );
+    }
+
+    /// Gives `state` a focused Lane whose runtime owner Core has published.
+    ///
+    /// `RunOperatorGitAction` is only sendable for such a Lane: every other
+    /// target has no Core-published operator identity, and this client refuses
+    /// rather than filling one in.
+    fn focus_lane_with_published_owner(state: &mut TuiState) -> (String, RuntimeOwner) {
+        state.runtime.lanes = serde_json::from_str(include_str!(
+            "../../../../crates/types/tests/fixtures/frontend-contract-v1/typed-lanes.json"
+        ))
+        .expect("typed lanes");
+        let lane_id = state.runtime.lanes[0].id.clone();
+        let owner = RuntimeOwner {
+            workspace_id: "workspace".to_string(),
+            project_id: "viden".to_string(),
+            lane_id: Some(lane_id.clone()),
+            session_id: Some("session-start".to_string()),
+            task_id: Some("task-start".to_string()),
+            turn_id: Some("turn-start".to_string()),
+        };
+        state.runtime.lane_runtime_owners = vec![viden_types::LaneRuntimeOwnerBinding {
+            lane_id: lane_id.clone(),
+            owner: owner.clone(),
+        }];
+        state.ui.focused_lane = Some(lane_id.clone());
+        (lane_id, owner)
+    }
+
+    /// `RunOperatorGitAction` is an audited mutation, and Core requires the
+    /// command's `owner` to equal its envelope owner: that owner is the actor
+    /// the audit record names. When Core has published no runtime owner for
+    /// the focused Lane the action is refused locally, before `send` —
+    /// `RuntimeOwner::default()` names nobody, and sending it would record an
+    /// authorized source-control change as belonging to no one. The GUI
+    /// refuses this exact case at `D1-OPERATOR-GIT-OWNER`; the two clients
+    /// state one gap rather than two behaviors.
+    #[test]
+    fn a_lane_without_a_core_published_owner_refuses_before_anything_is_sent() {
+        let client = FakeCoreClient::default();
+        let sent = Arc::clone(&client.sent);
+        let mut driver = TuiClientDriver::connect(client).expect("connect");
+        let mut state = TuiState {
+            capabilities: driver.capabilities(),
+            ..TuiState::default()
+        };
+        state.runtime.lanes = serde_json::from_str(include_str!(
+            "../../../../crates/types/tests/fixtures/frontend-contract-v1/typed-lanes.json"
+        ))
+        .expect("typed lanes");
+        let lane_id = state.runtime.lanes[0].id.clone();
+        state.ui.focused_lane = Some(lane_id.clone());
+        // Core published no binding for this Lane, which is the whole point:
+        // the client must not manufacture the missing identity.
+        assert!(state.runtime.lane_runtime_owners.is_empty());
+
+        // Grouping, never hiding: the rows stay listed and say why.
+        let rows = crate::tui::modal::git_picker_rows(&state);
+        assert_eq!(rows.len(), 4, "the surface stays visible");
+        assert!(
+            rows.iter()
+                .all(|row| matches!(row.kind, GitPickerRowKind::Disabled)
+                    && row.label.contains(&lane_id)),
+            "{rows:?}"
+        );
+
+        apply_git_picker_selection(&mut driver, &mut state, 0, &GitPickerPhase::Browse)
+            .expect("refuse the action locally");
+
+        assert!(
+            sent.lock().expect("sent commands").is_empty(),
+            "an owner Core never published must never reach the driver"
+        );
+        assert!(state.operator_git.pending().is_none());
+        let entry = state.ui.entries.last().expect("the refusal is stated");
+        assert_eq!(entry.label, "system");
+        assert!(entry.body.contains(&lane_id), "{entry:?}");
+        assert!(entry.body.contains("runtime owner"), "{entry:?}");
+    }
+
+    /// The workspace target has no Core-published operator identity at all
+    /// yet (GUI-CORE-027), so every workspace-scoped action is refused the
+    /// same way — again matching the GUI. The TARGET row keeps stating the
+    /// workspace source facts Core *did* publish: the refusal is about the
+    /// actor, not about the tree.
+    #[test]
+    fn a_workspace_target_refuses_locally_and_names_the_core_gap() {
+        let client = FakeCoreClient::default();
+        let sent = Arc::clone(&client.sent);
+        let mut driver = TuiClientDriver::connect(client).expect("connect");
+        let mut state = TuiState {
+            capabilities: driver.capabilities(),
+            ..TuiState::default()
+        };
+        state.runtime.workspace_source = Some(viden_core::WorkspaceSourceView {
+            status: viden_core::WorkspaceSourceStatus::Ready,
+            branch: Some("claude/tui-parity-t1a".to_string()),
+            worktree: Some("workspace".to_string()),
+            ahead: 2,
+            behind: 0,
+            added: 1,
+            deleted: 0,
+            dirty: true,
+        });
+        assert_eq!(
+            crate::tui::modal::git_target(&state),
+            viden_core::SourceTarget::Workspace
+        );
+
+        let rows = crate::tui::modal::git_picker_rows(&state);
+        assert_eq!(rows.len(), 4, "the surface stays visible");
+        assert!(
+            rows.iter()
+                .all(|row| matches!(row.kind, GitPickerRowKind::Disabled)
+                    && row.label.contains("GUI-CORE-027")),
+            "{rows:?}"
+        );
+
+        state.ui.interaction_panel = Some(InteractionPanel::GitPicker {
+            selected: 0,
+            phase: GitPickerPhase::Browse,
+        });
+        let panel = crate::tui::modal::interaction_rows(&state);
+        assert!(
+            panel
+                .iter()
+                .any(|row| row.contains("workspace") && row.contains("claude/tui-parity-t1a")),
+            "the TARGET row keeps the published source facts: {panel:?}"
+        );
+
+        apply_git_picker_selection(&mut driver, &mut state, 0, &GitPickerPhase::Browse)
+            .expect("refuse the action locally");
+
+        assert!(
+            sent.lock().expect("sent commands").is_empty(),
+            "a default owner must never reach the driver"
+        );
+        assert!(state.operator_git.pending().is_none());
+        let entry = state.ui.entries.last().expect("the refusal is stated");
+        assert_eq!(entry.label, "system");
+        assert!(
+            entry.body.contains("GUI-CORE-027"),
+            "both clients name the same Core gap: {entry:?}"
         );
     }
 
@@ -3119,6 +3272,7 @@ mod tests {
             capabilities: driver.capabilities(),
             ..TuiState::default()
         };
+        focus_lane_with_published_owner(&mut state);
 
         apply_git_picker_selection(&mut driver, &mut state, 0, &GitPickerPhase::Browse)
             .expect("send stage");

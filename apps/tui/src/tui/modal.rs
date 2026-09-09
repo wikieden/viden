@@ -15,7 +15,7 @@ use super::{
     glyphs::Glyph,
     jump::JumpIndex,
     keymap::OverlayKind,
-    operator_git::{OPERATOR_GIT_CAPABILITY, action_label_key},
+    operator_git::{OPERATOR_GIT_CAPABILITY, action_label_key, operator_git_owner},
     panel::panel,
     pending::SupervisionOutcome,
     preferences::{
@@ -887,7 +887,7 @@ fn global_jump_rows(state: &TuiState, filter: &str) -> Vec<String> {
     visible
 }
 
-fn interaction_rows(state: &TuiState) -> Vec<String> {
+pub(super) fn interaction_rows(state: &TuiState) -> Vec<String> {
     match state.ui.interaction_panel.as_ref() {
         Some(InteractionPanel::Settings(panel)) => settings_rows(state, panel),
         Some(InteractionPanel::Setup { selected, draft }) => {
@@ -1092,10 +1092,15 @@ fn git_target_row(state: &TuiState) -> String {
 /// The four operator source-control rows, in the fixed order Stage, Commit,
 /// Push, Fetch.
 ///
-/// Without the capability every row stays listed and is rendered disabled with
-/// the capability's own name, because a client that hid them would tell an
-/// operator this surface does not exist. Without it the client also does not
-/// drive `git` itself and does not fall back to a shell.
+/// A row is pickable only when Core published both the capability *and* an
+/// owner for this target; otherwise it stays listed and is rendered disabled
+/// with the reason, because a client that hid them would tell an operator this
+/// surface does not exist. Either way the client does not drive `git` itself
+/// and does not fall back to a shell.
+///
+/// The missing capability is named first when both are missing: it is the more
+/// fundamental fact, and an owner cannot matter for a command that is not
+/// published at all.
 pub(super) fn git_picker_rows(state: &TuiState) -> Vec<GitPickerRow> {
     let available = state.has_capability(OPERATOR_GIT_CAPABILITY);
     let unavailable = super::i18n::translate(
@@ -1103,6 +1108,16 @@ pub(super) fn git_picker_rows(state: &TuiState) -> Vec<GitPickerRow> {
         "git.unavailable",
         &[("capability", OPERATOR_GIT_CAPABILITY)],
     );
+    // Read once, from the same resolver the send path uses, so a row is never
+    // offered as pickable and then refused after the operator picked it.
+    let owner_refusal = operator_git_owner(state, &git_target(state)).err();
+    let reason = if available {
+        owner_refusal
+            .as_ref()
+            .map(|refusal| refusal.row_label(state))
+    } else {
+        Some(unavailable)
+    };
     [
         (
             "stage",
@@ -1141,15 +1156,13 @@ pub(super) fn git_picker_rows(state: &TuiState) -> Vec<GitPickerRow> {
         let label = super::i18n::text(state, label_key);
         GitPickerRow {
             id: format!("git:{id}"),
-            label: if available {
-                label
-            } else {
-                format!("{label} · {unavailable}")
+            label: match reason.as_ref() {
+                Some(reason) => format!("{label} · {reason}"),
+                None => label,
             },
-            kind: if available {
-                kind
-            } else {
-                GitPickerRowKind::Disabled
+            kind: match reason.as_ref() {
+                Some(_) => GitPickerRowKind::Disabled,
+                None => kind,
             },
         }
     })
