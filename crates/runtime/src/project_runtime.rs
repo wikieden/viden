@@ -46,6 +46,7 @@ pub(crate) struct PendingProjectConfig {
     pub(crate) bytes: Vec<u8>,
 }
 
+#[derive(Debug)]
 pub(crate) enum SupervisorProjectMutationPreparation {
     Ready,
     Pending(PermissionPrompt),
@@ -227,6 +228,16 @@ impl SessionEngine {
         {
             return Err("runtime command actor does not match envelope owner".to_string());
         }
+        // The operator git path prepares on its *own* spec rather than a
+        // synthetic `workflow_*` one, because the whole point of the
+        // capability is that an operator's commit is decided under the same
+        // `git_commit` rule an agent's commit is. Preparing under a different
+        // spec here than `run_operator_git_action` gates under would let the
+        // supervisor and the engine disagree about whether an approval was
+        // needed at all.
+        if let RuntimeCommand::RunOperatorGitAction { target, action, .. } = command {
+            return self.prepare_operator_git_for_supervisor(target, action);
+        }
         let (action, preview) = match command {
             RuntimeCommand::ConfirmProjectConfig {
                 preview_id,
@@ -282,6 +293,36 @@ impl SessionEngine {
                 {
                     prompt.decision_context =
                         Some(crate::decision_context::patch_decision_context(&patch));
+                }
+                Ok(SupervisorProjectMutationPreparation::Pending(prompt))
+            }
+            PermissionDecision::Deny(deny) => Err(deny.message),
+        }
+    }
+
+    /// The supervised half of the operator git gate.
+    ///
+    /// Validation failures are `Err`, which the supervisor publishes as
+    /// `CommandRejected` before anything runs — including in plan mode, which
+    /// the engine's own `decide` refuses for a mutating tool. An `Ask` becomes
+    /// a prompt carrying the git tool's real name, so the approval dock shows
+    /// the operator the tool their `viden.toml` rule names, and — for a commit
+    /// — the staged rows they are about to turn into a commit.
+    fn prepare_operator_git_for_supervisor(
+        &self,
+        target: &viden_types::SourceTarget,
+        action: &viden_types::OperatorGitAction,
+    ) -> Result<SupervisorProjectMutationPreparation, String> {
+        action.validate()?;
+        let root = self.resolve_source_target_root(target)?;
+        let call = crate::operator_git::operator_git_tool_call(&self.tools, action, &root)?;
+        match self.permissions.decide(&call.spec, &call.input) {
+            PermissionDecision::Allow(_) => Ok(SupervisorProjectMutationPreparation::Ready),
+            PermissionDecision::Ask(ask) => {
+                let mut prompt = PermissionEngine::prompt_for(&call.spec.name, &ask, &call.input);
+                if matches!(action, viden_types::OperatorGitAction::Commit { .. }) {
+                    prompt.decision_context =
+                        Some(crate::frontend_services::staged_diff_context(&root));
                 }
                 Ok(SupervisorProjectMutationPreparation::Pending(prompt))
             }
@@ -417,7 +458,8 @@ fn supervised_command_actor(command: &RuntimeCommand) -> Option<&viden_types::Ru
         | RuntimeCommand::ConfirmContract { owner, .. }
         | RuntimeCommand::SetDependency { owner, .. }
         | RuntimeCommand::BounceMergeConflict { owner, .. }
-        | RuntimeCommand::RevertAppliedChange { owner, .. } => Some(owner),
+        | RuntimeCommand::RevertAppliedChange { owner, .. }
+        | RuntimeCommand::RunOperatorGitAction { owner, .. } => Some(owner),
         RuntimeCommand::DecideReview { actor, .. }
         | RuntimeCommand::AcceptMergeGate { actor, .. }
         | RuntimeCommand::AcceptAgentArtifact { actor, .. }

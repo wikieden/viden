@@ -93,6 +93,26 @@ pub enum RuntimeCommand {
     QueryWorkspaceDiff {
         query: WorkspaceDiffQuery,
     },
+    /// One operator source-control action against the workspace or one Lane
+    /// worktree (`runtime.operator_git`, GUI-CORE-020).
+    ///
+    /// Unlike the read beside it this one mutates, so it takes the supervised
+    /// path: validated, gated on the *mapped agent tool spec* (`git_add`,
+    /// `git_restore`, `git_commit`, `git_push`, `git_fetch`) so one rule set
+    /// governs operators and agents alike, audited before the effect, and
+    /// refused before any process spawns in plan mode. The answering
+    /// `OperatorGitActionFinished` repeats the command id.
+    ///
+    /// `owner` is required, like the trust-loop mutations: the supervisor
+    /// rejects a command whose actor does not match its envelope owner, and
+    /// the audit record this action appends needs a real owner rather than a
+    /// default one, which would record an authorized mutation as belonging to
+    /// nobody.
+    RunOperatorGitAction {
+        owner: RuntimeOwner,
+        target: SourceTarget,
+        action: OperatorGitAction,
+    },
     PreviewStarterLane {
         request: StarterLaneRequest,
     },

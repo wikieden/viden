@@ -46,7 +46,7 @@ use viden_types::{
     CostUsageRecord, EvidenceCanonicalReasonCode, EvidenceCanonicalStatus,
     EvidenceCanonicalStatusReport, EvidenceQualityStatus, EvidenceVerificationState, EvidenceView,
     MergeGateDecision, MergeGateDecisionOutcome, MergeGatePolicySnapshot, MergeGateRecord,
-    MergeGateStatus, MergeGateType, PermissionBehavior, PermissionDecision,
+    MergeGateStatus, MergeGateType, OperatorGitAction, PermissionBehavior, PermissionDecision,
     PermissionDecisionReason, PermissionLevel, PermissionMode, PermissionPrompt, PermissionRule,
     PermissionRuleSource, PermissionRuleValue, ProviderHealthView, QueuedInputView,
     ReviewRequestStatus, RuntimeCommand, RuntimeErrorView, RuntimeEvent, RuntimeEventKind,
@@ -58,6 +58,12 @@ use viden_workflows::{
     recovery::{LoadedRecoverySnapshot, RecoverySnapshotEntry},
     stores::WorkflowAgentEvent,
 };
+
+/// Character bound for a commit message on the accepted-command event.
+///
+/// The accepted event describes the command; the executed action still carries
+/// the operator's full message under the 4 KiB contract bound.
+const MAX_COMMAND_EVENT_MESSAGE_CHARS: usize = 200;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct QueuedRuntimeInput {
@@ -551,6 +557,25 @@ impl SessionEngine {
             RuntimeCommand::QueryWorkspaceDiff { query } => {
                 match self.query_workspace_diff(&command_id, query) {
                     Ok(diff_events) => append_resequenced(&mut events, diff_events),
+                    Err(err) => return Ok(vec![command_rejected(command_id, err)]),
+                }
+            }
+            // Dispatched beside the diff read because they share a target and
+            // a resolution path, but this one mutates, so every `Err` below is
+            // a *pre-effect* refusal — a malformed action, a path that leaves
+            // the target, an unresolvable Lane, plan mode, or a denied
+            // permission — and comes back as `CommandRejected` naming this
+            // exact command. A failure *after* the gate granted the action is
+            // not an error at all: it arrives as an `OperatorGitActionFinished`
+            // carrying a `Failed` outcome, because the effect was attempted and
+            // the attempt is audited.
+            RuntimeCommand::RunOperatorGitAction {
+                owner,
+                target,
+                action,
+            } => {
+                match self.run_operator_git_action(&command_id, &owner, target, action, approver) {
+                    Ok(action_events) => append_resequenced(&mut events, action_events),
                     Err(err) => return Ok(vec![command_rejected(command_id, err)]),
                 }
             }
@@ -5895,6 +5920,27 @@ pub(crate) fn redacted_runtime_command_for_event(command: &RuntimeCommand) -> Ru
         // than the one Core answered.
         RuntimeCommand::QueryWorkspaceDiff { query } => RuntimeCommand::QueryWorkspaceDiff {
             query: query.clone(),
+        },
+        // Nothing is scrubbed here and that is deliberate. The paths are
+        // target-relative fragments the operator selected in their own client
+        // and Core already validated; the remote is a configured remote name,
+        // not a URL. Only the commit message can run long, so it is *bounded*
+        // rather than redacted: running the identifier redactor over prose the
+        // operator wrote would publish an accepted command that does not
+        // describe the commit Core is about to make.
+        RuntimeCommand::RunOperatorGitAction {
+            owner,
+            target,
+            action,
+        } => RuntimeCommand::RunOperatorGitAction {
+            owner: redacted_runtime_owner(owner),
+            target: target.clone(),
+            action: match action {
+                OperatorGitAction::Commit { message } => OperatorGitAction::Commit {
+                    message: truncate_for_preview(message, MAX_COMMAND_EVENT_MESSAGE_CHARS),
+                },
+                other => other.clone(),
+            },
         },
         RuntimeCommand::PreviewStarterLane { request } => RuntimeCommand::PreviewStarterLane {
             request: redacted_starter_lane_request(request),

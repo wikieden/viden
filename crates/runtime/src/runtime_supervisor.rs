@@ -19,10 +19,10 @@ use viden_types::{
     AgentSessionRequest, AgentSessionStatus, AgentSessionView, ApprovalDecision,
     ApprovalDefaultAction, ApprovalRequestView, ApprovalResponse, ApprovalRisk, ApprovalScope,
     ApprovalTarget, CapabilityId, EventCursor, FRONTEND_SCHEMA_V1, FRONTEND_V1_CAPABILITIES,
-    FRONTEND_V1_EXTENSION_CAPABILITIES, GapRecovery, LaneRuntimeOwnerBinding, PermissionLevel,
-    PermissionPrompt, ReplayBatch, ReplayRequest, RuntimeCommand, RuntimeCommandEnvelope,
-    RuntimeErrorView, RuntimeEvent, RuntimeEventEnvelope, RuntimeEventKind, RuntimeOwner,
-    RuntimeSnapshotEnvelope, RuntimeViewState, RuntimeWireEvent, TranscriptPage,
+    FRONTEND_V1_EXTENSION_CAPABILITIES, GapRecovery, LaneRuntimeOwnerBinding, OperatorGitAction,
+    PermissionLevel, PermissionPrompt, ReplayBatch, ReplayRequest, RuntimeCommand,
+    RuntimeCommandEnvelope, RuntimeErrorView, RuntimeEvent, RuntimeEventEnvelope, RuntimeEventKind,
+    RuntimeOwner, RuntimeSnapshotEnvelope, RuntimeViewState, RuntimeWireEvent, TranscriptPage,
     TranscriptPageRequest, WorkMode, fresh_id, now_timestamp,
 };
 use viden_workflows::stores::WorkflowStore;
@@ -1591,7 +1591,8 @@ fn run_supervisor_worker(
                     | RuntimeCommand::MergeAgentPatch { .. }
                     | RuntimeCommand::RevalidateMergeConflict { .. }
                     | RuntimeCommand::BounceMergeConflict { .. }
-                    | RuntimeCommand::RevertAppliedChange { .. }) => {
+                    | RuntimeCommand::RevertAppliedChange { .. }
+                    | RuntimeCommand::RunOperatorGitAction { .. }) => {
                         run_supervised_project_mutation(
                             &mut engine,
                             owner,
@@ -1823,8 +1824,9 @@ fn run_supervised_project_mutation(
         }
         Ok(SupervisorProjectMutationPreparation::Pending(prompt)) => {
             let request_id = fresh_id("approval");
-            let approval =
+            let mut approval =
                 approval_request_view(&request_id, &prompt, owner.clone(), approval_ttl_secs);
+            apply_operator_git_approval_shape(&mut approval, &command);
             let control = ModelRequestControl::new();
             if let Err(error) = acquire_active_job(
                 shared.active_control,
@@ -3392,6 +3394,48 @@ fn approval_request_view(
         default_action: ApprovalDefaultAction::Deny,
         audit_id: fresh_id("audit"),
         decision_context: prompt.decision_context.clone(),
+    }
+}
+
+/// Classifies an operator source-control approval so a dock can rank and group
+/// it (`runtime.operator_git`, GUI-CORE-020).
+///
+/// `target.kind` is `"git"` rather than the tool name, because these five
+/// actions are one surface to an operator — the commit bar — and a dock that
+/// grouped `git_add` apart from `git_commit` would split one decision across
+/// two rows.
+///
+/// The risk order is about reversibility, not about how much each action
+/// writes. `Push` is `High` because it is the only one that leaves the
+/// machine and cannot be taken back locally. `Commit` is `Medium`: it moves
+/// `HEAD`, but the operator can still amend or reset before publishing.
+/// Staging, unstaging, and fetching are `Low` because none of them destroys
+/// working-tree content — an unstage explicitly leaves the working tree
+/// alone, and a fetch only writes remote-tracking refs.
+fn apply_operator_git_approval_shape(approval: &mut ApprovalRequestView, command: &RuntimeCommand) {
+    let RuntimeCommand::RunOperatorGitAction { target, action, .. } = command else {
+        return;
+    };
+    approval.risk = match action {
+        OperatorGitAction::Push { .. } => ApprovalRisk::High,
+        OperatorGitAction::Commit { .. } => ApprovalRisk::Medium,
+        _ => ApprovalRisk::Low,
+    };
+    approval.target = ApprovalTarget {
+        kind: "git".to_string(),
+        display: format!("{} ({})", approval.tool_name, source_target_display(target)),
+        // The target Core resolved, named as a Lane id or the workspace — never
+        // a filesystem path, which would put the operator's home directory into
+        // every approval record.
+        canonical_ref: Some(source_target_display(target)),
+    };
+}
+
+fn source_target_display(target: &viden_types::SourceTarget) -> String {
+    match target {
+        viden_types::SourceTarget::Lane { lane_id } => format!("lane:{lane_id}"),
+        viden_types::SourceTarget::Workspace => "workspace".to_string(),
+        _ => "workspace".to_string(),
     }
 }
 

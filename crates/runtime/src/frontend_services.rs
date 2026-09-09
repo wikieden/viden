@@ -322,7 +322,7 @@ impl SessionEngine {
         query: WorkspaceDiffQuery,
     ) -> Result<Vec<RuntimeEvent>, String> {
         query.validate()?;
-        let root = self.resolve_diff_target_root(&query.target)?;
+        let root = self.resolve_source_target_root(&query.target)?;
 
         // The gate runs first: nothing below this point has spawned `git`.
         let tool = ToolSpec {
@@ -356,14 +356,18 @@ impl SessionEngine {
         )])
     }
 
-    /// Resolves the root a diff read runs in from Core-owned records only.
+    /// Resolves the root a source-control read or action runs in, from
+    /// Core-owned records only.
     ///
     /// A Lane that no record names, or one that has been archived or
     /// cancelled, is a rejection: answering it from the workspace root would
     /// publish a live tree's changes under a Lane's identity. A Lane with no
     /// worktree is a direct-workspace Lane whose real root *is* the
     /// workspace, so that one resolves rather than failing.
-    fn resolve_diff_target_root(&self, target: &SourceTarget) -> Result<PathBuf, String> {
+    pub(crate) fn resolve_source_target_root(
+        &self,
+        target: &SourceTarget,
+    ) -> Result<PathBuf, String> {
         match target {
             SourceTarget::Lane { lane_id } => {
                 let lanes = self
@@ -391,7 +395,7 @@ impl SessionEngine {
             // workspace, which would answer a question nobody asked.
             SourceTarget::Workspace => Ok(self.cwd.clone()),
             unsupported => Err(format!(
-                "workspace diff target {unsupported:?} is not supported by this Core"
+                "source target {unsupported:?} is not supported by this Core"
             )),
         }
     }
@@ -675,6 +679,36 @@ fn apply_diff_page_bound(entries: &mut [WorkspaceDiffEntry], byte_limit: u32) ->
 }
 
 /// Indexes one `git diff` invocation's output by published path.
+/// The staged change an operator is about to commit
+/// (`runtime.operator_git`, GUI-CORE-020).
+///
+/// Built from `git diff --cached` in the resolved target root, which is
+/// precisely the content the commit will contain — not the working tree, which
+/// holds edits the commit will not take. Reuses the C1 producer, so the rows a
+/// reviewer approves here and the rows a diff read shows come from one parser.
+///
+/// There is no `base_sha256`: a staged change spans arbitrarily many files and
+/// one hash cannot describe several, so naming one would invite a client to
+/// verify the wrong file. An index with nothing in it still yields a document
+/// with no files rather than `None`, because "you staged nothing" is a real
+/// answer to "what am I committing" and is the one an operator needs to see
+/// before they approve a commit that would fail.
+pub(crate) fn staged_diff_context(root: &Path) -> viden_types::DecisionContext {
+    let byte_limit = crate::decision_context::MAX_DECISION_CONTEXT_DIFF_BYTES;
+    let mut document = viden_types::DiffDocument {
+        files: diff_files_by_path(root, &["diff", "--cached"], byte_limit)
+            .into_values()
+            .collect(),
+        truncated: false,
+        byte_limit,
+    };
+    document.truncated = document.files.iter().any(|file| file.omitted);
+    viden_types::DecisionContext {
+        diff: Some(document),
+        base_sha256: None,
+    }
+}
+
 fn diff_files_by_path(root: &Path, args: &[&str], byte_limit: u32) -> BTreeMap<String, DiffFile> {
     let raw = match run_git_capped(
         root,

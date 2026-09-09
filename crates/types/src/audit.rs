@@ -88,6 +88,10 @@ impl AuditObjectRef {
     pub const KIND_REVERT: &'static str = "revert";
     pub const KIND_PERMISSION: &'static str = "permission";
     pub const KIND_SESSION: &'static str = "session";
+    /// A source-control target: the workspace root, or a Lane's worktree named
+    /// by that Lane's id. Operator git actions are audited against it
+    /// (`runtime.operator_git`, GUI-CORE-020).
+    pub const KIND_SOURCE: &'static str = "source";
 
     pub fn new(kind: impl Into<String>, id: impl Into<String>) -> Self {
         Self {

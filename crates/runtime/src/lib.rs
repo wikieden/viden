@@ -22,6 +22,7 @@ mod frontend_services;
 mod frontend_status;
 mod git_commands;
 mod lsp_tools;
+mod operator_git;
 mod permission_gate;
 mod presentation;
 mod project_runtime;
