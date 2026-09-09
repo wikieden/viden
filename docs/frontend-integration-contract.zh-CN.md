@@ -121,6 +121,7 @@ payload SHA。Payload commit 内没有猜测或写入自引用 SHA。
 | Recent work | 跨项目历史与 resume 入口 | `RuntimeViewState.recent_projects`、`recent_sessions`、`recent_work_diagnostics`、`RecentWorkLoaded` | `QueryRecentWork` | Core `0.3.2` extension `runtime.recent_work` |
 | Audit timeline | 谁在什么对象上做了什么、结果如何 | `AuditRecord`、`AuditPage`、`AuditCursor`、`AuditObjectRef`、`AuditActorFilter`、`AuditPageLoaded` | `QueryAudit` | Core `0.3.5` extension `runtime.audit`；newest-first、`before` 为排他上界、页大小钳制在 `1..=500`。`AuditPageLoaded.command_id` 指名它所回答的那次读取；客户端要求精确匹配，仅当 page 不带 id 时才退回到"关联自己已被 accept 的查询"，且不得从记录内容反推。`AuditQuery` 的 actor 与 `[from, until)` 过滤在分页之前应用，因此 `complete` 与 `next_before` 描述的是过滤后的 timeline |
 | 结构化 diff | 审批决策上下文、变更文件行、DiffReview 文件树与 diff 面板 | `DiffDocument`、`DiffFile`、`DiffHunk`、`DiffLine`、`ApprovalRequestView.decision_context`、`WorkspaceChangeView.diff`、`WorkspaceDiffLoaded` | `QueryWorkspaceDiff` | Core `0.3.6` extension `runtime.structured_diff`；Core 是 diff 行的唯一生产者，读取在既有的非变更工具 `git_diff` 下过权限门禁，输入路径为解析后的目标根 |
+| 操作者源码控制 | DiffReview 提交栏、标题栏同步控件 | `OperatorGitAction`、`OperatorGitOutcome`、`OperatorGitFailureClass`、`OperatorGitActionFinished`，以及其后的 `WorkspaceSourceUpdated` | `RunOperatorGitAction` | Core `0.3.6` extension `runtime.operator_git`；每个动作在其映射到的**既有 agent** 工具 spec 下过门禁并执行，因此同一套规则同时约束操作者与 agent，失败分类是类型化的，客户端永不解析 git 输出 |
 | 工作区文件清单 | 当前工作区的有序路径列表 | `WorkspaceFileEntry`、`WorkspaceFileKind`、`WorkspaceFilePage`、`WorkspaceFilesLoaded` | `QueryWorkspaceFiles` | Core `0.3.5` extension `runtime.workspace_files`；在读取任何目录项之前先过权限门禁，工具名为非变更的 `workspace_file_inventory`，输入路径为工作区根。deny 与未解决的 ask 都以 `CommandRejected` 返回，指名这次确切的读取并携带拒绝原因——绝不发布空 page，也绝不发送不带 command id 的裸 `Error`（那会让有读取在途的客户端把无关失败误认成自己这次读取的拒绝）。该工具不产生变更，因此 plan mode 仍可回答。遍历遵循 gitignore，并无条件排除 `.git/`、`.viden/`、`.omx/`、`.worktrees/`、`.ref/`。条目按字典序排列；prefix 过滤、排他的 `after` 游标与 `1..=500` 的 limit 钳制都作用在该顺序之上，因此 `complete` 与 `next_after` 描述的是过滤后的有序清单。`WorkspaceFilesLoaded.command_id` 为必填，因此不像 audit page 那样存在无法关联的情形。客户端不得自行遍历文件系统 |
 
 Core `0.3.4` 中，续聊与 retry 保持逻辑 session id 和精确 `RuntimeOwner` 不变。
@@ -301,6 +302,7 @@ flowchart LR
 | 保存 credential 引用 | 带 opaque ingress id 的 `StoreCredentialHandle` | 注入 backend、安全 handle fact、provider health 与 secret 隔离 |
 | 加载 recent work | `QueryRecentWork { query }` | shared-home 发现、canonical metadata 校验、稳定排序、边界、diagnostic 与安全 view projection |
 | 读取结构化 diff | `QueryWorkspaceDiff { command_id, query }` | 从 Core 自有 Lane 记录解析目标、在任何进程启动之前过 `git_diff` 权限门禁、`git status`/`git diff` 采样、排序、字节边界与类型化 page |
+| 执行操作者源码控制动作 | `RunOperatorGitAction { owner, target, action }` | 动作校验、从 Core 自有 Lane 记录解析目标、在任何进程启动之前过映射后的 `git_*` 权限门禁、效果之前的审计记录、工具执行、失败分类，以及重新采样的源码事实 |
 | 创建 starter Lane | `PreviewStarterLane`，审阅结果后携带未变化 request/id/hash 发送 `CreateStarterLane` | preset 解析、workspace/isolation 校验、permission gate、执行前复检、补偿和 typed receipt |
 
 Starter Lane 的隔离模式由 Core 决定，而不是由前端决定。位于 Git work tree 且具有有效
@@ -566,6 +568,74 @@ page }` 是操作者读取：
 - 该 page 与 `WorkspaceFilesLoaded` 一样是查询结果而非视图状态：绝不折叠进
   `RuntimeViewState`，因此发布它不会移动任何快照摘要。`command_id` 为必填，因此客户端
   永不按到达顺序归属 page。
+
+### 操作者源码控制动作
+
+需要 `runtime.operator_git` extension（Core `0.3.6`，GUI-CORE-020）。不具备该 capability
+的客户端应禁用其提交栏与同步控件并如实说明；它不得自行驱动 `git`，也不得退回到 shell 命令。
+
+`RunOperatorGitAction { owner, target, action }` -> `OperatorGitActionFinished
+{ command_id, target, action, outcome, audit_id }`，其后跟随 `WorkspaceSourceUpdated`。
+
+**与 agent 共用同一套词汇。** 每个动作恰好解析到一个既有的 `git_*` 工具 spec，并经由
+agent 工具调用所走的同一个 tool registry 执行：
+
+| 动作 | 工具 spec | 输入 |
+| --- | --- | --- |
+| `Stage { paths }` | `git_add` | `paths` 非空时用 `paths`，否则 `all=true` |
+| `Unstage { paths }` | `git_restore` | `staged=true worktree=false`，`paths` 或 `.` |
+| `Commit { message }` | `git_commit` | `message`，目标根作为 `path` |
+| `Push { remote, set_upstream }` | `git_push` | `remote`（默认 `origin`）、`set_upstream`，目标根作为 `path` |
+| `Fetch { remote }` | `git_fetch` | `remote`（默认 `origin`），目标根作为 `path` |
+
+因此一条 `git_commit` 的 `viden.toml` 规则同时约束操作者的提交栏与 agent 的提交，Viden 中
+始终只有一份 git 实现。`Unstage` 永不传 `worktree=true`：丢弃操作者的编辑正是 unstage 绝不
+能做的事。
+
+**流程顺序。** 每一步都对应一种被阻止的具体失败：
+
+- **校验。** 提交信息必须存在且不超过 4 KiB——空信息会让 `git commit` 在非交互子进程中
+  打开编辑器并挂起。暂存路径必须是相对目标的、且留在目标内；越出的路径被拒绝而不是被
+  钳制，因为钳制会暂存无人请求的文件。
+- **门禁。** 在任何进程启动之前，对**映射后**的 spec 执行 `PermissionEngine::decide`。
+  plan mode 与 deny 规则都在此终止。`Ask` 走 owner-scoped 的 supervisor 审批队列，
+  `target.kind = "git"`——这五个动作对操作者是同一个界面，因此审批坞把它们归为一组——
+  风险按**可逆性**排序：`Push` 为 `High`，它是唯一离开本机的动作；`Commit` 为 `Medium`，
+  它移动 `HEAD` 但仍可修补；`Stage`、`Unstage`、`Fetch` 为 `Low`，三者都不销毁工作树内容。
+  `Commit` 审批携带 `decision_context`，其 diff 是**已暂存**的变更，也就是该提交将包含的
+  确切内容。
+- **先审计，后生效。** 授权记录在工具运行之前追加且 fail-closed，使用 `AuditObjectRef`
+  kind `source`（Lane 目标另加 Lane ref），action key 为 `source.<verb>`；
+  `OperatorGitActionFinished.audit_id` 指名它。审计日志只追加，因此结果无法修改该记录：
+  结果作为第二条记录出现，通过其 `attempt` 参数指名该授权。
+
+**"被拒绝"与"失败"是不同的事实。** `CommandRejected` 只用于在任何东西运行**之前**发生的
+拒绝：格式错误的动作、越出的路径、未知或已归档的 Lane、plan mode、deny 规则、被拒绝的审批。
+门禁放行之后的失败是携带 `Failed` 的 `OperatorGitActionFinished`，因为效果已被尝试且该尝试
+已被审计。把两者渲染成同一种样子的客户端，会因为操作者自己索引里的问题而告诉他"被拒绝"。
+
+**客户端永不解析输出。** Core 在一处把 git 的 stderr 归类为 `NothingToCommit`、
+`NonFastForward`、`AuthenticationRequired`、`RemoteUnreachable`、`NoUpstream`、
+`PathOutsideRepository` 或 `Other`。前端按类别渲染本地化文案并给出对应的恢复动作——
+`NonFastForward` 对应 fetch，`NoUpstream` 对应设置 upstream。`Other` 是永久的，不是待补的
+缺口：无法识别的失败保留其真实 `detail`，而不是被塞进最像的类别。`Completed.output` 是
+8 KiB 边界下的展示文本，并带有自己的 `truncated` 标志；客户端需要的每个事实都已在
+`outcome` 或 `source` 中类型化。
+
+**无法被跟踪的推送不会执行。** 分支没有 upstream 时，`set_upstream: false` 的 `Push` 判为
+`Failed { NoUpstream }` 而不执行。`git push <remote> <branch>` 本会成功并创建一个未被跟踪的
+远端分支，此后 ahead/behind 无从得知，源码状态条会永远显示"已同步"。该类别正是告诉客户端
+去提供 `set_upstream` 的信号。
+
+**刻意的排除项**及其理由：`pull`、`merge`、`rebase` 移动 `HEAD` 并可能产生属于 Lane 冲突
+机制的冲突；`commit --amend`、`reset`、force push、删除分支重写历史，在已登记的 DiffReview
+中既无入口也无撤销路径；`switch` 与 `checkout` 会使已绑定 Lane 的、由 Core 拥有的 owner
+绑定失效；`stash` 不在设计范围内。`pull` 待 `0.3.4` 冲突内容能够呈现其结果后再议。
+
+**顺序与状态。** 完成事件是对单个命令的结论性回答，绝不折叠进 `RuntimeViewState`，因此
+发布它不会移动任何快照摘要。其后的 `WorkspaceSourceUpdated` 携带效果**之后**重新采样的
+源码事实并照常归约，因此只跟踪状态条的客户端仍能看到效果之后的工作树。"提交并推送"是两条
+顺序命令：客户端只在第一条报告 `Completed` 之后才发送第二条，且永不从输出文本推断成功。
 
 ## Approval 和 Permission UI 契约
 

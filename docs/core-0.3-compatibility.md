@@ -86,6 +86,7 @@ runtime.credential_handles
 runtime.credential_staging
 runtime.lane_lifecycle
 runtime.lane_owner_projection
+runtime.operator_git
 runtime.project_onboarding
 runtime.recent_work
 runtime.starter_lane_preview
@@ -199,6 +200,51 @@ and the nine frozen base fixtures keep their byte and digest identity.
   distinguishable from "unchanged". The page is a query answer like
   `WorkspaceFilesLoaded` and is never folded into `RuntimeViewState`, so no
   snapshot digest moves.
+
+Operator source-control actions (`RunOperatorGitAction` ->
+`OperatorGitActionFinished`, followed by `WorkspaceSourceUpdated`) require
+`runtime.operator_git` (GUI-CORE-020). The command and the event are new, so
+nothing existing changes shape and the frozen base fixtures keep their byte and
+digest identity.
+
+- Each action maps to exactly one existing agent tool spec: `Stage` to
+  `git_add`, `Unstage` to `git_restore` with `staged=true worktree=false`,
+  `Commit` to `git_commit`, `Push` to `git_push`, and `Fetch` to the new
+  mutating `git_fetch`. Execution runs through the same tool registry, so one
+  `viden.toml` rule set governs an operator's commit bar and an agent's git
+  call and there is exactly one git implementation.
+- The gate runs before any process spawns. A malformed action, a path that
+  leaves the target, an unknown or archived Lane, plan mode, a deny rule, and a
+  denied approval all come back as `CommandRejected` naming the command, with
+  the actionable hint folded into the reason.
+- A failure *after* the gate granted the action is an
+  `OperatorGitActionFinished` carrying a `Failed` outcome, never a rejection:
+  the effect was attempted and the attempt is audited. Core classifies git's
+  stderr in one place into `NothingToCommit`, `NonFastForward`,
+  `AuthenticationRequired`, `RemoteUnreachable`, `NoUpstream`,
+  `PathOutsideRepository`, or `Other`; clients render a localized message per
+  class and never parse output text.
+- The authorization audit record is appended before the effect and fail-closed,
+  under `AuditObjectRef` kind `source` plus the Lane ref for a Lane target,
+  with action key `source.<verb>`. The log is append-only, so the result cannot
+  amend that record: it arrives as a completion record naming the
+  authorization through `attempt`, and the finished event carries the
+  authorization id.
+- A `Push` with `set_upstream: false` on a branch with no upstream is refused
+  as `Failed { NoUpstream }` rather than run. `git push <remote> <branch>`
+  would succeed and create an untracked remote branch, after which ahead/behind
+  is unknowable and the source chip would read "in sync" forever.
+- `pull`, `merge`, `rebase`, `commit --amend`, `reset`, force push, branch
+  delete, `switch`, `checkout`, and `stash` are deliberately excluded. The
+  first three move `HEAD` and can create conflicts that belong to the Lane
+  conflict machinery; the next four rewrite history with no affordance in the
+  registered DiffReview and no undo story; `switch` and `checkout` would
+  invalidate a bound Lane's Core-owned owner binding; `stash` is not in the
+  design.
+- The finished event is a settled answer to one command and is never folded
+  into `RuntimeViewState`. The `WorkspaceSourceUpdated` that follows carries
+  the resampled source and is reduced as it always was, so a client that only
+  tracks the source chip still sees the post-effect tree.
 
 One further additive schema-1 extension since core-0.3.5 makes live work
 attributable (GUI-CORE-010). `AgentTaskRecord`, `ToolCallView`,
@@ -381,6 +427,7 @@ registered schema-1 extension fixtures are:
 | `audit-ordering` | One newest-first audit page over two interleaved projects, with a cross-project timestamp tie broken by the descending audit id | `4da28fdd43503046033cf65b5362c2cdd482c42ade083bb32f45a014b942c842` | `6c7de7344afb54cf58793c5878672c435da848aea426e5e0a89253ee98d9c3e4` |
 | `workspace-files` | Two concurrent inventory reads on one project answered out of order, each page naming the required `command_id`, the scoped read `complete` for its subtree while the unscoped read is not, plus a second attached project with lane facts and no inventory read at all | `9f1c95e59ff5c4a172791d8c0c862f6286326311853b228cc5b83674e4775c37` | `f907b793d2817372fc71c95122e4e33152755682fff5fe46aa20150704bcb949` |
 | `structured-diff` | An `edit_file` approval whose decision context holds one file, one hunk, and the `base_sha256` of the bytes it was computed against; a `MergeAgentPatch` approval carrying the two-file change and no base hash; a diff page with one staged entry and one the byte bound omitted with its counts intact; and a second read refused by `CommandRejected` with its own command id | `3f5f4caf39cee2c46162999a35618599c0197aae15a3abfdd3a098e080676b8a` | `e24915b31f4192d85349be99da4c0ea81b6fb0b126b2076de17775d70de21cd0` |
+| `operator-git` | A `Stage` refused by policy and answered by `CommandRejected` naming the mapped `git_add` spec; a `Commit` approved through the ask path with the staged rows attached, completed, and followed by a resampled source where `ahead` moved and the tree is clean; and a `Push` settled as `Failed { NoUpstream }` rather than rejected, because the gate granted it and the attempt was audited | `07eadb0e93c8e151ba5e3dd0f069035ff5e97ca20156b6f1f0c0e85a86ac14e1` | `f29aa213870cfd2e511553453b077db7f193dac553068e932c787ae0ba683936` |
 
 Semantics fix 2026-09-07 (review finding 4): `RuntimeViewState.assistant_stream`
 had no lifecycle — it was append-only for the life of the view, so startup
@@ -447,6 +494,19 @@ the `base_sha256` of the bytes it read, and the multi-file patch names none,
 since one hash cannot describe several files. Core is the only producer of
 these rows — the unified-diff parser that applies patches is promoted to emit
 them — so a client never parses diff text into rows.
+
+The `operator-git` fixture is the generated evidence for
+`runtime.operator_git` (GUI-CORE-020), and it exists to hold three answers
+apart. A `Stage` is refused by policy before anything runs and is answered by
+`CommandRejected` naming `git_add` — the mapped agent spec the operator's own
+rules govern — with the hint folded into the reason. A `Commit` reaches the
+approval dock carrying the staged rows it would turn into a commit, resolves,
+completes, and is followed by a resampled source. A `Push` finishes with a
+`Failed { NoUpstream }` outcome, because the gate granted it and the attempt was
+audited. A client that rendered the refusal and the failure the same way would
+send an operator to their permission rules to fix a tracking problem, and a
+client that inferred success from silence would report a push that never left
+the machine as done.
 
 The `context-budgets` fixture backs the frontend-neutral facade export of
 `ContextScope` and `ContextBudgetRecord`. A budget belongs to a Lane only

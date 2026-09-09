@@ -264,27 +264,44 @@ fail-closed 的 `GUI-CORE-003` 占位，且 `PermissionChoice::Always` 与
 重新通过同一审批门禁的 Edit 决定，且规范 fixture 覆盖两者时，关闭此请求。届时 GUI
 将恢复设计规定的 `Shift+A` 绑定。
 
-## GUI-CORE-020：面向操作者的 git 动作
+## GUI-CORE-020：面向操作者的 git 动作 — 已关闭（Core 侧，2026-09-09）
 
-驾驶舱标题栏现在可以显示工作区源码管理的样子——分支、ahead/behind、dirty——因为
-Core 会从工作区根采样 `WorkspaceSourceView` 并发布在
-`RuntimeViewState.workspace_source` 上。但操作者无法对它做任何事。`RuntimeCommand`
-没有建模 commit、push、pull、sync、fetch、stage 或切换分支；`crates/tools` 中面向
-模型的 Git 工具是 `pub(crate)`：只有走权限门禁的 agent 轮次能触达它们，其他任何路径
-都不能——这正是正确的边界，前端不得直接调用工具。
+历史：驾驶舱标题栏可以显示工作区源码管理的样子——分支、ahead/behind、dirty——但操作者
+无法对它做任何事。`RuntimeCommand` 没有建模 commit、push、fetch、stage 或 unstage；
+`crates/tools` 中面向模型的 Git 工具是 `pub(crate)`：只有走权限门禁的 agent 轮次能触达
+它们。因此 sync chip 以 `role=status` 元素而非按钮发布，「提交或推送」入口完全没做。
 
-因此设计稿的 sync chip 以 `role=status` 元素而非按钮发布，设计稿的「提交或推送」
-入口则完全不做。GUI 不得 shell out、不得驱动自己编造的工具调用，也不得呈现一个
-落不到实处的 git 动作。
+Core 状态：由类型化的操作者源码控制动作交付（capability `runtime.operator_git`）。
+`RunOperatorGitAction { owner, target, action }` 覆盖针对工作区或某个 Lane worktree 的
+`Stage`、`Unstage`、`Commit`、`Push` 与 `Fetch`，`OperatorGitActionFinished` 以类型化
+结果回答它，其后跟随重新采样的 `WorkspaceSourceUpdated`。
 
-自然的接缝是 runtime 已经拥有的那一处：`LaneEffectExecutor`
-（`crates/runtime/src/lane_runtime.rs`）上的类型化 effect，让操作者发起的 git 动作
-经过同一道权限门禁、产出同样的证据，并落入同一份 append-only 会话事实。
+接缝不是本请求提议的那一处，这个差别值得点明：每个动作不是走 lane executor 上新增的
+类型化 effect，而是解析到执行它的**既有 agent 工具 spec**——`git_add`、`git_restore`、
+`git_commit`、`git_push`，以及新增的 `git_fetch`——并经由 agent 调用所走的同一个 tool
+registry 执行。这既满足了请求所要的（同一道权限门禁、同一份 append-only 事实），也带来
+了它没有要求的一点：同一套 `viden.toml` 规则同时约束操作者的提交栏与 agent 的提交，
+Viden 中始终只有一份 git 实现。
 
-当 Core 发布带逐命令权限门禁的类型化操作者 git 命令、发布携带每次结果（含拒绝与
-冲突）的有序事件，且规范 `frontend-contract-v1` fixture 覆盖一次被拒与一次被接受的
-动作时，关闭此请求。届时 GUI 会把 sync chip 升级为真实控件，并补上设计稿的
-提交/推送入口。
+请求中的「含拒绝与冲突」由契约现在明确作出的一个区分来回答。在任何东西运行**之前**发生
+的拒绝——格式错误的动作、越出目标的路径、未知 Lane、plan mode、deny 规则、被拒绝的
+审批——是指名该命令的 `CommandRejected`。门禁放行**之后**的失败是携带 `Failed` 的
+`OperatorGitActionFinished`，因为效果已被尝试且该尝试已被审计；Core 把 git 的 stderr
+归类为 `NothingToCommit`、`NonFastForward`、`AuthenticationRequired`、
+`RemoteUnreachable`、`NoUpstream`、`PathOutsideRepository` 或 `Other`，因此客户端按类别
+渲染本地化文案，永不解析输出。schema-1 extension fixture `operator-git.json` 把三者都
+固化为规范：一次被拒的 `Stage`、一次被审批并完成的 `Commit`，以及一次失败的 `Push`。
+
+两项行为被记录而非留作隐含。分支没有 upstream 时，`set_upstream: false` 的 `Push` 判为
+`Failed { NoUpstream }` 而不执行，因为 `git push <remote> <branch>` 会创建一个未被跟踪的
+远端分支，此后 ahead/behind 无从得知，sync chip 会永远显示「已同步」。以及 `pull`、
+`merge`、`rebase`、`commit --amend`、`reset`、force push、删除分支、`switch`、`checkout`
+与 `stash` 被刻意排除，每一项的理由都记录在前端集成契约中；`pull` 待 `0.3.4` 冲突内容
+能够呈现其结果后再议。
+
+GUI 状态：尚未采纳。sync chip 仍是 `role=status`，提交栏仍未构建；把 chip 升级为控件
+（`ahead > 0` 时 push，否则 fetch；capability 缺失时禁用并标注而非隐藏）以及补上
+DiffReview 提交栏，将随 DiffReview 宿主批次落地，与 GUI-CORE-012、GUI-CORE-015 一并进行。
 
 ## GUI-CORE-021：Pull request 与 forge 状态
 

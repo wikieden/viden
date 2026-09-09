@@ -126,6 +126,7 @@ self-referential inside the payload commit.
 | Recent work | cross-project history and resume entry points | `RuntimeViewState.recent_projects`, `recent_sessions`, `recent_work_diagnostics`, `RecentWorkLoaded` | `QueryRecentWork` | Core `0.3.2` extension `runtime.recent_work` |
 | Audit timeline | who changed what, on which objects, with what outcome | `AuditRecord`, `AuditPage`, `AuditCursor`, `AuditObjectRef`, `AuditActorFilter`, `AuditPageLoaded` | `QueryAudit` | Core `0.3.5` extension `runtime.audit`; newest-first, exclusive `before`, page size clamped to `1..=500`. `AuditPageLoaded.command_id` names the exact read it answers; a client requires an exact match, falls back to its own accepted query only for a page with no id, and must never infer one from record contents. `AuditQuery` actor and `[from, until)` filters are applied before pagination, so `complete` and `next_before` describe the filtered timeline |
 | Structured diff | approval decision context, changed-file rows, DiffReview file tree and diff pane | `DiffDocument`, `DiffFile`, `DiffHunk`, `DiffLine`, `ApprovalRequestView.decision_context`, `WorkspaceChangeView.diff`, `WorkspaceDiffLoaded` | `QueryWorkspaceDiff` | Core `0.3.6` extension `runtime.structured_diff`; Core is the only producer of diff rows, and the read is permission-gated under the existing non-mutating `git_diff` tool with the resolved target root as the input path |
+| Operator source control | DiffReview commit bar, titlebar sync control | `OperatorGitAction`, `OperatorGitOutcome`, `OperatorGitFailureClass`, `OperatorGitActionFinished`, the `WorkspaceSourceUpdated` that follows it | `RunOperatorGitAction` | Core `0.3.6` extension `runtime.operator_git`; each action is gated and executed under the *existing agent* tool spec it maps to, so one rule set governs an operator and an agent, and the failure taxonomy is typed so no client parses git output |
 | Workspace file inventory | the ordered path list of the open workspace | `WorkspaceFileEntry`, `WorkspaceFileKind`, `WorkspaceFilePage`, `WorkspaceFilesLoaded` | `QueryWorkspaceFiles` | Core `0.3.5` extension `runtime.workspace_files`; permission-gated before any directory is read, under the non-mutating tool `workspace_file_inventory` with the workspace root as the input path. A deny, and an unresolved ask, both come back as `CommandRejected` naming this exact read and carrying the refusal — never an empty page, and never a bare `Error`, which has no command id and would let a client with a read outstanding mistake an unrelated failure for its own refusal. Plan mode still answers, because the tool mutates nothing. The walk is gitignore-aware and unconditionally excludes `.git/`, `.viden/`, `.omx/`, `.worktrees/`, `.ref/`. Entries are lexicographic; the prefix filter, the exclusive `after` cursor, and the `1..=500` limit clamp are applied to that order, so `complete` and `next_after` describe the filtered ordered inventory. `WorkspaceFilesLoaded.command_id` is required, so unlike an audit page there is no uncorrelated case. A client must never walk the filesystem itself |
 
 For Core `0.3.4`, follow-up and retry preserve the logical session id and exact
@@ -346,6 +347,7 @@ a contract change, not a refactor.
 | Store a credential reference | `StoreCredentialHandle` with opaque ingress id | injected backend access, safe handle fact, provider health and secret exclusion |
 | Load recent work | `QueryRecentWork { query }` | shared-home discovery, canonical metadata validation, stable ordering, bounds, diagnostics, and safe view projection |
 | Read a structured diff | `QueryWorkspaceDiff { command_id, query }` | target resolution from Core-owned Lane records, the `git_diff` permission gate before any process spawns, `git status`/`git diff` sampling, ordering, byte bounds, and the typed page |
+| Run an operator source-control action | `RunOperatorGitAction { owner, target, action }` | action validation, target resolution from Core-owned Lane records, the mapped `git_*` permission gate before any process spawns, the audit record before the effect, tool execution, failure classification, and the resampled source |
 | Create a starter Lane | `PreviewStarterLane`, review the result, then `CreateStarterLane` with the unchanged request/id/hash | preset resolution, workspace/isolation checks, permission gate, execution-time recheck, compensation, typed receipt |
 
 Starter Lane isolation is selected by Core, not by the frontend. A workspace
@@ -674,6 +676,97 @@ page }` is the operator read:
   never folded into `RuntimeViewState`, so publishing one moves no snapshot
   digest. `command_id` is required, so a client never attributes a page by
   arrival order.
+
+### Operator Source-Control Actions
+
+Requires the `runtime.operator_git` extension (Core `0.3.6`, GUI-CORE-020). A
+client without it disables its commit bar and sync control and says so; it must
+not drive `git` itself, and it must not fall back to a shell command.
+
+`RunOperatorGitAction { owner, target, action }` -> `OperatorGitActionFinished
+{ command_id, target, action, outcome, audit_id }`, followed by
+`WorkspaceSourceUpdated`.
+
+**One vocabulary with agents.** Each action resolves to exactly one existing
+`git_*` tool spec and executes through the same tool registry an agent's tool
+call goes through:
+
+| Action | Tool spec | Input |
+| --- | --- | --- |
+| `Stage { paths }` | `git_add` | `paths` when non-empty, otherwise `all=true` |
+| `Unstage { paths }` | `git_restore` | `staged=true worktree=false`, `paths` or `.` |
+| `Commit { message }` | `git_commit` | `message`, target root as `path` |
+| `Push { remote, set_upstream }` | `git_push` | `remote` (default `origin`), `set_upstream`, target root as `path` |
+| `Fetch { remote }` | `git_fetch` | `remote` (default `origin`), target root as `path` |
+
+So a `viden.toml` rule for `git_commit` governs an operator's commit bar and an
+agent's commit alike, and there is exactly one git implementation in Viden.
+`Unstage` never passes `worktree=true`: discarding the operator's edits is the
+one thing an unstage must not do.
+
+**The flow, in order.** Each step is where a specific failure is prevented:
+
+- **Validate.** A commit message must be present and at most 4 KiB — an empty
+  one makes `git commit` open an editor in a non-interactive child and hang.
+  A staged path must be target-relative and stay inside the target; one that
+  leaves it is refused, never clamped, because clamping stages a file nobody
+  asked for.
+- **Gate.** `PermissionEngine::decide` on the *mapped* spec, before any process
+  spawns. Plan mode and a deny rule both stop here. An `Ask` routes through the
+  owner-scoped supervisor approval queue with `target.kind = "git"` — the five
+  actions are one surface to an operator, so a dock groups them as one — and
+  risk ranked by *reversibility*: `High` for `Push`, the only action that
+  leaves the machine; `Medium` for `Commit`, which moves `HEAD` but can still
+  be amended; `Low` for `Stage`, `Unstage`, and `Fetch`, none of which destroys
+  working-tree content. A `Commit` approval carries a `decision_context` whose
+  diff is the *staged* change, which is exactly what the commit will contain.
+- **Audit, then effect.** The authorization record is appended before the tool
+  runs and fail-closed, under `AuditObjectRef` kind `source` plus the Lane ref
+  for a Lane target, with action key `source.<verb>`; `OperatorGitActionFinished
+  .audit_id` names it. The audit log is append-only, so the result cannot amend
+  that record: it arrives as a second record naming the authorization through
+  its `attempt` argument.
+
+**Refused and failed are different facts.** `CommandRejected` is only for
+refusals that happened *before* anything ran: a malformed action, an escaping
+path, an unknown or archived Lane, plan mode, a deny rule, a denied approval.
+Once the gate granted the action, a failure is an `OperatorGitActionFinished`
+carrying `Failed`, because the effect was attempted and the attempt is audited.
+A client that rendered the two alike would tell an operator "denied" about a
+problem in their own index.
+
+**Clients never parse output.** Core classifies git's stderr in one function
+into `NothingToCommit`, `NonFastForward`, `AuthenticationRequired`,
+`RemoteUnreachable`, `NoUpstream`, `PathOutsideRepository`, or `Other`. A
+frontend renders a localized message per class and offers the matching recovery
+— fetch for `NonFastForward`, set upstream for `NoUpstream`. `Other` is
+permanent, not a gap: an unrecognized failure keeps its real `detail` rather
+than being squeezed into the nearest-looking class. `Completed.output` is
+display text under an 8 KiB bound with its own `truncated` flag; every fact a
+client needs is already typed in `outcome` or in `source`.
+
+**A push that cannot be tracked does not run.** `Push` with
+`set_upstream: false` on a branch with no upstream settles as
+`Failed { NoUpstream }` instead of executing. `git push <remote> <branch>` would
+succeed and create an untracked remote branch, after which ahead/behind is
+unknowable and the source chip would read "in sync" forever. The class is what
+tells a client to offer `set_upstream`.
+
+**Deliberate exclusions**, each with its reason: `pull`, `merge`, and `rebase`
+move `HEAD` and can create conflicts that belong to the Lane conflict
+machinery; `commit --amend`, `reset`, force push, and branch delete rewrite
+history with no affordance in the registered DiffReview and no undo story;
+`switch` and `checkout` would invalidate a bound Lane's owner binding, which
+Core owns through the starter Lane path; `stash` is not in the design. `pull` is
+revisited in `0.3.4` once conflict content can render its result.
+
+**Ordering and state.** The finished event is a settled answer to one command
+and is never folded into `RuntimeViewState`, so publishing one moves no
+snapshot digest. The `WorkspaceSourceUpdated` that follows carries the source
+resampled *after* the effect and is reduced as it always was, so a client that
+only tracks the source chip still sees the post-effect tree. "Commit and push"
+is two sequential commands: a client sends the second only after the first
+reports `Completed`, and never infers success from output text.
 
 ## Approval And Permission UI Contract
 

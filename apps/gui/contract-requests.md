@@ -338,32 +338,59 @@ carries the revised command back through the same approval gate, and the
 canonical fixture covers both. The GUI will then restore the design's
 `Shift+A` binding.
 
-## GUI-CORE-020: Operator-initiated git actions
+## GUI-CORE-020: Operator-initiated git actions — CLOSED (Core side, 2026-09-09)
 
-The cockpit titlebar can now show what the workspace's source control looks
-like — branch, ahead/behind, dirty — because Core samples `WorkspaceSourceView`
-from the workspace root and publishes it on `RuntimeViewState.workspace_source`.
-Nothing lets the operator act on it. `RuntimeCommand` models no commit, push,
-pull, sync, fetch, stage, or branch switch, and the model-facing Git tools in
-`crates/tools` are `pub(crate)`: they are reachable by an agent turn under the
-permission gate and by nothing else, which is the correct boundary — a frontend
-must not call a tool directly.
+History: the cockpit titlebar could show what the workspace's source control
+looked like — branch, ahead/behind, dirty — but nothing let the operator act on
+it. `RuntimeCommand` modelled no commit, push, fetch, stage, or unstage, and the
+model-facing Git tools in `crates/tools` were `pub(crate)`: reachable by an
+agent turn under the permission gate and by nothing else. So the sync chip
+shipped as a `role=status` element rather than a button and the "Commit or push"
+affordance was not built at all.
 
-So the design's sync chip ships as a `role=status` element rather than a
-button, and the design's "Commit or push" affordance is not built at all. The
-GUI must not shell out, drive a tool call it invented, or present a git action
-that resolves to nothing.
+Core status: delivered by typed operator source-control actions (capability
+`runtime.operator_git`). `RunOperatorGitAction { owner, target, action }` covers
+`Stage`, `Unstage`, `Commit`, `Push`, and `Fetch` against the workspace or one
+Lane worktree, and `OperatorGitActionFinished` answers it with a typed outcome
+followed by a resampled `WorkspaceSourceUpdated`.
 
-The natural seam is the one the runtime already owns: a typed effect on
-`LaneEffectExecutor` (`crates/runtime/src/lane_runtime.rs`), so an operator git
-action passes the same permission gate, produces the same evidence, and lands
-in the same append-only session facts as an agent-initiated one.
+The seam is not the one this request proposed, and the difference is worth
+naming: rather than a new typed effect on the lane executor, each action
+resolves to the *existing agent tool spec* that performs it — `git_add`,
+`git_restore`, `git_commit`, `git_push`, and a new `git_fetch` — and executes
+through the same tool registry an agent's call goes through. That gets what the
+request asked for (the same permission gate, the same append-only facts) and one
+thing it did not: a single `viden.toml` rule set governs an operator's commit
+bar and an agent's commit, and Viden keeps exactly one git implementation.
 
-Close this request when Core publishes typed operator git commands with
-per-command permission gating, ordered events carrying each outcome (including
-refusal and conflict), and a canonical `frontend-contract-v1` fixture covering
-a refused and an accepted action. The GUI will then promote the sync chip to a
-real control and add the design's commit/push affordance.
+The request's "including refusal and conflict" is answered by a distinction the
+contract now makes explicit. A refusal that happened *before* anything ran — a
+malformed action, a path leaving the target, an unknown Lane, plan mode, a deny
+rule, a denied approval — is a `CommandRejected` naming the command. A failure
+*after* the gate granted the action is an `OperatorGitActionFinished` carrying
+`Failed`, because the effect was attempted and the attempt is audited; Core
+classifies git's stderr into `NothingToCommit`, `NonFastForward`,
+`AuthenticationRequired`, `RemoteUnreachable`, `NoUpstream`,
+`PathOutsideRepository`, or `Other`, so a client renders a localized message per
+class and never parses output. The schema-1 extension fixture
+`operator-git.json` makes all three canonical: a refused `Stage`, an approved
+and completed `Commit`, and a `Push` that failed.
+
+Two behaviors are recorded rather than left implicit. A `Push` with
+`set_upstream: false` on a branch with no upstream is refused as
+`Failed { NoUpstream }` instead of being run, because `git push <remote>
+<branch>` would create an untracked remote branch after which ahead/behind is
+unknowable and the sync chip would read "in sync" forever. And `pull`, `merge`,
+`rebase`, `commit --amend`, `reset`, force push, branch delete, `switch`,
+`checkout`, and `stash` are deliberately excluded, each for a reason recorded in
+the frontend integration contract; `pull` is revisited in `0.3.4` once conflict
+content can render its result.
+
+GUI status: not yet adopted. The sync chip is still `role=status` and the commit
+bar is still unbuilt; promoting the chip to a control (push when `ahead > 0`,
+fetch otherwise, disabled and labelled rather than hidden when the capability is
+absent) and adding the DiffReview commit bar land with the DiffReview host
+batch, together with GUI-CORE-012 and GUI-CORE-015.
 
 ## GUI-CORE-021: Pull request and forge status
 

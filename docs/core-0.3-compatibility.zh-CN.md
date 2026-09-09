@@ -78,6 +78,7 @@ runtime.credential_handles
 runtime.credential_staging
 runtime.lane_lifecycle
 runtime.lane_owner_projection
+runtime.operator_git
 runtime.project_onboarding
 runtime.recent_work
 runtime.starter_lane_preview
@@ -162,6 +163,35 @@ fixture 保持其字节与摘要身份。
   `omitted` 发布并保留真实计数，page 置 `truncated`，因此"未展示"始终可与"未变更"区分。
   该 page 与 `WorkspaceFilesLoaded` 一样是查询结果，绝不折叠进 `RuntimeViewState`，因此
   不会移动任何快照摘要。
+
+操作者源码控制动作（`RunOperatorGitAction` -> `OperatorGitActionFinished`，其后跟随
+`WorkspaceSourceUpdated`）需要 `runtime.operator_git`（GUI-CORE-020）。命令与事件都是新增的，
+因此既有形状不变，冻结 base fixture 保持其字节与摘要身份。
+
+- 每个动作恰好映射到一个既有的 agent 工具 spec：`Stage` 到 `git_add`，`Unstage` 到带
+  `staged=true worktree=false` 的 `git_restore`，`Commit` 到 `git_commit`，`Push` 到
+  `git_push`，`Fetch` 到新增的变更型 `git_fetch`。执行走同一个 tool registry，因此同一套
+  `viden.toml` 规则同时约束操作者的提交栏与 agent 的 git 调用，Viden 中始终只有一份 git 实现。
+- 门禁在任何进程启动之前先跑。格式错误的动作、越出目标的路径、未知或已归档的 Lane、
+  plan mode、deny 规则以及被拒绝的审批，都以 `CommandRejected` 指名该命令返回，并把可操作的
+  提示折进 reason。
+- 门禁放行**之后**的失败是携带 `Failed` 结果的 `OperatorGitActionFinished`，绝不是拒绝：
+  效果已被尝试，且该尝试已被审计。Core 在一处把 git 的 stderr 归类为 `NothingToCommit`、
+  `NonFastForward`、`AuthenticationRequired`、`RemoteUnreachable`、`NoUpstream`、
+  `PathOutsideRepository` 或 `Other`；客户端按类别渲染本地化文案，绝不解析输出文本。
+- 授权审计记录在效果之前追加且 fail-closed，使用 `AuditObjectRef` kind `source`（Lane 目标
+  另加 Lane ref），action key 为 `source.<verb>`。日志只追加，因此结果无法修改该记录：结果
+  作为一条完成记录出现，通过 `attempt` 指名该授权，而完成事件携带的是授权 id。
+- 分支没有 upstream 时，`set_upstream: false` 的 `Push` 会被判为 `Failed { NoUpstream }`
+  而不执行。`git push <remote> <branch>` 本会成功并创建一个未被跟踪的远端分支，此后
+  ahead/behind 无从得知，源码状态条会永远显示"已同步"。
+- `pull`、`merge`、`rebase`、`commit --amend`、`reset`、force push、删除分支、`switch`、
+  `checkout` 与 `stash` 被刻意排除。前三者移动 `HEAD` 并可能产生属于 Lane 冲突机制的冲突；
+  随后四者重写历史，在已登记的 DiffReview 中既无入口也无撤销路径；`switch` 与 `checkout`
+  会使已绑定 Lane 的、由 Core 拥有的 owner 绑定失效；`stash` 不在设计范围内。
+- 完成事件是对单个命令的结论性回答，绝不折叠进 `RuntimeViewState`。其后的
+  `WorkspaceSourceUpdated` 携带重新采样的源码事实并照常归约，因此只跟踪状态条的客户端
+  仍能看到效果之后的工作树。
 
 自 core-0.3.5 起还新增一处 additive schema-1 扩展，使实时工作可归属（GUI-CORE-010）。
 `AgentTaskRecord`、`ToolCallView`、`QueuedInputView` 与 `EvidenceView` 各自新增一个
@@ -305,6 +335,7 @@ Fixture 文件位于 `crates/types/tests/fixtures/frontend-contract-v1/`。下�
 | `audit-ordering` | 一页 newest-first 的 audit 记录横跨两个交错的项目，且有一对跨项目、时间戳相同的记录靠降序 audit id 定序 | `4da28fdd43503046033cf65b5362c2cdd482c42ade083bb32f45a014b942c842` | `6c7de7344afb54cf58793c5878672c435da848aea426e5e0a89253ee98d9c3e4` |
 | `workspace-files` | 同一项目上的两次并发清单读取以相反顺序被回答，每个 page 都携带必填的 `command_id`；带 prefix 的读取对其子树返回 `complete`，而未加 prefix 的读取仍未完；另有第二个已挂载项目只发布 lane 事实、完全没有清单读取 | `9f1c95e59ff5c4a172791d8c0c862f6286326311853b228cc5b83674e4775c37` | `f907b793d2817372fc71c95122e4e33152755682fff5fe46aa20150704bcb949` |
 | `structured-diff` | 一个 `edit_file` 审批，其决策上下文含一个文件、一个 hunk，以及其所基于字节的 `base_sha256`；一个 `MergeAgentPatch` 审批，携带两文件变更且不含基线哈希；一页 diff，其中一条为已暂存条目，另一条被字节边界省略但计数保持真实；以及第二次读取被 `CommandRejected` 以其自身 command id 拒绝 | `3f5f4caf39cee2c46162999a35618599c0197aae15a3abfdd3a098e080676b8a` | `e24915b31f4192d85349be99da4c0ea81b6fb0b126b2076de17775d70de21cd0` |
+| `operator-git` | 一个 `Stage` 被策略拒绝，并以 `CommandRejected` 指名映射后的 `git_add` spec 返回；一个 `Commit` 走 ask 路径、携带已暂存行被审批并完成，其后跟随重新采样的源码事实，其中 `ahead` 前进且工作树干净；一个 `Push` 结论为 `Failed { NoUpstream }` 而不是被拒绝，因为门禁放行了它且该尝试已被审计 | `07eadb0e93c8e151ba5e3dd0f069035ff5e97ca20156b6f1f0c0e85a86ac14e1` | `f29aa213870cfd2e511553453b077db7f193dac553068e932c787ae0ba683936` |
 
 2026-09-07 语义修正（评审发现 4）：`RuntimeViewState.assistant_stream` 此前没有生命
 周期——它在整个 view 生命期内只追加，因此启动重放会把每个历史会话的回复串接成一整块
@@ -352,6 +383,14 @@ agent-session facts——没有终态事件，其文本照旧留在 stream 中�
 多文件生产者能够诚实主张的内容不同：`edit_file` 预览给出其读取字节的 `base_sha256`，
 多文件补丁则不给出，因为一个哈希无法描述多个文件。这些行的唯一生产者是 Core——应用补丁
 的那个 unified diff 解析器被提升为发布它们——因此客户端永不把 diff 文本解析成行。
+
+`operator-git` fixture 是 `runtime.operator_git`（GUI-CORE-020）的生成式证据，它的存在
+就是为了把三种回答彼此分开。一个 `Stage` 在任何东西运行之前被策略拒绝，以
+`CommandRejected` 指名 `git_add`——即操作者自己的规则所约束的那个映射后 agent spec——返回，
+并把提示折进 reason。一个 `Commit` 携带它将要变成提交的已暂存行到达审批坞，被解决、完成，
+其后跟随重新采样的源码事实。一个 `Push` 以 `Failed { NoUpstream }` 结束，因为门禁放行了它，
+且该尝试已被审计。若客户端把拒绝与失败渲染成同一种样子，就会让操作者去改权限规则来修一个
+跟踪问题；若客户端从沉默推断成功，就会把一次从未离开本机的推送报告为已完成。
 
 `context-budgets` fixture 为 `ContextScope` 与 `ContextBudgetRecord` 的 frontend-neutral
 facade 导出提供依据。Budget 只能通过该 Lane 精确绑定的 runtime owner 所指名的 typed task
