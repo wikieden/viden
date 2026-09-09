@@ -5739,3 +5739,17 @@ fn a_finished_operator_git_action_never_folds_into_view_state() {
     ));
     assert_eq!(serde_json::to_string(&state).unwrap(), baseline);
 }
+
+/// `runtime.operator_git` is a post-checkpoint addition, so it belongs to the
+/// extension list and never to the frozen base capabilities.
+#[test]
+fn the_operator_git_capability_is_an_advertised_extension() {
+    assert!(FRONTEND_V1_EXTENSION_CAPABILITIES.contains(&"runtime.operator_git"));
+    assert!(!FRONTEND_V1_CAPABILITIES.contains(&"runtime.operator_git"));
+    assert!(
+        FRONTEND_V1_EXTENSION_CAPABILITIES
+            .windows(2)
+            .all(|pair| pair[0] < pair[1]),
+        "extension capabilities must stay sorted and unique"
+    );
+}

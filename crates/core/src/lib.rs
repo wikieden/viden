@@ -37,23 +37,24 @@ pub use viden_types::{
     DiffHunk, DiffLine, DiffLineKind, EventCursor, EvidenceView, ExecutionTarget,
     FRONTEND_SCHEMA_V1, GapRecovery, GateStrength, HandoffAcceptance, HandoffRecord, LaneBudget,
     LaneConflictView, LaneRunStats, LaneRuntimeOwnerBinding, LaneStatus, LocaleId,
-    MAX_WORKSPACE_DIFF_BYTES, MergeGatePolicySnapshot, MergeGateRecord, MergeGateStatus,
-    MergeGateType, MergeGateValidator, MutationPolicy, PermissionLevel, PermissionMode,
-    ProjectConfigPreview, ProjectConfigState, ProjectProbe, ProviderHealthView, QueuedInputView,
-    RecentProjectSummary, RecentSessionSummary, RecentWorkQuery, ReplayBatch, ReplayRequest,
-    ResolvedUiPreferences, RevertRecord, ReviewRequestRecord, ReviewRequestStatus, ReviewVerdict,
-    ReviewedEvidenceBinding, RuntimeCommand, RuntimeCommandEnvelope, RuntimeErrorView,
-    RuntimeEvent, RuntimeEventEnvelope, RuntimeEventKind, RuntimeOwner, RuntimeServiceHealthView,
-    RuntimeServiceKind, RuntimeServiceStatus, RuntimeSnapshot, RuntimeSnapshotEnvelope,
-    RuntimeViewState, RuntimeWireEvent, SchemaVersion, SourceTarget, StarterLanePreset,
-    StarterLanePreview, StarterLanePreviewInvalidationReason, StarterLaneReceipt,
-    StarterLaneRequest, TokenCostView, ToolCallView, TranscriptPage, TranscriptPageRequest,
-    TranscriptRow, TranscriptRowId, TranscriptRowKind, TuiColorDepth, UiColorMode, UiDensity,
-    UiMotion, UiPreferenceDiagnostic, UiPreferencePatch, UiPreferences, UiSkin, WorkMode,
-    WorkspaceChangeKind, WorkspaceChangeView, WorkspaceDiffEntry, WorkspaceDiffPage,
-    WorkspaceDiffQuery, WorkspaceDiffScope, WorkspaceEligibility, WorkspaceFileEntry,
-    WorkspaceFileKind, WorkspaceFilePage, WorkspaceFilesQuery, WorkspaceSourceStatus,
-    WorkspaceSourceView,
+    MAX_OPERATOR_COMMIT_MESSAGE_BYTES, MAX_OPERATOR_GIT_OUTPUT_BYTES, MAX_WORKSPACE_DIFF_BYTES,
+    MergeGatePolicySnapshot, MergeGateRecord, MergeGateStatus, MergeGateType, MergeGateValidator,
+    MutationPolicy, OperatorGitAction, OperatorGitFailureClass, OperatorGitOutcome,
+    PermissionLevel, PermissionMode, ProjectConfigPreview, ProjectConfigState, ProjectProbe,
+    ProviderHealthView, QueuedInputView, RecentProjectSummary, RecentSessionSummary,
+    RecentWorkQuery, ReplayBatch, ReplayRequest, ResolvedUiPreferences, RevertRecord,
+    ReviewRequestRecord, ReviewRequestStatus, ReviewVerdict, ReviewedEvidenceBinding,
+    RuntimeCommand, RuntimeCommandEnvelope, RuntimeErrorView, RuntimeEvent, RuntimeEventEnvelope,
+    RuntimeEventKind, RuntimeOwner, RuntimeServiceHealthView, RuntimeServiceKind,
+    RuntimeServiceStatus, RuntimeSnapshot, RuntimeSnapshotEnvelope, RuntimeViewState,
+    RuntimeWireEvent, SchemaVersion, SourceTarget, StarterLanePreset, StarterLanePreview,
+    StarterLanePreviewInvalidationReason, StarterLaneReceipt, StarterLaneRequest, TokenCostView,
+    ToolCallView, TranscriptPage, TranscriptPageRequest, TranscriptRow, TranscriptRowId,
+    TranscriptRowKind, TuiColorDepth, UiColorMode, UiDensity, UiMotion, UiPreferenceDiagnostic,
+    UiPreferencePatch, UiPreferences, UiSkin, WorkMode, WorkspaceChangeKind, WorkspaceChangeView,
+    WorkspaceDiffEntry, WorkspaceDiffPage, WorkspaceDiffQuery, WorkspaceDiffScope,
+    WorkspaceEligibility, WorkspaceFileEntry, WorkspaceFileKind, WorkspaceFilePage,
+    WorkspaceFilesQuery, WorkspaceSourceStatus, WorkspaceSourceView,
 };
 
 /// Temporary compatibility imports for the pre-v3 TUI bootstrap.
@@ -129,6 +130,18 @@ mod tests {
         assert_eq!(DEFAULT_WORKSPACE_DIFF_BYTES, 256 * 1024);
         assert_eq!(MAX_WORKSPACE_DIFF_BYTES, 1024 * 1024);
         assert!(CORE_EXTENSION_CAPABILITIES.contains(&"runtime.structured_diff"));
+        // GUI-CORE-020: the typed operator source-control action. A frontend
+        // must send a typed action and read a typed outcome instead of driving
+        // git itself or parsing output text, which would put a second git
+        // implementation and a second failure taxonomy outside Core.
+        assert!(std::any::type_name::<OperatorGitAction>().contains("OperatorGitAction"));
+        assert!(std::any::type_name::<OperatorGitOutcome>().contains("OperatorGitOutcome"));
+        assert!(
+            std::any::type_name::<OperatorGitFailureClass>().contains("OperatorGitFailureClass")
+        );
+        assert_eq!(MAX_OPERATOR_GIT_OUTPUT_BYTES, 8 * 1024);
+        assert_eq!(MAX_OPERATOR_COMMIT_MESSAGE_BYTES, 4 * 1024);
+        assert!(CORE_EXTENSION_CAPABILITIES.contains(&"runtime.operator_git"));
         // GUI-CORE-008: the typed context budget and its scope. A frontend must
         // be able to prove that a budget belongs to the selected Lane's task
         // instead of reconstructing a private serialization of the scope shape.

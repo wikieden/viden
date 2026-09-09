@@ -22,15 +22,16 @@ use viden_types::{
     EventCursor, EvidenceView, ExecutionTarget, FRONTEND_SCHEMA_V1, GateStrength, LaneBudget,
     LaneRuntimeOwnerBinding, LaneStatus, MergeGateDecision, MergeGateDecisionOutcome,
     MergeGatePolicySnapshot, MergeGateRecord, MergeGateStatus, MergeGateType, MergeGateValidator,
-    MutationPolicy, PermissionLevel, PermissionMode, ProjectConfigState, ProjectProbe,
-    QueuedInputView, RecentProjectSummary, RecentSessionSummary, ResolvedUiPreferences,
-    ReviewRequestStatus, RuntimeCommand, RuntimeErrorView, RuntimeEvent, RuntimeEventEnvelope,
-    RuntimeEventKind, RuntimeOwner, RuntimeSnapshot, RuntimeViewState, RuntimeWireEvent,
-    SchemaVersion, SourceTarget, StarterLanePreview, StarterLanePreviewInvalidationReason,
-    StarterLaneReceipt, TokenCostView, TokenUsage, UiColorMode, UiDensity, UiMotion, UiPreferences,
-    UiSkin, WorkMode, WorkspaceChangeKind, WorkspaceDiffEntry, WorkspaceDiffPage,
-    WorkspaceDiffQuery, WorkspaceDiffScope, WorkspaceEligibility, WorkspaceFileEntry,
-    WorkspaceFileKind, WorkspaceFilePage, WorkspaceFilesQuery,
+    MutationPolicy, OperatorGitAction, OperatorGitFailureClass, OperatorGitOutcome,
+    PermissionLevel, PermissionMode, ProjectConfigState, ProjectProbe, QueuedInputView,
+    RecentProjectSummary, RecentSessionSummary, ResolvedUiPreferences, ReviewRequestStatus,
+    RuntimeCommand, RuntimeErrorView, RuntimeEvent, RuntimeEventEnvelope, RuntimeEventKind,
+    RuntimeOwner, RuntimeSnapshot, RuntimeViewState, RuntimeWireEvent, SchemaVersion, SourceTarget,
+    StarterLanePreview, StarterLanePreviewInvalidationReason, StarterLaneReceipt, TokenCostView,
+    TokenUsage, UiColorMode, UiDensity, UiMotion, UiPreferences, UiSkin, WorkMode,
+    WorkspaceChangeKind, WorkspaceDiffEntry, WorkspaceDiffPage, WorkspaceDiffQuery,
+    WorkspaceDiffScope, WorkspaceEligibility, WorkspaceFileEntry, WorkspaceFileKind,
+    WorkspaceFilePage, WorkspaceFilesQuery,
 };
 
 const FIXTURE_DIR: &str = "tests/fixtures/frontend-contract-v1";
@@ -180,6 +181,10 @@ fn frontend_host_capabilities_are_schema_one_core_0_3_5_and_additive() {
         "runtime.credential_staging",
         "runtime.lane_lifecycle",
         "runtime.lane_owner_projection",
+        // GUI-CORE-020. Additive like the rows below it; the frozen base list
+        // is untouched, which is what keeps the nine base fixtures
+        // byte-identical.
+        "runtime.operator_git",
         "runtime.project_onboarding",
         "runtime.recent_work",
         "runtime.starter_lane_preview",
@@ -1453,6 +1458,164 @@ fn refresh_structured_diff_extension_fixture() {
     let fixture = structured_diff_fixture();
     fs::write(
         root.join("structured-diff.json"),
+        serde_json::to_string_pretty(&fixture).unwrap() + "\n",
+    )
+    .unwrap();
+}
+
+/// GUI-CORE-020: canonical proof that an operator source-control action is
+/// answered by a typed outcome, that a refusal and a failure are different
+/// facts, and that neither is ever a silent success.
+///
+/// A `Stage` is refused by policy and answered by `CommandRejected`; a
+/// `Commit` goes through the ask path with the staged rows attached, resolves,
+/// completes, and is followed by a resampled source showing `ahead` moved and
+/// the tree clean; a `Push` finishes with a `Failed { NoUpstream }` outcome
+/// rather than a rejection, because the gate said yes and the attempt was
+/// audited. A client that rendered the refusal and the failure the same way
+/// would send an operator to their permission rules for a tracking problem.
+#[test]
+fn operator_git_fixture_separates_a_refusal_a_completion_and_a_failure() {
+    let name = "operator-git.json";
+    let root = fixture_root();
+    let fixture_bytes = fs::read(root.join(name)).expect("read operator git fixture bytes");
+    let fixture_sha256 = format!("{:x}", Sha256::digest(&fixture_bytes));
+    let extension_manifest = include_str!("../frontend-contract-extensions.toml");
+    assert!(
+        extension_manifest.contains(&format!(
+            "operator_git_fixture_sha256 = \"{fixture_sha256}\""
+        )),
+        "the extension manifest must register the exact operator git fixture bytes"
+    );
+    assert!(extension_manifest.contains("operator_git_fixture = \"operator-git.json\""));
+
+    let fixture = read_fixture(&root, name);
+    assert_fixture_identity(name, &fixture);
+    assert_capabilities_are_sorted_unique_and_advertised(name, &fixture);
+    assert_cursors_are_contiguous(name, &fixture);
+
+    let (view, first_cursor, first_digest) = replay_fixture(&fixture);
+    let (_, second_cursor, second_digest) = replay_fixture(&fixture);
+    assert_eq!(first_cursor, second_cursor);
+    assert_eq!(first_digest, second_digest);
+    assert_eq!(first_cursor, fixture.expected_final_cursor);
+    assert_eq!(first_digest, fixture.expected_view_sha256);
+    assert!(
+        extension_manifest.contains(&format!("operator_git_view_sha256 = \"{first_digest}\"")),
+        "the extension manifest must register the replayed view digest"
+    );
+
+    let kinds = fixture
+        .events
+        .iter()
+        .map(|envelope| match &envelope.event {
+            RuntimeWireEvent::Known(event) => event.kind.clone(),
+            RuntimeWireEvent::Unknown { event_type, .. } => panic!(
+                "operator git fixture events must all be known, got {event_type} — a client whose \
+                 push answer was quarantined reads the silence as success"
+            ),
+        })
+        .collect::<Vec<_>>();
+
+    // The finished event is a settled answer to one command, not view state.
+    // The `WorkspaceSourceUpdated` beside it is what a client's chip reads, and
+    // that one *is* reduced — which is why the final view carries the source.
+    let mut finished_only = RuntimeViewState::new(fixture.initial_snapshot.clone());
+    for kind in &kinds {
+        if matches!(kind, RuntimeEventKind::OperatorGitActionFinished { .. }) {
+            finished_only.apply_event(&RuntimeEvent::new(1, kind.clone()));
+        }
+    }
+    assert_eq!(
+        canonical_view_sha256(&finished_only),
+        canonical_view_sha256(&RuntimeViewState::new(fixture.initial_snapshot.clone())),
+        "a finished operator action must never fold into RuntimeViewState"
+    );
+    let source = view
+        .workspace_source
+        .as_ref()
+        .expect("the resampled source must reach the view");
+    assert_eq!(source.ahead, 2, "the completed commit moved the branch");
+    assert!(!source.dirty, "the completed commit cleaned the tree");
+
+    let refused = kinds
+        .iter()
+        .find_map(|kind| match kind {
+            RuntimeEventKind::CommandRejected { command_id, reason } => {
+                Some((command_id.clone(), reason.clone()))
+            }
+            _ => None,
+        })
+        .expect("the fixture must carry a refused action");
+    assert!(refused.1.contains("git_add"), "{}", refused.1);
+    assert!(refused.1.contains("hint:"));
+
+    let settled = kinds
+        .iter()
+        .filter_map(|kind| match kind {
+            RuntimeEventKind::OperatorGitActionFinished {
+                command_id,
+                outcome,
+                audit_id,
+                ..
+            } => Some((command_id.clone(), outcome.clone(), audit_id.clone())),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(settled.len(), 2);
+    assert!(
+        settled
+            .iter()
+            .all(|(command_id, _, audit_id)| *command_id != refused.0 && !audit_id.is_empty()),
+        "a refused action is never also settled, and every settled action names its audit record"
+    );
+    assert!(matches!(
+        settled[0].1,
+        OperatorGitOutcome::Completed {
+            truncated: false,
+            ..
+        }
+    ));
+    assert!(
+        matches!(
+            settled[1].1,
+            OperatorGitOutcome::Failed {
+                class: OperatorGitFailureClass::NoUpstream,
+                ..
+            }
+        ),
+        "a push that could not be tracked is a failed outcome, not a rejection"
+    );
+
+    // The commit approval shows what is being committed, and is ranked and
+    // grouped as source control rather than as one anonymous tool call.
+    let approval = kinds
+        .iter()
+        .find_map(|kind| match kind {
+            RuntimeEventKind::ApprovalRequested { approval } => Some(approval.clone()),
+            _ => None,
+        })
+        .expect("the fixture must carry the commit approval");
+    assert_eq!(approval.tool_name, "git_commit");
+    assert_eq!(approval.target.kind, "git");
+    assert_eq!(approval.risk, ApprovalRisk::Medium);
+    assert!(
+        approval
+            .decision_context
+            .and_then(|context| context.diff)
+            .is_some_and(|diff| !diff.files.is_empty()),
+        "a commit approval must show the staged rows it would turn into a commit"
+    );
+}
+
+#[test]
+#[ignore = "manual operator git fixture refresh; normal tests validate committed JSON only"]
+fn refresh_operator_git_extension_fixture() {
+    let root = fixture_root();
+    fs::create_dir_all(&root).unwrap();
+    let fixture = operator_git_fixture();
+    fs::write(
+        root.join("operator-git.json"),
         serde_json::to_string_pretty(&fixture).unwrap() + "\n",
     )
     .unwrap();
@@ -3381,6 +3544,227 @@ fn structured_diff_fixture() -> FrontendContractFixtureOut {
         ],
         snapshot(WorkMode::Build),
         owned_envelopes(fixture_id, owner, kinds, 1_700_001_000),
+    )
+}
+
+/// GUI-CORE-020: an operator source-control action refused, one completed, one
+/// failed.
+///
+/// The scenario is deliberately not three happy paths. A policy refusal, a
+/// granted commit, and a push that could not be tracked are three different
+/// facts, and a client that rendered them alike would tell an operator "denied"
+/// about a tracking problem and "done" about a push that never left the
+/// machine. Outputs are fixed strings with no machine path in them, so the
+/// bytes are identical on every machine that regenerates this fixture.
+fn operator_git_fixture() -> FrontendContractFixtureOut {
+    let fixture_id = "operator-git";
+    let owner = RuntimeOwner {
+        workspace_id: "workspace_contract_v1".to_string(),
+        project_id: "project_viden".to_string(),
+        lane_id: Some("lane_operator_git".to_string()),
+        session_id: Some("session_operator_git".to_string()),
+        task_id: Some("task_operator_git".to_string()),
+        turn_id: Some("turn_operator_git".to_string()),
+    };
+
+    // What the commit approval shows: the *index*, which is exactly the
+    // content the commit will contain. No `base_sha256`, because one hash
+    // cannot describe a multi-file staged change.
+    let staged = DiffDocument {
+        files: vec![DiffFile {
+            path: "crates/types/src/source_control.rs".to_string(),
+            old_path: None,
+            kind: WorkspaceChangeKind::Added,
+            binary: false,
+            omitted: false,
+            additions: 2,
+            deletions: 0,
+            hunks: vec![DiffHunk {
+                old_start: 0,
+                old_lines: 0,
+                new_start: 1,
+                new_lines: 2,
+                header: None,
+                lines: vec![
+                    DiffLine {
+                        kind: DiffLineKind::Added,
+                        content: "//! Operator source-control actions.".to_string(),
+                        old_line: None,
+                        new_line: Some(1),
+                    },
+                    DiffLine {
+                        kind: DiffLineKind::Added,
+                        content: "pub enum OperatorGitAction {}".to_string(),
+                        old_line: None,
+                        new_line: Some(2),
+                    },
+                ],
+            }],
+        }],
+        truncated: false,
+        byte_limit: 65_536,
+    };
+
+    let before_commit = WorkspaceSourceView {
+        status: viden_types::WorkspaceSourceStatus::Ready,
+        branch: Some("codex/v3-core-runtime".to_string()),
+        worktree: Some("workspace/viden".to_string()),
+        ahead: 1,
+        behind: 0,
+        added: 2,
+        deleted: 0,
+        dirty: true,
+    };
+    // Resampled *after* the commit: the branch moved and the tree is clean.
+    // A client reading these numbers is reading what the action did, not what
+    // it was predicted to do.
+    let after_commit = WorkspaceSourceView {
+        ahead: 2,
+        added: 0,
+        dirty: false,
+        ..before_commit.clone()
+    };
+
+    let kinds = vec![
+        // All three commands are accepted before any is settled, so nothing can
+        // be attributed by arrival order.
+        RuntimeEventKind::CommandAccepted {
+            command_id: "operator_git_stage_refused".to_string(),
+            command: RuntimeCommand::RunOperatorGitAction {
+                owner: owner.clone(),
+                target: SourceTarget::Workspace,
+                action: OperatorGitAction::Stage {
+                    paths: vec!["crates/types/src/source_control.rs".to_string()],
+                },
+            },
+        },
+        RuntimeEventKind::CommandAccepted {
+            command_id: "operator_git_commit".to_string(),
+            command: RuntimeCommand::RunOperatorGitAction {
+                owner: owner.clone(),
+                target: SourceTarget::Workspace,
+                action: OperatorGitAction::Commit {
+                    message: "feat(types): add operator git actions".to_string(),
+                },
+            },
+        },
+        RuntimeEventKind::CommandAccepted {
+            command_id: "operator_git_push".to_string(),
+            command: RuntimeCommand::RunOperatorGitAction {
+                owner: owner.clone(),
+                target: SourceTarget::Lane {
+                    lane_id: "lane_operator_git".to_string(),
+                },
+                action: OperatorGitAction::Push {
+                    remote: Some("origin".to_string()),
+                    set_upstream: false,
+                },
+            },
+        },
+        // The refusal happened before anything ran, names the mapped agent
+        // spec the operator's rules govern, and carries the actionable hint.
+        RuntimeEventKind::CommandRejected {
+            command_id: "operator_git_stage_refused".to_string(),
+            reason: "permission denied\ntool: git_add\nreason: DenyRule\nmessage: git_add is \
+                     denied by a workspace rule\nhint: grant the `git_add` permission to run \
+                     source-control actions from this client"
+                .to_string(),
+        },
+        RuntimeEventKind::ApprovalRequested {
+            approval: ApprovalRequestView {
+                id: "approval_operator_git_commit".to_string(),
+                tool_name: "git_commit".to_string(),
+                title: "Approve git_commit".to_string(),
+                message: "git_commit requires approval".to_string(),
+                input_preview: "  message: feat(types): add operator git actions".to_string(),
+                is_mutating: true,
+                reason: Some("git_commit requires approval".to_string()),
+                owner: owner.clone(),
+                // Reversibility, not size: a commit moves HEAD but can still be
+                // amended locally, which is what separates it from the push.
+                risk: ApprovalRisk::Medium,
+                target: ApprovalTarget {
+                    kind: "git".to_string(),
+                    display: "git_commit (workspace)".to_string(),
+                    canonical_ref: Some("workspace".to_string()),
+                },
+                allowed_scopes: vec![ApprovalScope::Once],
+                policy_reason_key: "permission.requires_approval".to_string(),
+                policy_reason_args: BTreeMap::new(),
+                expires_at: 1_700_002_100,
+                default_action: ApprovalDefaultAction::Deny,
+                audit_id: "audit_operator_git_commit".to_string(),
+                decision_context: Some(DecisionContext {
+                    diff: Some(staged),
+                    base_sha256: None,
+                }),
+            },
+        },
+        RuntimeEventKind::ApprovalResolved {
+            request_id: "approval_operator_git_commit".to_string(),
+            decision: ApprovalDecision::Allow {
+                scope: ApprovalScope::Once,
+            },
+            owner: owner.clone(),
+            audit_id: "audit_operator_git_commit".to_string(),
+        },
+        RuntimeEventKind::OperatorGitActionFinished {
+            command_id: "operator_git_commit".to_string(),
+            target: SourceTarget::Workspace,
+            action: OperatorGitAction::Commit {
+                message: "feat(types): add operator git actions".to_string(),
+            },
+            outcome: OperatorGitOutcome::Completed {
+                output: "[codex/v3-core-runtime 1a2b3c4] feat(types): add operator git actions\n \
+                         1 file changed, 2 insertions(+)"
+                    .to_string(),
+                truncated: false,
+                source: after_commit.clone(),
+            },
+            audit_id: "audit_operator_git_commit".to_string(),
+        },
+        RuntimeEventKind::WorkspaceSourceUpdated {
+            source: after_commit.clone(),
+        },
+        // The push was permitted and then could not be honored, so it settles
+        // as a *failure* rather than a rejection. The class is what tells the
+        // client to offer `set_upstream`; the detail is for a human to read.
+        RuntimeEventKind::OperatorGitActionFinished {
+            command_id: "operator_git_push".to_string(),
+            target: SourceTarget::Lane {
+                lane_id: "lane_operator_git".to_string(),
+            },
+            action: OperatorGitAction::Push {
+                remote: Some("origin".to_string()),
+                set_upstream: false,
+            },
+            outcome: OperatorGitOutcome::Failed {
+                class: OperatorGitFailureClass::NoUpstream,
+                detail: "the current branch has no upstream branch; push with set_upstream to \
+                         create one"
+                    .to_string(),
+            },
+            audit_id: "audit_operator_git_push".to_string(),
+        },
+        // The source is resampled after a failure too: a rejected push leaves
+        // facts worth reading, and guessing which ones it preserved would be
+        // the inference this contract forbids.
+        RuntimeEventKind::WorkspaceSourceUpdated {
+            source: after_commit,
+        },
+    ];
+
+    fixture(
+        fixture_id,
+        &[
+            "runtime.approvals",
+            "runtime.commands",
+            "runtime.events",
+            "runtime.operator_git",
+            "runtime.snapshot",
+        ],
+        snapshot(WorkMode::Build),
+        owned_envelopes(fixture_id, owner, kinds, 1_700_002_000),
     )
 }
 

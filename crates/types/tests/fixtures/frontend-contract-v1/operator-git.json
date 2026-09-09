@@ -1,0 +1,489 @@
+{
+  "fixture_id": "operator-git",
+  "schema_version": 1,
+  "required_capabilities": [
+    "runtime.approvals",
+    "runtime.commands",
+    "runtime.events",
+    "runtime.operator_git",
+    "runtime.snapshot"
+  ],
+  "initial_snapshot": {
+    "cwd": "workspace/viden",
+    "provider_family": "deepseek",
+    "model_label": "deepseek-v4-flash",
+    "work_mode": "build",
+    "permission_mode": "default",
+    "permission_level": "ask",
+    "config_summary": "{\"design_entry\":{\"d11\":\"onboarding subordinate\",\"gui\":\"GUI index -> component library -> D1 desktop cockpit\",\"hierarchy\":[\"docs/viden-design/Viden/index.html\",\"client design index\",\"component library\",\"TUI unified prototype or GUI D1 desktop cockpit\"],\"tui\":\"TUI index -> component library -> unified prototype\"},\"ui\":{\"density\":[\"compact\",\"regular\",\"comfy\"],\"effective\":{\"density\":\"regular\",\"locale\":\"zh-CN\",\"mode\":\"dark\",\"motion\":\"reduced\",\"skin\":\"aurora\"},\"locales\":[\"en\",\"zh-CN\"],\"motion\":[\"system\",\"reduced\",\"full\"],\"skin_mode_pairs\":[[\"aurora\",\"dark\"],[\"aurora\",\"light\"],[\"ice\",\"dark\"],[\"ice\",\"light\"],[\"mono\",\"dark\"],[\"mono\",\"light\"],[\"amber\",\"dark\"],[\"phosphor\",\"dark\"]]}}",
+    "loaded_config_files": [
+      "config/viden.toml"
+    ],
+    "startup_overrides": [
+      "--provider=deepseek"
+    ],
+    "ui_preferences": {
+      "locale": "zh-CN",
+      "skin": "aurora",
+      "mode": "dark",
+      "density": "regular",
+      "motion": "reduced",
+      "diagnostics": []
+    }
+  },
+  "events": [
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_operator_git",
+        "session_id": "session_operator_git",
+        "task_id": "task_operator_git",
+        "turn_id": "turn_operator_git"
+      },
+      "cursor": {
+        "stream_id": "fixture:operator-git",
+        "sequence": 1
+      },
+      "event": {
+        "sequence": 1,
+        "timestamp": 1700002001,
+        "kind": {
+          "type": "command_accepted",
+          "payload": {
+            "command_id": "operator_git_stage_refused",
+            "command": {
+              "type": "run_operator_git_action",
+              "owner": {
+                "workspace_id": "workspace_contract_v1",
+                "project_id": "project_viden",
+                "lane_id": "lane_operator_git",
+                "session_id": "session_operator_git",
+                "task_id": "task_operator_git",
+                "turn_id": "turn_operator_git"
+              },
+              "target": "workspace",
+              "action": {
+                "stage": {
+                  "paths": [
+                    "crates/types/src/source_control.rs"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_operator_git",
+        "session_id": "session_operator_git",
+        "task_id": "task_operator_git",
+        "turn_id": "turn_operator_git"
+      },
+      "cursor": {
+        "stream_id": "fixture:operator-git",
+        "sequence": 2
+      },
+      "event": {
+        "sequence": 2,
+        "timestamp": 1700002002,
+        "kind": {
+          "type": "command_accepted",
+          "payload": {
+            "command_id": "operator_git_commit",
+            "command": {
+              "type": "run_operator_git_action",
+              "owner": {
+                "workspace_id": "workspace_contract_v1",
+                "project_id": "project_viden",
+                "lane_id": "lane_operator_git",
+                "session_id": "session_operator_git",
+                "task_id": "task_operator_git",
+                "turn_id": "turn_operator_git"
+              },
+              "target": "workspace",
+              "action": {
+                "commit": {
+                  "message": "feat(types): add operator git actions"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_operator_git",
+        "session_id": "session_operator_git",
+        "task_id": "task_operator_git",
+        "turn_id": "turn_operator_git"
+      },
+      "cursor": {
+        "stream_id": "fixture:operator-git",
+        "sequence": 3
+      },
+      "event": {
+        "sequence": 3,
+        "timestamp": 1700002003,
+        "kind": {
+          "type": "command_accepted",
+          "payload": {
+            "command_id": "operator_git_push",
+            "command": {
+              "type": "run_operator_git_action",
+              "owner": {
+                "workspace_id": "workspace_contract_v1",
+                "project_id": "project_viden",
+                "lane_id": "lane_operator_git",
+                "session_id": "session_operator_git",
+                "task_id": "task_operator_git",
+                "turn_id": "turn_operator_git"
+              },
+              "target": {
+                "lane": {
+                  "lane_id": "lane_operator_git"
+                }
+              },
+              "action": {
+                "push": {
+                  "remote": "origin",
+                  "set_upstream": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_operator_git",
+        "session_id": "session_operator_git",
+        "task_id": "task_operator_git",
+        "turn_id": "turn_operator_git"
+      },
+      "cursor": {
+        "stream_id": "fixture:operator-git",
+        "sequence": 4
+      },
+      "event": {
+        "sequence": 4,
+        "timestamp": 1700002004,
+        "kind": {
+          "type": "command_rejected",
+          "payload": {
+            "command_id": "operator_git_stage_refused",
+            "reason": "permission denied\ntool: git_add\nreason: DenyRule\nmessage: git_add is denied by a workspace rule\nhint: grant the `git_add` permission to run source-control actions from this client"
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_operator_git",
+        "session_id": "session_operator_git",
+        "task_id": "task_operator_git",
+        "turn_id": "turn_operator_git"
+      },
+      "cursor": {
+        "stream_id": "fixture:operator-git",
+        "sequence": 5
+      },
+      "event": {
+        "sequence": 5,
+        "timestamp": 1700002005,
+        "kind": {
+          "type": "approval_requested",
+          "payload": {
+            "approval": {
+              "id": "approval_operator_git_commit",
+              "tool_name": "git_commit",
+              "title": "Approve git_commit",
+              "message": "git_commit requires approval",
+              "input_preview": "  message: feat(types): add operator git actions",
+              "is_mutating": true,
+              "reason": "git_commit requires approval",
+              "owner": {
+                "workspace_id": "workspace_contract_v1",
+                "project_id": "project_viden",
+                "lane_id": "lane_operator_git",
+                "session_id": "session_operator_git",
+                "task_id": "task_operator_git",
+                "turn_id": "turn_operator_git"
+              },
+              "risk": "medium",
+              "target": {
+                "kind": "git",
+                "display": "git_commit (workspace)",
+                "canonical_ref": "workspace"
+              },
+              "allowed_scopes": [
+                "once"
+              ],
+              "policy_reason_key": "permission.requires_approval",
+              "policy_reason_args": {},
+              "expires_at": 1700002100,
+              "default_action": "deny",
+              "audit_id": "audit_operator_git_commit",
+              "decision_context": {
+                "diff": {
+                  "files": [
+                    {
+                      "path": "crates/types/src/source_control.rs",
+                      "kind": "added",
+                      "binary": false,
+                      "omitted": false,
+                      "additions": 2,
+                      "deletions": 0,
+                      "hunks": [
+                        {
+                          "old_start": 0,
+                          "old_lines": 0,
+                          "new_start": 1,
+                          "new_lines": 2,
+                          "lines": [
+                            {
+                              "kind": "added",
+                              "content": "//! Operator source-control actions.",
+                              "new_line": 1
+                            },
+                            {
+                              "kind": "added",
+                              "content": "pub enum OperatorGitAction {}",
+                              "new_line": 2
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ],
+                  "truncated": false,
+                  "byte_limit": 65536
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_operator_git",
+        "session_id": "session_operator_git",
+        "task_id": "task_operator_git",
+        "turn_id": "turn_operator_git"
+      },
+      "cursor": {
+        "stream_id": "fixture:operator-git",
+        "sequence": 6
+      },
+      "event": {
+        "sequence": 6,
+        "timestamp": 1700002006,
+        "kind": {
+          "type": "approval_resolved",
+          "payload": {
+            "request_id": "approval_operator_git_commit",
+            "decision": {
+              "allow": {
+                "scope": "once"
+              }
+            },
+            "owner": {
+              "workspace_id": "workspace_contract_v1",
+              "project_id": "project_viden",
+              "lane_id": "lane_operator_git",
+              "session_id": "session_operator_git",
+              "task_id": "task_operator_git",
+              "turn_id": "turn_operator_git"
+            },
+            "audit_id": "audit_operator_git_commit"
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_operator_git",
+        "session_id": "session_operator_git",
+        "task_id": "task_operator_git",
+        "turn_id": "turn_operator_git"
+      },
+      "cursor": {
+        "stream_id": "fixture:operator-git",
+        "sequence": 7
+      },
+      "event": {
+        "sequence": 7,
+        "timestamp": 1700002007,
+        "kind": {
+          "type": "operator_git_action_finished",
+          "payload": {
+            "command_id": "operator_git_commit",
+            "target": "workspace",
+            "action": {
+              "commit": {
+                "message": "feat(types): add operator git actions"
+              }
+            },
+            "outcome": {
+              "completed": {
+                "output": "[codex/v3-core-runtime 1a2b3c4] feat(types): add operator git actions\n 1 file changed, 2 insertions(+)",
+                "truncated": false,
+                "source": {
+                  "status": "ready",
+                  "branch": "codex/v3-core-runtime",
+                  "worktree": "workspace/viden",
+                  "ahead": 2,
+                  "behind": 0,
+                  "added": 0,
+                  "deleted": 0,
+                  "dirty": false
+                }
+              }
+            },
+            "audit_id": "audit_operator_git_commit"
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_operator_git",
+        "session_id": "session_operator_git",
+        "task_id": "task_operator_git",
+        "turn_id": "turn_operator_git"
+      },
+      "cursor": {
+        "stream_id": "fixture:operator-git",
+        "sequence": 8
+      },
+      "event": {
+        "sequence": 8,
+        "timestamp": 1700002008,
+        "kind": {
+          "type": "workspace_source_updated",
+          "payload": {
+            "source": {
+              "status": "ready",
+              "branch": "codex/v3-core-runtime",
+              "worktree": "workspace/viden",
+              "ahead": 2,
+              "behind": 0,
+              "added": 0,
+              "deleted": 0,
+              "dirty": false
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_operator_git",
+        "session_id": "session_operator_git",
+        "task_id": "task_operator_git",
+        "turn_id": "turn_operator_git"
+      },
+      "cursor": {
+        "stream_id": "fixture:operator-git",
+        "sequence": 9
+      },
+      "event": {
+        "sequence": 9,
+        "timestamp": 1700002009,
+        "kind": {
+          "type": "operator_git_action_finished",
+          "payload": {
+            "command_id": "operator_git_push",
+            "target": {
+              "lane": {
+                "lane_id": "lane_operator_git"
+              }
+            },
+            "action": {
+              "push": {
+                "remote": "origin",
+                "set_upstream": false
+              }
+            },
+            "outcome": {
+              "failed": {
+                "class": "no_upstream",
+                "detail": "the current branch has no upstream branch; push with set_upstream to create one"
+              }
+            },
+            "audit_id": "audit_operator_git_push"
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_operator_git",
+        "session_id": "session_operator_git",
+        "task_id": "task_operator_git",
+        "turn_id": "turn_operator_git"
+      },
+      "cursor": {
+        "stream_id": "fixture:operator-git",
+        "sequence": 10
+      },
+      "event": {
+        "sequence": 10,
+        "timestamp": 1700002010,
+        "kind": {
+          "type": "workspace_source_updated",
+          "payload": {
+            "source": {
+              "status": "ready",
+              "branch": "codex/v3-core-runtime",
+              "worktree": "workspace/viden",
+              "ahead": 2,
+              "behind": 0,
+              "added": 0,
+              "deleted": 0,
+              "dirty": false
+            }
+          }
+        }
+      }
+    }
+  ],
+  "expected_final_cursor": {
+    "stream_id": "fixture:operator-git",
+    "sequence": 10
+  },
+  "expected_view_sha256": "07eadb0e93c8e151ba5e3dd0f069035ff5e97ca20156b6f1f0c0e85a86ac14e1"
+}

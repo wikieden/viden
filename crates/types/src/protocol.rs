@@ -40,6 +40,7 @@ pub const FRONTEND_V1_EXTENSION_CAPABILITIES: &[&str] = &[
     "runtime.credential_staging",
     "runtime.lane_lifecycle",
     "runtime.lane_owner_projection",
+    "runtime.operator_git",
     "runtime.project_onboarding",
     "runtime.recent_work",
     "runtime.starter_lane_preview",
