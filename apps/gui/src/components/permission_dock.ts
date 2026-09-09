@@ -55,9 +55,15 @@ const RISK_COPY = {
   critical: "d1.risk.critical",
 } as const;
 
+/// The `ApprovalTarget.kind` values this build can name. A kind it cannot is
+/// rendered as unavailable rather than as a guess, which is why `git` — the
+/// one kind Core stamps on all five operator source-control actions
+/// (`runtime.operator_git`) — has to be listed here: without it a real commit
+/// ask would read as a target the dock does not understand.
 const TARGET_COPY = {
   local: "d1.permission.target.local",
   repo_path: "d1.permission.target.repoPath",
+  git: "d1.permission.target.git",
 } as const;
 
 const POLICY_COPY = {

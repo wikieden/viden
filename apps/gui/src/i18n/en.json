@@ -214,6 +214,7 @@
   "d1.permission.deny": "Deny",
   "d1.permission.target.local": "Local",
   "d1.permission.target.repoPath": "Repository path",
+  "d1.permission.target.git": "Source control",
   "d1.permission.policy.commandNotAllowlisted": "Command is not allowlisted",
   "d1.permission.policy.requiresApproval": "Approval required",
   "d1.newOutput": "{count} new outputs",

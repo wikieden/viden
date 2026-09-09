@@ -220,6 +220,7 @@ export const MESSAGE_ARGUMENT_NAMES = {
   "d1.permission.deny": [],
   "d1.permission.target.local": [],
   "d1.permission.target.repoPath": [],
+  "d1.permission.target.git": [],
   "d1.permission.policy.commandNotAllowlisted": [],
   "d1.permission.policy.requiresApproval": [],
   "d1.newOutput": ["count"],

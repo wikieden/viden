@@ -195,3 +195,37 @@ describe("Permission Dock", () => {
     expect(root.querySelector("[data-permission-dock]")).toBeNull();
   });
 });
+
+describe("operator source-control asks", () => {
+  test("a `git` target is named, not rendered as a kind the dock cannot read", () => {
+    // Core stamps `target.kind = "git"` on all five operator source-control
+    // actions, so the dock groups them as one decision. A kind this build
+    // cannot name falls back to the unavailable sentence, which for a real
+    // commit ask would be plainly wrong.
+    const root = document.createElement("div");
+    renderPermissionDock(
+      root,
+      {
+        ...PROJECTION,
+        request: {
+          ...PROJECTION.request!,
+          id: "approval_operator_git_commit",
+          toolName: "git_commit",
+          risk: "medium",
+          target: {
+            kind: "git",
+            display: "git_commit (workspace)",
+            canonicalRef: "workspace",
+          },
+        },
+      },
+      async () => undefined,
+      "en",
+    );
+
+    const facts = root.textContent ?? "";
+    expect(facts).toContain("Source control");
+    expect(facts).toContain("git_commit (workspace)");
+    expect(facts).not.toContain("Unavailable");
+  });
+});

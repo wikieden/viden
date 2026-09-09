@@ -1725,6 +1725,11 @@ export function renderD1Cockpit(
     transcriptLaneId = null;
     transcript.reset([]);
     focusedConversation = conversationForLane(projection, laneId);
+    // The owner an operator action may act as is the *selected* Lane's, so a
+    // selection change re-reads it. Without this the commit bar would keep the
+    // previous Lane's availability — and, worse, could look enabled for a Lane
+    // Core published no binding for.
+    readOperatorGit();
     render(false);
   }
 

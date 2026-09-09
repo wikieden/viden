@@ -214,6 +214,7 @@
   "d1.permission.deny": "\u62d2\u7edd",
   "d1.permission.target.local": "\u672c\u5730",
   "d1.permission.target.repoPath": "\u4ed3\u5e93\u8def\u5f84",
+  "d1.permission.target.git": "\u6e90\u7801\u7ba1\u7406",
   "d1.permission.policy.commandNotAllowlisted": "\u547d\u4ee4\u4e0d\u5728\u5141\u8bb8\u5217\u8868\u4e2d",
   "d1.permission.policy.requiresApproval": "\u9700\u8981\u6279\u51c6",
   "d1.newOutput": "{count} \u6761\u65b0\u8f93\u51fa",
