@@ -43,9 +43,11 @@
         "taskId": "task-lane-3",
         "reason": "src/player/dash.gd conflicts with the merged baseline",
         "status": "revalidated",
-        "evidenceIds": []
+        "evidenceIds": [],
+        "content": null
       }
     ],
+    "laneConflicts": [],
     "reverts": [
       {
         "revertId": "revert-1",
@@ -76,10 +78,6 @@
       }
     ]
   },
-  "unavailable": [
-    {
-      "key": "d12.conflict.noStructuredHunk",
-      "code": "GUI-CORE-015"
-    }
-  ]
+  "conflictContentAvailable": true,
+  "unavailable": []
 }

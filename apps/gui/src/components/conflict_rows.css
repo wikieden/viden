@@ -1,0 +1,262 @@
+/*
+ * Structured conflict content (D12).
+ *
+ * The rows are the registered `.diffbody > .dl` family from `gui-kit.css`
+ * (imported, never hand-copied — the D-COMP registration is explicit that a
+ * hand copy is drift). What is added here is only what the kit has no data
+ * for: the two-column ours/theirs frame the D12 page draws, the collapsible
+ * preimage strip, the reason chip, and the baseline row.
+ *
+ * The ours/theirs tinting follows the D12 design page — ours on `--success`,
+ * theirs on `--error` — and deliberately does *not* reuse `.dl.add` / `.dl.del`.
+ * A conflict side is neither an addition nor a deletion, and borrowing those
+ * classes would say Core classified the row when it did not.
+ *
+ * The design package itself is not modified.
+ */
+
+@import "../../../../docs/viden-design/Viden/GUI/gui-kit.css";
+
+.cc {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  margin: var(--sp-2) 0 var(--sp-3);
+}
+
+/*
+ * The claim the layout must never make. Two columns read as a merge editor, so
+ * the pane states what it is before the first row.
+ */
+.cc-notmerge {
+  margin: 0;
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid color-mix(in srgb, var(--gold) 35%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--gold) 7%, transparent);
+  color: var(--fg-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.cc-baseline {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--fg-muted);
+}
+
+.cc-baseline .cc-blabel {
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--fg-faint);
+}
+
+.cc-baseline .cc-bvalue {
+  color: var(--fg-secondary);
+}
+
+/* An unknown baseline is a real answer and is marked as one, not left plain. */
+.cc-baseline[data-conflict-baseline="unknown"] .cc-bvalue {
+  color: var(--gold);
+}
+
+.cc-evchip {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--accent-bright);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  border-radius: 5px;
+  padding: 1px 7px;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.cc-evchip:disabled {
+  color: var(--fg-faint);
+  border-color: var(--border-soft);
+  background: transparent;
+  cursor: default;
+}
+
+.cc-trunc {
+  margin: 0;
+  color: var(--gold);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.cc-file {
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg-void);
+  overflow: hidden;
+}
+
+.cc-fhead {
+  margin: 0;
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border-soft);
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.cc-hunk {
+  border-top: 1px solid var(--border-soft);
+  padding: var(--sp-2) 0;
+}
+
+.cc-hunk:first-of-type {
+  border-top: 0;
+}
+
+.cc-reason {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin: 0 0 var(--sp-2);
+  padding: 0 var(--sp-3);
+}
+
+.cc-rchip {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--error);
+  border: 1px solid color-mix(in srgb, var(--error) 40%, transparent);
+  background: color-mix(in srgb, var(--error) 8%, transparent);
+  border-radius: 5px;
+  padding: 1px 7px;
+  white-space: nowrap;
+}
+
+/* What the operator can do about it, beside the classification itself. */
+.cc-remedy {
+  flex: 1 1 240px;
+  color: var(--fg-muted);
+  font-size: 11.5px;
+  line-height: 1.6;
+}
+
+/*
+ * OURS | THEIRS. One column below the narrow breakpoint, because two columns
+ * of monospace code stop being readable long before they stop fitting.
+ */
+.cc-sides {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  background: var(--border-soft);
+}
+
+@media (max-width: 900px) {
+  .cc-sides {
+    grid-template-columns: 1fr;
+  }
+}
+
+.cc-col {
+  min-width: 0;
+  background: var(--bg-void);
+}
+
+.cc-shead {
+  margin: 0;
+  padding: var(--sp-1) var(--sp-3);
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: var(--fg-faint);
+}
+
+.cc-col:has(.cc-ours) .cc-shead {
+  color: color-mix(in srgb, var(--success) 75%, var(--fg-muted));
+}
+
+.cc-col:has(.cc-theirs) .cc-shead {
+  color: color-mix(in srgb, var(--error) 75%, var(--fg-muted));
+}
+
+.cc-body {
+  padding: 0 0 var(--sp-2);
+  overflow-x: auto;
+}
+
+.cc-line .tx {
+  overflow-wrap: normal;
+}
+
+.cc-line.cc-ours {
+  background: color-mix(in srgb, var(--success) 9%, transparent);
+}
+
+.cc-line.cc-ours .tx {
+  color: var(--success);
+}
+
+.cc-line.cc-theirs {
+  background: color-mix(in srgb, var(--error) 9%, transparent);
+}
+
+.cc-line.cc-theirs .tx {
+  color: var(--error);
+}
+
+/* The preimage is neither side: it is what the patch expected to find. */
+.cc-line.cc-base .tx {
+  color: var(--fg-secondary);
+}
+
+.cc-base {
+  margin: var(--sp-2) var(--sp-3) 0;
+  border: 1px dashed var(--border-soft);
+  border-radius: 7px;
+}
+
+.cc-base > summary {
+  padding: var(--sp-1) var(--sp-2);
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: var(--fg-faint);
+  cursor: pointer;
+}
+
+.cc-baseline-note {
+  margin: var(--sp-2) var(--sp-3) 0;
+}
+
+/*
+ * "Not shown", "no hunks", "Core read no lines on this side" — the facts that
+ * must never render as an empty body.
+ */
+.cc .dl.note {
+  display: block;
+  margin: 0;
+  padding: var(--sp-1) var(--sp-3);
+  color: var(--gold);
+  font-family: var(--mono);
+  font-size: 11px;
+  white-space: normal;
+}
+
+/* Core published nothing for this record, or publishes nothing at all. */
+.cc-absent {
+  margin: var(--sp-2) 0 0;
+  color: var(--fg-muted);
+  font-size: 11.5px;
+  line-height: 1.6;
+}

@@ -1,4 +1,6 @@
-import type { Locale } from "../i18n/catalog";
+import { renderConflictContent, renderConflictUnavailable } from "../components/conflict_rows";
+import { translate, type Locale } from "../i18n/catalog";
+import type { ConflictContentProjection } from "../models/conflict";
 import type { D14AuditScope } from "./d14_audit_timeline";
 import "./d12_integration_gate.css";
 
@@ -41,6 +43,30 @@ export interface D12Bounce {
   reason: string;
   status: string;
   evidenceIds: string[];
+  /**
+   * The lines the failed merge collided with
+   * (`runtime.conflict_content`, GUI-CORE-015).
+   *
+   * `null` means Core published none for this bounce — an operator
+   * `BounceMergeConflict` is a human judgement with no failed apply behind it
+   * and carries none by contract — and never that the conflict was empty.
+   */
+  content: ConflictContentProjection | null;
+}
+
+/**
+ * One Lane apply conflict Core recorded for a Lane this gate involves.
+ *
+ * `LaneConflictView` rides the Lane apply path rather than the merge path, so
+ * it is listed apart from the gate's own bounce timeline: those are the
+ * recovery steps, these are the collisions the Lane hit while applying.
+ */
+export interface D12LaneConflict {
+  laneId: string;
+  summary: string;
+  paths: string[];
+  timestamp: number | null;
+  content: ConflictContentProjection | null;
 }
 
 export interface D12Revert {
@@ -73,6 +99,7 @@ export interface D12GateDetail {
   gate: D12Gate;
   missingEvidence: string[];
   bounces: D12Bounce[];
+  laneConflicts: D12LaneConflict[];
   reverts: D12Revert[];
   checks: D12Check[];
   actions: D12Action[];
@@ -82,6 +109,12 @@ export interface D12IntegrationGateProjection {
   gates: D12Gate[];
   selectedGateId: string | null;
   detail: D12GateDetail | null;
+  /**
+   * Core advertised `runtime.conflict_content`. False means the conflict is
+   * still only the reason text, which the screen says instead of claiming
+   * there was nothing to show.
+   */
+  conflictContentAvailable: boolean;
   unavailable: D12Unavailable[];
 }
 
@@ -241,6 +274,29 @@ export function renderD12IntegrationGate(
     return heading;
   };
 
+  /// A section heading whose sentence lives in the shared catalog rather than
+  /// this screen's own copy table.
+  const catalogSection = (text: string): HTMLElement => {
+    const heading = document.createElement("div");
+    heading.className = "d12-sec";
+    heading.textContent = text;
+    return heading;
+  };
+
+  /// The conflict pane for one record: Core's lines when it published them,
+  /// and otherwise the sentence that says which kind of absence this is.
+  ///
+  /// The evidence chips route through the same D14 callback the revert rows
+  /// use, so a baseline binding opens the audit trail for the evidence object
+  /// Core linked rather than a screen-invented query.
+  const conflictPane = (host: HTMLElement, content: ConflictContentProjection | null): void => {
+    if (content) {
+      renderConflictContent(host, content, locale, onViewAuditTrail);
+      return;
+    }
+    renderConflictUnavailable(host, locale, projection.conflictContentAvailable);
+  };
+
   const render = (): void => {
     const stage = document.createElement("section");
     stage.className = "d12-stage";
@@ -344,10 +400,40 @@ export function renderD12IntegrationGate(
       const item = document.createElement("li");
       item.dataset.d12Bounce = bounce.bounceId;
       item.dataset.d12BounceStatus = bounce.status;
-      item.textContent = `${bounce.originalLaneId} · ${bounce.status} · ${bounce.reason}`;
+      const line = document.createElement("span");
+      line.className = "d12-bline";
+      line.textContent = `${bounce.originalLaneId} · ${bounce.status} · ${bounce.reason}`;
+      item.append(line);
+      // The lines sit under the bounce that carries them: a conflict pane is
+      // only ever true of one Core record, never of the gate as a whole.
+      conflictPane(item, bounce.content);
       timeline.append(item);
     }
     stage.append(timeline);
+
+    // The Lane apply path publishes its own collisions, keyed by Lane. They
+    // are listed apart from the bounce timeline because they are a different
+    // Core record with a different producer, not a step in this gate's
+    // recovery.
+    if (detail.laneConflicts.length > 0) {
+      stage.append(catalogSection(translate(locale, "d12.conflict.laneConflicts", {})));
+      const conflicts = document.createElement("ul");
+      conflicts.className = "d12-laneconflicts";
+      for (const conflict of detail.laneConflicts) {
+        const item = document.createElement("li");
+        item.dataset.d12LaneConflict = conflict.laneId;
+        const line = document.createElement("span");
+        line.className = "d12-bline";
+        line.textContent = translate(locale, "d12.conflict.laneConflict", {
+          lane: conflict.laneId,
+          summary: conflict.summary,
+        });
+        item.append(line);
+        conflictPane(item, conflict.content);
+        conflicts.append(item);
+      }
+      stage.append(conflicts);
+    }
 
     if (detail.checks.length > 0) {
       stage.append(section("checks"));

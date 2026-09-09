@@ -37,8 +37,10 @@ const PROJECTION: D12IntegrationGateProjection = {
         reason: "src/player/dash.gd conflicts with the merged baseline",
         status: "revalidated",
         evidenceIds: [],
+        content: null,
       },
     ],
+    laneConflicts: [],
     reverts: [],
     checks: [{ id: "check-1", name: "replay-regression", status: "failed" }],
     actions: [
@@ -46,7 +48,8 @@ const PROJECTION: D12IntegrationGateProjection = {
       { kind: "reject", available: true, code: null },
     ],
   },
-  unavailable: [{ key: "d12.conflict.noStructuredHunk", code: "GUI-CORE-015" }],
+  conflictContentAvailable: true,
+  unavailable: [],
 };
 
 /// An open gate Core would let the operator decide on.
@@ -99,6 +102,67 @@ function mergedProjection(): D12IntegrationGateProjection {
           auditId: "audit-revert-1",
           auditScope: { kind: "revert", id: "revert-1" },
           revertedAt: 1_700_000_900,
+        },
+      ],
+    },
+  };
+}
+
+/// The canonical `conflict-content.json` shape as the host projects it: an
+/// evidence baseline on the bounce, a revision baseline on the Lane apply
+/// conflict, and one hunk carrying all three sides.
+function withConflictContent(): D12IntegrationGateProjection {
+  const hunk = {
+    oursStart: 42,
+    ours: ["    let bounce = record_conflict_bounce(gate)?;\n"],
+    theirsStart: 42,
+    theirs: ["    let bounce = bounce_with_reason(gate, reason)?;\n"],
+    base: ["    let bounce = record_bounce(gate)?;\n"],
+    reason: "context_mismatch",
+  };
+  const files = [{ path: "crates/runtime/src/trust_loop.rs", hunks: [hunk], omitted: false }];
+  return {
+    ...PROJECTION,
+    detail: {
+      ...PROJECTION.detail!,
+      bounces: [
+        {
+          ...PROJECTION.detail!.bounces[0],
+          content: {
+            baseline: {
+              kind: "evidence",
+              sha: null,
+              shortSha: null,
+              bindings: [
+                {
+                  evidenceId: "ev-baseline",
+                  sourceHash: "cf".repeat(32),
+                  shortHash: "cfcfcfcfcfcf",
+                  auditScope: { kind: "evidence", id: "ev-baseline" },
+                },
+              ],
+            },
+            files,
+            truncated: false,
+          },
+        },
+      ],
+      laneConflicts: [
+        {
+          laneId: "lane-3",
+          summary: "patch conflict: expected hunk context was not found",
+          paths: ["crates/runtime/src/trust_loop.rs"],
+          timestamp: 1_700_003_004,
+          content: {
+            baseline: {
+              kind: "revision",
+              sha: "9f".repeat(20),
+              shortSha: "9f9f9f9f9f9f",
+              bindings: [],
+            },
+            files,
+            truncated: false,
+          },
         },
       ],
     },
@@ -195,12 +259,66 @@ describe("D12 integration gate", () => {
     );
   });
 
-  test("declares the missing conflict hunk instead of rendering one", () => {
-    const { root } = setup();
+  test("names the capability a Core without conflict content is missing", () => {
+    // GUI-CORE-015 is closed. What can still be absent is the capability, and
+    // the row names it rather than a request number nobody can act on.
+    const { root } = setup({
+      ...PROJECTION,
+      conflictContentAvailable: false,
+      unavailable: [
+        { key: "d12.conflict.noStructuredHunk", code: "runtime.conflict_content" },
+      ],
+    });
     expect(
       root.querySelector<HTMLElement>("[data-d12-unavailable]")?.dataset.d12Unavailable,
-    ).toBe("GUI-CORE-015");
-    expect(root.querySelector(".d12-diff")).toBeNull();
+    ).toBe("runtime.conflict_content");
+    // A bounce Core published no content for still says which absence it is,
+    // and it is not the capability one.
+    expect(
+      root.querySelector<HTMLElement>("[data-conflict-absent]")?.dataset.conflictAbsent,
+    ).toBe("capability");
+
+    // With the capability present the screen declares nothing unavailable and
+    // the per-bounce sentence is the record one instead.
+    const { root: available } = setup();
+    expect(available.querySelector("[data-d12-unavailable]")).toBeNull();
+    expect(
+      available.querySelector<HTMLElement>("[data-conflict-absent]")?.dataset.conflictAbsent,
+    ).toBe("record");
+  });
+
+  test("renders a bounce's conflict hunks under the bounce that carries them", () => {
+    const { root, onViewAuditTrail } = setup(withConflictContent());
+
+    const bounce = root.querySelector("[data-d12-bounce='bounce-1']")!;
+    // The pane belongs to its own Core record, not to the gate as a whole.
+    expect(bounce.querySelector("[data-conflict-content]")).not.toBeNull();
+    expect(bounce.querySelector("[data-conflict-side='ours']")!.textContent).toContain(
+      "record_conflict_bounce",
+    );
+    expect(bounce.querySelector("[data-conflict-side='theirs']")!.textContent).toContain(
+      "bounce_with_reason",
+    );
+    expect(bounce.querySelector("[data-conflict-side='base']")!.textContent).toContain(
+      "record_bounce",
+    );
+    expect(bounce.querySelector("[data-conflict-not-merge]")).not.toBeNull();
+    // There is no manual-merge escape hatch, so the pane adds no control.
+    expect(root.querySelectorAll("button[data-d12-action]")).toHaveLength(2);
+
+    // A baseline binding opens the evidence object's own audit trail, the same
+    // route the revert rows already take.
+    root.querySelector<HTMLButtonElement>("[data-conflict-evidence='ev-baseline']")!.click();
+    expect(onViewAuditTrail).toHaveBeenCalledWith({ kind: "evidence", id: "ev-baseline" });
+  });
+
+  test("lists Lane apply conflicts apart from the gate's own bounce timeline", () => {
+    const { root } = setup(withConflictContent());
+    const conflict = root.querySelector("[data-d12-lane-conflict='lane-3']")!;
+    expect(conflict.textContent).toContain("expected hunk context was not found");
+    expect(conflict.querySelector("[data-conflict-baseline='revision']")).not.toBeNull();
+    // The timeline keeps its own rows; the Lane list is a second section.
+    expect(root.querySelectorAll("[data-d12-bounce]")).toHaveLength(1);
   });
 
   test("names why a closed action is closed instead of going dark", () => {

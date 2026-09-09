@@ -241,6 +241,100 @@ fn emit_capture_projections() {
     });
     write("d12", &connected(d12).d12_integration_gate().unwrap());
 
+    // D12 conflict content: the canonical `conflict-content.json` fixture,
+    // whose Lane B bounce and Lane apply conflict both carry structured
+    // content. The second hunk and the omitted/truncated variant are added as
+    // Core's own wire form rather than as a client-side literal, because
+    // `viden-core` re-exports `ConflictBounce` but not the `ConflictContent`
+    // family it carries.
+    let mut conflict = load("conflict-content.json");
+    let bounce = conflict
+        .conflict_bounces
+        .iter_mut()
+        .find(|bounce| bounce.bounce_id == "bounce_conflict_b")
+        .expect("the conflict fixture publishes Lane B's bounce");
+    // A second hunk with a different reason, so the capture shows that each
+    // rejection carries its own classification and remedy.
+    bounce.content = serde_json::from_value(serde_json::json!({
+        "baseline": { "evidence": { "bindings": [{
+            "evidence_id": "ev_conflict_patch_b",
+            "source_hash": "cf".repeat(32)
+        }] } },
+        "files": [{
+            "path": "crates/runtime/src/trust_loop.rs",
+            "hunks": [
+                {
+                    "ours_start": 42,
+                    "ours": ["    let bounce = record_conflict_bounce(gate)?;\n"],
+                    "theirs_start": 42,
+                    "theirs": ["    let bounce = bounce_with_reason(gate, reason)?;\n"],
+                    "base": ["    let bounce = record_bounce(gate)?;\n"],
+                    "reason": "context_mismatch"
+                },
+                {
+                    "ours_start": 96,
+                    "ours": [
+                        "    let audit = audit.record(gate, actor)?;\n",
+                        "    supervisor.publish(audit);\n"
+                    ],
+                    "theirs_start": 96,
+                    "theirs": [
+                        "    let audit = audit.record(gate, actor)?;\n",
+                        "    supervisor.publish(audit);\n"
+                    ],
+                    "base": [
+                        "    let audit = audit.record(gate)?;\n",
+                        "    supervisor.publish(audit);\n"
+                    ],
+                    "reason": "already_applied"
+                }
+            ],
+            "omitted": false
+        }],
+        "truncated": false
+    }))
+    .expect("Core's own conflict-content encoding");
+    write(
+        "d12-conflict",
+        &connected(conflict.clone())
+            .d12_integration_gate_for("gate_conflict_b")
+            .unwrap(),
+    );
+
+    // The bounded variant: one file over the byte bound, so its entry survives
+    // with no hunks, and the payload flags the truncation.
+    let bounce = conflict
+        .conflict_bounces
+        .iter_mut()
+        .find(|bounce| bounce.bounce_id == "bounce_conflict_b")
+        .expect("the conflict fixture publishes Lane B's bounce");
+    bounce.content = serde_json::from_value(serde_json::json!({
+        "baseline": { "revision": { "sha": "9f".repeat(20) } },
+        "files": [
+            {
+                "path": "crates/runtime/src/trust_loop.rs",
+                "hunks": [{
+                    "ours_start": 42,
+                    "ours": ["    let bounce = record_conflict_bounce(gate)?;\n"],
+                    "theirs_start": 42,
+                    "theirs": ["    let bounce = bounce_with_reason(gate, reason)?;\n"],
+                    "base": ["    let bounce = record_bounce(gate)?;\n"],
+                    "reason": "context_mismatch"
+                }],
+                "omitted": false
+            },
+            { "path": "assets/atlas.png", "hunks": [], "omitted": true }
+        ],
+        "truncated": true
+    }))
+    .expect("Core's own conflict-content encoding");
+    write(
+        "d12-conflict-omitted",
+        &connected(conflict)
+            .d12_integration_gate_for("gate_conflict_b")
+            .unwrap(),
+    );
+
     // D13: the DAG fixture with one blocked dependency.
     let mut d13 = load("dag-blocker.json");
     let blocked = d13.agent_dags[0].tasks[0].task_id.clone();

@@ -124,6 +124,7 @@
 
 .d12-timeline,
 .d12-checks,
+.d12-laneconflicts,
 .d12-reverts {
   margin: 0 var(--sp-4);
   padding: 0;
@@ -134,6 +135,7 @@
 
 .d12-timeline li,
 .d12-checks li,
+.d12-laneconflicts li,
 .d12-reverts li {
   padding: var(--sp-2) var(--sp-3);
   border: 1px solid var(--border-soft);
@@ -219,4 +221,12 @@
 .d12-trail:focus-visible {
   outline: 2px solid var(--border-active);
   outline-offset: 2px;
+}
+
+/*
+ * A bounce or Lane conflict row carries its own conflict pane below its
+ * sentence, so the row is a block rather than one monospace line.
+ */
+.d12-bline {
+  display: block;
 }

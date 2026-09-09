@@ -1,0 +1,166 @@
+{
+  "gates": [
+    {
+      "gateId": "gate_conflict_a",
+      "taskId": "task_conflict_a",
+      "status": "merged",
+      "gateType": "patch",
+      "projectId": "project_viden",
+      "laneId": "lane_conflict_a",
+      "requiresIndependentValidator": false,
+      "hasValidator": false,
+      "requiredEvidence": [
+        "patch"
+      ],
+      "evidenceIds": [
+        "ev_conflict_patch_a"
+      ],
+      "dormant": false
+    },
+    {
+      "gateId": "gate_conflict_b",
+      "taskId": "task_conflict_b",
+      "status": "needs_changes",
+      "gateType": "patch",
+      "projectId": "project_viden",
+      "laneId": "lane_conflict_b",
+      "requiresIndependentValidator": false,
+      "hasValidator": false,
+      "requiredEvidence": [
+        "patch"
+      ],
+      "evidenceIds": [
+        "ev_conflict_patch_b"
+      ],
+      "dormant": false
+    }
+  ],
+  "selectedGateId": "gate_conflict_b",
+  "detail": {
+    "gate": {
+      "gateId": "gate_conflict_b",
+      "taskId": "task_conflict_b",
+      "status": "needs_changes",
+      "gateType": "patch",
+      "projectId": "project_viden",
+      "laneId": "lane_conflict_b",
+      "requiresIndependentValidator": false,
+      "hasValidator": false,
+      "requiredEvidence": [
+        "patch"
+      ],
+      "evidenceIds": [
+        "ev_conflict_patch_b"
+      ],
+      "dormant": false
+    },
+    "missingEvidence": [
+      "patch"
+    ],
+    "bounces": [
+      {
+        "bounceId": "bounce_conflict_b",
+        "originalLaneId": "lane_conflict_b",
+        "taskId": "task_conflict_b",
+        "reason": "patch conflict: expected hunk context was not found",
+        "status": "pending",
+        "evidenceIds": [
+          "ev_conflict_patch_b"
+        ],
+        "content": {
+          "baseline": {
+            "kind": "revision",
+            "sha": "9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f",
+            "shortSha": "9f9f9f9f9f9f",
+            "bindings": []
+          },
+          "files": [
+            {
+              "path": "crates/runtime/src/trust_loop.rs",
+              "hunks": [
+                {
+                  "oursStart": 42,
+                  "ours": [
+                    "    let bounce = record_conflict_bounce(gate)?;\n"
+                  ],
+                  "theirsStart": 42,
+                  "theirs": [
+                    "    let bounce = bounce_with_reason(gate, reason)?;\n"
+                  ],
+                  "base": [
+                    "    let bounce = record_bounce(gate)?;\n"
+                  ],
+                  "reason": "context_mismatch"
+                }
+              ],
+              "omitted": false
+            },
+            {
+              "path": "assets/atlas.png",
+              "hunks": [],
+              "omitted": true
+            }
+          ],
+          "truncated": true
+        }
+      }
+    ],
+    "laneConflicts": [
+      {
+        "laneId": "lane_conflict_b",
+        "summary": "patch conflict: expected hunk context was not found",
+        "paths": [
+          "crates/runtime/src/trust_loop.rs"
+        ],
+        "timestamp": 1700003004,
+        "content": {
+          "baseline": {
+            "kind": "revision",
+            "sha": "9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f",
+            "shortSha": "9f9f9f9f9f9f",
+            "bindings": []
+          },
+          "files": [
+            {
+              "path": "crates/runtime/src/trust_loop.rs",
+              "hunks": [
+                {
+                  "oursStart": 42,
+                  "ours": [
+                    "    let bounce = record_conflict_bounce(gate)?;\n"
+                  ],
+                  "theirsStart": 42,
+                  "theirs": [
+                    "    let bounce = lane_bounce(gate)?;\n"
+                  ],
+                  "base": [
+                    "    let bounce = record_bounce(gate)?;\n"
+                  ],
+                  "reason": "context_mismatch"
+                }
+              ],
+              "omitted": false
+            }
+          ],
+          "truncated": false
+        }
+      }
+    ],
+    "reverts": [],
+    "checks": [],
+    "actions": [
+      {
+        "kind": "accept",
+        "available": false,
+        "code": "missing_evidence"
+      },
+      {
+        "kind": "reject",
+        "available": true,
+        "code": null
+      }
+    ]
+  },
+  "conflictContentAvailable": true,
+  "unavailable": []
+}
