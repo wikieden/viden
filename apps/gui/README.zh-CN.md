@@ -117,7 +117,7 @@ GUI 禁止导入 `viden_core::legacy`、`viden-runtime`、`viden-provider`、
 | Permission dock | scoped approve/deny、risk、target、expiry、default action、audit id | `ApprovalRequestView` 和 `RespondToApproval` 已有 | 可经 Core 使用；GUI 不得直接执行 tool |
 | D2 决策中心 | 跨 Lane 的统一决策队列：闸审批、lane 问询、契约确认共用「上下文 / 证据 / 动作栏」一套卡片骨架 | `pending_approvals` + `RespondToApproval`、`review_requests` + `DecideReview`、`contracts` + `ConfirmContract` 已有；审批的结构化 diff 与待确认契约事实缺失 | 入口 `?screen=d2`；闸、契约与评审决定都发出 Core 命令，评审裁决可携带可选评审意见，且只由 Core 发布的有序 `ReviewRequestUpdated` 确认；Core 会拒绝的评审保持禁用并标注 `D2-REVIEW-SETTLED` 或 `D2-NO-REVIEWER-ACTOR`，审批 diff 以 `GUI-CORE-012` 声明不可用，契约分组以 `GUI-CORE-013` 标注为已决历史，且两个契约裁决都以同一编码禁用并标注，因为 Core 会拒绝对已记录的契约再做一次裁决 |
 | D10 Lane 监视器 | 跨项目每条 Lane 一张卡：门控强度、状态、进度、证据、成本可计量性与「等你」计数 | `lanes`、`lane_runtime_owners`、`tasks`、`agent_sessions`、`latest_evidence`、`AgentLaneRecord.run_stats` 已有；有序历史来自审计时间线而非视图状态 | 入口 `?screen=d10`；只读，门控强度取自 `AgentLaneRecord.gate_strength` 而非 agent 标签，未绑定 Lane 不显示项目，无 Core 任务的 Lane 不显示进度；成本不可计量路由（`AgentRoute::cost_meterability`）会被标记，并展示 Core 记录的有界运行事实而非推断成本——Core 未观测到运行时该组事实缺席而不是补零，退出码缺失时明确标为未知；事件流是 Core 追加式审计时间线（`QueryAudit` -> `AuditPageLoaded`，limit 50，不加作用域以覆盖每个项目）的一页有界 newest-first 记录，逐行渲染稳定 id、原样的点分 action key、所属项目与 Lane、以及时间戳；缺少 `runtime.audit`、读取中、被拒绝、已回答但为空，保持四条不同的文案 |
-| D12 集成闸 | 冲突横幅、闸策略、退回原 Lane 的恢复时间线、合入后回滚，且不提供手动 merge | `merge_gates`、`conflict_bounces`、`reverts`、`check_runs`、`AcceptMergeGate`、`RejectMergeGate` 已有；不发布结构化冲突内容 | 入口 `?screen=d12`；`批准并合入` 与 `退回原 Lane` 各自发送对应 Core command，只有满足 `decide_merge_gate` 实际执行的规则时才开放，否则标注阻塞代码；时间线与回滚按选中闸限定，冲突 hunk 以 `GUI-CORE-015` 声明不可用 |
+| D12 集成闸 | 冲突横幅、闸策略、退回原 Lane 的恢复时间线、冲突 hunk、合入后回滚，且不提供手动 merge | `merge_gates`、`conflict_bounces`、`reverts`、`check_runs`、`AcceptMergeGate`、`RejectMergeGate` 已有，且 `runtime.conflict_content` 发布 `ConflictBounce.content` 与 `LaneConflictView.content` | 入口 `?screen=d12`；`批准并合入` 与 `退回原 Lane` 各自发送对应 Core command，只有满足 `decide_merge_gate` 实际执行的规则时才开放，否则标注阻塞代码；时间线与回滚按选中闸限定；每条冲突记录把被拒 hunk 画成 OURS 与 THEIRS 并排、补丁原像作为第三条折叠条 —— 绝不是合并结果（`GUI-CORE-015` 已采纳） |
 | D14 审计与时间线 | 谁在什么对象上做了什么、结果如何，另加一份用于诊断的原始有序事件日志 | `runtime.audit` 之下的 `RuntimeCommand::QueryAudit` -> `AuditPageLoaded` 已有，`CoreClient::replay` 的 `ReplayRequest`/`ReplayBatch` 与 `EventCursor` 也已有；`AuditPageLoaded` 不携带 command id、`AuditQuery` 没有 actor 与时间过滤（`GUI-CORE-024`），视图状态没有事件日志（`GUI-CORE-014`） | 入口 `?screen=d14`，并可从 D2 决策详情与 D12 回滚行按 Core 实际关联的审计对象带范围进入。两种模式：**审计**（默认）以 newest-first 分页读取 Core 的追加式审计存储，采用 acceptance-first 关联（页面只有在 Core 接受了本次确切 `command_id` 之后才被采纳，本地拒绝第二个并发读取，行只来自确认页），点分 `action` key 原样渲染——它是 Core 稳定且可 diff 的词汇表，本构建无法命名的 actor 或 outcome 标为 `unknown` 而不是借用已知值，每条记录的时间在所有语言下都按固定的 `YYYY-MM-DD HH:MM:SS UTC` 时钟渲染——审计记录是要跨机器比对的证据；**原始事件回放（诊断）** 保留回放 cursor 日志，行标签用 Core 自己的 serde 判别名，无法解码的事件仍占一行，回放失败显式提示而不是给出更短但看起来完整的轨迹。缺少 `runtime.audit` 时 D14 直接以原始模式打开、点名该 capability，并且零发送审计命令。设计稿的过滤 chip、按天分组、详情侧栏、汇总与导出未实现；其中需要 Core 的部分记为 `GUI-CORE-024` |
 | D13 Fleet 编排与 Workflow | 每个 workflow DAG 一块看板：声明的依赖边、节点运行状态、阻塞原因与 Lane 交接 | `agent_dags`（含 `AgentDagTaskSpec`）、`tasks`、`dependencies`、`handoffs` 已有 | 入口 `?screen=d13`；只读，依赖边取自任务规格自身的 dependencies，节点只有在 Core 真正跑该任务时才显示状态，阻塞只来自 Core 的 `DependencyState::Blocked` 记录，交接绝不由依赖边推导 |
 | D6 恢复 | 连接中、断连、agent stopped、budget exhausted、gate queue clear、reconnect/restart/close actions | Runtime errors、CoreClient snapshot recovery、context budget facts、queue/gate facts、`RetryAgentSession` 与 `StopLane` 已有；检查点完全未被建模 | Task 10 渲染运行期 Core-owned 恢复状态；无项目 `empty` 状态由 D1 Welcome Center 承担；restart 与 close Lane 针对 Core 发布的唯一目标发送对应 Core 命令，inspect 在本地展开既有事实，checkpoint 仍以 `GUI-CORE-003` 明确禁用（`GUI-CORE-018`） |
@@ -591,6 +591,44 @@ permission snapshot、证据质量——因此本投影允许的命令仍可能�
 命令离开 host 之前会针对当前 Core view 重新解析该闸，并从 Core 自身记录中重放 actor
 与证据 bindings，因此渲染与点击之间消失或已关闭的闸会在本地失败，任何 runtime 身份
 或证据哈希都不会从展示文本重建。
+
+## D12 冲突内容
+
+`runtime.conflict_content`（Core `0.3.6`，GUI-CORE-015）为 `ConflictBounce` 与
+`LaneConflictView` 挂上可选的 `ConflictContent`。D12 把它渲染在携带它的记录之下：
+恢复时间线里每条 bounce 画自己的面板；Core 为该闸涉及的 Lane（闸自身的 Lane 与每条
+bounce 指名的原 Lane）记录的 Lane 应用冲突单独列出，因为那是另一种由另一个生产者写下
+的 Core 记录，而不是该闸恢复过程中的一步。
+
+面板画什么，以及绝不能画什么：
+
+- **两侧加上补丁原像，不是三方合并。** OURS 是 Core 在该 hunk 声明的旧区间上对 Lane
+  当前文件所作的只读读取，按 `ours_start` 编号；THEIRS 是传入补丁的新侧，按
+  `theirs_start` 编号；BASE 是该 hunk 自己的原像，放在可折叠的第三条里。Core 不计算
+  merge base，也不做任何解决，因此客户端不显示合并后的文本、不提供解决控件 —— 该声明
+  随每个面板打印，因为双栏布局恰恰会诱发错误理解。这与两个变更动作所依赖的规则是同一
+  条：在闸里解掉的 hunk 会是一段从未走过该 Lane 自身闸的代码。
+- **基线被指名，而不是被假定。** `Evidence { bindings }` 是合并路径的答案，每个绑定渲染
+  成一枚 chip，打开该证据对象自己的审计轨迹，正是 D12 回滚行已有的路由；
+  `Revision { sha }` 渲染短 sha，完整值放在该行 title 里；`Unknown` 渲染为未知，绝不
+  悄悄当作 `HEAD`。本构建未命名的基线类型按原样渲染。
+- **每次拒绝都带归类与补救。** 原因 chip 来自 Core 的 `ConflictHunkReason`，是按判别式
+  分支而不是解析消息得来的：上下文不匹配说明原 Lane 必须重新生成补丁，已经应用说明没有
+  可应用的内容，文件缺失或删除后残留说明这是文件级决定。未建模的原因原样展示，而不会被
+  折进某个已知原因。
+- **四种缺失是四句话。** 缺少 `runtime.conflict_content` 时由该屏的不可用行点名该
+  capability；Core 未为某条记录发布内容时如实说明，并说明操作者的 `BounceMergeConflict`
+  是背后没有失败应用的人为判断、按契约本就不带内容；`omitted` 文件保留条目并说明其 hunk
+  超出 Core 的字节上限；`truncated` 载荷带横幅。它们都不得被读成「无冲突」。
+
+行使用 `gui-kit.css` 中已登记的 `.diffbody > .dl` 族，因此冲突行与 diff 行在屏幕上是
+同一种对象。ours/theirs 的着色遵循 D12 设计稿，并有意不复用 `.dl.add` / `.dl.del`：
+冲突的一侧既不是新增也不是删除，借用这两个类会宣称一个 Core 从未做出的归类。
+
+有一处实现说明值得写明。`viden-core` 再导出了 `ConflictBounce` 与 `LaneConflictView`，
+但没有再导出它们携带的 `ConflictContent` 家族，而 GUI 不得持有第二个 `viden-*` 依赖，
+因此 `RuntimeProjection` 通过 Core 自己的规范 serde 编码读取该值，而不是引入第二个
+解析器。Core 侧的再导出可以去掉这一跳；此事记在 GUI-CORE-015 下。
 
 ## Production bootstrap
 

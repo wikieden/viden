@@ -134,7 +134,7 @@ implementation, not editing screens.
 | Permission dock | scoped approve/deny, risk, target, expiry, default action, audit id | `ApprovalRequestView` and `RespondToApproval` exist | Usable through Core; GUI cannot execute tools directly |
 | D2 decision center | one cross-Lane queue over gate approvals, lane asks, and contract confirmations, on one card skeleton of context, evidence, and action bar | `pending_approvals` with `RespondToApproval`, `review_requests` with `DecideReview`, and `contracts` with `ConfirmContract` exist; a structured approval diff and a pending-contract fact are missing | Reachable at `?screen=d2`; gate, contract, and review decisions all send Core commands, a review verdict carries an optional reviewer note and confirms only on the ordered `ReviewRequestUpdated` Core publishes, a review Core would refuse stays disabled under `D2-REVIEW-SETTLED` or `D2-NO-REVIEWER-ACTOR`, the approval diff stays unavailable under `GUI-CORE-012`, and the contract group is labelled decided history under `GUI-CORE-013` with both contract verdicts disabled-and-labelled by the same code, because Core refuses a second decision on a record it already holds |
 | D10 lane monitor | one card per Lane across every project, with gate strength, status, progress, evidence, cost meterability, and an attention count | `lanes`, `lane_runtime_owners`, `tasks`, `agent_sessions`, `latest_evidence`, and `AgentLaneRecord.run_stats` exist; the ordered history comes from the audit timeline rather than the view state | Reachable at `?screen=d10`; read-only, gate strength comes from `AgentLaneRecord.gate_strength` rather than the agent label, an unbound Lane reports no project, a Lane with no Core task reports no progress, a cost-blind route (`AgentRoute::cost_meterability`) is marked and shows the bounded run facts Core recorded instead of an inferred cost — absent rather than zeroed when Core observed no run, and with an unknown exit code labelled as such — and the event ticker is one bounded newest-first page of Core's append-only audit timeline (`QueryAudit` -> `AuditPageLoaded`, limit 50, unscoped so it spans every project), rendering each record's stable id, raw dotted action key, owning project and Lane, and timestamp, with an absent `runtime.audit`, a pending read, a refusal, and an answered-but-empty timeline kept as four different lines |
-| D12 integration gate | conflict banner, gate policy, bounce-to-origin-lane recovery timeline, post-merge rollback, and no manual merge | `merge_gates`, `conflict_bounces`, `reverts`, `check_runs`, `AcceptMergeGate`, and `RejectMergeGate` exist; no structured conflict content is published | Reachable at `?screen=d12`; `Accept and merge` and `Bounce to origin Lane` send their Core commands, each opening only when the rules `decide_merge_gate` enforces are met and naming its blocking code otherwise, the timeline and reverts are scoped to the selected gate, and the conflicting hunk is unavailable under `GUI-CORE-015` |
+| D12 integration gate | conflict banner, gate policy, bounce-to-origin-lane recovery timeline, the conflicting hunks, post-merge rollback, and no manual merge | `merge_gates`, `conflict_bounces`, `reverts`, `check_runs`, `AcceptMergeGate`, and `RejectMergeGate` exist, and `runtime.conflict_content` publishes `ConflictBounce.content` and `LaneConflictView.content` | Reachable at `?screen=d12`; `Accept and merge` and `Bounce to origin Lane` send their Core commands, each opening only when the rules `decide_merge_gate` enforces are met and naming its blocking code otherwise, the timeline and reverts are scoped to the selected gate, and each conflict record draws its rejected hunks as OURS beside THEIRS with the patch preimage as a third strip — never a merged result (`GUI-CORE-015` adopted) |
 | D14 audit and timeline | who changed what, on which objects, with what outcome — plus a raw ordered event log for diagnosis | `RuntimeCommand::QueryAudit` -> `AuditPageLoaded` under `runtime.audit` exists, as does `CoreClient::replay` with `ReplayRequest`/`ReplayBatch` and `EventCursor`; `AuditPageLoaded` carries no command id and `AuditQuery` has no actor or time filter (`GUI-CORE-024`), and the view state carries no event log (`GUI-CORE-014`) | Reachable at `?screen=d14`, and from D2's decision detail and D12's revert rows scoped to the audit object Core linked. Two modes: **audit** (default) pages Core's append-only audit store newest-first with an acceptance-first correlation (a page counts only after Core accepted this exact `command_id`, a second concurrent read is refused locally, and rows come only from a confirming page), renders the dotted `action` key raw because it is Core's stable diff-able vocabulary, labels an actor or outcome this build cannot name as `unknown` rather than borrowing a known one, and prints each record's time as a fixed `YYYY-MM-DD HH:MM:SS UTC` clock in every locale, because an audit record is evidence compared across machines; **raw event replay (diagnostic)** keeps the replay-cursor log, where the row label is Core's own serde discriminant, an undecodable event still occupies a row, and a replay failure is shown instead of a shorter complete-looking trail. An absent `runtime.audit` opens D14 directly in raw mode, names the capability, and sends no audit command. Design filter chips, day grouping, the detail rail, rollup, and export are not shipped; the parts needing Core are `GUI-CORE-024` |
 | D13 fleet and workflow | one board per workflow DAG with declared edges, node runtime status, blockers, and lane handoffs | `agent_dags` with `AgentDagTaskSpec`, `tasks`, `dependencies`, and `handoffs` exist | Reachable at `?screen=d13`; read-only, edges are the task specs' own dependency lists, a node reports status only when Core runs that task, a blocker appears only from a Core `DependencyState::Blocked` record, and a handoff is never derived from an edge |
 | D6 recovery | connecting, disconnected, agent stopped, budget exhausted, gate queue clear, reconnect/restart/close actions | Runtime errors, CoreClient snapshot recovery, context budget facts, queue/gate facts, `RetryAgentSession`, and `StopLane` exist; no checkpoint is modelled at all | Task 10 renders operational Core-owned recovery states; the no-project `empty` state is handled by D1 Welcome Center; restart and close-Lane send their Core commands for the one unambiguous target Core published, inspect expands existing facts locally, and checkpoint remains visibly unavailable under `GUI-CORE-003` (`GUI-CORE-018`) |
@@ -770,6 +770,61 @@ The host re-resolves the gate against the current Core view before the command
 leaves it and replays the actor and evidence bindings from Core's own records,
 so a gate that vanished or closed between render and click fails locally and no
 runtime identity or evidence hash is ever rebuilt from display text.
+
+## D12 conflict content
+
+`runtime.conflict_content` (Core `0.3.6`, GUI-CORE-015) attaches an optional
+`ConflictContent` to `ConflictBounce` and to `LaneConflictView`. D12 renders it
+under the record that carries it: each bounce in the recovery timeline draws
+its own pane, and the Lane apply conflicts Core recorded for the Lanes this
+gate involves — its owning Lane and every origin Lane a bounce names — are
+listed separately, because they are a different Core record with a different
+producer rather than a step in this gate's recovery.
+
+What the pane draws, and what it must never draw:
+
+- **Two sides plus the patch preimage. Not a three-way merge.** OURS is Core's
+  read-only read of the Lane's current file at the hunk's declared old range,
+  numbered from `ours_start`; THEIRS is the incoming patch's new side, numbered
+  from `theirs_start`; BASE is that hunk's own preimage, in a collapsible third
+  strip. Core computes no merge base and resolves nothing, so the client shows
+  no merged text and offers no resolve control — the statement is printed with
+  every pane, because the two-column layout is exactly what invites the wrong
+  reading. This is the same rule the two-mutation gate rests on: a hunk
+  resolved inside the gate would be code that never passed the Lane's own
+  gates.
+- **The baseline is named, never assumed.** `Evidence { bindings }` is the
+  merge path's answer and renders each binding as a chip that opens that
+  evidence object's own audit trail, the route D12's revert rows already take;
+  `Revision { sha }` renders the short sha with the full value in the row's
+  title; `Unknown` renders as unknown, never silently as `HEAD`. A baseline
+  kind this build does not name renders as itself.
+- **Every rejection carries its classification and its remedy.** The reason
+  chip comes from Core's `ConflictHunkReason` and is switched on, never parsed
+  out of a message: a context mismatch says the origin Lane has to re-derive
+  its patch, an already-applied hunk says there is nothing left to apply, and a
+  missing or surviving file says the decision is file-level. An unmodelled
+  reason is shown raw rather than folded into a known one.
+- **Four absences stay four sentences.** A missing `runtime.conflict_content`
+  names the capability in the screen's unavailable row; a record Core published
+  no content for says so, and says that an operator `BounceMergeConflict` is a
+  human judgement with no failed apply behind it and carries none by contract;
+  an `omitted` file keeps its entry and says its hunks are over Core's byte
+  bound; a `truncated` payload carries a banner. None of them may read as "no
+  conflict".
+
+The rows are the registered `.diffbody > .dl` family from `gui-kit.css`, so a
+conflict line and a diff line are the same object on screen. The ours/theirs
+tinting follows the D12 design page and deliberately does not reuse
+`.dl.add` / `.dl.del`: a conflict side is neither an addition nor a deletion,
+and borrowing those classes would claim a classification Core never made.
+
+One implementation note worth stating. `viden-core` re-exports
+`ConflictBounce` and `LaneConflictView` but not the `ConflictContent` family
+they carry, and the GUI may hold no second `viden-*` dependency, so
+`RuntimeProjection` reads the value through Core's own canonical serde
+encoding rather than a second parser. A Core-side re-export would remove that
+hop; it is recorded against GUI-CORE-015.
 
 ## Production bootstrap
 

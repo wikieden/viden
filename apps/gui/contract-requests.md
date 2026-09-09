@@ -277,10 +277,34 @@ Lane B's `MergeAgentPatch` is refused and the bounce carries one hunk with an
 `Evidence` baseline, and a `LaneConflictDetected` beside it carries the same
 shape with a `Revision` baseline.
 
-GUI status: not yet adopted. D12 still renders the reason text and the
-unavailable marker; rendering ours and theirs side by side with the base row and
-the reason, and dropping the marker, lands with the DiffReview host batch (G2),
-together with GUI-CORE-012 and GUI-CORE-020.
+GUI status: adopted 2026-09-09 (G2a). D12 renders each conflict record's
+rejected hunks as OURS beside THEIRS at Core's own starts, with the patch
+preimage as a collapsible third strip and a reason chip carrying both Core's
+classification and what the operator can do about it. The pane states with
+every conflict that this is two sides plus the preimage and not a merge result,
+and the screen offers no merged text and no resolve control. The baseline is
+rendered as Core typed it — evidence bindings as chips that open each evidence
+object's own audit trail, a revision as its short sha with the full value in
+the row title, `Unknown` as unknown — and `LaneConflictView.content` gets the
+same pane, scoped to the Lanes the selected gate involves. Four absences stay
+four sentences: a missing capability, a record Core published no content for
+(named as the operator-bounce contract), an `omitted` file, and a `truncated`
+payload. The old unavailable marker no longer cites this request, which is
+closed; it now names `runtime.conflict_content`, the thing that can still be
+absent. Evidence: `d12-conflict-content`, `d12-conflict-omitted`, and
+`d12-conflict-none` under
+`apps/gui/evidence/main-window-interactions/`.
+
+One residual, and it is ergonomic rather than contractual: `viden-core`
+re-exports `ConflictBounce` and `LaneConflictView` but not the
+`ConflictContent`, `ConflictBaseline`, `ConflictFile`, `ConflictHunk`, and
+`ConflictHunkReason` types they carry, and the GUI may hold no second
+`viden-*` dependency (`apps/gui/tests/architecture_boundary.rs`). The
+projection therefore reads the value through Core's own canonical serde
+encoding rather than naming the types. Nothing is guessed and no second parser
+exists, but a client cannot exhaustively match `ConflictHunkReason` the way the
+contract intends. Adding those five names to the facade's re-export list would
+close it.
 
 ## GUI-CORE-016: Streaming Agent message chunks — CLOSED
 

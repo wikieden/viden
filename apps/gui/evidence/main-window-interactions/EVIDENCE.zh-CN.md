@@ -44,7 +44,9 @@ D11 项目接入，以及 D12 合并闸的批准 / 退回动作栏及其必填�
 | 状态组 | 来源 | 类型 |
 | --- | --- | --- |
 | `d1*`、`settings*`、`d6-*` | [`../../tests/support/d1_projection.ts`](../../tests/support/d1_projection.ts) | vitest 各套件共用的 D1 fixture |
-| `d12-*` | [`../gui-screen-restore/projections/d12.json`](../gui-screen-restore/projections/d12.json) | 由 `tests/capture_projections.rs`**生成** |
+| `d12-actions`、`d12-blocked`、`d12-conflict-none` | [`../gui-screen-restore/projections/d12.json`](../gui-screen-restore/projections/d12.json) | 由 `tests/capture_projections.rs`**生成** |
+| `d12-conflict-content` | [`../gui-screen-restore/projections/d12-conflict.json`](../gui-screen-restore/projections/d12-conflict.json) | 由同一测试从规范 fixture `conflict-content.json`**生成** |
+| `d12-conflict-omitted` | [`../gui-screen-restore/projections/d12-conflict-omitted.json`](../gui-screen-restore/projections/d12-conflict-omitted.json) | 由同一测试**生成** —— 触及上限的变体 |
 | `d2-review-*` | [`../gui-screen-restore/projections/d2-review.json`](../gui-screen-restore/projections/d2-review.json) | 由 `tests/capture_projections.rs`**生成** —— 已选中待处理评审的决策队列 |
 | `d2-review-confirmed` | [`../gui-screen-restore/projections/d2-review-decided.json`](../gui-screen-restore/projections/d2-review-decided.json) | 由同一测试**生成** —— `decide_review` 之后 Core 留下的队列 |
 | `d10-blind*` | [`../gui-screen-restore/projections/d10.json`](../gui-screen-restore/projections/d10.json) | 由 `tests/capture_projections.rs`**生成** |
@@ -89,6 +91,9 @@ harness 补充的每个值都是上述来源之上的 delta，`qa.ts` 中每条�
 | 全部 `d1*` | `agentAdapters[0].models` | `tests/composer_controls.spec.ts` 中的适配器 fixture |
 | `d6-actions`、`d6-error` | 一个已停止的会话，其 `restart` 携带 session id、`close_lane` 携带 lane id | `tests/d6_recovery.spec.ts` 中的 `STOPPED` fixture |
 | `d12-actions` | 已记录必需证据、验证方满足，两个动作都可用且 code 为 `null` | `tests/d12_integration_gate.spec.ts` 中的 `DECIDABLE` fixture |
+| `d12-conflict-content` | 在 Lane B 的 bounce 上追加第二个原因不同（`already_applied`）的被拒 hunk，以 Core 自己的 `ConflictContent` 线上形式写入，因此截图能显示每次拒绝都带各自的归类与补救说明。原像折叠条被展开，因为折叠的第三侧无法证明该面板所作的声明 | `tests/d12_integration_gate.rs` 中的 `d12_projects_the_hunks_two_sides_and_preimage_core_published_for_a_bounce` |
+| `d12-conflict-omitted` | 同一 bounce 的内容替换为：`revision` 基线、一个渲染出的文件、一个 `omitted` 文件，并置 `truncated` | `tests/d12_integration_gate.rs` 中的 `d12_keeps_an_omitted_file_and_a_truncated_payload_distinct_from_an_empty_conflict` |
+| `d12-conflict-none` | 无增量；这是未经改动的 `merge-gate.json` 投影，其 bounce 由 Core 发布时就不带任何内容 | `tests/d12_integration_gate.rs` 中的 `d12_leaves_a_bounce_without_content_absent_rather_than_empty` |
 | `d11` | 已探测的 `/workspace/demo` rust 项目，提供方处于凭据锁定状态 | `tests/d11_intake.spec.ts` 中的已探测项目 fixture |
 | `d11`、`d11-recent` | 交给屏幕最近工作端口的同一份两项目 `RecentWorkResult` | `tests/d11_intake.spec.ts` 中的已加载行 fixture |
 | `d14-audit-scoped` | 仅把 `scope` 设为 `revert:revert-1` 对象；行仍是生成页面本身，因为截图不得为过滤器编造记录 | `tests/d14_audit_trail.rs` 的 `a_scoped_query_passes_the_exact_object_through_and_reports_the_scope` |
@@ -134,6 +139,9 @@ URL 与尺寸，不在该运行时之外调用浏览器自动化。
 | `d6-error` | `…/qa.html?state=d6-error` | 同一界面在重启被拒后，把 Core 的拒绝理由渲染成告警 |
 | `d12-actions` | `…/qa.html?state=d12-actions` | 合并闸的批准可用，退回理由输入框已填写且可用 |
 | `d12-blocked` | `…/qa.html?state=d12-blocked` | 同一闸的批准不可用并点名 `missing_evidence`，理由输入框禁用 |
+| `d12-conflict-content` | `…/qa.html?state=d12-conflict-content` | 该 bounce 的冲突面板：「两侧加上补丁原像 —— 不是合并结果」的声明、点名该闸已评审证据及其绑定 chip 的「读取基线」行，随后每个 hunk 一枚原因 chip 与补救说明、按 Core 自己的起始行编号的 OURS 与 THEIRS 并排、以及展开的 BASE 折叠条。其下是同一 Lane 的 Lane 应用冲突及其 `revision` 基线。全屏没有任何合并后文本，也没有解决控件（`GUI-CORE-015`） |
+| `d12-conflict-omitted` | `…/qa.html?state=d12-conflict-omitted` | 触及上限的载荷：文件之上的截断横幅、一个渲染出的文件，以及保留为条目、说明其 hunk 未展示的 `assets/atlas.png` —— 绝不写成「无冲突」 |
+| `d12-conflict-none` | `…/qa.html?state=d12-conflict-none` | 一条 Core 未发布内容的 bounce，且 capability 已通告：面板说明 Core 未为该 bounce 发布内容、并说明操作者退回按契约本就不带内容，同时**不**点名 capability —— 那是另一种缺失 |
 | `d11` | `…/qa.html?state=d11` | 项目接入屏，显示已探测项目与提供方告警 |
 | `d11-recent` | `…/qa.html?state=d11-recent` | 同一接入屏滚动到「最近工作」面板，显示 Core `QueryRecentWork` 行（名称、相对时间、会话数、规范根目录），替代已退役的静态不可用文案 |
 | `d2-review-pending` | `…/qa.html?state=d2-review-pending` | 选中待处理评审，「接受评审」「驳回评审」均可用，评审意见已键入，回执说明裁决已发出而 Core 尚未记录 |
@@ -520,3 +528,40 @@ light/`zh-CN` 那张是新增文案的语言与皮肤佐证：标题、分段控
 
 light/`zh-CN` 那张是动作文案的语言与皮肤佐证：完成句子、工作区状态、`Git 输出` 折叠标题
 与三个按钮标签都翻译，而分支名、重新采样的计数以及 git 自己的输出与 Core 发布的完全一致。
+## D12 结构化冲突内容
+
+2026-09-09 以同一套 headless Chrome 流程
+（`--headless --window-size=1440,900 --virtual-time-budget=6000`）针对 4173 端口
+的 vite 开发服务器采集，并逐张目视复核。这是客户端中 `runtime.conflict_content`
+（GUI-CORE-015）的首批图像。
+
+| 文件 | 状态 | 视口 | 模式 | 语言 |
+| --- | --- | --- | --- | --- |
+| [d12-conflict-content-1440x900-dark-en.png](d12-conflict-content-1440x900-dark-en.png) | d12-conflict-content | 1440x900 | dark | en |
+| [d12-conflict-omitted-1440x900-dark-en.png](d12-conflict-omitted-1440x900-dark-en.png) | d12-conflict-omitted | 1440x900 | dark | en |
+| [d12-conflict-none-1440x900-dark-en.png](d12-conflict-none-1440x900-dark-en.png) | d12-conflict-none | 1440x900 | dark | en |
+| [d12-conflict-content-1440x900-light-zh-CN.png](d12-conflict-content-1440x900-light-zh-CN.png) | d12-conflict-content | 1440x900 | light | zh-CN |
+
+每张图都用于让一条诚实性规则可被证伪：
+
+| 图像 | 它证明的规则 |
+| --- | --- |
+| `d12-conflict-content` | 面板画的是**两侧加上补丁原像，绝不是合并结果**：OURS 与 THEIRS 按 Core 自己的 `ours_start` / `theirs_start` 并排，原像作为单独标注的第三侧，声明写在行的上方，且整屏没有合并后文本、没有解决控件。两个 hunk 各带自己的原因 chip 与补救说明，因此读者能看出归类是按 hunk 而不是按文件。基线是该闸已评审的证据及其绑定 chip，这正是合并路径的答案 —— 而不是一个裸 commit |
+| `d12-conflict-omitted` | `omitted` 与 `truncated` 保持可见：横幅位于文件列表之上，`assets/atlas.png` 保留条目并说明其 hunk 未展示。评审者必须始终能区分「未展示」与「该文件没问题」；同一张图还带 `revision` 基线，因此两种基线类型都在这组图里出现 |
+| `d12-conflict-none` | 两种缺失是两句不同的话。这里 capability **是**通告的，只是该记录不带内容，因此面板说明 Core 未为该 bounce 发布内容并点明操作者退回的契约 —— 它不点名 `runtime.conflict_content`，那是 capability 本身缺失时该屏「不可用」行要说的 |
+
+light/`zh-CN` 那张是新增文案的语言佐证：段落标题、非合并声明、基线行、原因 chip 及其
+补救说明、OURS/THEIRS/BASE 标签都翻译；文件路径、冲突源码行、证据 id、源哈希，以及
+Core 自己的 Lane 与闸 id 完全不变。翻译源码行会破坏冲突面板存在的唯一意义。
+
+原因词表来自 Core 的 `ConflictHunkReason`，按精确判别式渲染，因此本构建未命名的原因
+会原样到达屏幕，而不会借用一个已知原因：
+
+| `ConflictHunkReason` | 标签 | 操作者可以做什么 |
+| --- | --- | --- |
+| `context_mismatch` | 上下文不匹配 | 原 Lane 必须基于当前内容重新生成补丁；在这里无法应用任何内容 |
+| `already_applied` | 已经应用 | 文件在该区间已经是该 hunk 的新侧，没有可应用的内容 |
+| `file_missing` | 文件缺失 | 补丁修改的文件不在目标树中 —— 这是文件级决定 |
+| `file_deleted` | 删除后文件仍会残留 | 删除的原像未覆盖整个文件，文件会被留下 —— 这是文件级决定 |
+| `binary` | 二进制 | Core 报告为非文本内容，没有可匹配的行 |
+| 其他 | `原因 <tag>` | 按 Core 发布的原样展示 |

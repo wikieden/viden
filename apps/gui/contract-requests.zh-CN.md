@@ -214,9 +214,25 @@ fixture 必须保持字节不变。它正是请求所要的单文件两 Lane 冲
 `MergeAgentPatch` 被拒绝、bounce 携带一个基线为 `Evidence` 的 hunk，旁边的
 `LaneConflictDetected` 以相同形状携带基线为 `Revision` 的内容。
 
-GUI 状态：尚未采纳。D12 仍渲染理由文本与不可用标记；并排渲染 ours 与 theirs、附带 base 行
-与 reason 并去掉该标记，将随 DiffReview 宿主批次（G2）落地，与 GUI-CORE-012、GUI-CORE-020
-一并进行。
+GUI 状态：已采纳，2026-09-09（G2a）。D12 把每条冲突记录被拒的 hunk 按 Core 自己的起始行
+画成 OURS 与 THEIRS 并排，补丁原像作为可折叠的第三条，原因 chip 同时给出 Core 的归类与
+操作者可以做什么。面板随每个冲突声明这是两侧加上原像而不是合并结果，整屏不提供合并后的
+文本，也不提供解决控件。基线按 Core 的类型渲染 —— 证据绑定渲染为可打开该证据对象自身审计
+轨迹的 chip，revision 渲染短 sha 并把完整值放进行 title，`Unknown` 渲染为未知 ——
+`LaneConflictView.content` 使用同一面板，按选中闸涉及的 Lane 限定。四种缺失保持四句话：
+capability 缺失、Core 未为该记录发布内容（点明操作者退回的契约）、`omitted` 文件、
+`truncated` 载荷。旧的不可用标记不再引用本请求（它已关闭），改为点名
+`runtime.conflict_content`，即仍可能缺失的那个东西。证据：
+`apps/gui/evidence/main-window-interactions/` 下的 `d12-conflict-content`、
+`d12-conflict-omitted` 与 `d12-conflict-none`。
+
+有一处遗留，属于工程学而非契约：`viden-core` 再导出了 `ConflictBounce` 与
+`LaneConflictView`，却没有再导出它们携带的 `ConflictContent`、`ConflictBaseline`、
+`ConflictFile`、`ConflictHunk` 与 `ConflictHunkReason`，而 GUI 不得持有第二个 `viden-*`
+依赖（`apps/gui/tests/architecture_boundary.rs`）。因此投影通过 Core 自己的规范 serde
+编码读取该值，而不是指名这些类型。没有任何猜测，也不存在第二个解析器，但客户端无法像契约
+设想的那样对 `ConflictHunkReason` 做穷尽匹配。把这五个名字加进 facade 的再导出列表即可
+关闭它。
 
 ## GUI-CORE-016：Agent 消息的流式分片 — 已关闭
 

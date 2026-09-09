@@ -51,7 +51,9 @@ typechecks the harness against the production render signatures.
 | State group | Source | Kind |
 | --- | --- | --- |
 | `d1*`, `settings*`, `d6-*` | [`../../tests/support/d1_projection.ts`](../../tests/support/d1_projection.ts) | the shared D1 fixture the vitest suites mount |
-| `d12-*` | [`../gui-screen-restore/projections/d12.json`](../gui-screen-restore/projections/d12.json) | **generated** by `tests/capture_projections.rs` |
+| `d12-actions`, `d12-blocked`, `d12-conflict-none` | [`../gui-screen-restore/projections/d12.json`](../gui-screen-restore/projections/d12.json) | **generated** by `tests/capture_projections.rs` |
+| `d12-conflict-content` | [`../gui-screen-restore/projections/d12-conflict.json`](../gui-screen-restore/projections/d12-conflict.json) | **generated** by the same test from the canonical `conflict-content.json` fixture |
+| `d12-conflict-omitted` | [`../gui-screen-restore/projections/d12-conflict-omitted.json`](../gui-screen-restore/projections/d12-conflict-omitted.json) | **generated** by the same test — the bounded variant |
 | `d2-review-*` | [`../gui-screen-restore/projections/d2-review.json`](../gui-screen-restore/projections/d2-review.json) | **generated** by `tests/capture_projections.rs` — the decision queue with the pending review selected |
 | `d2-review-confirmed` | [`../gui-screen-restore/projections/d2-review-decided.json`](../gui-screen-restore/projections/d2-review-decided.json) | **generated** by the same test — the queue Core leaves behind after `decide_review` |
 | `d10-blind*` | [`../gui-screen-restore/projections/d10.json`](../gui-screen-restore/projections/d10.json) | **generated** by `tests/capture_projections.rs` |
@@ -102,6 +104,9 @@ one carries an inline comment in `qa.ts` naming the fixture it mirrors.
 | all `d1*` | `agentAdapters[0].models` | the adapter fixture in `tests/composer_controls.spec.ts` |
 | `d6-actions`, `d6-error` | a stopped session whose `restart` carries a session id and `close_lane` a lane id | the `STOPPED` fixture in `tests/d6_recovery.spec.ts` |
 | `d12-actions` | required evidence recorded, validator satisfied, both actions available with a `null` code | the `DECIDABLE` fixture in `tests/d12_integration_gate.spec.ts` |
+| `d12-conflict-content` | a second rejected hunk with a different reason (`already_applied`) on Lane B's bounce, written as Core's own `ConflictContent` wire form, so the capture shows that each rejection carries its own classification and remedy. The preimage strips are opened, because a collapsed third side cannot prove the claim the pane makes | `d12_projects_the_hunks_two_sides_and_preimage_core_published_for_a_bounce` in `tests/d12_integration_gate.rs` |
+| `d12-conflict-omitted` | the same bounce's content replaced with a `revision` baseline, one rendered file, one `omitted` file, and `truncated` set | `d12_keeps_an_omitted_file_and_a_truncated_payload_distinct_from_an_empty_conflict` in `tests/d12_integration_gate.rs` |
+| `d12-conflict-none` | none; this is the untouched `merge-gate.json` projection, whose bounce Core published with no content at all | `d12_leaves_a_bounce_without_content_absent_rather_than_empty` in `tests/d12_integration_gate.rs` |
 | `d11` | a probed `/workspace/demo` rust project with a credential-locked provider | the probed-project fixture in `tests/d11_intake.spec.ts` |
 | `d2-review-*` | the intent result the host returns (`pending`, `confirmed`, or `rejected` with Core's own refusal sentence); the reviewer note is typed through the production input listener. `confirmed` swaps in the generated decided projection; `pending` and `rejected` keep the pending one, because Core has not answered yet in the first case and refused the command outright in the second | the outcome states asserted in `tests/d2_decisions.rs` and `tests/d2_decisions.spec.ts` |
 | `d2-review-blocked` | both verdicts forced unavailable with `D2-NO-REVIEWER-ACTOR` | `d2_review_actions_fail_closed_with_a_local_code_when_no_actor_is_derivable` in `tests/d2_decisions.rs` |
@@ -166,6 +171,9 @@ All URLs share the prefix
 | `d6-error` | `…/qa.html?state=d6-error` | the same surface after a refused restart, with Core's rejection rendered as an alert |
 | `d12-actions` | `…/qa.html?state=d12-actions` | the merge gate with Accept available and the bounce reason input filled and enabled |
 | `d12-blocked` | `…/qa.html?state=d12-blocked` | the same gate with Accept unavailable, naming `missing_evidence`, and the reason input disabled |
+| `d12-conflict-content` | `…/qa.html?state=d12-conflict-content` | the bounce's conflict pane: the "two sides plus the patch preimage — not a merge result" statement, the `Read against` line naming the gate's reviewed evidence with its binding chip, then per hunk a reason chip with its remedy sentence, OURS beside THEIRS each numbered from Core's own start, and the opened BASE strip. Below it the Lane apply conflict for the same Lane, with its `revision` baseline. No merged text and no resolve control anywhere (`GUI-CORE-015`) |
+| `d12-conflict-omitted` | `…/qa.html?state=d12-conflict-omitted` | the bounded payload: the truncation banner over the files, one file rendered, and `assets/atlas.png` kept as an entry saying its hunks are not shown — never "no conflict" |
+| `d12-conflict-none` | `…/qa.html?state=d12-conflict-none` | a bounce Core published no content for, with the capability advertised: the pane says Core published none for this bounce and that an operator bounce carries none by contract, and does **not** name the capability, which is the other absence |
 | `d11` | `…/qa.html?state=d11` | the project intake screen with the probed project and the provider warning |
 | `d11-recent` | `…/qa.html?state=d11-recent` | the same intake screen scrolled to its Recent work panel, showing the Core `QueryRecentWork` rows — name, relative age, session count, canonical root — instead of the retired static unavailability sentence |
 | `d2-review-pending` | `…/qa.html?state=d2-review-pending` | the pending review selected with Accept review / Reject review enabled, the typed reviewer note, and the receipt saying the verdict was sent and Core has not recorded it yet |
@@ -600,3 +608,44 @@ The light/`zh-CN` capture is the locale and skin proof for the action copy: the
 completion sentence, the working-tree state, the `Git 输出` disclosure, and all
 three button labels translate, while the branch name, the resampled counts, and
 git's own output stay exactly as Core published them.
+## D12 structured conflict content
+
+Captured 2026-09-09 with the same headless Chrome procedure
+(`--headless --window-size=1440,900 --virtual-time-budget=6000`) against the
+vite dev server on port 4173, then visually reviewed. These are the first
+images of `runtime.conflict_content` (GUI-CORE-015) in the client.
+
+| File | State | Viewport | Mode | Locale |
+| --- | --- | --- | --- | --- |
+| [d12-conflict-content-1440x900-dark-en.png](d12-conflict-content-1440x900-dark-en.png) | d12-conflict-content | 1440x900 | dark | en |
+| [d12-conflict-omitted-1440x900-dark-en.png](d12-conflict-omitted-1440x900-dark-en.png) | d12-conflict-omitted | 1440x900 | dark | en |
+| [d12-conflict-none-1440x900-dark-en.png](d12-conflict-none-1440x900-dark-en.png) | d12-conflict-none | 1440x900 | dark | en |
+| [d12-conflict-content-1440x900-light-zh-CN.png](d12-conflict-content-1440x900-light-zh-CN.png) | d12-conflict-content | 1440x900 | light | zh-CN |
+
+Each image exists to make one honesty rule falsifiable:
+
+| Image | The rule it proves |
+| --- | --- |
+| `d12-conflict-content` | the pane draws **two sides plus the patch preimage and never a merge result**: OURS and THEIRS side by side at Core's own `ours_start` / `theirs_start`, the preimage as its own labelled third strip, the statement spelled out above the rows, and no merged text and no resolve control on the screen at all. Both hunks carry their own reason chip and remedy, so a reader can see that the classification is per hunk rather than per file. The baseline is the gate's reviewed evidence with its binding chip, which is the merge path's answer — not a bare commit |
+| `d12-conflict-omitted` | `omitted` and `truncated` stay visible: the banner sits over the file list and `assets/atlas.png` keeps its entry saying its hunks are not shown. A reviewer must always be able to tell "not shown" from "this file was fine", and the same image carries a `revision` baseline so both baseline kinds appear in the set |
+| `d12-conflict-none` | the two absences are different sentences. Here the capability *is* advertised and the record simply carries no content, so the pane says Core published none for this bounce and names the operator-bounce contract — it does not name `runtime.conflict_content`, which is what the screen's unavailable row says when the capability itself is missing |
+
+The light/`zh-CN` capture is the locale proof for the added copy. The section
+headings, the not-a-merge statement, the baseline line, the reason chips and
+their remedies, and the OURS/THEIRS/BASE labels translate; the file path, the
+conflicting source lines, the evidence id, the source hash, and Core's own
+Lane and gate ids stay exactly as Core published them. A translated source line
+would break the one property a conflict pane exists for.
+
+The reason vocabulary is Core's `ConflictHunkReason`, rendered from the exact
+discriminant so a reason this build does not name reaches the screen raw
+instead of borrowing a known one:
+
+| `ConflictHunkReason` | Label | What the operator can do |
+| --- | --- | --- |
+| `context_mismatch` | Context mismatch | the origin Lane must re-derive its patch against the current content; nothing can be applied here |
+| `already_applied` | Already applied | the file already holds the hunk's new side at that range, so there is nothing left to apply |
+| `file_missing` | File missing | the patch changes a file that is not in the target tree — a file-level decision |
+| `file_deleted` | File would survive deletion | the deletion's preimage does not cover the whole file, so it would be left behind — a file-level decision |
+| `binary` | Binary | Core reported non-text content, so there are no lines to match |
+| anything else | `Reason <tag>` | shown exactly as Core published it |
