@@ -1,7 +1,11 @@
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
-use viden_types::{DiffDocument, DiffFile, DiffHunk, DiffLine, DiffLineKind, WorkspaceChangeKind};
+use viden_types::{
+    ConflictBaseline, ConflictContent, ConflictFile, ConflictHunk, ConflictHunkReason,
+    DiffDocument, DiffFile, DiffHunk, DiffLine, DiffLineKind, MAX_CONFLICT_CONTENT_BYTES,
+    WorkspaceChangeKind,
+};
 
 use crate::lane::LaneEffectError;
 
@@ -92,7 +96,7 @@ impl LocalPatchBackend {
         // This keeps creates, writes, and deletes inside one rollback boundary.
         let mut changes = Vec::new();
         for patch_file in patch_files {
-            changes.push(prepare_patch_file(&root, &patch_file)?);
+            changes.push(prepare_patch_file(&root, &patch_file).map_err(|failure| failure.error)?);
         }
 
         Ok(PatchApplication { root, changes })
@@ -180,6 +184,92 @@ fn conflict_outcome(path: PathBuf, message: String) -> PatchApplyOutcome {
     }
 }
 
+/// Reports what a patch the strict apply refused actually collided with
+/// (`runtime.conflict_content`, GUI-CORE-015).
+///
+/// This is Core's single producer of [`ConflictContent`]. It runs the *same*
+/// [`prepare_patch_file`] the strict apply runs — one classification, in one
+/// place, so the reason a client renders can never drift from the reason the
+/// apply saw — but read-only, and across every file instead of stopping at the
+/// first refusal, so the published content can be more complete than the one
+/// sentence the error carries. Running it after the failure instead of
+/// threading a report through the apply leaves `LaneEffectError`,
+/// `LaneEffectResult`, and the `LaneEffectExecutor` trait untouched for the
+/// callers that only want a reason; a conflict is rare and this pass writes
+/// nothing.
+///
+/// Nothing here is invented. A patch the scanner could not parse, a hunk the
+/// apply never reached, and a refusal with no hunk shape at all (an
+/// unsupported rename) are absent rather than guessed at, so `None` means
+/// "Core has nothing to show" and never "the conflict was empty". Binary files
+/// carry no rows for this apply to reject, so it never reports
+/// [`ConflictHunkReason::Binary`]; that variant is there for an apply path
+/// that can see one.
+///
+/// `baseline` comes from the caller because only the runtime knows what the
+/// conflict was computed against — a merge gate's canonical evidence bindings
+/// or a Lane revision. This function will not guess one.
+pub fn conflict_content(
+    request: &PatchRequest,
+    baseline: ConflictBaseline,
+) -> Option<ConflictContent> {
+    let root = fs::canonicalize(&request.cwd).ok()?;
+    if !root.is_dir() {
+        return None;
+    }
+    let patch_files = parse_unified_diff(&request.unified_diff).ok()?;
+    let mut files: Vec<ConflictFile> = Vec::new();
+    let mut spent: u64 = 0;
+    let mut truncated = false;
+    for patch_file in patch_files {
+        let Err(failure) = prepare_patch_file(&root, &patch_file) else {
+            continue;
+        };
+        let Some(file) = failure.file else {
+            continue;
+        };
+        let size = conflict_file_bytes(&file);
+        if spent.saturating_add(size) > u64::from(MAX_CONFLICT_CONTENT_BYTES) {
+            // The file keeps its entry without its lines. A reviewer who reads
+            // "unchanged" where the truth is "not shown" is the one failure
+            // the bound must not cause.
+            truncated = true;
+            files.push(ConflictFile {
+                path: file.path,
+                hunks: Vec::new(),
+                omitted: true,
+            });
+            continue;
+        }
+        spent = spent.saturating_add(size);
+        files.push(file);
+    }
+    if files.is_empty() {
+        return None;
+    }
+    Some(ConflictContent {
+        baseline,
+        files,
+        truncated,
+    })
+}
+
+fn conflict_file_bytes(file: &ConflictFile) -> u64 {
+    let lines: u64 = file
+        .hunks
+        .iter()
+        .map(|hunk| {
+            hunk.ours
+                .iter()
+                .chain(hunk.theirs.iter())
+                .chain(hunk.base.iter().flatten())
+                .map(|line| line.len() as u64)
+                .sum::<u64>()
+        })
+        .sum();
+    lines.saturating_add(file.path.len() as u64)
+}
+
 fn patch_conflict(path: PathBuf, message: impl Into<String>) -> LaneEffectError {
     LaneEffectError::PatchConflict {
         path,
@@ -196,8 +286,52 @@ struct PatchFile {
 
 #[derive(Debug)]
 struct PatchHunk {
+    /// 1-based old-side start from the `@@` header; `0` for a creation hunk,
+    /// whose old side is empty. The apply itself still *searches* for the
+    /// preimage rather than trusting this number — it is kept so a rejected
+    /// hunk can say where it expected its region to be.
+    old_start: u32,
+    old_line_count: u32,
+    /// 1-based new-side start from the `@@` header.
+    new_start: u32,
     old_lines: Vec<String>,
     new_lines: Vec<String>,
+}
+
+/// One hunk the strict apply refused, and why.
+///
+/// [`Self::message`] is the exact string the apply returned before
+/// `runtime.conflict_content` existed, so every caller that only wants a
+/// reason keeps reading what it read before; the structured detail rides
+/// alongside the error rather than replacing it.
+#[derive(Debug, Clone, Copy)]
+struct HunkRejection {
+    index: usize,
+    reason: ConflictHunkReason,
+}
+
+impl HunkRejection {
+    fn message(self) -> String {
+        "patch conflict: expected hunk context was not found".to_string()
+    }
+}
+
+/// The strict apply's refusal of one file: the error the caller already got,
+/// plus the hunk-level detail that error string cannot carry.
+///
+/// `file` is `None` when the refusal has no hunk shape at all — an unsupported
+/// rename, a `/dev/null` to `/dev/null` patch, a path the validator rejected,
+/// a target that exists but cannot be read as text. Content is only ever built
+/// from what the apply actually examined.
+struct PrepareFailure {
+    error: LaneEffectError,
+    file: Option<ConflictFile>,
+}
+
+impl From<LaneEffectError> for PrepareFailure {
+    fn from(error: LaneEffectError) -> Self {
+        Self { error, file: None }
+    }
 }
 
 /// One file as the scanner saw it, before either consumer shapes it.
@@ -235,26 +369,57 @@ struct ScannedHunk {
     rows: Vec<(char, String)>,
 }
 
-fn prepare_patch_file(cwd: &Path, patch_file: &PatchFile) -> Result<PatchChange, LaneEffectError> {
+fn prepare_patch_file(cwd: &Path, patch_file: &PatchFile) -> Result<PatchChange, PrepareFailure> {
     match (
         patch_file.old_path.as_str() == "/dev/null",
         patch_file.new_path.as_str() == "/dev/null",
     ) {
-        (true, true) => Err(patch_conflict(
-            PathBuf::new(),
-            "patch cannot create and delete /dev/null",
-        )),
+        (true, true) => {
+            Err(patch_conflict(PathBuf::new(), "patch cannot create and delete /dev/null").into())
+        }
         (true, false) => {
             let relative_path = validate_patch_path(&patch_file.new_path)?;
             let full_path = resolve_patch_target(cwd, &relative_path)?;
             if fs::symlink_metadata(&full_path).is_ok() {
-                return Err(patch_conflict(
-                    relative_path,
-                    "new-file patch target already exists",
-                ));
+                // A creation hunk points at no region of an existing file, so
+                // the whole file is what collided. Its preimage is the empty
+                // region the patch expected, which is `Some(vec![])` and never
+                // `None`: "expected nothing there" and "has no preimage at
+                // all" are different facts.
+                let current = fs::read_to_string(&full_path).unwrap_or_default();
+                let ours = split_preserving_newlines(&current);
+                let theirs = patch_file
+                    .hunks
+                    .iter()
+                    .flat_map(|hunk| hunk.new_lines.iter().cloned())
+                    .collect::<Vec<_>>();
+                let reason = if ours == theirs {
+                    ConflictHunkReason::AlreadyApplied
+                } else {
+                    ConflictHunkReason::ContextMismatch
+                };
+                return Err(PrepareFailure {
+                    error: patch_conflict(
+                        relative_path.clone(),
+                        "new-file patch target already exists",
+                    ),
+                    file: Some(ConflictFile {
+                        path: conflict_path(&relative_path),
+                        hunks: vec![ConflictHunk {
+                            ours_start: 1,
+                            ours,
+                            theirs_start: 1,
+                            theirs,
+                            base: Some(Vec::new()),
+                            reason,
+                        }],
+                        omitted: false,
+                    }),
+                });
             }
-            let contents = apply_patch_file("", patch_file)
-                .map_err(|message| patch_conflict(relative_path.clone(), message))?;
+            let contents = apply_patch_file("", patch_file).map_err(|rejection| {
+                rejection_failure(&relative_path, "", patch_file, rejection)
+            })?;
             Ok(PatchChange::Write {
                 path: full_path,
                 contents,
@@ -263,14 +428,41 @@ fn prepare_patch_file(cwd: &Path, patch_file: &PatchFile) -> Result<PatchChange,
         (false, true) => {
             let relative_path = validate_patch_path(&patch_file.old_path)?;
             let full_path = resolve_patch_target(cwd, &relative_path)?;
-            let current = read_patch_target(&full_path, &relative_path)?;
-            let remaining = apply_patch_file(&current, patch_file)
-                .map_err(|message| patch_conflict(relative_path.clone(), message))?;
+            let current = match read_patch_target(&full_path, &relative_path) {
+                Ok(current) => current,
+                Err(error) => {
+                    return Err(unreadable_target_failure(
+                        &relative_path,
+                        &full_path,
+                        patch_file,
+                        error,
+                    ));
+                }
+            };
+            let remaining = apply_patch_file(&current, patch_file).map_err(|rejection| {
+                rejection_failure(&relative_path, &current, patch_file, rejection)
+            })?;
             if !remaining.is_empty() {
-                return Err(patch_conflict(
-                    relative_path,
-                    "deleted-file patch did not remove the complete file",
-                ));
+                // Every hunk matched; the file simply outlives them. That is
+                // not a context mismatch, and a reviewer offered "re-run the
+                // patch" for it would be sent down the wrong recovery.
+                return Err(PrepareFailure {
+                    error: patch_conflict(
+                        relative_path.clone(),
+                        "deleted-file patch did not remove the complete file",
+                    ),
+                    file: Some(ConflictFile {
+                        path: conflict_path(&relative_path),
+                        hunks: patch_file
+                            .hunks
+                            .iter()
+                            .map(|hunk| {
+                                conflict_hunk(&current, hunk, ConflictHunkReason::FileDeleted)
+                            })
+                            .collect(),
+                        omitted: false,
+                    }),
+                });
             }
             Ok(PatchChange::Delete { path: full_path })
         }
@@ -278,20 +470,133 @@ fn prepare_patch_file(cwd: &Path, patch_file: &PatchFile) -> Result<PatchChange,
             let old_path = validate_patch_path(&patch_file.old_path)?;
             let new_path = validate_patch_path(&patch_file.new_path)?;
             if old_path != new_path {
+                // The adapter never examined a hunk here, so there is no
+                // collision to publish — only a refusal.
                 return Err(patch_conflict(
                     new_path,
                     "rename patches are not supported by this adapter",
-                ));
+                )
+                .into());
             }
             let full_path = resolve_patch_target(cwd, &new_path)?;
-            let current = read_patch_target(&full_path, &new_path)?;
-            let contents = apply_patch_file(&current, patch_file)
-                .map_err(|message| patch_conflict(new_path.clone(), message))?;
+            let current = match read_patch_target(&full_path, &new_path) {
+                Ok(current) => current,
+                Err(error) => {
+                    return Err(unreadable_target_failure(
+                        &new_path, &full_path, patch_file, error,
+                    ));
+                }
+            };
+            let contents = apply_patch_file(&current, patch_file).map_err(|rejection| {
+                rejection_failure(&new_path, &current, patch_file, rejection)
+            })?;
             Ok(PatchChange::Write {
                 path: full_path,
                 contents,
             })
         }
+    }
+}
+
+/// Target-relative, `/`-separated, no leading separator: the spelling
+/// [`ConflictFile::path`] and [`DiffFile::path`] share. Anything absolute
+/// would put the operator's home directory on the event stream.
+fn conflict_path(relative: &Path) -> String {
+    relative
+        .components()
+        .filter_map(|component| match component {
+            Component::Normal(segment) => Some(segment.to_string_lossy().to_string()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+/// The current file's lines where the hunk *said* its region was, clamped to
+/// the file.
+///
+/// This is a read, never a search. The apply already searched the whole file
+/// for the preimage and failed; what a reviewer needs to see next is what
+/// actually stands at the declared range.
+fn ours_at(current: &str, old_start: u32, old_line_count: u32) -> Vec<String> {
+    if old_start == 0 || old_line_count == 0 {
+        return Vec::new();
+    }
+    let lines = split_preserving_newlines(current);
+    let start = (old_start as usize).saturating_sub(1).min(lines.len());
+    let end = start
+        .saturating_add(old_line_count as usize)
+        .min(lines.len());
+    lines[start..end].to_vec()
+}
+
+fn conflict_hunk(current: &str, hunk: &PatchHunk, reason: ConflictHunkReason) -> ConflictHunk {
+    ConflictHunk {
+        ours_start: hunk.old_start,
+        ours: ours_at(current, hunk.old_start, hunk.old_line_count),
+        theirs_start: hunk.new_start,
+        theirs: hunk.new_lines.clone(),
+        base: Some(hunk.old_lines.clone()),
+        reason,
+    }
+}
+
+fn rejection_failure(
+    relative_path: &Path,
+    current: &str,
+    patch_file: &PatchFile,
+    rejection: HunkRejection,
+) -> PrepareFailure {
+    PrepareFailure {
+        error: patch_conflict(relative_path.to_path_buf(), rejection.message()),
+        // Only the hunk that failed. The apply stops there, so the hunks after
+        // it were never attempted and listing them would report a collision
+        // nothing observed.
+        file: patch_file
+            .hunks
+            .get(rejection.index)
+            .map(|hunk| ConflictFile {
+                path: conflict_path(relative_path),
+                hunks: vec![conflict_hunk(current, hunk, rejection.reason)],
+                omitted: false,
+            }),
+    }
+}
+
+/// A modify or delete patch whose target could not be read.
+///
+/// When the target is absent every hunk failed for that single fact, so every
+/// hunk is listed with an empty `ours` — the reason, not the emptiness, is
+/// what says the file is gone. When the target is present but unreadable (a
+/// directory, non-UTF-8 bytes) the apply examined no hunk at all and there is
+/// nothing honest to show.
+fn unreadable_target_failure(
+    relative_path: &Path,
+    full_path: &Path,
+    patch_file: &PatchFile,
+    error: LaneEffectError,
+) -> PrepareFailure {
+    if fs::symlink_metadata(full_path).is_ok() {
+        return error.into();
+    }
+    PrepareFailure {
+        error,
+        file: Some(ConflictFile {
+            path: conflict_path(relative_path),
+            hunks: patch_file
+                .hunks
+                .iter()
+                .map(|hunk| ConflictHunk {
+                    ours_start: hunk.old_start,
+                    ours: Vec::new(),
+                    theirs_start: hunk.new_start,
+                    theirs: hunk.new_lines.clone(),
+                    base: Some(hunk.old_lines.clone()),
+                    reason: ConflictHunkReason::FileMissing,
+                })
+                .collect(),
+            omitted: false,
+        }),
     }
 }
 
@@ -435,6 +740,8 @@ fn parse_unified_diff(diff: &str) -> Result<Vec<PatchFile>, LaneEffectError> {
             .hunks
             .into_iter()
             .map(|hunk| {
+                let (old_start, old_line_count, new_start) =
+                    (hunk.old_start, hunk.old_lines, hunk.new_start);
                 let mut old_lines = Vec::new();
                 let mut new_lines = Vec::new();
                 for (marker, content) in hunk.rows {
@@ -449,6 +756,9 @@ fn parse_unified_diff(diff: &str) -> Result<Vec<PatchFile>, LaneEffectError> {
                     }
                 }
                 PatchHunk {
+                    old_start,
+                    old_line_count,
+                    new_start,
                     old_lines,
                     new_lines,
                 }
@@ -827,15 +1137,29 @@ fn split_patch_line(raw_line: &str) -> Option<(char, String)> {
     Some((prefix, raw_line[prefix.len_utf8()..].to_string()))
 }
 
-fn apply_patch_file(current: &str, patch_file: &PatchFile) -> Result<String, String> {
+fn apply_patch_file(current: &str, patch_file: &PatchFile) -> Result<String, HunkRejection> {
     let mut lines = split_preserving_newlines(current);
     let mut cursor = 0usize;
-    for hunk in &patch_file.hunks {
-        let Some(index) = find_line_sequence(&lines, &hunk.old_lines, cursor) else {
-            return Err("patch conflict: expected hunk context was not found".to_string());
+    for (index, hunk) in patch_file.hunks.iter().enumerate() {
+        let Some(found) = find_line_sequence(&lines, &hunk.old_lines, cursor) else {
+            // Classified here, the one place that knows what the apply saw. A
+            // file that already holds this hunk's new side needs a different
+            // recovery from one whose context drifted — re-applying is
+            // pointless rather than dangerous — so the two are never reported
+            // as the same thing. The emptiness guard matters: an empty needle
+            // matches everywhere, and a pure-deletion hunk would otherwise
+            // report itself as already applied.
+            let reason = if !hunk.new_lines.is_empty()
+                && find_line_sequence(&lines, &hunk.new_lines, cursor).is_some()
+            {
+                ConflictHunkReason::AlreadyApplied
+            } else {
+                ConflictHunkReason::ContextMismatch
+            };
+            return Err(HunkRejection { index, reason });
         };
-        lines.splice(index..index + hunk.old_lines.len(), hunk.new_lines.clone());
-        cursor = index + hunk.new_lines.len();
+        lines.splice(found..found + hunk.old_lines.len(), hunk.new_lines.clone());
+        cursor = found + hunk.new_lines.len();
     }
     Ok(lines.concat())
 }

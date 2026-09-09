@@ -9,6 +9,7 @@ mod git_tests;
 mod interceptor_tests;
 mod lane_tests;
 mod lsp_tests;
+mod patch_conflict_tests;
 mod patch_document_tests;
 mod shell_tests;
 mod web_tests;
