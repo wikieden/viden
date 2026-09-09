@@ -8,17 +8,17 @@ use crate::{
     ContextItemRecord, ContextQualityRecord, ContextReductionRecord, ContextRetrievalRecord,
     ContextScope, ContextViewRecord, ContractDecision, ContractRecord, CostLedgerTotals,
     CostUsageRecord, CredentialHandle, DecisionContext, DependencyRecord, DependencyState,
-    EvidenceCanonicalizationRecord, EvidenceId, HandoffAcceptance, HandoffRecord, LaneStatus,
-    MergeGateId, MergeGateRecord, MessageId, OperatorGitAction, OperatorGitOutcome,
-    PermissionLevel, ProjectConfigPreview, ProjectProbe, ProviderCacheObservationRecord,
-    RecentProjectSummary, RecentSessionSummary, RecentWorkQuery, ResolvedUiPreferences,
-    RevertRecord, ReviewRequestRecord, ReviewVerdict, ReviewedEvidenceBinding, RuntimeOwner,
-    RuntimeServiceHealthView, RuntimeSnapshot, SessionId, SourceTarget, StarterLanePreset,
-    StarterLanePreview, StarterLanePreviewInvalidationReason, StarterLaneReceipt,
-    StarterLaneRequest, ToolCallId, TranscriptPage, TranscriptPageRequest, UiPreferenceDiagnostic,
-    UiPreferencePatch, UiPreferences, WorkMode, WorkspaceChangeView, WorkspaceDiffPage,
-    WorkspaceDiffQuery, WorkspaceEligibility, WorkspaceFilePage, WorkspaceFilesQuery,
-    WorkspaceSourceView, now_timestamp,
+    EvidenceCanonicalizationRecord, EvidenceContent, EvidenceId, EvidencePage, HandoffAcceptance,
+    HandoffRecord, LaneStatus, MergeGateId, MergeGateRecord, MessageId, OperatorGitAction,
+    OperatorGitOutcome, PermissionLevel, ProjectConfigPreview, ProjectProbe,
+    ProviderCacheObservationRecord, RecentProjectSummary, RecentSessionSummary, RecentWorkQuery,
+    ResolvedUiPreferences, RevertRecord, ReviewRequestRecord, ReviewVerdict,
+    ReviewedEvidenceBinding, RuntimeOwner, RuntimeServiceHealthView, RuntimeSnapshot, SessionId,
+    SourceTarget, StarterLanePreset, StarterLanePreview, StarterLanePreviewInvalidationReason,
+    StarterLaneReceipt, StarterLaneRequest, ToolCallId, TranscriptPage, TranscriptPageRequest,
+    UiPreferenceDiagnostic, UiPreferencePatch, UiPreferences, WorkMode, WorkspaceChangeView,
+    WorkspaceDiffPage, WorkspaceDiffQuery, WorkspaceEligibility, WorkspaceFilePage,
+    WorkspaceFilesQuery, WorkspaceSourceView, now_timestamp,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -715,6 +715,33 @@ pub enum RuntimeEventKind {
         command_id: Option<String>,
         page: AuditPage,
     },
+    /// Answer to `QueryEvidence` (`runtime.evidence_reads`, GUI-CORE-025).
+    ///
+    /// A query result like the audit page above and deliberately never folded
+    /// into `RuntimeViewState`. Folding it in would be worse than useless
+    /// here: the view already carries `latest_evidence`, the recent window, so
+    /// merging an archive page into it would let a paged read overwrite the
+    /// live projection with older rows and leave a client unable to tell the
+    /// two apart.
+    EvidencePageLoaded {
+        /// The exact `QueryEvidence` command id this page answers. Required,
+        /// like `WorkspaceFilesLoaded`: this event is new, so a client never
+        /// falls back to attributing a page to its own acceptance.
+        command_id: String,
+        page: EvidencePage,
+    },
+    /// Answer to `ReadEvidenceContent` (`runtime.evidence_reads`,
+    /// GUI-CORE-025).
+    ///
+    /// `evidence_id` is echoed beside the command id so a client that expanded
+    /// several rows attributes each answer without holding its own request
+    /// table. `content` is verified canonical bytes or a typed unavailable
+    /// reason; there is no variant for bytes Core could not verify.
+    EvidenceContentLoaded {
+        command_id: String,
+        evidence_id: EvidenceId,
+        content: EvidenceContent,
+    },
     /// Answer to `QueryWorkspaceFiles`. Like an audit page this is a query
     /// result, not runtime view state: the inventory is unbounded and
     /// paginated, so it is deliberately not folded into `RuntimeViewState`.
@@ -1320,6 +1347,17 @@ impl RuntimeViewState {
             // the capped view collections would silently truncate the
             // timeline, so the view state deliberately ignores it.
             RuntimeEventKind::AuditPageLoaded { .. } => {}
+            // Same rule as an audit page, with a sharper reason: the view
+            // already carries `latest_evidence`, the recent window. Folding an
+            // archive page into it would let a paged read of old rows
+            // overwrite the live projection, and a client would have no way to
+            // tell which of the two it was looking at.
+            RuntimeEventKind::EvidencePageLoaded { .. } => {}
+            // The bytes behind one row, answered on demand and re-asked
+            // whenever the row is reopened. Storing them would keep an
+            // arbitrary blob alive in view state and in every snapshot after
+            // it, for a value that is only ever rendered once.
+            RuntimeEventKind::EvidenceContentLoaded { .. } => {}
             // Same rule as an audit page: one paginated query result. Folding
             // an inventory page into the capped view collections would
             // silently truncate the tree a client is paging through.

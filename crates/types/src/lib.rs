@@ -9,6 +9,7 @@ mod audit;
 mod conflict;
 mod context;
 mod diff;
+mod evidence_reads;
 mod frontend_services;
 mod lsp;
 mod project;
@@ -47,6 +48,10 @@ pub use diff::{
     DEFAULT_WORKSPACE_DIFF_BYTES, DecisionContext, DiffDocument, DiffFile, DiffHunk, DiffLine,
     DiffLineKind, MAX_WORKSPACE_DIFF_BYTES, SourceTarget, WorkspaceDiffEntry, WorkspaceDiffPage,
     WorkspaceDiffQuery, WorkspaceDiffScope,
+};
+pub use evidence_reads::{
+    DEFAULT_EVIDENCE_PAGE_SIZE, EvidenceContent, EvidenceCursor, EvidencePage, EvidenceQuery,
+    EvidenceUnavailableReason, MAX_EVIDENCE_CONTENT_BYTES, MAX_EVIDENCE_PAGE_SIZE,
 };
 pub use frontend_services::{
     CheckRunStatus, CheckRunView, RecentProjectSummary, RecentSessionSummary, RecentWorkQuery,

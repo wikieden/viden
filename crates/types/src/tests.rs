@@ -5929,3 +5929,303 @@ fn the_conflict_content_capability_is_an_advertised_extension() {
         "extension capabilities must stay sorted and unique"
     );
 }
+
+fn evidence_reads_view(id: &str, kind: &str, timestamp: Option<u64>) -> EvidenceView {
+    EvidenceView {
+        id: id.to_string(),
+        kind: kind.to_string(),
+        summary: format!("{kind} evidence {id}"),
+        path: None,
+        source: Some("runtime".to_string()),
+        canonical: None,
+        metadata: None,
+        timestamp,
+        owner: Some(RuntimeOwner {
+            workspace_id: "workspace_contract_v1".to_string(),
+            project_id: "project_viden".to_string(),
+            lane_id: Some("lane_core".to_string()),
+            session_id: None,
+            task_id: None,
+            turn_id: None,
+        }),
+    }
+}
+
+/// The archive order is total and deterministic even when Core never dated a
+/// row: an undated entry is the *oldest* thing Core can honestly say about it,
+/// so it sorts first and a forward-paging client meets it before every dated
+/// row rather than seeing it appear after newer ones.
+#[test]
+fn evidence_cursors_order_undated_evidence_first_then_by_timestamp_and_id() {
+    let undated = EvidenceCursor::of(&evidence_reads_view("evidence_zulu", "patch", None));
+    let old = EvidenceCursor::of(&evidence_reads_view(
+        "evidence_alpha",
+        "patch",
+        Some(1_700_000_100),
+    ));
+    let same_second_later_id = EvidenceCursor::of(&evidence_reads_view(
+        "evidence_bravo",
+        "patch",
+        Some(1_700_000_100),
+    ));
+    let newer = EvidenceCursor::of(&evidence_reads_view(
+        "evidence_alpha",
+        "patch",
+        Some(1_700_000_200),
+    ));
+
+    assert!(undated < old, "an undated row sorts before every dated row");
+    assert!(old < same_second_later_id, "the id breaks a timestamp tie");
+    assert!(same_second_later_id < newer);
+}
+
+/// The wire cursor is opaque to clients but must round-trip exactly in Core,
+/// including for an id that contains the separator and for the undated case,
+/// which is a different position from `timestamp = 0`.
+#[test]
+fn evidence_cursors_round_trip_through_their_opaque_wire_form() {
+    for cursor in [
+        EvidenceCursor {
+            timestamp: None,
+            id: "evidence:with:colons".to_string(),
+        },
+        EvidenceCursor {
+            timestamp: Some(0),
+            id: "evidence_epoch".to_string(),
+        },
+        EvidenceCursor {
+            timestamp: Some(1_700_000_100),
+            id: "evidence_alpha".to_string(),
+        },
+    ] {
+        let encoded = cursor.encode();
+        assert_eq!(EvidenceCursor::decode(&encoded), Ok(cursor.clone()));
+    }
+    assert_ne!(
+        EvidenceCursor {
+            timestamp: None,
+            id: "evidence_alpha".to_string(),
+        }
+        .encode(),
+        EvidenceCursor {
+            timestamp: Some(0),
+            id: "evidence_alpha".to_string(),
+        }
+        .encode(),
+        "an undated cursor and a `timestamp = 0` cursor are different positions"
+    );
+    assert!(EvidenceCursor::decode("not-a-cursor").is_err());
+    assert!(EvidenceCursor::decode("t:notanumber:evidence_alpha").is_err());
+}
+
+/// `limit` is clamped rather than rejected, exactly as `AuditQuery` does, so a
+/// malformed client request still receives a well-formed page. Zero is the
+/// case that matters: an unclamped zero would answer every read with an empty
+/// page, which a client cannot distinguish from an empty archive.
+#[test]
+fn evidence_query_limits_clamp_into_the_supported_page_range() {
+    let limited = |limit: u16| EvidenceQuery {
+        limit,
+        ..EvidenceQuery::default()
+    };
+    assert_eq!(limited(0).clamped_limit(), 1);
+    assert_eq!(limited(1).clamped_limit(), 1);
+    assert_eq!(limited(50).clamped_limit(), 50);
+    assert_eq!(
+        limited(u16::MAX).clamped_limit(),
+        MAX_EVIDENCE_PAGE_SIZE as usize
+    );
+    assert_eq!(
+        EvidenceQuery::default().limit,
+        DEFAULT_EVIDENCE_PAGE_SIZE,
+        "the default query asks for the documented default page size"
+    );
+}
+
+/// Owner scoping fails closed on both sides. Evidence Core could not attribute
+/// must not be handed to a scoped read, because "this lane produced it" would
+/// then be an inference from timing rather than a fact Core recorded.
+#[test]
+fn evidence_owner_scope_is_a_prefix_match_that_fails_closed_on_unknown_owners() {
+    let scoped = |lane: Option<&str>, task: Option<&str>| EvidenceQuery {
+        owner: Some(RuntimeOwner {
+            workspace_id: "workspace_contract_v1".to_string(),
+            project_id: "project_viden".to_string(),
+            lane_id: lane.map(str::to_string),
+            session_id: None,
+            task_id: task.map(str::to_string),
+            turn_id: None,
+        }),
+        ..EvidenceQuery::default()
+    };
+    let entry = evidence_reads_view("evidence_alpha", "patch", Some(1_700_000_100));
+
+    assert!(scoped(None, None).matches(&entry), "a project prefix keeps");
+    assert!(scoped(Some("lane_core"), None).matches(&entry));
+    assert!(
+        !scoped(Some("lane_other"), None).matches(&entry),
+        "a different lane is a different scope"
+    );
+    assert!(
+        !scoped(Some("lane_core"), Some("task_1")).matches(&entry),
+        "a narrower scope than the record carries must not match"
+    );
+
+    let unowned = EvidenceView {
+        owner: None,
+        ..entry.clone()
+    };
+    assert!(
+        !scoped(None, None).matches(&unowned),
+        "evidence Core could not attribute never satisfies a scoped read"
+    );
+    assert!(
+        EvidenceQuery::default().matches(&unowned),
+        "an unscoped read still sees it"
+    );
+}
+
+/// An empty `kinds` list means every kind. A filter that silently meant
+/// "nothing" would answer a client's unfiltered read with a fabricated empty
+/// archive.
+#[test]
+fn evidence_kind_filters_are_exact_and_empty_means_every_kind() {
+    let patch = evidence_reads_view("evidence_alpha", "patch", Some(1));
+    let test_result = evidence_reads_view("evidence_bravo", "test_result", Some(2));
+    let filtered = EvidenceQuery {
+        kinds: vec!["patch".to_string()],
+        ..EvidenceQuery::default()
+    };
+    assert!(filtered.matches(&patch));
+    assert!(!filtered.matches(&test_result));
+    assert!(EvidenceQuery::default().matches(&patch));
+    assert!(EvidenceQuery::default().matches(&test_result));
+}
+
+/// Both read answers are known event types. Quarantining an evidence page or a
+/// content read would read to an operator as "there is no evidence" and "this
+/// evidence has no content", two fabricated absences.
+#[test]
+fn evidence_read_answers_stay_known_event_types() {
+    let page = r#"{
+        "sequence": 1,
+        "timestamp": 1700000100,
+        "kind": {
+            "type": "evidence_page_loaded",
+            "payload": {
+                "command_id": "evidence_read_first",
+                "page": { "entries": [], "complete": true, "next_after": null }
+            }
+        }
+    }"#;
+    let RuntimeWireEvent::Known(page) = serde_json::from_str::<RuntimeWireEvent>(page).unwrap()
+    else {
+        panic!("evidence_page_loaded must stay a known event type");
+    };
+    assert_eq!(
+        page.kind,
+        RuntimeEventKind::EvidencePageLoaded {
+            command_id: "evidence_read_first".to_string(),
+            page: EvidencePage {
+                entries: Vec::new(),
+                complete: true,
+                next_after: None,
+            },
+        }
+    );
+
+    let content = r#"{
+        "sequence": 2,
+        "timestamp": 1700000200,
+        "kind": {
+            "type": "evidence_content_loaded",
+            "payload": {
+                "command_id": "evidence_content_first",
+                "evidence_id": "evidence_alpha",
+                "content": { "type": "unavailable", "reason": "summary_only" }
+            }
+        }
+    }"#;
+    let RuntimeWireEvent::Known(content) =
+        serde_json::from_str::<RuntimeWireEvent>(content).unwrap()
+    else {
+        panic!("evidence_content_loaded must stay a known event type");
+    };
+    assert_eq!(
+        content.kind,
+        RuntimeEventKind::EvidenceContentLoaded {
+            command_id: "evidence_content_first".to_string(),
+            evidence_id: "evidence_alpha".to_string(),
+            content: EvidenceContent::Unavailable {
+                reason: EvidenceUnavailableReason::SummaryOnly,
+            },
+        }
+    );
+}
+
+/// Both answers are query results, not runtime facts: reducing them must leave
+/// the view exactly as it was, so a bounded archive page can never truncate or
+/// overwrite the recent-window `latest_evidence` projection beside it.
+#[test]
+fn evidence_read_answers_are_query_results_and_never_reach_the_view_state() {
+    let snapshot: RuntimeSnapshot = serde_json::from_value(runtime_snapshot_json()).unwrap();
+    let mut view = RuntimeViewState::new(snapshot);
+    view.apply_event(&RuntimeEvent::new(
+        1,
+        RuntimeEventKind::EvidenceRecorded {
+            evidence: evidence_reads_view("evidence_recent", "patch", Some(1_700_000_100)),
+        },
+    ));
+    let before = view.clone();
+
+    view.apply_event(&RuntimeEvent::new(
+        2,
+        RuntimeEventKind::EvidencePageLoaded {
+            command_id: "evidence_read_first".to_string(),
+            page: EvidencePage {
+                entries: vec![evidence_reads_view("evidence_archive", "patch", Some(1))],
+                complete: false,
+                next_after: Some(
+                    EvidenceCursor {
+                        timestamp: Some(1),
+                        id: "evidence_archive".to_string(),
+                    }
+                    .encode(),
+                ),
+            },
+        },
+    ));
+    view.apply_event(&RuntimeEvent::new(
+        3,
+        RuntimeEventKind::EvidenceContentLoaded {
+            command_id: "evidence_content_first".to_string(),
+            evidence_id: "evidence_recent".to_string(),
+            content: EvidenceContent::Text {
+                text: "ok".to_string(),
+                truncated: false,
+                sha256: "a".repeat(64),
+            },
+        },
+    ));
+
+    assert_eq!(view.latest_evidence, before.latest_evidence);
+    assert_eq!(
+        view.latest_evidence.len(),
+        1,
+        "an archive page must not add rows to the recent window"
+    );
+}
+
+/// `runtime.evidence_reads` is a post-checkpoint addition, so it belongs to the
+/// extension list and never to the frozen base capabilities.
+#[test]
+fn the_evidence_reads_capability_is_an_advertised_extension() {
+    assert!(FRONTEND_V1_EXTENSION_CAPABILITIES.contains(&"runtime.evidence_reads"));
+    assert!(!FRONTEND_V1_CAPABILITIES.contains(&"runtime.evidence_reads"));
+    assert!(
+        FRONTEND_V1_EXTENSION_CAPABILITIES
+            .windows(2)
+            .all(|pair| pair[0] < pair[1]),
+        "extension capabilities must stay sorted and unique"
+    );
+}

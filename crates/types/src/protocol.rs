@@ -39,6 +39,7 @@ pub const FRONTEND_V1_EXTENSION_CAPABILITIES: &[&str] = &[
     "runtime.conflict_content",
     "runtime.credential_handles",
     "runtime.credential_staging",
+    "runtime.evidence_reads",
     "runtime.lane_lifecycle",
     "runtime.lane_owner_projection",
     "runtime.operator_git",
@@ -330,6 +331,12 @@ fn is_known_runtime_event_type(event_type: &str) -> bool {
             // "nothing was audited" — the one failure an append-only timeline
             // exists to prevent.
             | "audit_page_loaded"
+            // The two answers to an evidence read. Quarantining a page reads
+            // to an operator as "no evidence was recorded", and quarantining a
+            // content read as "this evidence has no content" — two fabricated
+            // absences over a store whose whole purpose is to be citable.
+            | "evidence_page_loaded"
+            | "evidence_content_loaded"
             // The answer to a `QueryWorkspaceFiles`. Third event to need this
             // arm explicitly: quarantining an inventory page as an unknown
             // event reads to a client as "this workspace has no files", the
