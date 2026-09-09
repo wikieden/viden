@@ -1,10 +1,17 @@
 import { renderDiffBody } from "../components/diff_rows";
-import { translate, type Locale } from "../i18n/catalog";
+import { translate, type Locale, type MessageKey } from "../i18n/catalog";
 import {
   STRUCTURED_DIFF_CAPABILITY,
   type WorkspaceDiffEntryProjection,
   type WorkspaceDiffProjection,
 } from "../models/diff_review";
+import {
+  IDLE_OPERATOR_GIT,
+  MAX_COMMIT_MESSAGE_BYTES,
+  OPERATOR_GIT_CAPABILITY,
+  commitMessageBytes,
+  type OperatorGitProjection,
+} from "../models/operator_git";
 import "./diff_review.css";
 
 /**
@@ -20,17 +27,53 @@ import "./diff_review.css";
  * parses diff text, never re-sorts Core's order, and never derives `staged`
  * from the index classification Core already derived it from.
  *
- * The commit bar the design draws is present, visibly disabled, and labelled
- * with `GUI-CORE-020`. Operator git actions need a Core contract that does not
- * exist in `frontend-contract-v1`; a bar that looked live and resolved to
- * nothing would be worse than a bar that says why it cannot act. It carries no
- * handlers at all, so there is nothing behind it to accidentally enable.
+ * The commit bar is the action half (`runtime.operator_git`, GUI-CORE-020) and
+ * follows the same rule: every button sends one `RunOperatorGitAction` through
+ * the CoreClient seam and renders the ordered answer. The client stages
+ * nothing itself, commits nothing itself, and reads no fact out of git's
+ * output. A bar that cannot act — no capability, no Core-published owner, an
+ * action already in flight — stays visible, disabled, and labelled with the
+ * reason, because an operator who can see *why* can fix it.
  */
 
 export type { WorkspaceDiffProjection } from "../models/diff_review";
 
-/// The open register entry that has to close before the commit bar can act.
-const OPERATOR_GIT_CODE = "GUI-CORE-020";
+/**
+ * The action half of the view (`runtime.operator_git`, GUI-CORE-020).
+ *
+ * Absent while no host is bound: the bar then keeps the design's shape and is
+ * wholly inert, which is what a shell with nothing behind it owes the reader.
+ */
+export interface DiffReviewActionHandlers {
+  /** Core's action projection: capability, owner, in flight, last answer. */
+  state: OperatorGitProjection;
+  /**
+   * The operator's draft commit message.
+   *
+   * Owned by the caller, because an ordered Core refresh rebuilds this DOM and
+   * a draft rebuilt from an empty string would silently discard what the
+   * operator typed.
+   */
+  message: string;
+  onMessageChange: (next: string) => void;
+  /**
+   * The commit half of "commit and push" did not complete, so the push was
+   * never sent. Said out loud: a silently dropped second half would leave the
+   * operator believing the branch was published.
+   */
+  pairStopped?: boolean;
+  /** `Stage { paths: [] }` — Core's own "every changed path". */
+  onStageAll: () => void;
+  onCommit: () => void;
+  /** Two sequential commands; the caller sends the push only on `Completed`. */
+  onCommitPush: () => void;
+  /** `staged` is Core's flag for the row, so the caller picks the inverse. */
+  onToggleStaged: (path: string, staged: boolean) => void;
+  /** The `NoUpstream` recovery: the same push with `set_upstream: true`. */
+  onPushSetUpstream: () => void;
+  /** The `NonFastForward` recovery. `pull` is excluded by contract in 0.3.3. */
+  onFetch: () => void;
+}
 
 export interface DiffReviewHandlers {
   /** Re-reads the page from Core. Absent while no host is bound. */
@@ -41,7 +84,38 @@ export interface DiffReviewHandlers {
   onSelect?: (path: string | null) => void;
   /** Path to open with, when the view is being rebuilt after a re-read. */
   selectedPath?: string | null;
+  /** Operator source-control actions. Absent leaves the bar inert. */
+  actions?: DiffReviewActionHandlers;
 }
+
+/// Core's audit verbs, each with its own localized noun for the bar's copy.
+const ACTION_LABEL: Record<string, MessageKey> = {
+  stage: "d1.review.verb.stage",
+  unstage: "d1.review.verb.unstage",
+  commit: "d1.review.verb.commit",
+  push: "d1.review.verb.push",
+  fetch: "d1.review.verb.fetch",
+};
+
+/**
+ * Core's failure classes, each with the sentence and the recovery the contract
+ * names for it.
+ *
+ * The class is the key, never git's English text: Core classifies stderr once,
+ * in one place, so a localized client renders a message per class instead of
+ * matching substrings that change with git's version and the operator's
+ * locale. `authentication_required` deliberately offers no recovery — a retry
+ * button there is a retry loop against a credential the client cannot supply.
+ */
+const FAILURE_COPY: Record<string, { key: MessageKey; recovery?: "fetch" | "set_upstream" }> = {
+  nothing_to_commit: { key: "d1.review.failed.nothingToCommit" },
+  non_fast_forward: { key: "d1.review.failed.nonFastForward", recovery: "fetch" },
+  authentication_required: { key: "d1.review.failed.authenticationRequired" },
+  remote_unreachable: { key: "d1.review.failed.remoteUnreachable" },
+  no_upstream: { key: "d1.review.failed.noUpstream", recovery: "set_upstream" },
+  path_outside_repository: { key: "d1.review.failed.pathOutsideRepository" },
+  other: { key: "d1.review.failed.other" },
+};
 
 /// The design's `.ftrow .stat` glyphs, one per `WorkspaceChangeKind`.
 const KIND_GLYPH: Record<string, { glyph: string; variant: string }> = {
@@ -172,12 +246,20 @@ export function renderDiffReview(
   const list = document.createElement("div");
   list.className = "ftlist";
   list.setAttribute("role", "list");
+  // The registered row is one line with two independent affordances: open the
+  // file, and stage or unstage it. A button cannot be nested inside a button
+  // and stay focusable, so the line is the container and `.ftrow` keeps the
+  // family's own styling as the opening half.
+  const actions = handlers.actions;
   for (const entry of entries) {
+    const line = document.createElement("div");
+    line.className = "ftline";
+    line.setAttribute("role", "listitem");
+
     const row = document.createElement("button");
     row.type = "button";
     row.className = entry === selected ? "ftrow on" : "ftrow";
     row.dataset.path = entry.path;
-    row.setAttribute("role", "listitem");
     row.setAttribute("aria-current", String(entry === selected));
 
     const kind = entryKind(entry);
@@ -226,7 +308,37 @@ export function renderDiffReview(
         selectedPath: entry.path,
       });
     });
-    list.append(row);
+    line.append(row);
+
+    if (actions) {
+      // Which command the toggle sends follows Core's own `staged` flag; the
+      // client never re-derives it from the index classification Core already
+      // derived it from.
+      const toggle = document.createElement("button");
+      toggle.type = "button";
+      toggle.className = "review-stage";
+      toggle.dataset.reviewStageToggle = entry.path;
+      toggle.dataset.reviewStaged = String(entry.staged);
+      const toggleLabel = translate(
+        locale,
+        entry.staged ? "d1.review.unstage" : "d1.review.stage",
+        {},
+      );
+      toggle.textContent = toggleLabel;
+      toggle.setAttribute("aria-label", `${toggleLabel} ${entry.path}`);
+      const blocked = actionBlockedReason(actions.state, locale);
+      toggle.disabled = blocked !== null;
+      toggle.title = blocked ?? toggleLabel;
+      toggle.addEventListener("click", (event) => {
+        // The toggle is an action on the row, not a way into it: opening a
+        // file the operator only meant to stage would move the diff pane
+        // under them.
+        event.stopPropagation();
+        actions.onToggleStaged(entry.path, entry.staged);
+      });
+      line.append(toggle);
+    }
+    list.append(line);
   }
 
   // The four non-row states, each with its own sentence. Only the last one is
@@ -344,38 +456,327 @@ export function renderDiffReview(
     pane.append(body);
   }
 
-  /* ---- commit bar (disabled: GUI-CORE-020) ---- */
+  /* ---- operator actions (runtime.operator_git, GUI-CORE-020) ---- */
 
-  const commitBar = document.createElement("div");
-  commitBar.className = "commitbar";
-  commitBar.dataset.reviewCommit = "true";
-  commitBar.dataset.reviewCommitCode = OPERATOR_GIT_CODE;
-  const message = document.createElement("div");
-  message.className = "msg-in";
-  message.textContent = translate(locale, "d1.review.commitUnavailable", {
-    code: OPERATOR_GIT_CODE,
-  });
-  commitBar.append(message);
-  for (const [key, variant] of [
-    ["d1.review.stageAll", ""],
-    ["d1.review.commit", "commit"],
-    ["d1.review.commitPush", "push"],
-  ] as const) {
-    const action = document.createElement("button");
-    action.type = "button";
-    action.className = variant ? `cbtn ${variant}` : "cbtn";
-    action.textContent = translate(locale, key, {});
-    // No listener at all. A disabled control with a handler behind it is one
-    // edit away from claiming an effect Core cannot perform.
-    action.disabled = true;
-    action.setAttribute("aria-disabled", "true");
-    action.title = translate(locale, "d1.review.commitUnavailable", {
-      code: OPERATOR_GIT_CODE,
-    });
-    commitBar.append(action);
-  }
-  pane.append(commitBar);
+  renderActionState(pane, actions?.state ?? IDLE_OPERATOR_GIT, locale, actions);
+  renderCommitBar(pane, locale, actions);
 
   review.append(tree, pane);
   host.replaceChildren(review);
+}
+
+/**
+ * Why the bar cannot act right now, in the operator's language, or `null` when
+ * it can.
+ *
+ * The order is the order the operator can do something about: an absent
+ * capability is a fact about this Core build, an absent owner is a fact about
+ * this client's Lane selection, and an action in flight is temporary. Each
+ * leaves the control visible and disabled — hiding it would make the operator
+ * hunt for a button that is right there.
+ */
+function actionBlockedReason(
+  state: OperatorGitProjection,
+  locale: Locale,
+): string | null {
+  if (!state.capabilityAvailable) {
+    return translate(locale, "d1.review.actionUnavailable", {
+      capability: OPERATOR_GIT_CAPABILITY,
+    });
+  }
+  if (!state.ownerAvailable) {
+    // This client's own words, not Core's: nothing was refused by Core here.
+    return (
+      state.ownerUnavailableReason ?? translate(locale, "d1.review.actionNoOwner", {})
+    );
+  }
+  if (state.outcome.state === "pending") {
+    return state.awaitingApproval
+      ? translate(locale, "d1.review.actionAwaitingApproval", {})
+      : translate(locale, "d1.review.actionBusy", {});
+  }
+  return null;
+}
+
+/// One localized noun for a Core audit verb, or the raw verb when this build
+/// has no name for it — never a blank, which would read as "something".
+function actionNoun(locale: Locale, verb: string | null): string {
+  if (!verb) return translate(locale, "d1.review.verb.unknown", {});
+  const key = ACTION_LABEL[verb];
+  return key ? translate(locale, key, {}) : verb;
+}
+
+/**
+ * The line above the bar: what is happening, or what happened.
+ *
+ * Four states with four sentences. The one thing they never do is share: a
+ * `CommandRejected` means Core refused before anything ran, and a `Failed`
+ * outcome means the effect was attempted and audited. Rendering them alike
+ * would tell an operator "denied" about a problem in their own index.
+ */
+function renderActionState(
+  pane: HTMLElement,
+  state: OperatorGitProjection,
+  locale: Locale,
+  actions: DiffReviewActionHandlers | undefined,
+): void {
+  const block = document.createElement("div");
+  block.className = "review-action";
+  block.dataset.reviewAction = "true";
+
+  if (state.outcome.state === "pending") {
+    const line = document.createElement("p");
+    line.className = "review-action-line";
+    line.dataset.reviewActionState = state.awaitingApproval ? "awaiting_approval" : "pending";
+    line.setAttribute("role", "status");
+    const action = actionNoun(locale, state.pendingAction);
+    line.textContent = state.awaitingApproval
+      ? // The dock owns the decision from here; the bar only says so.
+        translate(locale, "d1.review.actionAwaitingApprovalDetail", { action })
+      : translate(locale, "d1.review.actionPending", { action });
+    block.append(line);
+    pane.append(block);
+    return;
+  }
+
+  if (state.outcome.state === "rejected") {
+    const line = document.createElement("p");
+    line.className = "review-action-line";
+    line.dataset.reviewActionState = "rejected";
+    line.setAttribute("role", "alert");
+    // Core's own words, unedited: the reason carries the actionable hint.
+    line.textContent =
+      state.outcome.reason ?? translate(locale, "d1.review.actionRejected", {});
+    block.append(line);
+    if (actions?.pairStopped) {
+      const note = document.createElement("p");
+      note.className = "review-action-note";
+      note.dataset.reviewPairStopped = "true";
+      note.setAttribute("role", "status");
+      note.textContent = translate(locale, "d1.review.actionPairStopped", {});
+      block.append(note);
+    }
+    pane.append(block);
+    return;
+  }
+
+  const result = state.result;
+  if (!result) {
+    // Nothing has been attempted. An empty block is the honest render: there
+    // is no outcome to describe and no placeholder that could be mistaken for
+    // one.
+    return;
+  }
+
+  const action = actionNoun(locale, result.action);
+  if (result.kind === "completed") {
+    const line = document.createElement("p");
+    line.className = "review-action-line";
+    line.dataset.reviewActionState = "completed";
+    line.setAttribute("role", "status");
+    // Every number here is Core's resampled `source`. Nothing is read out of
+    // the transcript below, which is display text.
+    const source = result.source;
+    line.textContent = source
+      ? translate(locale, "d1.review.actionCompletedResampled", {
+          action,
+          branch: source.branch ?? translate(locale, "d1.review.actionNoBranch", {}),
+          ahead: String(source.ahead),
+          behind: String(source.behind),
+          tree: translate(
+            locale,
+            source.dirty ? "d1.review.actionDirty" : "d1.review.actionClean",
+            {},
+          ),
+        })
+      : translate(locale, "d1.review.actionCompleted", { action });
+    block.append(line);
+
+    if (result.output && result.output.trim().length > 0) {
+      // Collapsed: a commit transcript is evidence, not the answer, and the
+      // answer is the line above it.
+      const details = document.createElement("details");
+      details.className = "review-action-output";
+      details.dataset.reviewActionOutput = "true";
+      const summary = document.createElement("summary");
+      summary.textContent = translate(locale, "d1.review.actionOutput", {});
+      const body = document.createElement("pre");
+      body.textContent = result.output;
+      details.append(summary, body);
+      block.append(details);
+    }
+    if (result.truncated) {
+      const note = document.createElement("p");
+      note.className = "review-action-note";
+      note.dataset.reviewActionTruncated = "true";
+      note.textContent = translate(locale, "d1.review.actionOutputTruncated", {});
+      block.append(note);
+    }
+    pane.append(block);
+    return;
+  }
+
+  if (actions?.pairStopped) {
+    const note = document.createElement("p");
+    note.className = "review-action-note";
+    note.dataset.reviewPairStopped = "true";
+    note.setAttribute("role", "status");
+    note.textContent = translate(locale, "d1.review.actionPairStopped", {});
+    block.append(note);
+  }
+
+  const failureClass = result.failureClass ?? "unknown";
+  const copy = FAILURE_COPY[failureClass];
+  const line = document.createElement("p");
+  line.className = "review-action-line";
+  line.dataset.reviewActionState = "failed";
+  line.dataset.reviewFailureClass = failureClass;
+  line.setAttribute("role", "alert");
+  line.textContent = `${translate(locale, "d1.review.actionFailed", { action })} ${translate(
+    locale,
+    // An unrecognized class keeps its own sentence rather than borrowing the
+    // nearest-looking one, which would offer the wrong recovery.
+    copy?.key ?? "d1.review.failed.unknown",
+    {},
+  )}`;
+  block.append(line);
+
+  if (result.detail) {
+    // Git's own message, verbatim. The class above is the machine-readable
+    // half; this is the half a human reads.
+    const detail = document.createElement("pre");
+    detail.className = "review-action-detail";
+    detail.dataset.reviewActionDetail = "true";
+    detail.textContent = result.detail;
+    block.append(detail);
+  }
+
+  if (copy?.recovery && actions) {
+    const recovery = document.createElement("button");
+    recovery.type = "button";
+    recovery.className = "cbtn review-recovery";
+    recovery.dataset.reviewRecovery = copy.recovery;
+    recovery.textContent = translate(
+      locale,
+      copy.recovery === "fetch" ? "d1.review.recovery.fetch" : "d1.review.recovery.setUpstream",
+      {},
+    );
+    const blocked = actionBlockedReason(actions.state, locale);
+    recovery.disabled = blocked !== null;
+    if (blocked) recovery.title = blocked;
+    recovery.addEventListener("click", () => {
+      if (copy.recovery === "fetch") actions.onFetch();
+      else actions.onPushSetUpstream();
+    });
+    block.append(recovery);
+  }
+  pane.append(block);
+}
+
+/**
+ * The registered `.commitbar`: a message box and three actions.
+ *
+ * `Commit & Push` is two sequential commands, not one: the caller sends the
+ * push only after the commit reports `Completed`. That belongs to the caller
+ * because only it can watch the ordered stream; the bar's job is to say which
+ * button was pressed.
+ */
+function renderCommitBar(
+  pane: HTMLElement,
+  locale: Locale,
+  actions: DiffReviewActionHandlers | undefined,
+): void {
+  const state = actions?.state ?? IDLE_OPERATOR_GIT;
+  const commitBar = document.createElement("div");
+  commitBar.className = "commitbar";
+  commitBar.dataset.reviewCommit = "true";
+
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "msg-in";
+  input.dataset.reviewCommitMessage = "true";
+  input.value = actions?.message ?? "";
+  const placeholder = translate(locale, "d1.review.commitPlaceholder", {});
+  input.placeholder = placeholder;
+  input.setAttribute("aria-label", placeholder);
+  const blocked = actionBlockedReason(state, locale);
+  input.disabled = !actions;
+  if (!actions && blocked) input.title = blocked;
+  commitBar.append(input);
+
+  // The over-bound note lives beside the bar so the count sits next to the box
+  // it describes. Hidden rather than absent, because it appears and disappears
+  // as the operator types and a node that comes and goes moves the layout.
+  const overflow = document.createElement("p");
+  overflow.className = "review-action-note";
+  overflow.dataset.reviewCommitOverflow = "true";
+  overflow.setAttribute("role", "alert");
+
+  const controls: Array<{ button: HTMLButtonElement; needsMessage: boolean }> = [];
+  for (const [key, variant, action] of [
+    ["d1.review.stageAll", "", "stage_all"],
+    ["d1.review.commit", "commit", "commit"],
+    ["d1.review.commitPush", "push", "commit_push"],
+  ] as const) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = variant ? `cbtn ${variant}` : "cbtn";
+    button.dataset.reviewAction = action;
+    button.textContent = translate(locale, key, {});
+    // Staging needs no message; committing does. A disabled button fires no
+    // click, so the handler is attached once and `disabled` is the only gate —
+    // there is no second, drifting copy of the same rule.
+    if (actions) {
+      button.addEventListener("click", () => {
+        if (action === "stage_all") actions.onStageAll();
+        else if (action === "commit") actions.onCommit();
+        else actions.onCommitPush();
+      });
+    }
+    commitBar.append(button);
+    controls.push({ button, needsMessage: action !== "stage_all" });
+  }
+
+  /**
+   * Applies the message-dependent half of the bar's state.
+   *
+   * Called on every keystroke rather than re-rendering the view, because
+   * rebuilding the DOM under a caret would move it. Core counts UTF-8 bytes,
+   * so the client does too: a character-based check would let a Chinese
+   * message past a bound Core then refuses.
+   */
+  const syncMessageState = (): void => {
+    const message = input.value;
+    const bytes = commitMessageBytes(message);
+    const overLimit = bytes > MAX_COMMIT_MESSAGE_BYTES;
+    const tooLong = translate(locale, "d1.review.commitTooLong", {
+      bytes: String(bytes),
+      limit: String(MAX_COMMIT_MESSAGE_BYTES),
+    });
+    overflow.textContent = tooLong;
+    overflow.hidden = !overLimit;
+    for (const { button, needsMessage } of controls) {
+      const messageProblem = !needsMessage
+        ? null
+        : overLimit
+          ? tooLong
+          : message.trim().length > 0
+            ? null
+            : translate(locale, "d1.review.commitEmpty", {});
+      const reason = blocked ?? messageProblem;
+      button.disabled = !actions || reason !== null;
+      button.title = reason ?? (button.textContent ?? "");
+      if (button.disabled) button.setAttribute("aria-disabled", "true");
+      else button.removeAttribute("aria-disabled");
+    }
+  };
+  syncMessageState();
+  if (actions) {
+    input.addEventListener("input", () => {
+      actions.onMessageChange(input.value);
+      syncMessageState();
+    });
+  }
+
+  pane.append(commitBar, overflow);
 }

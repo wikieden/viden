@@ -4,6 +4,7 @@ import { translate } from "./i18n/catalog";
 import type { ComposerControlIntent } from "./models/composer";
 import type { PermissionIntent, PermissionIntentResult } from "./components/permission_dock";
 import type { D6Intent, D6RecoveryProjection } from "./models/workspace";
+import type { OperatorGitActionRequest } from "./models/operator_git";
 import type { RecentWorkResult } from "./models/recent_work";
 import {
   requestPreferenceRestore,
@@ -303,6 +304,7 @@ export async function hydrateShellFromCore(
             loadPaletteCrossLane,
             loadPaletteFiles,
             workspaceDiff: workspaceDiffPort,
+            operatorGit: operatorGitPort,
             onNavigate: (route: string, arg?: string) => {
               // Every restored screen re-reads its own Core projection before
               // it renders; the caller only names the route and, when the
@@ -616,6 +618,23 @@ export async function hydrateShellFromCore(
           }
           return result;
         },
+      };
+
+      /**
+       * The operator source-control port (GUI-CORE-020).
+       *
+       * `read` is the no-traffic projection read; `run` sends one
+       * `RunOperatorGitAction` and drains until Core answers; `poll` keeps
+       * draining while an action is out, which is how an approval-gated action
+       * settles once the operator answers the dock. Core owns the permission
+       * gate on the mapped agent tool spec, the audit record, the effect, and
+       * the classification of git's stderr — the shell only names the action.
+       */
+      const operatorGitPort = {
+        read: async (laneId: string | null) => await core.operatorGit(laneId),
+        run: async (laneId: string | null, action: OperatorGitActionRequest) =>
+          await core.runOperatorGitAction(`gui-git-${crypto.randomUUID()}`, laneId, action),
+        poll: async (laneId: string | null) => await core.operatorGitPoll(laneId),
       };
 
       const loadPaletteFiles = async () => {

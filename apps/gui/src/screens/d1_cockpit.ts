@@ -72,6 +72,11 @@ import {
 } from "../models/workspace";
 import { renderDiffReview } from "./diff_review";
 import type { WorkspaceDiffProjection } from "../models/diff_review";
+import {
+  IDLE_OPERATOR_GIT,
+  type OperatorGitActionRequest,
+  type OperatorGitProjection,
+} from "../models/operator_git";
 import { renderD6Recovery, type SendD6Intent } from "./d6_recovery";
 import "./d1_cockpit.css";
 
@@ -208,6 +213,26 @@ export interface D1RenderOptions {
   workspaceDiff?: {
     read: () => Promise<WorkspaceDiffProjection>;
     query: (laneId: string | null) => Promise<WorkspaceDiffProjection>;
+  };
+  /**
+   * Operator source-control actions (`runtime.operator_git`, GUI-CORE-020).
+   *
+   * `read` is the no-traffic projection read the commit bar and the titlebar
+   * sync control use for the capability, the Core owner this client may act
+   * as, and whether an action is already in flight. `run` sends one
+   * `RunOperatorGitAction`; `poll` drains ordered Core events while an action
+   * is still out, which is how an approval-gated action settles.
+   *
+   * Absent while no host is bound, which leaves the registered commit bar
+   * visible and inert and the sync chip a `role=status` readout.
+   */
+  operatorGit?: {
+    read: (laneId: string | null) => Promise<OperatorGitProjection>;
+    run: (
+      laneId: string | null,
+      action: OperatorGitActionRequest,
+    ) => Promise<OperatorGitProjection>;
+    poll: (laneId: string | null) => Promise<OperatorGitProjection>;
   };
   /** Native folder chooser behind the picker's `Add directory…` row. */
   onPickProjectFolder?: () => Promise<string | null>;
@@ -531,6 +556,33 @@ export function renderD1Cockpit(
    * than promising a view that may not exist.
    */
   let reviewCapability: boolean | null = null;
+  /**
+   * Core's last word on the operator action side.
+   *
+   * Starts as "nothing available" rather than as an optimistic default: a bar
+   * that looked live before the first no-traffic read answered would offer an
+   * action this client may not be able to send.
+   */
+  let operatorGitState: OperatorGitProjection = IDLE_OPERATOR_GIT;
+  /**
+   * The commit message draft.
+   *
+   * Presentation state, held here rather than in the DOM, because an ordered
+   * Core refresh rebuilds the review and a draft read back out of a rebuilt
+   * input would be empty.
+   */
+  let commitMessage = "";
+  /** True while a `RunOperatorGitAction` is out, so a click cannot stack one. */
+  let operatorGitInFlight = false;
+  /**
+   * "Commit and push" is two sequential commands, never one.
+   *
+   * The push is sent only after the commit reports `Completed`; a commit that
+   * failed or was refused stops the pair, and the view says so instead of
+   * silently pushing nothing or silently dropping the second half.
+   */
+  let pushAfterCommit = false;
+  let commitPairStopped = false;
   let laneRailOpen = false;
   let laneRailFocusTarget: "rail" | "toggle" | null = null;
   let menuController: AgentMenuController | null = null;
@@ -927,9 +979,11 @@ export function renderD1Cockpit(
         releaseCommandSlotWaiters();
         queueMicrotask(maybeResumeLaneStart);
         queueMicrotask(advanceAgentDiscovery);
-        // The DiffReview re-query rule rides the same ordered Core wake the
-        // cockpit already listens on, so an open review never needs a timer.
+        // The DiffReview re-query rule and the operator action's settlement
+        // both ride the same ordered Core wake the cockpit already listens on,
+        // so neither needs a timer of its own.
         queueMicrotask(noteReviewStaleness);
+        queueMicrotask(noteOperatorGitPending);
       });
   };
 
@@ -1022,6 +1076,123 @@ export function renderD1Cockpit(
       .catch(() => undefined);
   };
 
+  /* ---- operator git actions (GUI-CORE-020) ---- */
+
+  /// Learns the capability, the owner, and any in-flight action without
+  /// sending anything. Every action control reads the answer.
+  const readOperatorGit = (): void => {
+    if (!options.operatorGit) return;
+    void options.operatorGit
+      .read(selectedLaneId)
+      .then((state) => {
+        if (disposed) return;
+        operatorGitState = state;
+        render(false);
+      })
+      .catch(() => {
+        // A host that cannot answer is not a Core that lacks the capability.
+        // Leaving the last known state keeps the controls disabled without
+        // claiming a reason that may not be true.
+      });
+  };
+
+  /**
+   * Sends one action and applies Core's ordered answer.
+   *
+   * One at a time: the commit bar is one surface with one message box, and a
+   * second action in flight could only race the first for the same index.
+   */
+  const runOperatorGit = (action: OperatorGitActionRequest): void => {
+    const port = options.operatorGit;
+    if (!port || operatorGitInFlight) return;
+    operatorGitInFlight = true;
+    commitPairStopped = false;
+    const laneId = selectedLaneId;
+    void port
+      .run(laneId, action)
+      .then((state) => {
+        if (disposed) return;
+        operatorGitState = state;
+      })
+      .catch((error: unknown) => {
+        if (disposed) return;
+        // A transport failure is this client's error, not Core's refusal, so
+        // it is never dressed up as a `CommandRejected`. The pair stops here
+        // too: nothing may be assumed about whether the effect ran.
+        operatorGitState = {
+          ...operatorGitState,
+          outcome: { state: "rejected", reason: String(error) },
+          pendingCommandId: null,
+          pendingAction: null,
+          awaitingApproval: false,
+          result: null,
+        };
+      })
+      .finally(() => {
+        operatorGitInFlight = false;
+        if (disposed) return;
+        advanceCommitPair();
+        // The action's own `WorkspaceSourceUpdated` invalidates the open page,
+        // so the review re-reads through the same debounced staleness path a
+        // Core-side write goes through. Nothing is patched into the rows here.
+        queueMicrotask(noteReviewStaleness);
+        queueMicrotask(noteOperatorGitPending);
+        render(false);
+      });
+  };
+
+  /**
+   * The second half of "commit and push", or the sentence that says it stopped.
+   *
+   * The push is sent only on a `Completed` commit. Success is never inferred
+   * from git's output text: `result.kind` is Core's own typed answer.
+   */
+  const advanceCommitPair = (): void => {
+    if (!pushAfterCommit) return;
+    const state = operatorGitState;
+    if (state.outcome.state === "pending") return;
+    const completedCommit =
+      state.outcome.state === "confirmed" &&
+      state.result?.kind === "completed" &&
+      state.result.action === "commit";
+    pushAfterCommit = false;
+    if (!completedCommit) {
+      // A failed or refused commit has nothing to push. Saying so is the whole
+      // point: a silently dropped second half would leave the operator
+      // believing the branch was published.
+      commitPairStopped = true;
+      return;
+    }
+    commitMessage = "";
+    runOperatorGit({ type: "push", remote: null, setUpstream: false });
+  };
+
+  /// Drains ordered Core events while an action is still out.
+  ///
+  /// An approval-gated action settles only when the operator answers the dock,
+  /// which is an ordered Core fact like any other, so this rides the cockpit's
+  /// existing wake instead of holding a timer.
+  const noteOperatorGitPending = (): void => {
+    const port = options.operatorGit;
+    if (!port || operatorGitInFlight) return;
+    if (operatorGitState.outcome.state !== "pending") return;
+    operatorGitInFlight = true;
+    const laneId = selectedLaneId;
+    void port
+      .poll(laneId)
+      .then((state) => {
+        if (disposed) return;
+        operatorGitState = state;
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        operatorGitInFlight = false;
+        if (disposed) return;
+        advanceCommitPair();
+        render(false);
+      });
+  };
+
   const reviewAvailable = (): boolean =>
     !!options.workspaceDiff && reviewCapability === true;
 
@@ -1064,6 +1235,7 @@ export function renderD1Cockpit(
           queueMicrotask(maybeResumeLaneStart);
           queueMicrotask(advanceAgentDiscovery);
           queueMicrotask(noteReviewStaleness);
+          queueMicrotask(noteOperatorGitPending);
           schedulePoll();
         });
     }, 250);
@@ -1968,6 +2140,18 @@ export function renderD1Cockpit(
       onOpenReview: options.workspaceDiff ? () => openReview() : undefined,
       reviewAvailable: reviewAvailable(),
       reviewOpen: centerView === "review",
+      // The sync chip is a control wherever the host can carry an action; the
+      // chip itself decides push versus fetch from Core's resampled counts and
+      // stays disabled-and-labelled when it may not act.
+      onSync: options.operatorGit
+        ? (action) =>
+            runOperatorGit(
+              action === "push"
+                ? { type: "push", remote: null, setUpstream: false }
+                : { type: "fetch", remote: null },
+            )
+        : undefined,
+      syncState: operatorGitState,
       onOpenProjectPicker: projectPickerAvailable
         ? () => openProjectPicker("titlebar")
         : undefined,
@@ -2091,6 +2275,39 @@ export function renderD1Cockpit(
             reviewSelectedPath = path;
           },
           selectedPath: reviewSelectedPath,
+          actions: !options.operatorGit
+            ? undefined
+            : {
+                state: operatorGitState,
+                message: commitMessage,
+                pairStopped: commitPairStopped,
+                onMessageChange: (next) => {
+                  // No re-render: the input already holds the text, and
+                  // rebuilding the DOM under a caret would move it.
+                  commitMessage = next;
+                },
+                onStageAll: () => runOperatorGit({ type: "stage", paths: [] }),
+                onCommit: () => {
+                  pushAfterCommit = false;
+                  runOperatorGit({ type: "commit", message: commitMessage });
+                },
+                onCommitPush: () => {
+                  // The flag is set before the command leaves; the push itself
+                  // is sent by `advanceCommitPair` only on a `Completed`
+                  // commit.
+                  pushAfterCommit = true;
+                  runOperatorGit({ type: "commit", message: commitMessage });
+                },
+                onToggleStaged: (path, staged) =>
+                  runOperatorGit(
+                    staged
+                      ? { type: "unstage", paths: [path] }
+                      : { type: "stage", paths: [path] },
+                  ),
+                onPushSetUpstream: () =>
+                  runOperatorGit({ type: "push", remote: null, setUpstream: true }),
+                onFetch: () => runOperatorGit({ type: "fetch", remote: null }),
+              },
         },
       );
     } else {
@@ -2496,6 +2713,10 @@ export function renderD1Cockpit(
   // publishes structured diff rows before anyone clicks one. It sends no Core
   // command, so it costs nothing on a Core that does not have the capability.
   ensureReviewCapability();
+  // The same at-mount, no-traffic read for the action side, so the commit bar
+  // and the titlebar sync chip know whether they may act before anyone presses
+  // one of them.
+  readOperatorGit();
   if (options.poll !== false) {
     if (options.onCoreWake) {
       // A host push replaces the drain timer outright: reading on the wake

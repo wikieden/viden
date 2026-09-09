@@ -328,16 +328,20 @@ describe("DiffReview diff pane", () => {
     ).toContain("on");
   });
 
-  test("the commit bar is disabled and cites the open operator-git request", () => {
+  test("a read-only mount keeps the commit bar visible and wholly inert", () => {
+    // The action port is what makes the bar live (see
+    // `diff_review_actions.spec.ts`). Without one — an unbound host — the
+    // registered shape stays so the operator can see what is coming, and every
+    // control is disabled rather than resolving to nothing.
     const host = mount(loadedPage());
     const bar = host.querySelector<HTMLElement>(".commitbar")!;
-    expect(bar.dataset.reviewCommitCode).toBe("GUI-CORE-020");
+    expect(bar.dataset.reviewCommit).toBe("true");
     for (const control of Array.from(bar.querySelectorAll<HTMLButtonElement>("button"))) {
       expect(control.disabled).toBe(true);
     }
-    // No dead handlers: a disabled control that resolves to nothing must not
-    // pretend it would have acted.
-    expect(bar.querySelector("[data-review-commit-action]")).toBeNull();
+    expect(bar.querySelector<HTMLInputElement>("[data-review-commit-message]")?.disabled).toBe(
+      true,
+    );
   });
 });
 
