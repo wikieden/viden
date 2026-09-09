@@ -1123,8 +1123,12 @@ where
         &mut runtime_events,
         &mut runtime_sequence,
         RuntimeEventKind::MergeGateUpdated {
+            // The same scoped id every later update of this gate uses. Keying
+            // the opening `Proposed` fact on the raw protocol handle instead
+            // split one turn's gate into two records under two ids: one stuck
+            // at `Proposed` and one collecting the evidence.
             gate: acp_session_merge_gate(
-                &session_id,
+                scoped_session_id,
                 owner.as_ref(),
                 MergeGateStatus::Proposed,
                 &acp_gate_evidence_ids,

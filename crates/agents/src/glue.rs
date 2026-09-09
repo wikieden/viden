@@ -1443,13 +1443,19 @@ pub(super) fn append_acp_update_runtime_events(
 
 /// Builds the merge gate for one ACP session turn.
 ///
-/// The gate id stays keyed on the ACP protocol session handle so an
-/// already-persisted gate keeps its identity across turns. That handle is not
-/// the Agent session Core publishes, so the gate would otherwise be joinable to
-/// nothing in `RuntimeViewState`: `owner` carries the published session, which
-/// is what lets a frontend tell a gate awaiting a live session from one left
-/// behind by a session that already finished. `None` stays `None` rather than
-/// becoming an owner derived from the protocol handle alone (GUI-CORE-010).
+/// `session_id` is the scoped session id — the Agent session Core published
+/// when there is one, and only otherwise the agent's own protocol handle. Every
+/// fact of one turn's gate must be built from the same value: a gate whose
+/// opening `Proposed` fact carried the protocol handle and whose updates
+/// carried the published session split into two records under two ids.
+/// `owner` carries the published session as well, which is what lets a frontend
+/// tell a gate awaiting a live session from one left behind by a session that
+/// already finished. `None` stays `None` rather than becoming an owner derived
+/// from the session id alone (GUI-CORE-010).
+///
+/// The id is opaque to clients: nothing parses it, and gates already persisted
+/// under the protocol handle keep that id on replay and are bound to their
+/// session by the owner backfill in `tracked_agent_job_runtime_events`.
 pub(super) fn acp_session_merge_gate(
     session_id: &str,
     owner: Option<&RuntimeOwner>,

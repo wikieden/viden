@@ -2454,6 +2454,92 @@ fn typed_agent_session_persists_each_runtime_event_once() {
     );
 }
 
+/// One turn publishes one merge gate, under one id.
+///
+/// The opening `Proposed` fact used to be keyed on the ACP protocol handle
+/// while every later update of the same gate was keyed on the Agent session
+/// Core published, so a supervised turn produced two gate records: one stuck at
+/// `Proposed` under an id that joins to nothing in `RuntimeViewState`, and one
+/// collecting the evidence. Both are now keyed on the published session.
+/// Legacy logs keep their original ids and bind through the owner backfill —
+/// see `replay_binds_legacy_gates_to_the_session_artifact_that_produced_them`.
+#[test]
+fn a_typed_agent_turn_keys_every_merge_gate_fact_on_the_published_session() {
+    let _guard = subprocess_test_guard();
+    let root = temp_root("acp_typed_gate_key");
+    let script =
+        mock_typed_session_script(&root, "mock-acp-gate-key.sh", "session_protocol_handle");
+    let _agent_guard = CustomAcpAgentGuard::install(&script);
+
+    let session_id = "agent-session_typed_gate_key".to_string();
+    let lane_id = "lane-typed-gate-key".to_string();
+    let sink: RuntimeEventSink = Arc::new(|_events| {});
+    let approver: AgentSessionApprover = Box::new(|_prompt: viden_types::PermissionPrompt| {
+        ApprovalResponse::allow_once(Some("test".into()))
+    });
+
+    start_typed_agent_session(
+        &root,
+        session_id.clone(),
+        viden_types::AgentSessionRequest {
+            lane_id: lane_id.clone(),
+            agent_id: "custom-acp".to_string(),
+            model: None,
+            load_session_id: None,
+            task: "say something".to_string(),
+        },
+        typed_session_owner(&session_id, &lane_id),
+        sink,
+        approver,
+    )
+    .expect("start typed agent session");
+
+    let runtime_events_path = acp_job_runtime_events_path(&root, &session_id);
+    wait_until(
+        || {
+            read_acp_runtime_events(&runtime_events_path)
+                .iter()
+                .filter(|event| matches!(&event.kind, RuntimeEventKind::MergeGateUpdated { .. }))
+                .count()
+                >= 2
+        },
+        Duration::from_secs(20),
+    );
+
+    let gates = read_acp_runtime_events(&runtime_events_path)
+        .into_iter()
+        .filter_map(|event| match event.kind {
+            RuntimeEventKind::MergeGateUpdated { gate } => Some(gate),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        gates.len() >= 2,
+        "the turn must publish the proposed gate and at least one update"
+    );
+    let expected_gate_id = format!("gate-acp-session-{session_id}");
+    for gate in &gates {
+        assert_eq!(
+            gate.gate_id, expected_gate_id,
+            "every gate fact of one turn shares the published session key"
+        );
+        assert_eq!(gate.task_id, format!("acp-session-{session_id}"));
+        assert_eq!(gate.owner.session_id.as_deref(), Some(session_id.as_str()));
+    }
+    assert!(
+        gates
+            .iter()
+            .all(|gate| !gate.gate_id.contains("session_protocol_handle")),
+        "no gate fact may still be keyed on the ACP protocol handle"
+    );
+    assert!(
+        gates
+            .iter()
+            .any(|gate| gate.status == MergeGateStatus::Proposed),
+        "the opening proposed fact must be among them"
+    );
+}
+
 fn acp_runtime_event_fixture_line(event: &RuntimeEvent) -> String {
     serde_json::to_string(event).expect("encode fixture runtime event")
 }
