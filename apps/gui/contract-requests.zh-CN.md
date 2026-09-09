@@ -184,15 +184,40 @@ GUI 状态：已在 `claude/core-workspace-files` 接通。D10 的 ticker 是该
 回答、被拒绝、以及已回答但为空，四者保持四条不同的文案，因此空条不会被读成"从未发生过
 任何事"。`d10.events.noOrderedLog` 那条 unavailable 行已移除。
 
-## GUI-CORE-015：结构化合并冲突内容
+## GUI-CORE-015：结构化合并冲突内容 — 已关闭（Core 侧，2026-09-09）
 
-`MergeGateRecord` 与 `ConflictBounce` 给出闸、原 Lane 与理由，但不携带冲突内容。
-D12 设计稿要求并排展示两条 Lane 的 hunk 与冲突标记。D12 只渲染 Core 的理由文本并
-声明 hunk 不可用；不得读取 worktree，也不得把理由字符串解析成 diff 行。
+历史：`MergeGateRecord` 与 `ConflictBounce` 给出闸、原 Lane 与理由，但不携带冲突内容，
+`LaneConflictView` 也只带一个 summary。D12 设计稿要求并排展示两条 Lane 的 hunk，因此
+D12 只渲染 Core 的理由文本并声明 hunk 不可用，而不去读取 worktree、也不把理由字符串
+解析成 diff 行。
 
-当 Core 为被退回的闸发布结构化冲突内容（文件路径、带行号的 ours/theirs hunk、以及
-计算冲突所依据的基线），且规范 merge-gate fixture 覆盖单文件两 Lane 冲突时，
-关闭此请求。
+Core 状态：已交付为结构化冲突内容（capability `runtime.conflict_content`）。
+`ConflictBounce.content`、`LaneConflictView.content` 与 `LaneConflictDetected` payload
+各携带一个可选的 `ConflictContent`：按文件给出严格应用拒绝掉的 hunk，按 hunk 给出位于
+`ours_start` 的 `ours`、位于 `theirs_start` 的 `theirs`、作为 `base` 的补丁原像，以及
+类型化的 `ConflictHunkReason`。没有任何新事件类型——两个挂载点都是失败应用本就会发布的
+事件——因此既有形状不变，九个冻结 base fixture 保持其字节。
+
+有两处答案比请求的措辞更窄，值得点明。请求要的是"ours/theirs hunk"；Core 发布的是两侧
+**加上补丁原像**，并且明确不是三方合并。Core 不计算 merge base，也不做任何解决，因此 D12
+必须渲染这三侧，不得呈现合并后的结果，也不得提供自动解决。基线是类型化的而不是字符串：
+gate 持有 canonical reviewed evidence 时为 `Evidence { bindings }`，因为 gate 的基线是它的
+bindings 而不是一个裸 commit；Lane 应用路径为 `Revision { sha }`；Core 无法指名任何基线时
+为 `Unknown`，D12 必须把它渲染为"未知"，而不是悄悄当作 `HEAD`。
+
+内容只会由一次真实的应用失败生成。操作者的 `BounceMergeConflict` 是带理由的人为判断，
+背后没有失败的应用，因此其内容为 `None`；拒绝之后的 hunk 从未被尝试，因此不会被列出。
+`None` 意味着 Core 无内容可展示，绝不是"冲突是空的"，因此内容缺失时应保留设计稿的
+"不可用"标记，而不是渲染一个空冲突。
+
+规范 fixture 是 `conflict-content.json`，而不是扩展后的 `merge-gate.json`，因为冻结的 base
+fixture 必须保持字节不变。它正是请求所要的单文件两 Lane 冲突：Lane A 的补丁合入，Lane B 的
+`MergeAgentPatch` 被拒绝、bounce 携带一个基线为 `Evidence` 的 hunk，旁边的
+`LaneConflictDetected` 以相同形状携带基线为 `Revision` 的内容。
+
+GUI 状态：尚未采纳。D12 仍渲染理由文本与不可用标记；并排渲染 ours 与 theirs、附带 base 行
+与 reason 并去掉该标记，将随 DiffReview 宿主批次（G2）落地，与 GUI-CORE-012、GUI-CORE-020
+一并进行。
 
 ## GUI-CORE-016：Agent 消息的流式分片 — 已关闭
 

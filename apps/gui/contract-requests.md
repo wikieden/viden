@@ -237,18 +237,52 @@ ambient, and the Decision Center still owns the actionable queue. An absent
 timeline stay four different lines, so an empty strip never reads as "nothing
 ever happened". The `d10.events.noOrderedLog` unavailable row is gone.
 
-## GUI-CORE-015: Structured merge-conflict content
+## GUI-CORE-015: Structured merge-conflict content — CLOSED (Core side, 2026-09-09)
 
-`MergeGateRecord` and `ConflictBounce` name the gate, the origin Lane, and the
-reason, but carry no conflict content. The D12 design shows both Lanes' hunks
-side by side with conflict markers. D12 renders the Core reason text and
-declares the hunk unavailable; it must not read the worktree or parse the
-reason string into diff rows.
+History: `MergeGateRecord` and `ConflictBounce` named the gate, the origin Lane,
+and the reason, but carried no conflict content, and `LaneConflictView` carried
+only a summary. The D12 design shows both Lanes' hunks side by side, so D12
+rendered the Core reason text and declared the hunk unavailable rather than
+reading the worktree or parsing the reason string into diff rows.
 
-Close this request when Core publishes structured conflict content for a
-bounced gate — file path, ours/theirs hunks with line numbers, and the
-baseline the conflict was computed against — and the canonical merge-gate
-fixture covers a two-Lane conflict on one file.
+Core status: delivered as structured conflict content (capability
+`runtime.conflict_content`). `ConflictBounce.content`, `LaneConflictView.content`,
+and the `LaneConflictDetected` payload each carry an optional `ConflictContent`:
+per file, the hunks the strict apply rejected, and per hunk `ours` at
+`ours_start`, `theirs` at `theirs_start`, the patch preimage as `base`, and a
+typed `ConflictHunkReason`. No new event type exists — both attach sites are
+events a failed apply already published — so nothing existing changed shape and
+the nine frozen base fixtures keep their bytes.
+
+Two answers are narrower than the request's wording, and the difference is worth
+naming. The request asked for "ours/theirs hunks"; what Core publishes is two
+sides **plus the patch preimage**, and it is explicitly not a three-way merge.
+Core computes no merge base and resolves nothing, so D12 must render the three
+sides and must not present a merged result or offer to auto-resolve. And the
+baseline is typed rather than a string: `Evidence { bindings }` when the gate
+holds canonical reviewed evidence, because a gate's baseline is its bindings and
+not a bare commit; `Revision { sha }` for the Lane apply path; `Unknown` when
+Core held no baseline it could name, which D12 must render as unknown rather
+than silently as `HEAD`.
+
+Content is only ever built from a real apply failure. An operator
+`BounceMergeConflict` is a human judgement with a reason and no failed apply, so
+its content is `None`, and hunks after the refusal were never attempted and are
+not listed. `None` means Core has nothing to show and never that the conflict
+was empty, so an absent content keeps the design's unavailable marker rather
+than rendering an empty conflict.
+
+The canonical fixture is `conflict-content.json` rather than an extended
+`merge-gate.json`, because the frozen base fixture must keep its bytes. It is
+the two-Lane conflict on one file the request asked for: Lane A's patch merges,
+Lane B's `MergeAgentPatch` is refused and the bounce carries one hunk with an
+`Evidence` baseline, and a `LaneConflictDetected` beside it carries the same
+shape with a `Revision` baseline.
+
+GUI status: not yet adopted. D12 still renders the reason text and the
+unavailable marker; rendering ours and theirs side by side with the base row and
+the reason, and dropping the marker, lands with the DiffReview host batch (G2),
+together with GUI-CORE-012 and GUI-CORE-020.
 
 ## GUI-CORE-016: Streaming Agent message chunks — CLOSED
 

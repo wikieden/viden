@@ -127,6 +127,7 @@ self-referential inside the payload commit.
 | Audit timeline | who changed what, on which objects, with what outcome | `AuditRecord`, `AuditPage`, `AuditCursor`, `AuditObjectRef`, `AuditActorFilter`, `AuditPageLoaded` | `QueryAudit` | Core `0.3.5` extension `runtime.audit`; newest-first, exclusive `before`, page size clamped to `1..=500`. `AuditPageLoaded.command_id` names the exact read it answers; a client requires an exact match, falls back to its own accepted query only for a page with no id, and must never infer one from record contents. `AuditQuery` actor and `[from, until)` filters are applied before pagination, so `complete` and `next_before` describe the filtered timeline |
 | Structured diff | approval decision context, changed-file rows, DiffReview file tree and diff pane | `DiffDocument`, `DiffFile`, `DiffHunk`, `DiffLine`, `ApprovalRequestView.decision_context`, `WorkspaceChangeView.diff`, `WorkspaceDiffLoaded` | `QueryWorkspaceDiff` | Core `0.3.6` extension `runtime.structured_diff`; Core is the only producer of diff rows, and the read is permission-gated under the existing non-mutating `git_diff` tool with the resolved target root as the input path |
 | Operator source control | DiffReview commit bar, titlebar sync control | `OperatorGitAction`, `OperatorGitOutcome`, `OperatorGitFailureClass`, `OperatorGitActionFinished`, the `WorkspaceSourceUpdated` that follows it | `RunOperatorGitAction` | Core `0.3.6` extension `runtime.operator_git`; each action is gated and executed under the *existing agent* tool spec it maps to, so one rule set governs an operator and an agent, and the failure taxonomy is typed so no client parses git output |
+| Conflict content | DiffReview conflict pane, decisions overlay conflict detail | `ConflictContent`, `ConflictBaseline`, `ConflictFile`, `ConflictHunk`, `ConflictHunkReason`, `ConflictBounce.content`, `LaneConflictView.content`, `LaneConflictDetected.content` | none; the content rides the events a failed apply already publishes | Core `0.3.6` extension `runtime.conflict_content`; two sides plus the patch preimage, never a three-way merge, with a named baseline and only hunks the strict apply actually rejected |
 | Workspace file inventory | the ordered path list of the open workspace | `WorkspaceFileEntry`, `WorkspaceFileKind`, `WorkspaceFilePage`, `WorkspaceFilesLoaded` | `QueryWorkspaceFiles` | Core `0.3.5` extension `runtime.workspace_files`; permission-gated before any directory is read, under the non-mutating tool `workspace_file_inventory` with the workspace root as the input path. A deny, and an unresolved ask, both come back as `CommandRejected` naming this exact read and carrying the refusal — never an empty page, and never a bare `Error`, which has no command id and would let a client with a read outstanding mistake an unrelated failure for its own refusal. Plan mode still answers, because the tool mutates nothing. The walk is gitignore-aware and unconditionally excludes `.git/`, `.viden/`, `.omx/`, `.worktrees/`, `.ref/`. Entries are lexicographic; the prefix filter, the exclusive `after` cursor, and the `1..=500` limit clamp are applied to that order, so `complete` and `next_after` describe the filtered ordered inventory. `WorkspaceFilesLoaded.command_id` is required, so unlike an audit page there is no uncorrelated case. A client must never walk the filesystem itself |
 
 For Core `0.3.4`, follow-up and retry preserve the logical session id and exact
@@ -558,6 +559,53 @@ The first supported required evidence kinds are `patch`, `test_result`,
 `review`, `doc_update`, and `release_artifact`. Clients may display other
 runtime-provided kinds, but should treat the known set as first-class checklist
 groups.
+
+### Conflict content
+
+Requires the `runtime.conflict_content` extension (Core `0.3.6`,
+GUI-CORE-015). Without the capability a client renders the conflict exactly as
+before — the bounce's `reason`, the Lane conflict's `summary` — and must not
+claim there was nothing to show.
+
+`ConflictBounce.content`, `LaneConflictView.content`, and the
+`LaneConflictDetected` payload's `content` are the same optional
+`ConflictContent`. There is no new event type: both existing events gained one
+field, and a payload written before the capability deserializes to `None` as a
+known event.
+
+- `ConflictContent` is `baseline`, `files`, and `truncated`. Each
+  `ConflictFile` is a target-relative `/`-separated path, its rejected
+  `hunks`, and `omitted`.
+- A `ConflictHunk` is **two sides plus the patch preimage**: `ours` at
+  `ours_start` is a read-only read of the target file at the hunk's declared
+  old range, clamped to the file; `theirs` at `theirs_start` is the incoming
+  hunk's new-side lines; `base` is that hunk's own preimage, the text the patch
+  expected to find. Core computes no merge base and resolves nothing. **This is
+  not a three-way merge.** A client renders the three sides and must not
+  present a merged result or offer to auto-resolve.
+- `base` is `None` only when the hunk had no preimage to show at all;
+  `Some(vec![])` means it expected an empty region, which is what a creation
+  hunk expects. The two are different facts and are encoded differently.
+- `ConflictBaseline` says what `ours` was read against, and is
+  `#[non_exhaustive]`. `Evidence { bindings }` is the merge path's answer
+  whenever the gate holds canonical reviewed evidence, because a gate's
+  baseline is its bindings rather than a bare commit. `Revision { sha }` is the
+  Lane apply path's answer, and the merge path's fallback when the gate's
+  bindings no longer validate. `Unknown` means Core held no baseline it could
+  name; render it as unknown, never silently as `HEAD`.
+- `ConflictHunkReason` is classified once by Core from what the apply saw and
+  is `#[non_exhaustive]`: `ContextMismatch`, `AlreadyApplied` when the file
+  already holds the hunk's new side at that range, `FileMissing`,
+  `FileDeleted` when a deletion's preimage would leave the file behind, and
+  `Binary`. Clients switch on the reason and never parse a message.
+- Content exists only where a real apply failure stands behind the record. An
+  operator `BounceMergeConflict` carries a reason and no apply failure, so its
+  `content` is `None`; so is a merge that resolved every hunk and failed while
+  writing. Hunks after the refusal were never attempted and are not listed.
+  `None` means Core has nothing to show, never that the conflict was empty.
+- The bound is 256 KiB across the published lines. A file over it keeps its
+  entry with `omitted` set and no hunks, and the content sets `truncated`, so
+  "not shown" stays distinguishable from "no conflict here".
 
 ## Context And Token UI Contract
 

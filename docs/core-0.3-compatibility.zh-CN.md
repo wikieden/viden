@@ -74,6 +74,7 @@ runtime.agent_session_input
 runtime.agent_sessions
 runtime.audit
 runtime.cockpit_context_v1
+runtime.conflict_content
 runtime.credential_handles
 runtime.credential_staging
 runtime.lane_lifecycle
@@ -163,6 +164,30 @@ fixture 保持其字节与摘要身份。
   `omitted` 发布并保留真实计数，page 置 `truncated`，因此"未展示"始终可与"未变更"区分。
   该 page 与 `WorkspaceFilesLoaded` 一样是查询结果，绝不折叠进 `RuntimeViewState`，因此
   不会移动任何快照摘要。
+
+结构化冲突内容需要 `runtime.conflict_content`（GUI-CORE-015）。没有任何新事件类型：
+`ConflictBounce`、`LaneConflictView` 与 `LaneConflictDetected` 各新增一个可选的 `content`
+字段，仅在存在时序列化。不带该字段发布的记录编码为它一直以来的字节，本 capability 之前
+写下的 payload 反序列化为 `None` 且仍是**已知**事件，冻结 base fixture 保持其字节与摘要身份。
+
+- 内容是两侧加上补丁的原像，仅此而已。`ours` 是对目标文件在该 hunk 声明的旧区间上的只读
+  读取，并被钳制到文件范围内；`theirs` 是传入 hunk 的新侧行，位于其新起点；`base` 是该
+  hunk 自身的原像，即补丁期望找到的文本。Core 不计算 merge base，也不做任何解决，因此这
+  **不是**三方合并，客户端不得把它呈现为三方合并，也不得提供自动解决。
+- 基线说明 `ours` 是相对什么读取的。当 merge gate 持有 canonical reviewed evidence 时为
+  `Evidence { bindings }`，因为那正是评审者接受的内容，也是本次应用被授权的依据；Lane
+  应用路径，以及 bindings 已无法校验的 gate，为 `Revision { sha }`，指名文件被读取时的
+  commit；Core 无法指名任何基线时为 `Unknown`。`Unknown` 是一个真实答案，必须渲染为"未知"，
+  绝不可悄悄当作 `HEAD`。
+- 只列出严格应用真正拒绝掉的 hunk。拒绝之后的 hunk 从未被尝试；解析器无法解析的补丁，以及
+  没有 hunk 形状的拒绝，都完全不产生内容；操作者的 `BounceMergeConflict` 携带 `None`，因为
+  人的判断背后没有一次失败的应用。`None` 意味着 Core 无内容可展示，绝不是"冲突是空的"。
+- `ConflictHunkReason` 由 Core 依据应用所见在一处分类：`ContextMismatch`、文件已包含该 hunk
+  新侧时的 `AlreadyApplied`、`FileMissing`、删除补丁的原像不足以清空文件时的 `FileDeleted`，
+  以及 `Binary`。本地应用路径不会产生 `Binary`，因为二进制文件没有可供拒绝的行；该变体是为
+  能够看到二进制拒绝的应用路径保留的。客户端永不解析消息来决定提供什么操作。
+- 边界为已发布行合计 256 KiB。越界文件保留条目，置 `omitted` 且不带 hunk，内容置
+  `truncated`，因此"未展示"始终可与"这里没有冲突"区分。
 
 操作者源码控制动作（`RunOperatorGitAction` -> `OperatorGitActionFinished`，其后跟随
 `WorkspaceSourceUpdated`）需要 `runtime.operator_git`（GUI-CORE-020）。命令与事件都是新增的，
@@ -336,6 +361,7 @@ Fixture 文件位于 `crates/types/tests/fixtures/frontend-contract-v1/`。下�
 | `workspace-files` | 同一项目上的两次并发清单读取以相反顺序被回答，每个 page 都携带必填的 `command_id`；带 prefix 的读取对其子树返回 `complete`，而未加 prefix 的读取仍未完；另有第二个已挂载项目只发布 lane 事实、完全没有清单读取 | `9f1c95e59ff5c4a172791d8c0c862f6286326311853b228cc5b83674e4775c37` | `f907b793d2817372fc71c95122e4e33152755682fff5fe46aa20150704bcb949` |
 | `structured-diff` | 一个 `edit_file` 审批，其决策上下文含一个文件、一个 hunk，以及其所基于字节的 `base_sha256`；一个 `MergeAgentPatch` 审批，携带两文件变更且不含基线哈希；一页 diff，其中一条为已暂存条目，另一条被字节边界省略但计数保持真实；以及第二次读取被 `CommandRejected` 以其自身 command id 拒绝 | `3f5f4caf39cee2c46162999a35618599c0197aae15a3abfdd3a098e080676b8a` | `e24915b31f4192d85349be99da4c0ea81b6fb0b126b2076de17775d70de21cd0` |
 | `operator-git` | 一个 `Stage` 被策略拒绝，并以 `CommandRejected` 指名映射后的 `git_add` spec 返回；一个 `Commit` 走 ask 路径、携带已暂存行被审批并完成，其后跟随重新采样的源码事实，其中 `ahead` 前进且工作树干净；一个 `Push` 结论为 `Failed { NoUpstream }` 而不是被拒绝，因为门禁放行了它且该尝试已被审计 | `07eadb0e93c8e151ba5e3dd0f069035ff5e97ca20156b6f1f0c0e85a86ac14e1` | `f29aa213870cfd2e511553453b077db7f193dac553068e932c787ae0ba683936` |
+| `conflict-content` | 两条 Lane 触及同一个文件：Lane A 的补丁合入，Lane B 的 `MergeAgentPatch` 被拒绝，bounce 携带一个 hunk，含 `ours`、`theirs` 与补丁原像，基线为 `Evidence`；另有一条 `LaneConflictDetected` 以相同形状携带内容，基线为 `Revision` | `d73ea2a144cd2682f3c5121f124c952dfad158e4befdd1a60ec9b9dc1c4d01bf` | `830afb77c04cf807926d0010309b07c3f1802e580daf48bc0715d4722c96ce1f` |
 
 2026-09-07 语义修正（评审发现 4）：`RuntimeViewState.assistant_stream` 此前没有生命
 周期——它在整个 view 生命期内只追加，因此启动重放会把每个历史会话的回复串接成一整块
@@ -391,6 +417,14 @@ agent-session facts——没有终态事件，其文本照旧留在 stream 中�
 其后跟随重新采样的源码事实。一个 `Push` 以 `Failed { NoUpstream }` 结束，因为门禁放行了它，
 且该尝试已被审计。若客户端把拒绝与失败渲染成同一种样子，就会让操作者去改权限规则来修一个
 跟踪问题；若客户端从沉默推断成功，就会把一次从未离开本机的推送报告为已完成。
+
+`conflict-content` fixture 是 `runtime.conflict_content`（GUI-CORE-015）的生成式证据。
+两条 Lane 触及同一个文件，因为冲突只有相对于已经落地的东西才有意义：Lane A 的补丁合入，
+Lane B 的补丁是针对 Lane A 替换掉的那段文本写的，因此被拒绝，bounce 于是携带文件现在的
+内容、Lane B 携带的内容，以及 Lane B 期望找到的原像。Lane 应用路径在它旁边以相同形状回答。
+两个基线刻意是不同种类：gate 的基线是它的 canonical reviewed evidence，Lane 的基线是其文件
+被读取时的 revision，单一的基线字符串对其中之一必然是谎言。payload 中没有任何合并后的结果，
+因此若客户端把它渲染成可解决的三方合并，就会提供一个 Core 从未产生过的自动解决。
 
 `context-budgets` fixture 为 `ContextScope` 与 `ContextBudgetRecord` 的 frontend-neutral
 facade 导出提供依据。Budget 只能通过该 Lane 精确绑定的 runtime owner 所指名的 typed task

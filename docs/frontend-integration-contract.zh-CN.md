@@ -122,6 +122,7 @@ payload SHA。Payload commit 内没有猜测或写入自引用 SHA。
 | Audit timeline | 谁在什么对象上做了什么、结果如何 | `AuditRecord`、`AuditPage`、`AuditCursor`、`AuditObjectRef`、`AuditActorFilter`、`AuditPageLoaded` | `QueryAudit` | Core `0.3.5` extension `runtime.audit`；newest-first、`before` 为排他上界、页大小钳制在 `1..=500`。`AuditPageLoaded.command_id` 指名它所回答的那次读取；客户端要求精确匹配，仅当 page 不带 id 时才退回到"关联自己已被 accept 的查询"，且不得从记录内容反推。`AuditQuery` 的 actor 与 `[from, until)` 过滤在分页之前应用，因此 `complete` 与 `next_before` 描述的是过滤后的 timeline |
 | 结构化 diff | 审批决策上下文、变更文件行、DiffReview 文件树与 diff 面板 | `DiffDocument`、`DiffFile`、`DiffHunk`、`DiffLine`、`ApprovalRequestView.decision_context`、`WorkspaceChangeView.diff`、`WorkspaceDiffLoaded` | `QueryWorkspaceDiff` | Core `0.3.6` extension `runtime.structured_diff`；Core 是 diff 行的唯一生产者，读取在既有的非变更工具 `git_diff` 下过权限门禁，输入路径为解析后的目标根 |
 | 操作者源码控制 | DiffReview 提交栏、标题栏同步控件 | `OperatorGitAction`、`OperatorGitOutcome`、`OperatorGitFailureClass`、`OperatorGitActionFinished`，以及其后的 `WorkspaceSourceUpdated` | `RunOperatorGitAction` | Core `0.3.6` extension `runtime.operator_git`；每个动作在其映射到的**既有 agent** 工具 spec 下过门禁并执行，因此同一套规则同时约束操作者与 agent，失败分类是类型化的，客户端永不解析 git 输出 |
+| 冲突内容 | DiffReview 冲突面板、决策浮层的冲突详情 | `ConflictContent`、`ConflictBaseline`、`ConflictFile`、`ConflictHunk`、`ConflictHunkReason`、`ConflictBounce.content`、`LaneConflictView.content`、`LaneConflictDetected.content` | 无；内容搭载在失败应用本就会发布的事件上 | Core `0.3.6` extension `runtime.conflict_content`；两侧加上补丁原像，绝不是三方合并，带有指名的基线，且只列出严格应用真正拒绝掉的 hunk |
 | 工作区文件清单 | 当前工作区的有序路径列表 | `WorkspaceFileEntry`、`WorkspaceFileKind`、`WorkspaceFilePage`、`WorkspaceFilesLoaded` | `QueryWorkspaceFiles` | Core `0.3.5` extension `runtime.workspace_files`；在读取任何目录项之前先过权限门禁，工具名为非变更的 `workspace_file_inventory`，输入路径为工作区根。deny 与未解决的 ask 都以 `CommandRejected` 返回，指名这次确切的读取并携带拒绝原因——绝不发布空 page，也绝不发送不带 command id 的裸 `Error`（那会让有读取在途的客户端把无关失败误认成自己这次读取的拒绝）。该工具不产生变更，因此 plan mode 仍可回答。遍历遵循 gitignore，并无条件排除 `.git/`、`.viden/`、`.omx/`、`.worktrees/`、`.ref/`。条目按字典序排列；prefix 过滤、排他的 `after` 游标与 `1..=500` 的 limit 钳制都作用在该顺序之上，因此 `complete` 与 `next_after` 描述的是过滤后的有序清单。`WorkspaceFilesLoaded.command_id` 为必填，因此不像 audit page 那样存在无法关联的情形。客户端不得自行遍历文件系统 |
 
 Core `0.3.4` 中，续聊与 retry 保持逻辑 session id 和精确 `RuntimeOwner` 不变。
@@ -476,6 +477,41 @@ command transport 零发送。未来未知 runtime-owner event 只作为可检�
 第一批一等 required evidence kind 是 `patch`、`test_result`、`review`、`doc_update`
 和 `release_artifact`。客户端可以显示其他 runtime kind，但 checklist 分组应优先覆盖这组
 核心类型。
+
+### 冲突内容
+
+需要 `runtime.conflict_content` extension（Core `0.3.6`，GUI-CORE-015）。不具备该
+capability 时，客户端完全按原样渲染冲突——bounce 的 `reason`、Lane 冲突的 `summary`——并且
+不得声称"没有可展示的内容"。
+
+`ConflictBounce.content`、`LaneConflictView.content` 与 `LaneConflictDetected` payload 的
+`content` 是同一个可选的 `ConflictContent`。没有任何新事件类型：两个既有事件各新增一个字段，
+本 capability 之前写下的 payload 反序列化为 `None` 且仍是已知事件。
+
+- `ConflictContent` 由 `baseline`、`files` 与 `truncated` 组成。每个 `ConflictFile` 是一个
+  相对目标、以 `/` 分隔的路径，加上被拒绝的 `hunks` 与 `omitted`。
+- 一个 `ConflictHunk` 是**两侧加上补丁原像**：位于 `ours_start` 的 `ours` 是对目标文件在该
+  hunk 声明的旧区间上的只读读取，并被钳制到文件范围内；位于 `theirs_start` 的 `theirs` 是
+  传入 hunk 的新侧行；`base` 是该 hunk 自身的原像，即补丁期望找到的文本。Core 不计算
+  merge base，也不做任何解决。**这不是三方合并。** 客户端渲染这三侧，不得呈现合并后的结果，
+  也不得提供自动解决。
+- 只有当该 hunk 完全没有原像可展示时，`base` 才是 `None`；`Some(vec![])` 表示它期望的是一段
+  空区间，这正是创建型 hunk 所期望的。两者是不同的事实，编码方式也不同。
+- `ConflictBaseline` 说明 `ours` 是相对什么读取的，并且是 `#[non_exhaustive]`。当 gate 持有
+  canonical reviewed evidence 时，合并路径的答案是 `Evidence { bindings }`，因为 gate 的基线
+  是它的 bindings 而不是一个裸 commit。`Revision { sha }` 是 Lane 应用路径的答案，也是 gate
+  的 bindings 已无法校验时合并路径的回退。`Unknown` 表示 Core 无法指名任何基线；请渲染为
+  "未知"，绝不可悄悄当作 `HEAD`。
+- `ConflictHunkReason` 由 Core 依据应用所见在一处分类，并且是 `#[non_exhaustive]`：
+  `ContextMismatch`、文件在该区间已包含该 hunk 新侧时的 `AlreadyApplied`、`FileMissing`、
+  删除补丁的原像不足以清空文件时的 `FileDeleted`，以及 `Binary`。客户端按 reason 分支，
+  永不解析消息。
+- 只有记录背后确有一次真实的应用失败时才存在内容。操作者的 `BounceMergeConflict` 携带的是
+  reason 而非应用失败，因此其 `content` 为 `None`；解决了全部 hunk 但在写入阶段失败的合并
+  同样如此。拒绝之后的 hunk 从未被尝试，因此不会被列出。`None` 意味着 Core 无内容可展示，
+  绝不是"冲突是空的"。
+- 边界为已发布行合计 256 KiB。越界文件保留条目，置 `omitted` 且不带 hunk，内容置
+  `truncated`，因此"未展示"始终可与"这里没有冲突"区分。
 
 ## Context 和 Token UI 契约
 

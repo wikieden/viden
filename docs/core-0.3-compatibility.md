@@ -82,6 +82,7 @@ runtime.agent_session_input
 runtime.agent_sessions
 runtime.audit
 runtime.cockpit_context_v1
+runtime.conflict_content
 runtime.credential_handles
 runtime.credential_staging
 runtime.lane_lifecycle
@@ -200,6 +201,44 @@ and the nine frozen base fixtures keep their byte and digest identity.
   distinguishable from "unchanged". The page is a query answer like
   `WorkspaceFilesLoaded` and is never folded into `RuntimeViewState`, so no
   snapshot digest moves.
+
+Structured conflict content requires `runtime.conflict_content`
+(GUI-CORE-015). No new event type exists: `ConflictBounce`, `LaneConflictView`,
+and the `LaneConflictDetected` payload each gained one optional `content`
+field, serialized only when present. A record published without it encodes to
+the bytes it always did, a payload written before the capability deserializes
+to `None` as a *known* event, and the frozen base fixtures keep their byte and
+digest identity.
+
+- The content is two sides plus the patch preimage and nothing else. `ours` is
+  a read-only read of the target file at the hunk's declared old range, clamped
+  to the file; `theirs` is the incoming hunk's new-side lines at its new start;
+  `base` is that hunk's own preimage, the text the patch expected to find. Core
+  computes no merge base and resolves nothing, so this is **not** a three-way
+  merge and a client must not present it as one or offer to auto-resolve it.
+- The baseline says what `ours` was read against. `Evidence { bindings }`
+  whenever the merge gate holds canonical reviewed evidence, because that is
+  what a reviewer accepted and what the apply was authorised against;
+  `Revision { sha }` for the Lane apply path, and for a gate whose bindings no
+  longer validate, naming the commit the file was read at; `Unknown` when Core
+  held no baseline it could name. `Unknown` is a real answer and must be
+  rendered as unknown, never silently as `HEAD`.
+- Only hunks the strict apply actually rejected are listed. A hunk after the
+  refusal was never attempted, a patch the scanner could not parse and a
+  refusal with no hunk shape produce no content at all, and an operator
+  `BounceMergeConflict` carries `None` because a human judgement has no apply
+  failure behind it. `None` means Core has nothing to show, never that the
+  conflict was empty.
+- `ConflictHunkReason` is classified once, in Core, from what the apply saw:
+  `ContextMismatch`, `AlreadyApplied` when the file already holds the hunk's
+  new side, `FileMissing`, `FileDeleted` when a deletion's preimage would leave
+  the file behind, and `Binary`. The local apply cannot produce `Binary`,
+  because a binary file carries no rows for it to reject; the variant exists
+  for an apply path that can. Clients never parse a message to decide what to
+  offer.
+- The bound is 256 KiB across the published lines. A file over the bound keeps
+  its entry with `omitted` set and no hunks, and the content sets `truncated`,
+  so "not shown" stays distinguishable from "no conflict here".
 
 Operator source-control actions (`RunOperatorGitAction` ->
 `OperatorGitActionFinished`, followed by `WorkspaceSourceUpdated`) require
@@ -428,6 +467,7 @@ registered schema-1 extension fixtures are:
 | `workspace-files` | Two concurrent inventory reads on one project answered out of order, each page naming the required `command_id`, the scoped read `complete` for its subtree while the unscoped read is not, plus a second attached project with lane facts and no inventory read at all | `9f1c95e59ff5c4a172791d8c0c862f6286326311853b228cc5b83674e4775c37` | `f907b793d2817372fc71c95122e4e33152755682fff5fe46aa20150704bcb949` |
 | `structured-diff` | An `edit_file` approval whose decision context holds one file, one hunk, and the `base_sha256` of the bytes it was computed against; a `MergeAgentPatch` approval carrying the two-file change and no base hash; a diff page with one staged entry and one the byte bound omitted with its counts intact; and a second read refused by `CommandRejected` with its own command id | `3f5f4caf39cee2c46162999a35618599c0197aae15a3abfdd3a098e080676b8a` | `e24915b31f4192d85349be99da4c0ea81b6fb0b126b2076de17775d70de21cd0` |
 | `operator-git` | A `Stage` refused by policy and answered by `CommandRejected` naming the mapped `git_add` spec; a `Commit` approved through the ask path with the staged rows attached, completed, and followed by a resampled source where `ahead` moved and the tree is clean; and a `Push` settled as `Failed { NoUpstream }` rather than rejected, because the gate granted it and the attempt was audited | `07eadb0e93c8e151ba5e3dd0f069035ff5e97ca20156b6f1f0c0e85a86ac14e1` | `f29aa213870cfd2e511553453b077db7f193dac553068e932c787ae0ba683936` |
+| `conflict-content` | Two Lanes over one file: Lane A's patch merges, Lane B's `MergeAgentPatch` is refused and the bounce carries one hunk with `ours`, `theirs`, and the patch preimage against an `Evidence` baseline, plus a `LaneConflictDetected` carrying the same shape against a `Revision` baseline | `d73ea2a144cd2682f3c5121f124c952dfad158e4befdd1a60ec9b9dc1c4d01bf` | `830afb77c04cf807926d0010309b07c3f1802e580daf48bc0715d4722c96ce1f` |
 
 Semantics fix 2026-09-07 (review finding 4): `RuntimeViewState.assistant_stream`
 had no lifecycle — it was append-only for the life of the view, so startup
@@ -507,6 +547,19 @@ audited. A client that rendered the refusal and the failure the same way would
 send an operator to their permission rules to fix a tracking problem, and a
 client that inferred success from silence would report a push that never left
 the machine as done.
+
+The `conflict-content` fixture is the generated evidence for
+`runtime.conflict_content` (GUI-CORE-015). Two Lanes touch one file, because a
+conflict only means anything against something that landed: Lane A's patch
+merges, and Lane B's patch — written against the text Lane A replaced — is
+refused, so the bounce carries what the file holds now, what Lane B carried,
+and the preimage Lane B expected. The Lane apply path answers with the same
+shape beside it. The two baselines differ by kind deliberately: a gate's
+baseline is its canonical reviewed evidence, a Lane's is the revision its file
+was read at, and a single baseline string would have been a lie for one of
+them. Nothing in the payload is a merged result, so a client that rendered it
+as a resolvable three-way merge would offer an auto-resolution Core never
+produced.
 
 The `context-budgets` fixture backs the frontend-neutral facade export of
 `ContextScope` and `ContextBudgetRecord`. A budget belongs to a Lane only
