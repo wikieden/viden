@@ -137,6 +137,10 @@ URL 与尺寸，不在该运行时之外调用浏览器自动化。
 | `d2-review-confirmed` | `…/qa.html?state=d2-review-confirmed` | 同一评审在 Core 记录裁决之后，前后完全自洽：队列行显示 `accepted`，命令栏计数降为 1，审计落点显示裁决自身的审计 id，两个裁决动作以 `D2-REVIEW-SETTLED` 禁用，评审意见已清空且禁用，下方是确认回执 |
 | `d2-review-rejected` | `…/qa.html?state=d2-review-rejected` | 同一评审在 Core 拒绝之后：原样渲染 Core 自己的拒绝语句作为告警，评审意见保留 |
 | `d2-review-blocked` | `…/qa.html?state=d2-review-blocked` | 两个裁决动作均禁用并点名 `D2-NO-REVIEWER-ACTOR`，动作栏下方完整说明原因，评审意见输入框禁用——既不「可点却无效」，也不隐藏 |
+| `d2` | `…/qa.html?state=d2` | D2 打开时的队列：三个分组及其计数、选中第一条闸审批、契约分组以 `GUI-CORE-013` 标注为已决历史，该审批自身的 diff 行以 `GUI-CORE-012` 声明不可用 |
+| `d2-contract` | `…/qa.html?state=d2-contract` | 选中契约记录：确认与驳回**可见且禁用**，各自标注 `GUI-CORE-013`，理由在动作栏下方完整写出一次。Core 发布的每条契约都已裁决，且会拒绝对已记录 id 的再次裁决，因此此处的可点裁决只可能得到一次拒绝 |
+| `d4` | `…/qa.html?state=d4` | 已复核 starter Lane 向导停在复核步：route、gate strength、执行目标、预算、worktree、base revision 全部原样来自 Core 的 preview，其上没有任何选择器或编辑器 |
+| `d13` | `…/qa.html?state=d13` | 舰队看板：一个 Core 工作流 DAG，其中被阻塞节点点名 Core 写入的依赖记录作为阻塞原因；handoff 条说明 Core 未记录任何 handoff |
 | `d10-blind` | `…/qa.html?state=d10-blind` | 成本不可计量的 terminal Lane 带「成本不可计量路由」标记与四项有界运行事实（累计耗时、运行次数、已应用 diff、最近退出码），旁边是完全不带这些事实的可计量 ACP Lane |
 | `d10-blind-unobserved` | `…/qa.html?state=d10-blind-unobserved` | 同一盲路由 Lane 在 Core 观测到任何运行之前：只有标记与「尚未观测到运行」的说明，没有任何补零的事实 |
 | `d14-audit` | `…/qa.html?state=d14-audit` | 模式切换里「审计轨迹」按下，旁边是「原始事件回放（诊断）」；三条 newest-first 审计行，每行显示 Core 原始的点分 `action` key、actor（agent 行带 `codex-acp`）、outcome（`denied` 与 `success` 明显区分）、关联对象 chip、有界参数 chip，以及明确标出时区的可读时间 `YYYY-MM-DD HH:MM:SS UTC`；Core 页面未完，因此显示加载更早控件 |
@@ -377,3 +381,39 @@ Rail 的五个路由槽位已按其实际打开的屏幕重新命名，并从已
 `review` 书本；第七个是舰队看板的 `fleet` 节点图，而不是 `inbox` 托盘。标签本身是
 tooltip 与可访问名称文本，在静态截图里看不到——每个槽位的路由与名称之间的一致性改由
 `tests/activity_rail_destinations.spec.ts` 断言，那才是它该待的地方。
+
+## `0.3.3` H1 卫生批次截图
+
+`0.3.3` 设计缺口复核发现四个 harness 能渲染但从未截过的状态，以及两张已经过期的
+截图。2026-09-09 使用 headless Chrome（`--headless --disable-gpu
+--hide-scrollbars --window-size=1440,900 --virtual-time-budget=6000`）对 4173
+端口上的 vite dev server 采集，随后逐张目视复核（八张全部复核）。
+
+| 文件 | 状态 | 视口 | 模式 | 语言 |
+| --- | --- | --- | --- | --- |
+| [d2-1440x900-dark-en.png](d2-1440x900-dark-en.png) | d2 | 1440x900 | dark | en |
+| [d2-contract-1440x900-dark-en.png](d2-contract-1440x900-dark-en.png) | d2-contract | 1440x900 | dark | en |
+| [d2-contract-1440x900-light-zh-CN.png](d2-contract-1440x900-light-zh-CN.png) | d2-contract | 1440x900 | light | zh-CN |
+| [d4-1440x900-dark-en.png](d4-1440x900-dark-en.png) | d4 | 1440x900 | dark | en |
+| [d13-1440x900-dark-en.png](d13-1440x900-dark-en.png) | d13 | 1440x900 | dark | en |
+| [d10-blind-1440x900-dark-en.png](d10-blind-1440x900-dark-en.png) | d10-blind | 1440x900 | dark | en |
+| [d10-blind-1440x900-light-zh-CN.png](d10-blind-1440x900-light-zh-CN.png) | d10-blind | 1440x900 | light | zh-CN |
+| [d10-blind-unobserved-1440x900-dark-en.png](d10-blind-unobserved-1440x900-dark-en.png) | d10-blind-unobserved | 1440x900 | dark | en |
+
+`d2`、`d2-contract`、`d4`、`d13` 是新增的 harness 状态。`d2` 与 `d13` 原样渲染生成
+投影（`d2.json`、`d13.json`）；`d2-contract` 是 `d2.json` 上的一处 delta——选中契约
+记录，并使用 `tests/d2_decisions.rs` 断言的可用性；`d4` 手写自
+`tests/d4_lane_create.spec.ts`，因为 D4 的已复核 preview 存放在 adapter 自己的槽位
+而不在 `RuntimeViewState` 中，`tests/capture_projections.rs` 无从投影它。
+
+两张 `d10-blind*` 是**重采**，重采的理由本身就是重点：已提交的这一对底部仍写着
+「Core publishes no ordered event log in the view state, so the event stream is
+unavailable · GUI-CORE-014」。该请求已随 Core 发布审计时间线而关闭，`d10.json`
+现在携带 `unavailable: []`，事件条读作「Core publishes no audit timeline, so the
+event stream is unavailable」——因为这两个状态没有应用任何审计页，而 `d10-ticker`
+应用了。旧图是一块已不存在的屏幕的证据。
+
+`d2-contract` 这一对是同一处改动的双语佐证：英文截图读作 "Core already recorded
+this contract's decision, and publishes no pending contract to confirm."，中文读作
+「Core 已记录该契约的裁决，且不发布任何待确认契约。」，而编码 `GUI-CORE-013` 在两者
+中都不翻译，因为原因编码是标识符而不是散文。

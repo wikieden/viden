@@ -159,6 +159,10 @@ All URLs share the prefix
 | `d2-review-confirmed` | `…/qa.html?state=d2-review-confirmed` | the same review after Core recorded the verdict, coherent end to end: the queue row reads `accepted`, the command-bar count drops to 1, the audit sink names the decision's own audit id, both verdicts are disabled under `D2-REVIEW-SETTLED`, the note is cleared and disabled, and the confirmed receipt sits below |
 | `d2-review-rejected` | `…/qa.html?state=d2-review-rejected` | the same review after Core refused the verdict, with Core's own sentence rendered verbatim as an alert and the note preserved |
 | `d2-review-blocked` | `…/qa.html?state=d2-review-blocked` | both verdicts disabled and named by `D2-NO-REVIEWER-ACTOR`, the reason spelled out once below the bar, and the reviewer note disabled — never enabled-and-inert and never silently hidden |
+| `d2` | `…/qa.html?state=d2` | the queue as D2 opens: all three groups with their counts, the first gate approval selected, the contract group labelled decided history under `GUI-CORE-013`, and the approval's own diff row unavailable under `GUI-CORE-012` |
+| `d2-contract` | `…/qa.html?state=d2-contract` | the contract record selected: Confirm and Reject **visible and disabled**, each naming `GUI-CORE-013`, with the reason spelled out once below the bar. Core has already decided every contract it publishes and refuses a second decision on an id it holds, so a live verdict here could only produce a refusal |
+| `d4` | `…/qa.html?state=d4` | the reviewed starter-Lane wizard on its review step: route, gate strength, execution target, budget, worktree, and base revision exactly as Core's preview published them, with no picker or editor over any of them |
+| `d13` | `…/qa.html?state=d13` | the fleet board: one Core workflow DAG with a blocked node naming the dependency record Core wrote as its blocker, and the handoff strip saying Core recorded none |
 | `d10-blind` | `…/qa.html?state=d10-blind` | the cost-blind terminal lane with its `cost-blind route` marker and the four bounded run facts (wall time, runs, applied diff, last exit), beside a metered ACP lane carrying none of them |
 | `d10-blind-unobserved` | `…/qa.html?state=d10-blind-unobserved` | the same blind lane before Core observed any run: the marker plus the sentence saying no run was observed, and no zeroed facts |
 | `d14-audit` | `…/qa.html?state=d14-audit` | the mode toggle with `Audit trail` pressed beside `Raw event replay (diagnostic)`; three audit rows newest-first, each showing Core's raw dotted `action` key, the actor (with `codex-acp` on the agent row), the outcome (`denied` visibly distinct from `success`), the linked object chips, the bounded argument chips, and a readable `YYYY-MM-DD HH:MM:SS UTC` time with the zone spelled out; the load-older control, because Core's page is incomplete |
@@ -432,3 +436,46 @@ the seventh is the `fleet` node graph for the fleet board rather than the
 they do not appear in a still capture — the coherence between each slot's route
 and its name is asserted in `tests/activity_rail_destinations.spec.ts` instead,
 which is the right place for it.
+
+## `0.3.3` H1 hygiene captures
+
+The `0.3.3` design-gap review found four states the harness could render but
+had never captured, and two captures that had gone stale. Captured 2026-09-09
+with headless Chrome (`--headless --disable-gpu --hide-scrollbars
+--window-size=1440,900 --virtual-time-budget=6000`) against the vite dev server
+on port 4173, then visually reviewed (all eight sampled in review).
+
+| File | State | Viewport | Mode | Locale |
+| --- | --- | --- | --- | --- |
+| [d2-1440x900-dark-en.png](d2-1440x900-dark-en.png) | d2 | 1440x900 | dark | en |
+| [d2-contract-1440x900-dark-en.png](d2-contract-1440x900-dark-en.png) | d2-contract | 1440x900 | dark | en |
+| [d2-contract-1440x900-light-zh-CN.png](d2-contract-1440x900-light-zh-CN.png) | d2-contract | 1440x900 | light | zh-CN |
+| [d4-1440x900-dark-en.png](d4-1440x900-dark-en.png) | d4 | 1440x900 | dark | en |
+| [d13-1440x900-dark-en.png](d13-1440x900-dark-en.png) | d13 | 1440x900 | dark | en |
+| [d10-blind-1440x900-dark-en.png](d10-blind-1440x900-dark-en.png) | d10-blind | 1440x900 | dark | en |
+| [d10-blind-1440x900-light-zh-CN.png](d10-blind-1440x900-light-zh-CN.png) | d10-blind | 1440x900 | light | zh-CN |
+| [d10-blind-unobserved-1440x900-dark-en.png](d10-blind-unobserved-1440x900-dark-en.png) | d10-blind-unobserved | 1440x900 | dark | en |
+
+`d2`, `d2-contract`, `d4`, and `d13` are new harness states. `d2` and `d13`
+render generated projections (`d2.json`, `d13.json`) unchanged; `d2-contract`
+is one delta on `d2.json` — the contract record selected, with the availability
+`tests/d2_decisions.rs` asserts for it; `d4` is hand-written from
+`tests/d4_lane_create.spec.ts`, because D4's reviewed preview lives in the
+adapter's own slot rather than in `RuntimeViewState` and
+`tests/capture_projections.rs` has nothing to project it from.
+
+The two `d10-blind*` images are **recaptures**, and the reason is the point:
+the committed pair still carried the footer *"Core publishes no ordered event
+log in the view state, so the event stream is unavailable · GUI-CORE-014"*.
+That request closed when Core published the audit timeline, `d10.json` now
+carries `unavailable: []`, and the strip reads "Core publishes no audit
+timeline, so the event stream is unavailable" — because these two states apply
+no audit page, which `d10-ticker` does. The old images were evidence of a
+screen that no longer exists.
+
+The `d2-contract` pair is the bilingual proof for the same change: the English
+capture reads "Core already recorded this contract's decision, and publishes no
+pending contract to confirm.", the Chinese one
+"Core 已记录该契约的裁决，且不发布任何待确认契约。", and the code
+`GUI-CORE-013` stays untranslated in both, because a reason code is an
+identifier rather than prose.
