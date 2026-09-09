@@ -5570,3 +5570,172 @@ fn the_structured_diff_capability_is_an_advertised_extension() {
         "extension capabilities must stay sorted and unique"
     );
 }
+
+/// The finishing event must survive the wire as a *known* event.
+///
+/// Quarantining it as `RuntimeWireEvent::Unknown` would leave a client that
+/// sent a `Push` with no answer at all on any serialized snapshot or replay
+/// path, and "no answer" is the one state an operator reads as "it worked".
+#[test]
+fn a_finished_operator_git_action_survives_the_wire_as_a_known_event() {
+    let envelope = RuntimeEventEnvelope {
+        schema_version: FRONTEND_SCHEMA_V1,
+        owner: RuntimeOwner {
+            workspace_id: "workspace-viden".to_string(),
+            project_id: "project-viden".to_string(),
+            ..Default::default()
+        },
+        cursor: EventCursor {
+            stream_id: "stream-operator-git".to_string(),
+            sequence: 1,
+        },
+        event: RuntimeWireEvent::Known(RuntimeEvent::new(
+            1,
+            RuntimeEventKind::OperatorGitActionFinished {
+                command_id: "cmd_operator_git".to_string(),
+                target: SourceTarget::Workspace,
+                action: OperatorGitAction::Push {
+                    remote: Some("origin".to_string()),
+                    set_upstream: true,
+                },
+                outcome: OperatorGitOutcome::Failed {
+                    class: OperatorGitFailureClass::NoUpstream,
+                    detail: "fatal: The current branch work has no upstream branch.".to_string(),
+                },
+                audit_id: "audit_operator_git".to_string(),
+            },
+        )),
+    };
+    let encoded = serde_json::to_string(&envelope).unwrap();
+    let decoded: RuntimeEventEnvelope = serde_json::from_str(&encoded).unwrap();
+    assert!(matches!(decoded.event, RuntimeWireEvent::Known(_)));
+    assert_eq!(decoded, envelope);
+}
+
+/// A commit message must be present and bounded before anything runs.
+///
+/// An empty message makes `git commit` open an editor in a non-interactive
+/// child process, which hangs rather than fails; an unbounded one puts an
+/// arbitrary payload on the command line.
+#[test]
+fn an_operator_commit_requires_a_bounded_non_empty_message() {
+    assert_eq!(
+        OperatorGitAction::Commit {
+            message: "   ".to_string(),
+        }
+        .validate()
+        .unwrap_err(),
+        "operator git commit requires a non-empty message"
+    );
+    assert!(
+        OperatorGitAction::Commit {
+            message: "x".repeat(MAX_OPERATOR_COMMIT_MESSAGE_BYTES + 1),
+        }
+        .validate()
+        .unwrap_err()
+        .contains("exceeds")
+    );
+    assert!(
+        OperatorGitAction::Commit {
+            message: "fix: bound the message".to_string(),
+        }
+        .validate()
+        .is_ok()
+    );
+}
+
+/// A staged path names something inside the target, and a path that leaves it
+/// is refused rather than clamped: clamping would stage a file nobody asked
+/// for, and an empty answer would read as "there was nothing to stage".
+#[test]
+fn an_operator_stage_rejects_paths_that_leave_the_target() {
+    for escaping in [
+        "../secrets.txt",
+        "/etc/passwd",
+        "src\\main.rs",
+        "a/../../b",
+        "",
+    ] {
+        let error = OperatorGitAction::Stage {
+            paths: vec![escaping.to_string()],
+        }
+        .validate()
+        .unwrap_err();
+        assert!(
+            !error.is_empty(),
+            "path `{escaping}` must be refused before any process runs"
+        );
+    }
+    assert!(
+        OperatorGitAction::Unstage {
+            paths: vec!["crates/types/src/source_control.rs".to_string()],
+        }
+        .validate()
+        .is_ok()
+    );
+    // Empty paths is not an error: it means every changed path.
+    assert!(
+        OperatorGitAction::Stage { paths: Vec::new() }
+            .validate()
+            .is_ok()
+    );
+}
+
+/// The outcome is typed all the way down, so a client never parses git output.
+#[test]
+fn an_operator_git_outcome_round_trips_as_typed_facts() {
+    let completed = OperatorGitOutcome::Completed {
+        output: "[main abc1234] fix: bound the message".to_string(),
+        truncated: false,
+        source: WorkspaceSourceView {
+            status: WorkspaceSourceStatus::Ready,
+            branch: Some("main".to_string()),
+            worktree: Some("workspace/viden".to_string()),
+            ahead: 1,
+            behind: 0,
+            added: 0,
+            deleted: 0,
+            dirty: false,
+        },
+    };
+    let encoded = serde_json::to_value(&completed).unwrap();
+    assert_eq!(
+        serde_json::from_value::<OperatorGitOutcome>(encoded).unwrap(),
+        completed
+    );
+    let failed = OperatorGitOutcome::Failed {
+        class: OperatorGitFailureClass::NoUpstream,
+        detail: "fatal: The current branch work has no upstream branch.".to_string(),
+    };
+    let encoded = serde_json::to_value(&failed).unwrap();
+    // Externally tagged like `SourceTarget`, so a client matches on the
+    // variant key and reads the class as a token rather than parsing prose.
+    assert_eq!(encoded["failed"]["class"], serde_json::json!("no_upstream"));
+    assert_eq!(
+        serde_json::from_value::<OperatorGitOutcome>(encoded).unwrap(),
+        failed
+    );
+}
+
+/// A finished operator action is a query answer, not view state: reducing one
+/// must move nothing. The `WorkspaceSourceUpdated` that follows is what a
+/// client's source chip reads, and that one *is* reduced.
+#[test]
+fn a_finished_operator_git_action_never_folds_into_view_state() {
+    let mut state = RuntimeViewState::new(runtime_snapshot_for_contract());
+    let baseline = serde_json::to_string(&state).unwrap();
+    state.apply_event(&RuntimeEvent::new(
+        1,
+        RuntimeEventKind::OperatorGitActionFinished {
+            command_id: "cmd_operator_git".to_string(),
+            target: SourceTarget::Workspace,
+            action: OperatorGitAction::Fetch { remote: None },
+            outcome: OperatorGitOutcome::Failed {
+                class: OperatorGitFailureClass::RemoteUnreachable,
+                detail: "fatal: Could not resolve host: example.invalid".to_string(),
+            },
+            audit_id: "audit_operator_git".to_string(),
+        },
+    ));
+    assert_eq!(serde_json::to_string(&state).unwrap(), baseline);
+}

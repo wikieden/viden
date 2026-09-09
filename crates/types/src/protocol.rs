@@ -337,6 +337,12 @@ fn is_known_runtime_event_type(event_type: &str) -> bool {
             // as an unknown event reads to a reviewer as "nothing changed",
             // which is the one thing a diff surface must never say wrongly.
             | "workspace_diff_loaded"
+            // The settled answer to a `RunOperatorGitAction`. Quarantining it
+            // leaves a client that asked for a push with no answer at all, and
+            // an operator reads "no answer" as "it worked" — the worst reading
+            // available for a mutation that may have been rejected by the
+            // remote.
+            | "operator_git_action_finished"
             | "workspace_source_updated"
             | "runtime_service_health_updated"
             | "workspace_change_updated"

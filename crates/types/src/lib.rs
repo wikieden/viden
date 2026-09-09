@@ -13,6 +13,7 @@ mod lsp;
 mod project;
 mod protocol;
 mod runtime;
+mod source_control;
 mod transcript;
 mod trust;
 mod ui_preferences;
@@ -67,6 +68,11 @@ pub use runtime::{
     LaneOutputView, LaneRecoveryView, LaneRuntimeOwnerBinding, ProviderHealthView, QueuedInputView,
     RuntimeCommand, RuntimeCommandReceipt, RuntimeErrorView, RuntimeEvent, RuntimeEventKind,
     RuntimeViewState, TokenCostView, ToolCallView, canonical_evidence_status,
+};
+pub use source_control::{
+    MAX_OPERATOR_COMMIT_MESSAGE_BYTES, MAX_OPERATOR_GIT_OUTPUT_BYTES,
+    OPERATOR_GIT_PATH_OUTSIDE_REPOSITORY, OperatorGitAction, OperatorGitFailureClass,
+    OperatorGitOutcome,
 };
 pub use transcript::{
     CommandLogEntry, PermissionLogEntry, SessionMetaEntry, TranscriptCursor, TranscriptEntry,

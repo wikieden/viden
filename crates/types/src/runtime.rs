@@ -9,15 +9,16 @@ use crate::{
     ContextScope, ContextViewRecord, ContractDecision, ContractRecord, CostLedgerTotals,
     CostUsageRecord, CredentialHandle, DecisionContext, DependencyRecord, DependencyState,
     EvidenceCanonicalizationRecord, EvidenceId, HandoffAcceptance, HandoffRecord, LaneStatus,
-    MergeGateId, MergeGateRecord, MessageId, PermissionLevel, ProjectConfigPreview, ProjectProbe,
-    ProviderCacheObservationRecord, RecentProjectSummary, RecentSessionSummary, RecentWorkQuery,
-    ResolvedUiPreferences, RevertRecord, ReviewRequestRecord, ReviewVerdict,
-    ReviewedEvidenceBinding, RuntimeOwner, RuntimeServiceHealthView, RuntimeSnapshot, SessionId,
-    StarterLanePreset, StarterLanePreview, StarterLanePreviewInvalidationReason,
-    StarterLaneReceipt, StarterLaneRequest, ToolCallId, TranscriptPage, TranscriptPageRequest,
-    UiPreferenceDiagnostic, UiPreferencePatch, UiPreferences, WorkMode, WorkspaceChangeView,
-    WorkspaceDiffPage, WorkspaceDiffQuery, WorkspaceEligibility, WorkspaceFilePage,
-    WorkspaceFilesQuery, WorkspaceSourceView, now_timestamp,
+    MergeGateId, MergeGateRecord, MessageId, OperatorGitAction, OperatorGitOutcome,
+    PermissionLevel, ProjectConfigPreview, ProjectProbe, ProviderCacheObservationRecord,
+    RecentProjectSummary, RecentSessionSummary, RecentWorkQuery, ResolvedUiPreferences,
+    RevertRecord, ReviewRequestRecord, ReviewVerdict, ReviewedEvidenceBinding, RuntimeOwner,
+    RuntimeServiceHealthView, RuntimeSnapshot, SessionId, SourceTarget, StarterLanePreset,
+    StarterLanePreview, StarterLanePreviewInvalidationReason, StarterLaneReceipt,
+    StarterLaneRequest, ToolCallId, TranscriptPage, TranscriptPageRequest, UiPreferenceDiagnostic,
+    UiPreferencePatch, UiPreferences, WorkMode, WorkspaceChangeView, WorkspaceDiffPage,
+    WorkspaceDiffQuery, WorkspaceEligibility, WorkspaceFilePage, WorkspaceFilesQuery,
+    WorkspaceSourceView, now_timestamp,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -711,6 +712,28 @@ pub enum RuntimeEventKind {
         command_id: String,
         page: WorkspaceDiffPage,
     },
+    /// The settled answer to a `RunOperatorGitAction`
+    /// (`runtime.operator_git`, GUI-CORE-020).
+    ///
+    /// Published once the permission gate granted the action and the effect
+    /// was attempted, whether it succeeded or not: a failure *after* a granted
+    /// permission is a `Failed` outcome here, never a `CommandRejected`, which
+    /// is reserved for refusals that happened before anything ran. The
+    /// `WorkspaceSourceUpdated` that follows carries the resampled source for
+    /// clients that only track the chip.
+    OperatorGitActionFinished {
+        /// The exact `RunOperatorGitAction` command id this answers.
+        command_id: String,
+        /// Echoed so a client that fanned out several actions can attribute
+        /// this one without holding its own request table.
+        target: SourceTarget,
+        action: OperatorGitAction,
+        outcome: OperatorGitOutcome,
+        /// The audit record appended *before* the effect. A reader joins on it
+        /// to find the authorization and, for a failure, the completion record
+        /// that names it.
+        audit_id: String,
+    },
     WorkspaceSourceUpdated {
         source: WorkspaceSourceView,
     },
@@ -1272,6 +1295,13 @@ impl RuntimeViewState {
             // re-asked whenever a reviewer opens a file, so folding it into
             // view state would keep a stale diff alive after the tree moved.
             RuntimeEventKind::WorkspaceDiffLoaded { .. } => {}
+            // A settled operator action is an answer to one command, not a
+            // fact about the workspace. The workspace fact it produced arrives
+            // as the `WorkspaceSourceUpdated` below and *is* reduced; folding
+            // the outcome in as well would give a client two sources for one
+            // truth and let a stale action outcome outlive the tree it
+            // described.
+            RuntimeEventKind::OperatorGitActionFinished { .. } => {}
             RuntimeEventKind::WorkspaceSourceUpdated { source } => {
                 self.workspace_source = Some(source.clone());
             }
