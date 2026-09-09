@@ -1,6 +1,7 @@
 use super::operator_git::OperatorGitSettlement;
 use super::state::{
-    GitPickerPhase, InteractionPanel, Lens, ProviderAuthMode, ProviderOption, TuiEntry, TuiState,
+    ConflictDetailTarget, GitPickerPhase, InteractionPanel, Lens, ProviderAuthMode, ProviderOption,
+    TuiEntry, TuiState,
 };
 use super::{render, terminal};
 use viden_core::{
@@ -10,6 +11,10 @@ use viden_core::{
     LaneStatus, MutationPolicy, OperatorGitAction, OperatorGitFailureClass, OperatorGitOutcome,
     ProjectConfigState, ProjectProbe, ProviderHealthView, WorkspaceChangeKind,
     WorkspaceSourceStatus, WorkspaceSourceView,
+};
+use viden_types::{
+    ConflictBaseline, ConflictContent, ConflictFile, ConflictHunk, ConflictHunkReason,
+    LaneConflictView,
 };
 
 pub fn render_preview(provider: &str, model: &str) -> String {
@@ -64,6 +69,11 @@ pub fn render_git_picker_preview(provider: &str, model: &str) -> String {
 
 pub fn render_git_outcome_preview(provider: &str, model: &str) -> String {
     let state = git_outcome_preview_state(provider, model, "aurora-cyan");
+    render::render_frame(&state, 140, 40)
+}
+
+pub fn render_conflict_detail_preview(provider: &str, model: &str) -> String {
+    let state = conflict_detail_preview_state(provider, model, "aurora-cyan");
     render::render_frame(&state, 140, 40)
 }
 
@@ -206,6 +216,19 @@ pub fn render_ansi_git_outcome_preview_with_theme(
 ) -> String {
     let theme_name = theme_name.unwrap_or("aurora-cyan");
     let state = git_outcome_preview_state(provider, model, theme_name);
+    terminal::render_ansi_preview_with_theme(
+        &render::render_frame(&state, 140, 40),
+        Some(theme_name),
+    )
+}
+
+pub fn render_ansi_conflict_detail_preview_with_theme(
+    provider: &str,
+    model: &str,
+    theme_name: Option<&str>,
+) -> String {
+    let theme_name = theme_name.unwrap_or("aurora-cyan");
+    let state = conflict_detail_preview_state(provider, model, theme_name);
     terminal::render_ansi_preview_with_theme(
         &render::render_frame(&state, 140, 40),
         Some(theme_name),
@@ -777,6 +800,56 @@ fn git_outcome_preview_state(provider: &str, model: &str, theme_name: &str) -> T
         state.ui.entries.push(entry);
     }
     state.ui.lens = Lens::Session;
+    state
+}
+
+/// The read-only conflict content modal
+/// (`runtime.conflict_content`, GUI-CORE-015).
+///
+/// Three labelled sides for one rejected hunk plus a file the byte bound
+/// dropped, so the evidence shows both the content and the two honesty
+/// markers. The modal offers no resolution, because Core computed none.
+fn conflict_detail_preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState {
+    let mut state = preview_state(provider, model, theme_name);
+    state.ui.input = "".into();
+    state.runtime.lane_conflicts = vec![LaneConflictView {
+        lane_id: "L1".to_string(),
+        summary: "patch conflict: expected hunk context was not found".to_string(),
+        paths: vec!["src/config.rs".to_string()],
+        timestamp: None,
+        content: Some(ConflictContent {
+            baseline: ConflictBaseline::Revision {
+                sha: "9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f".to_string(),
+            },
+            files: vec![
+                ConflictFile {
+                    path: "src/config.rs".to_string(),
+                    hunks: vec![ConflictHunk {
+                        ours_start: 19,
+                        ours: vec!["    let raw = std::fs::read_to_string(path)?;".to_string()],
+                        theirs_start: 19,
+                        theirs: vec!["    let raw = read_config_file(path)?;".to_string()],
+                        base: Some(vec!["    let raw = load_raw(path)?;".to_string()]),
+                        reason: ConflictHunkReason::ContextMismatch,
+                    }],
+                    omitted: false,
+                },
+                ConflictFile {
+                    path: "tests/config_tests.rs".to_string(),
+                    hunks: Vec::new(),
+                    omitted: true,
+                },
+            ],
+            truncated: true,
+        }),
+    }];
+    state.ui.conflict_detail = Some(ConflictDetailTarget::Lane {
+        lane_id: "L1".to_string(),
+    });
+    state.ui.overlay = Some(super::state::OverlayState::new(
+        super::keymap::OverlayKind::ConflictContent,
+    ));
+    state.ui.lens = Lens::Decisions;
     state
 }
 

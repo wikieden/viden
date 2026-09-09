@@ -281,6 +281,24 @@ fn run() -> Result<(), String> {
         }
         return Ok(());
     }
+    if startup.tui_preview_conflict_detail || startup.tui_preview_conflict_detail_ansi {
+        if startup.tui_preview_conflict_detail_ansi {
+            print!(
+                "{}",
+                tui::render_ansi_conflict_detail_preview_with_theme(
+                    preview_provider,
+                    preview_model,
+                    startup.tui_theme.as_deref()
+                )
+            );
+        } else {
+            println!(
+                "{}",
+                tui::render_conflict_detail_preview(preview_provider, preview_model)
+            );
+        }
+        return Ok(());
+    }
     if startup.tui_preview_lane_selector || startup.tui_preview_lane_selector_ansi {
         if startup.tui_preview_lane_selector_ansi {
             print!(
@@ -501,6 +519,8 @@ struct StartupOptions {
     tui_preview_git_picker_ansi: bool,
     tui_preview_git_outcome: bool,
     tui_preview_git_outcome_ansi: bool,
+    tui_preview_conflict_detail: bool,
+    tui_preview_conflict_detail_ansi: bool,
     tui_preview_lane_selector: bool,
     tui_preview_lane_selector_ansi: bool,
     tui_preview_lane: bool,
@@ -639,6 +659,12 @@ impl StartupOptions {
         }
         if self.tui_preview_git_outcome_ansi {
             overrides.push("--tui-preview-git-outcome-ansi".to_string());
+        }
+        if self.tui_preview_conflict_detail {
+            overrides.push("--tui-preview-conflict-detail".to_string());
+        }
+        if self.tui_preview_conflict_detail_ansi {
+            overrides.push("--tui-preview-conflict-detail-ansi".to_string());
         }
         if self.tui_preview_lane_selector {
             overrides.push("--tui-preview-lane-selector".to_string());
@@ -849,6 +875,12 @@ fn parse_startup_options(args: &[String]) -> Result<StartupOptions, String> {
             "--tui-preview-git-outcome-ansi" => {
                 options.tui_preview_git_outcome_ansi = true;
             }
+            "--tui-preview-conflict-detail" => {
+                options.tui_preview_conflict_detail = true;
+            }
+            "--tui-preview-conflict-detail-ansi" => {
+                options.tui_preview_conflict_detail_ansi = true;
+            }
             "--tui-preview-lane-selector" => {
                 options.tui_preview_lane_selector = true;
             }
@@ -980,6 +1012,10 @@ fn print_startup_help() {
     println!("                       Print completed and failed operator git outcome previews");
     println!("  --tui-preview-git-outcome-ansi");
     println!("                       Print themed operator git outcome previews");
+    println!("  --tui-preview-conflict-detail");
+    println!("                       Print the structured conflict content modal preview");
+    println!("  --tui-preview-conflict-detail-ansi");
+    println!("                       Print a themed structured conflict content modal preview");
     println!("  --tui-preview-lane-selector");
     println!("                       Print a lane action selector preview");
     println!("  --tui-preview-lane-selector-ansi");

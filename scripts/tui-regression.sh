@@ -400,6 +400,7 @@ copy_artifact "$OUT_DIR/main-lane-selector.svg" "$SCREENSHOT_DIR/${VERSION}-tui-
 copy_artifact "$OUT_DIR/main-approval-hunks.svg" "$SCREENSHOT_DIR/${VERSION}-tui-approval-hunks.svg"
 copy_artifact "$OUT_DIR/main-git-picker.svg" "$SCREENSHOT_DIR/${VERSION}-tui-git-picker.svg"
 copy_artifact "$OUT_DIR/main-git-outcome.svg" "$SCREENSHOT_DIR/${VERSION}-tui-git-outcome.svg"
+copy_artifact "$OUT_DIR/main-conflict-detail.svg" "$SCREENSHOT_DIR/${VERSION}-tui-conflict-detail.svg"
 copy_artifact "$OUT_DIR/main-lane.svg" "$SCREENSHOT_DIR/${VERSION}-tui-lane-detail.svg"
 copy_artifact "$OUT_DIR/side-1.svg" "$SCREENSHOT_DIR/${VERSION}-tui-side-1.svg"
 copy_artifact "$OUT_DIR/side-2.svg" "$SCREENSHOT_DIR/${VERSION}-tui-side-2.svg"
@@ -427,6 +428,7 @@ required = {
     "approval_hunks": out_dir / "main-approval-hunks.txt",
     "git_picker": out_dir / "main-git-picker.txt",
     "git_outcome": out_dir / "main-git-outcome.txt",
+    "conflict_detail": out_dir / "main-conflict-detail.txt",
     "lane_detail": out_dir / "main-lane.txt",
     "side_1": out_dir / "side-1.txt",
     "side_2": out_dir / "side-2.txt",
@@ -584,6 +586,7 @@ Each SVG is a deterministic visual artifact for product review:
 - \`${VERSION}-tui-approval-hunks.svg\`: approval overlay with Core decision-context hunk rows
 - \`${VERSION}-tui-git-picker.svg\`: /git operator source-control picker
 - \`${VERSION}-tui-git-outcome.svg\`: completed and failed operator git outcomes
+- \`${VERSION}-tui-conflict-detail.svg\`: read-only structured conflict content modal
 - \`${VERSION}-tui-lane-detail.svg\`: focused lane detail
 - \`${VERSION}-tui-side-1.svg\`: lane side screen
 - \`${VERSION}-tui-side-2.svg\`: ops/test side screen

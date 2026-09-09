@@ -11,6 +11,7 @@ use viden_types::{
     ReviewRequestStatus, RuntimeCommand, RuntimeOwner, TokenCostView, ToolCallView,
 };
 
+use super::conflict_rows::ConflictContentSummary;
 use super::ui_state::TuiUiState;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -411,6 +412,13 @@ pub(super) struct ConflictBounceProjection {
     pub(super) status: ConflictBounceStatus,
     pub(super) created_at: u64,
     pub(super) revalidated_at: Option<u64>,
+    /// The counted facts of `ConflictBounce.content`
+    /// (`runtime.conflict_content`, GUI-CORE-015). Counts and the baseline
+    /// kind only: a quarter-megabyte body has no business being cloned into
+    /// every frame. `None` means Core published no content — an operator
+    /// bounce carries a reason and no apply failure behind it — never that the
+    /// conflict was empty.
+    pub(super) content: Option<ConflictContentSummary>,
 }
 
 impl From<&viden_types::ConflictBounce> for ConflictBounceProjection {
@@ -420,6 +428,7 @@ impl From<&viden_types::ConflictBounce> for ConflictBounceProjection {
             gate_id: conflict.gate_id.clone(),
             original_lane_id: conflict.original_lane_id.clone(),
             status: conflict.status,
+            content: conflict.content.as_ref().map(ConflictContentSummary::from),
             created_at: conflict.created_at,
             revalidated_at: conflict.revalidated_at,
         }

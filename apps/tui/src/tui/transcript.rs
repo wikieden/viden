@@ -1,4 +1,5 @@
 use super::{
+    conflict_rows::{ConflictContentSummary, content_summary_row},
     state::{TuiEntry, TuiState},
     text::wrap_words,
 };
@@ -49,11 +50,25 @@ pub(super) fn transcript_rows(state: &TuiState, width: usize) -> Vec<String> {
         );
     }
     for conflict in &state.runtime.lane_conflicts {
+        // The structured content is *appended* to Core's prose summary
+        // (`runtime.conflict_content`, GUI-CORE-015). A lane conflict Core
+        // published no content for keeps exactly the two rows it always had:
+        // `None` means Core has nothing to show, never that nothing collided.
+        let content = content_summary_row(
+            state,
+            conflict.content.as_ref().map(ConflictContentSummary::from),
+        )
+        .map(|summary| format!("\n{summary}"))
+        .unwrap_or_default();
         append_entry(
             &mut rows,
             &TuiEntry {
                 label: format!("lane-conflict {}", conflict.lane_id),
-                body: format!("{}\n{}", conflict.summary, conflict.paths.join(", ")),
+                body: format!(
+                    "{}\n{}{content}",
+                    conflict.summary,
+                    conflict.paths.join(", ")
+                ),
             },
             width,
         );

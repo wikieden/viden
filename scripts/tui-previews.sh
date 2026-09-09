@@ -194,6 +194,7 @@ run_preview main-lane-selector --tui-preview-lane-selector
 run_preview main-approval-hunks --tui-preview-approval-hunks
 run_preview main-git-picker --tui-preview-git-picker
 run_preview main-git-outcome --tui-preview-git-outcome
+run_preview main-conflict-detail --tui-preview-conflict-detail
 run_preview main-lane --tui-preview-lane
 run_preview side-1 --tui-preview-side
 run_preview side-2 --tui-preview-side-2
@@ -212,6 +213,7 @@ run_ansi_preview main-lane-selector --tui-preview-lane-selector-ansi
 run_ansi_preview main-approval-hunks --tui-preview-approval-hunks-ansi
 run_ansi_preview main-git-picker --tui-preview-git-picker-ansi
 run_ansi_preview main-git-outcome --tui-preview-git-outcome-ansi
+run_ansi_preview main-conflict-detail --tui-preview-conflict-detail-ansi
 run_ansi_preview main-lane --tui-preview-lane-ansi
 run_ansi_preview side-1 --tui-preview-side-ansi
 run_ansi_preview side-2 --tui-preview-side-2-ansi
@@ -234,6 +236,7 @@ render_svg_preview "$OUT_DIR/main-lane-selector.ansi" "$OUT_DIR/main-lane-select
 render_svg_preview "$OUT_DIR/main-approval-hunks.ansi" "$OUT_DIR/main-approval-hunks.svg"
 render_svg_preview "$OUT_DIR/main-git-picker.ansi" "$OUT_DIR/main-git-picker.svg"
 render_svg_preview "$OUT_DIR/main-git-outcome.ansi" "$OUT_DIR/main-git-outcome.svg"
+render_svg_preview "$OUT_DIR/main-conflict-detail.ansi" "$OUT_DIR/main-conflict-detail.svg"
 render_svg_preview "$OUT_DIR/main-lane.ansi" "$OUT_DIR/main-lane.svg"
 render_svg_preview "$OUT_DIR/side-1.ansi" "$OUT_DIR/side-1.svg"
 render_svg_preview "$OUT_DIR/side-2.ansi" "$OUT_DIR/side-2.svg"
@@ -356,6 +359,7 @@ assert_line_count "$OUT_DIR/main-lane-selector.txt" 40
 assert_line_count "$OUT_DIR/main-approval-hunks.txt" 40
 assert_line_count "$OUT_DIR/main-git-picker.txt" 40
 assert_line_count "$OUT_DIR/main-git-outcome.txt" 40
+assert_line_count "$OUT_DIR/main-conflict-detail.txt" 40
 assert_line_count "$OUT_DIR/main-lane.txt" 40
 assert_line_count "$OUT_DIR/side-1.txt" 40
 assert_line_count "$OUT_DIR/side-2.txt" 40
@@ -374,6 +378,7 @@ assert_max_char_width "$OUT_DIR/main-lane-selector.txt" 140
 assert_max_char_width "$OUT_DIR/main-approval-hunks.txt" 140
 assert_max_char_width "$OUT_DIR/main-git-picker.txt" 140
 assert_max_char_width "$OUT_DIR/main-git-outcome.txt" 140
+assert_max_char_width "$OUT_DIR/main-conflict-detail.txt" 140
 assert_max_char_width "$OUT_DIR/main-lane.txt" 140
 assert_char_width "$OUT_DIR/side-1.txt" 80
 assert_char_width "$OUT_DIR/side-2.txt" 80
@@ -393,6 +398,7 @@ for preview_file in \
   "$OUT_DIR/main-approval-hunks.txt" \
   "$OUT_DIR/main-git-picker.txt" \
   "$OUT_DIR/main-git-outcome.txt" \
+  "$OUT_DIR/main-conflict-detail.txt" \
   "$OUT_DIR/main-lane.txt" \
   "$OUT_DIR/side-1.txt" \
   "$OUT_DIR/side-2.txt" \
@@ -468,6 +474,12 @@ assert_contains "$OUT_DIR/main-git-outcome.txt" "Commit completed"
 assert_contains "$OUT_DIR/main-git-outcome.txt" "Push failed"
 assert_contains "$OUT_DIR/main-git-outcome.txt" "push again with set upstream"
 assert_ansi_contains "$OUT_DIR/main-git-outcome.ansi" "Commit completed"
+assert_contains "$OUT_DIR/main-conflict-detail.txt" "not a merge result"
+assert_contains "$OUT_DIR/main-conflict-detail.txt" "OURS"
+assert_contains "$OUT_DIR/main-conflict-detail.txt" "THEIRS"
+assert_contains "$OUT_DIR/main-conflict-detail.txt" "BASE"
+assert_contains "$OUT_DIR/main-conflict-detail.txt" "lines omitted by the byte bound"
+assert_ansi_contains "$OUT_DIR/main-conflict-detail.ansi" "not a merge result"
 assert_contains "$OUT_DIR/main-lane.txt" "LANE DETAIL"
 assert_contains "$OUT_DIR/main-lane.txt" "ROUTE main→side-1"
 assert_contains "$OUT_DIR/main-lane.txt" "CMD    codex exec test fixes"
@@ -488,6 +500,7 @@ for ansi_file in \
   "$OUT_DIR/main-approval-hunks.ansi" \
   "$OUT_DIR/main-git-picker.ansi" \
   "$OUT_DIR/main-git-outcome.ansi" \
+  "$OUT_DIR/main-conflict-detail.ansi" \
   "$OUT_DIR/main-lane.ansi" \
   "$OUT_DIR/side-1.ansi" \
   "$OUT_DIR/side-2.ansi"; do
@@ -539,6 +552,7 @@ Files:
 - \`main-approval-hunks.txt\` / \`main-approval-hunks.ansi\`
 - \`main-git-picker.txt\` / \`main-git-picker.ansi\`
 - \`main-git-outcome.txt\` / \`main-git-outcome.ansi\`
+- \`main-conflict-detail.txt\` / \`main-conflict-detail.ansi\`
 - \`main-lane.txt\` / \`main-lane.ansi\`
 - \`main.svg\` / \`main-idle.svg\` / \`main-live-turn.svg\` / \`main-resize.svg\` / \`main-cjk-input.svg\` / \`main-command-palette.svg\` / \`main-setup-wizard.svg\` / \`main-provider-selector.svg\` / \`main-provider-detail.svg\` / \`main-model-selector.svg\` / \`main-lane-selector.svg\` / \`main-lane.svg\` quick visual screenshots
 - \`side-1.txt\` / \`side-1.ansi\` / \`side-1.svg\`

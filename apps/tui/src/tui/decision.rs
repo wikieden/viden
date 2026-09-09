@@ -85,6 +85,11 @@ pub(super) enum SupervisionAction {
     /// decision: it mutates nothing, needs no permission, and stays available
     /// in Plan mode and while another supervision command is in flight.
     AuditTrail,
+    /// Opens the read-only conflict content for this record's pending bounce.
+    /// Offered only when Core published content, because an operator bounce
+    /// carries a reason and no apply failure behind it. Like the audit row it
+    /// is a read, not a decision.
+    ConflictDetail,
 }
 
 impl SupervisionAction {
@@ -99,6 +104,7 @@ impl SupervisionAction {
             Self::Bounce => "supervision.action.bounce",
             Self::Dismiss => "supervision.action.dismiss",
             Self::AuditTrail => "supervision.action.audit_trail",
+            Self::ConflictDetail => "supervision.action.conflict_detail",
         }
     }
 
@@ -110,9 +116,11 @@ impl SupervisionAction {
             // `DecideReview.feedback` is `Option<String>` for both verdicts.
             // The client must not invent a stricter rule than Core.
             Self::AcceptReview | Self::RejectReview => TextRequirement::Optional,
-            Self::AcceptGate | Self::Revalidate | Self::Dismiss | Self::AuditTrail => {
-                TextRequirement::None
-            }
+            Self::AcceptGate
+            | Self::Revalidate
+            | Self::Dismiss
+            | Self::AuditTrail
+            | Self::ConflictDetail => TextRequirement::None,
         }
     }
 
@@ -281,8 +289,30 @@ pub(super) fn overlay_actions(
     has_pending_command: bool,
 ) -> Vec<SupervisionAction> {
     let mut actions = available_actions(view, target, has_pending_command);
+    // Reads come after every decision, so adding one can never shift the index
+    // of a Core action. The conflict read appears only when Core published
+    // content to read.
+    if conflict_content_target(view, target).is_some() {
+        actions.push(SupervisionAction::ConflictDetail);
+    }
     actions.push(SupervisionAction::AuditTrail);
     actions
+}
+
+/// The pending bounce whose structured content this record can show, if any.
+///
+/// Read from the same `pending_conflict` the decision rows use, so the overlay
+/// and the row can never disagree about which bounce is live.
+pub(super) fn conflict_content_target<'a>(
+    view: &'a RuntimeViewState,
+    target: &SupervisionTarget,
+) -> Option<&'a viden_types::ConflictContent> {
+    let (SupervisionTarget::Gate { gate_id } | SupervisionTarget::Bounce { gate_id }) = target
+    else {
+        return None;
+    };
+    let gate = find_gate(view, gate_id)?;
+    pending_conflict(view, gate)?.content.as_ref()
 }
 
 pub(super) fn find_gate<'a>(
@@ -389,9 +419,9 @@ pub(super) fn build_dispatch(
     match action {
         // Neither one sends a Core command: dismiss is local attribution only,
         // and the audit row opens a read-only overlay.
-        SupervisionAction::Dismiss | SupervisionAction::AuditTrail => {
-            Err("supervision.error.not_dispatchable")
-        }
+        SupervisionAction::Dismiss
+        | SupervisionAction::AuditTrail
+        | SupervisionAction::ConflictDetail => Err("supervision.error.not_dispatchable"),
         SupervisionAction::AcceptGate => {
             let gate = require_gate(view, target)?;
             let actor = accept_actor(gate).ok_or("supervision.error.no_actor")?;
@@ -1247,6 +1277,51 @@ mod tests {
                 DecisionPick::DismissSupervision
             ],
             "the non-decision entries are appended, never interleaved"
+        );
+    }
+
+    /// The inspect row exists only where there is something to inspect: an
+    /// operator `BounceMergeConflict` carries a reason and no apply failure, so
+    /// Core publishes no content for it and the row must not appear promising
+    /// one. Both reads stay after every Core decision, so neither can shift a
+    /// decision's index.
+    #[test]
+    fn the_conflict_inspect_row_appears_only_when_core_published_content() {
+        let mut view = view();
+        view.merge_gates
+            .push(gate(MergeGateStatus::CollectingEvidence));
+        let mut pending = bounce(ConflictBounceStatus::Pending);
+        view.conflict_bounces.push(pending.clone());
+        let target = SupervisionTarget::Bounce {
+            gate_id: "gate-1".to_string(),
+        };
+
+        assert!(
+            !overlay_actions(&view, &target, false).contains(&SupervisionAction::ConflictDetail),
+            "a bounce with no content offers no inspect row"
+        );
+
+        pending.content = Some(viden_types::ConflictContent {
+            baseline: viden_types::ConflictBaseline::Unknown,
+            files: Vec::new(),
+            truncated: false,
+        });
+        view.conflict_bounces = vec![pending];
+
+        let actions = overlay_actions(&view, &target, false);
+        assert!(actions.contains(&SupervisionAction::ConflictDetail));
+        assert_eq!(
+            actions.iter().rev().take(2).collect::<Vec<_>>(),
+            vec![
+                &SupervisionAction::AuditTrail,
+                &SupervisionAction::ConflictDetail
+            ],
+            "reads are appended after every decision"
+        );
+        // A read is not dispatchable: it sends no Core command at all.
+        assert_eq!(
+            build_dispatch(&view, &target, SupervisionAction::ConflictDetail, ""),
+            Err("supervision.error.not_dispatchable")
         );
     }
 

@@ -12,9 +12,9 @@ use viden_types::{AgentNextAction, CapabilityId};
 pub(super) use super::operator_git::OperatorGitMachine;
 pub(super) use super::pending::SupervisionMachine;
 pub(super) use super::ui_state::{
-    AcpPickerPhase, FocusedConversation, GitPickerPhase, InteractionPanel, Lens, OverlayState,
-    PendingAcpStart, PendingNativeLane, ProviderAuthMode, ProviderOption, SupervisionInput,
-    SupervisionPanel, TuiEntry, TuiUiState,
+    AcpPickerPhase, ConflictDetailTarget, FocusedConversation, GitPickerPhase, InteractionPanel,
+    Lens, OverlayState, PendingAcpStart, PendingNativeLane, ProviderAuthMode, ProviderOption,
+    SupervisionInput, SupervisionPanel, TuiEntry, TuiUiState,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]

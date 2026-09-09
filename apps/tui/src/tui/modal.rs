@@ -2,10 +2,11 @@ use super::{
     audit_panel::{AUDIT_ROW_WIDTH, audit_row},
     canvas::Frame,
     command_palette::render_command_suggestions,
+    conflict_rows::{content_summary_row, detail_rows},
     decision::{
         DecisionPick, MAX_TRUST_TEXT_CHARS, SupervisionTarget, TextRequirement, available_actions,
-        decision_picks, dormant_gate_count, find_gate, find_review, is_dormant_gate,
-        overlay_actions, pending_conflict,
+        conflict_content_target, decision_picks, dormant_gate_count, find_gate, find_review,
+        is_dormant_gate, overlay_actions, pending_conflict,
     },
     diff_rows::{
         MAX_APPROVAL_DIFF_ROWS, STRUCTURED_DIFF_CAPABILITY, decision_context_rows,
@@ -22,7 +23,10 @@ use super::{
         color_depth_label_key, density_label_key, mode_label_key, motion_label_key, skin_label_key,
     },
     projection::CockpitProjection,
-    state::{AcpPickerPhase, GitPickerPhase, InteractionPanel, TuiState, has_active_work},
+    state::{
+        AcpPickerPhase, ConflictDetailTarget, GitPickerPhase, InteractionPanel, TuiState,
+        has_active_work,
+    },
     text::{truncate, truncate_tail},
 };
 
@@ -100,6 +104,7 @@ pub(super) fn render_overlays(frame: &mut Frame, state: &TuiState, _right_rail_w
             OverlayKind::Decisions => "overlay.title.decisions",
             OverlayKind::SupervisionDecision => "overlay.title.supervision",
             OverlayKind::AuditTimeline => "overlay.title.audit",
+            OverlayKind::ConflictContent => "overlay.title.conflict",
             OverlayKind::ContextHelp => "overlay.title.context_help",
             OverlayKind::ExitConfirm => "overlay.title.exit",
             OverlayKind::Approval => "overlay.title.approval",
@@ -115,12 +120,16 @@ pub(super) fn render_overlays(frame: &mut Frame, state: &TuiState, _right_rail_w
             OverlayKind::Decisions
             | OverlayKind::SupervisionDecision
             | OverlayKind::AuditTimeline => 14,
+            // Three labelled sides per rejected hunk need a taller panel than
+            // a decision list does.
+            OverlayKind::ConflictContent => 22,
             _ => 10,
         };
         let hint = match overlay.kind {
             OverlayKind::GlobalJump => super::i18n::text(state, "overlay.global_hint"),
             OverlayKind::SupervisionDecision => super::i18n::text(state, "supervision.hint"),
             OverlayKind::AuditTimeline => super::i18n::text(state, "audit.hint"),
+            OverlayKind::ConflictContent => super::i18n::text(state, "conflict.hint"),
             _ => super::i18n::text(state, "overlay.close_hint"),
         };
         let block = panel(
@@ -303,6 +312,7 @@ fn global_overlay_rows(state: &TuiState, kind: OverlayKind, filter: &str) -> Vec
         // The audit overlay is a browsing surface with no text filter: rows are
         // Core records, and printable characters keep editing the composer.
         OverlayKind::AuditTimeline => return audit_timeline_rows(state),
+        OverlayKind::ConflictContent => return conflict_content_rows(state),
         OverlayKind::Lane => state
             .runtime
             .lanes
@@ -524,7 +534,7 @@ fn decision_pick_row(
                 .conflict_bounces
                 .iter()
                 .find(|bounce| &bounce.gate_id == gate_id);
-            super::i18n::translate(
+            let mut row = super::i18n::translate(
                 state,
                 "decisions.row.conflict",
                 &[
@@ -540,7 +550,15 @@ fn decision_pick_row(
                         bounce.map_or("-", |bounce| bounce.original_lane_id.as_str()),
                     ),
                 ],
-            )
+            );
+            // Appended, never substituted: a bounce with no content keeps
+            // exactly the reason-only row it had before this capability.
+            if let Some(summary) =
+                content_summary_row(state, bounce.and_then(|bounce| bounce.content))
+            {
+                row.push_str(&format!(" · {summary}"));
+            }
+            row
         }
     }
 }
@@ -606,6 +624,36 @@ fn supervision_decision_rows(state: &TuiState) -> Vec<String> {
     }
     rows
 }
+
+/// The read-only conflict content body.
+///
+/// Re-read from the full Core record on this frame, like the supervision rows
+/// beside it, so the modal can never render a payload the view has since
+/// replaced.
+fn conflict_content_rows(state: &TuiState) -> Vec<String> {
+    let Some(target) = state.ui.conflict_detail.as_ref() else {
+        return Vec::new();
+    };
+    let content = match target {
+        ConflictDetailTarget::Bounce { gate_id } => conflict_content_target(
+            &state.runtime,
+            &SupervisionTarget::Bounce {
+                gate_id: gate_id.clone(),
+            },
+        ),
+        ConflictDetailTarget::Lane { lane_id } => state
+            .runtime
+            .lane_conflicts
+            .iter()
+            .find(|conflict| &conflict.lane_id == lane_id)
+            .and_then(|conflict| conflict.content.as_ref()),
+    };
+    detail_rows(state, content, CONFLICT_ROW_WIDTH)
+}
+
+/// Columns the conflict panel gives one row, inside its border: the panel is
+/// capped at 76 and `bordered_row` spends four of them on the frame.
+const CONFLICT_ROW_WIDTH: usize = 72;
 
 fn supervision_target_rows(state: &TuiState, target: &SupervisionTarget) -> Vec<String> {
     match target {
@@ -1423,8 +1471,9 @@ fn focused_approval_rows(state: &TuiState) -> Vec<String> {
     })
 }
 
-/// Columns the approval panel gives one row, inside its border.
-const APPROVAL_ROW_WIDTH: usize = 70;
+/// Columns the approval panel gives one row, inside its border: the panel is
+/// capped at 76 and `bordered_row` spends four of them on the frame.
+const APPROVAL_ROW_WIDTH: usize = 72;
 
 /// Extra panel rows the focused approval's decision context needs.
 ///
@@ -1979,6 +2028,111 @@ mod tests {
     /// approval overlay reaches the same business facts the GUI does: Core's
     /// hunks, Core's line numbers, and the base the preview was computed
     /// against. Nothing here parses `input_preview`.
+    /// Replays the shared `runtime.conflict_content` fixture: the merge path's
+    /// bounce and the Lane apply path's conflict reach the same business facts
+    /// — three sides, Core's line numbers, Core's reason, and Core's baseline
+    /// kind — and both say in words that this is not a merge result.
+    #[test]
+    fn conflict_content_fixture_replays_into_summary_rows_and_a_three_sided_detail() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../crates/types/tests/fixtures/frontend-contract-v1/conflict-content.json"
+        ))
+        .expect("conflict content fixture");
+        let mut state = TuiState {
+            capabilities: viden_core::frontend_capabilities(),
+            ..TuiState::default()
+        };
+        for envelope in fixture["events"].as_array().expect("fixture events") {
+            let envelope: RuntimeEventEnvelope =
+                serde_json::from_value(envelope.clone()).expect("fixture envelope");
+            if let RuntimeWireEvent::Known(event) = envelope.event {
+                state.runtime.apply_event(&event);
+            }
+        }
+
+        // The Decision Center row states the size and the baseline kind.
+        state.ui.lens = crate::tui::state::Lens::Decisions;
+        let decision_rows = overlay_rows_for_test(&state, OverlayKind::Decisions).join("\n");
+        assert!(
+            decision_rows.contains("bounce_conflict_b"),
+            "{decision_rows}"
+        );
+        assert!(
+            decision_rows.contains("1 files · 1 hunks"),
+            "{decision_rows}"
+        );
+        assert!(
+            decision_rows.contains("reviewed evidence"),
+            "the merge path's baseline is its gate bindings: {decision_rows}"
+        );
+
+        // The modal shows three labelled sides and never a merged result.
+        state.ui.conflict_detail = Some(ConflictDetailTarget::Bounce {
+            gate_id: "gate_conflict_b".to_string(),
+        });
+        state.ui.overlay = Some(OverlayState::new(OverlayKind::ConflictContent));
+        let bounce_rows = overlay_rows_for_test(&state, OverlayKind::ConflictContent).join("\n");
+
+        assert!(bounce_rows.contains("not a merge result"), "{bounce_rows}");
+        assert!(bounce_rows.contains("trust_loop.rs"), "{bounce_rows}");
+        assert!(bounce_rows.contains("context mismatch"), "{bounce_rows}");
+        assert!(
+            bounce_rows.contains("record_conflict_bounce"),
+            "{bounce_rows}"
+        );
+        assert!(bounce_rows.contains("bounce_with_reason"), "{bounce_rows}");
+        assert!(bounce_rows.contains("record_bounce"), "{bounce_rows}");
+        for side in ["OURS", "THEIRS", "BASE"] {
+            assert!(bounce_rows.contains(side), "{side} missing: {bounce_rows}");
+        }
+
+        // The Lane apply path carries its own content and its own baseline.
+        state.ui.conflict_detail = Some(ConflictDetailTarget::Lane {
+            lane_id: "lane_conflict_b".to_string(),
+        });
+        let lane_rows = overlay_rows_for_test(&state, OverlayKind::ConflictContent).join("\n");
+
+        assert!(lane_rows.contains("lane_bounce"), "{lane_rows}");
+        assert!(lane_rows.contains("revision"), "{lane_rows}");
+        assert!(lane_rows.contains("not a merge result"), "{lane_rows}");
+
+        // The lane conflict's transcript entry states the same counts.
+        let transcript = crate::tui::transcript::transcript_rows(&state, 120).join("\n");
+        assert!(transcript.contains("1 files · 1 hunks"), "{transcript}");
+    }
+
+    /// Without the capability the bounce row and the transcript entry are
+    /// exactly what they were, and the modal says the content is unavailable
+    /// rather than claiming there was nothing to show.
+    #[test]
+    fn a_conflict_without_the_capability_keeps_the_reason_only_row() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../crates/types/tests/fixtures/frontend-contract-v1/conflict-content.json"
+        ))
+        .expect("conflict content fixture");
+        let mut state = TuiState::default();
+        for envelope in fixture["events"].as_array().expect("fixture events") {
+            let envelope: RuntimeEventEnvelope =
+                serde_json::from_value(envelope.clone()).expect("fixture envelope");
+            if let RuntimeWireEvent::Known(event) = envelope.event {
+                state.runtime.apply_event(&event);
+            }
+        }
+
+        let decision_rows = overlay_rows_for_test(&state, OverlayKind::Decisions).join("\n");
+        assert!(
+            decision_rows.contains("bounce_conflict_b"),
+            "{decision_rows}"
+        );
+        assert!(!decision_rows.contains("hunks"), "{decision_rows}");
+
+        state.ui.conflict_detail = Some(ConflictDetailTarget::Bounce {
+            gate_id: "gate_conflict_b".to_string(),
+        });
+        let rows = overlay_rows_for_test(&state, OverlayKind::ConflictContent).join("\n");
+        assert!(rows.contains("runtime.conflict_content"), "{rows}");
+    }
+
     #[test]
     fn structured_diff_fixture_replays_into_approval_hunk_rows() {
         let fixture: serde_json::Value = serde_json::from_str(include_str!(

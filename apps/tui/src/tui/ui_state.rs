@@ -169,6 +169,22 @@ pub(super) enum GitPickerPhase {
     CommitMessage { draft: String },
 }
 
+/// Which record's structured conflict content the detail modal is showing.
+///
+/// Both variants name a record, never a payload: the content is re-read from
+/// `RuntimeViewState` on every frame, so a modal can never outlive the fact it
+/// was opened on.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum ConflictDetailTarget {
+    Bounce {
+        gate_id: String,
+    },
+    #[allow(dead_code)]
+    Lane {
+        lane_id: String,
+    },
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum FocusedConversation {
     NativeLane(String),
@@ -350,6 +366,8 @@ pub(super) struct TuiUiState {
     pub(super) overlay: Option<OverlayState>,
     /// Present exactly while `overlay` is `OverlayKind::SupervisionDecision`.
     pub(super) supervision: Option<SupervisionPanel>,
+    /// Present exactly while `overlay` is `OverlayKind::ConflictContent`.
+    pub(super) conflict_detail: Option<ConflictDetailTarget>,
     /// Present exactly while `overlay` is `OverlayKind::AuditTimeline`. It is
     /// dropped on close, so a reopened timeline always re-queries Core instead
     /// of showing a page of unknown age.
@@ -401,6 +419,7 @@ impl Default for TuiUiState {
             input_mode: InputMode::Normal,
             overlay: None,
             supervision: None,
+            conflict_detail: None,
             audit: None,
             workspace_files: WorkspaceFileIndex::default(),
             idle_ctrl_c_armed: false,

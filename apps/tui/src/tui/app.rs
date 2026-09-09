@@ -38,9 +38,9 @@ use super::preferences::{
 };
 use super::projection::{CancelOwnerProjection, CockpitProjection};
 use super::state::{
-    AcpPickerPhase, FocusedConversation, GitPickerPhase, InteractionPanel, Lens, OverlayState,
-    PendingAcpStart, PendingNativeLane, SupervisionInput, SupervisionPanel, TuiEntry, TuiState,
-    runtime_has_active_work,
+    AcpPickerPhase, ConflictDetailTarget, FocusedConversation, GitPickerPhase, InteractionPanel,
+    Lens, OverlayState, PendingAcpStart, PendingNativeLane, SupervisionInput, SupervisionPanel,
+    TuiEntry, TuiState, runtime_has_active_work,
 };
 use super::terminal::TerminalGuard;
 use super::text::truncate_tail;
@@ -544,6 +544,9 @@ fn apply_input_intent<C: CoreClient>(
     if let Some(outcome) = apply_audit_timeline_intent(driver, state, &intent)? {
         return Ok(outcome);
     }
+    if let Some(outcome) = apply_conflict_detail_intent(state, &intent) {
+        return Ok(outcome);
+    }
     match intent {
         InputIntent::None => {}
         InputIntent::EnterInsert => state.ui.input_mode = InputMode::Insert,
@@ -552,6 +555,7 @@ fn apply_input_intent<C: CoreClient>(
             let previous_overlay = state.ui.overlay.take();
             state.ui.supervision = None;
             state.ui.audit = None;
+            state.ui.conflict_detail = None;
             state.ui.overlay = Some(if kind == OverlayKind::GlobalJump {
                 OverlayState::global_jump(previous_overlay)
             } else {
@@ -864,6 +868,60 @@ fn request_workspace_files<C: CoreClient>(
     Ok(())
 }
 
+/// Opens the read-only conflict content for one record.
+///
+/// A pure local read: nothing is sent, nothing is decided, and the payload is
+/// re-resolved from `RuntimeViewState` on every frame, so the modal cannot
+/// outlive the fact it was opened on. Any in-flight supervision command is left
+/// exactly as it was.
+fn open_conflict_detail(state: &mut TuiState, target: ConflictDetailTarget) {
+    state.ui.supervision = None;
+    state.ui.audit = None;
+    state.ui.conflict_detail = Some(target);
+    state.ui.overlay = Some(OverlayState::new(OverlayKind::ConflictContent));
+}
+
+/// Closes the conflict modal and drops the record it named.
+fn close_conflict_detail(state: &mut TuiState) {
+    state.ui.conflict_detail = None;
+    state.ui.overlay = None;
+}
+
+/// Owns every key while the conflict modal is focused.
+///
+/// The modal resolves nothing, so it has exactly two behaviours: scroll and
+/// close. There is deliberately no "resolve" or "take theirs" affordance —
+/// Core computed no merge and this client must not invent one.
+fn apply_conflict_detail_intent(
+    state: &mut TuiState,
+    intent: &InputIntent,
+) -> Option<UiEventOutcome> {
+    if !state
+        .ui
+        .overlay
+        .as_ref()
+        .is_some_and(|overlay| overlay.kind == OverlayKind::ConflictContent)
+    {
+        return None;
+    }
+    match intent {
+        InputIntent::CloseOverlay => {
+            close_conflict_detail(state);
+            Some(UiEventOutcome::Redraw)
+        }
+        InputIntent::MoveSelection(delta) => {
+            let overlay = state.ui.overlay.as_mut()?;
+            overlay.selected = if *delta < 0 {
+                overlay.selected.saturating_sub(1)
+            } else {
+                overlay.selected.saturating_add(1)
+            };
+            Some(UiEventOutcome::Redraw)
+        }
+        _ => None,
+    }
+}
+
 /// Closes the audit timeline and drops its page.
 ///
 /// The TUI has no overlay stack outside the Global Jump return path, so this
@@ -1099,6 +1157,22 @@ fn confirm_supervision_action<C: CoreClient>(
     let target = panel.target.clone();
     let awaiting_text = panel.input.is_none() && action.text_requirement() != TextRequirement::None;
 
+    if action == SupervisionAction::ConflictDetail {
+        // A read, not a decision: it leaves any in-flight supervision command
+        // exactly as it was and settles nothing.
+        open_conflict_detail(
+            state,
+            ConflictDetailTarget::Bounce {
+                gate_id: match &target {
+                    SupervisionTarget::Gate { gate_id } | SupervisionTarget::Bounce { gate_id } => {
+                        gate_id.clone()
+                    }
+                    SupervisionTarget::Review { .. } => return Ok(()),
+                },
+            },
+        );
+        return Ok(());
+    }
     if action == SupervisionAction::AuditTrail {
         // A read, not a decision: it opens the timeline scoped to this record
         // and leaves any in-flight supervision command exactly as it was.
@@ -1352,7 +1426,10 @@ fn complete_overlay_selection<C: CoreClient>(
                 None => {}
             }
         }
-        OverlayKind::Approval | OverlayKind::SupervisionDecision | OverlayKind::AuditTimeline => {}
+        OverlayKind::Approval
+        | OverlayKind::SupervisionDecision
+        | OverlayKind::AuditTimeline
+        | OverlayKind::ConflictContent => {}
         OverlayKind::CommandPalette
         | OverlayKind::NewSession
         | OverlayKind::ContextHelp
