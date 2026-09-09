@@ -36,6 +36,7 @@ pub const FRONTEND_V1_EXTENSION_CAPABILITIES: &[&str] = &[
     "runtime.agent_sessions",
     "runtime.audit",
     "runtime.cockpit_context_v1",
+    "runtime.conflict_content",
     "runtime.credential_handles",
     "runtime.credential_staging",
     "runtime.lane_lifecycle",

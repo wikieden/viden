@@ -122,6 +122,7 @@ fn lane_supervisor_protocol_round_trips_owner_scoped_events_and_projects_view() 
             lane_id: "lane-a".to_string(),
             summary: "patch conflict".to_string(),
             paths: vec!["src/lib.rs".to_string()],
+            content: None,
         },
         RuntimeEventKind::LaneRecoveryRequired {
             lane_id: "lane-a".to_string(),

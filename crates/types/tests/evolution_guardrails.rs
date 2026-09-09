@@ -14,7 +14,10 @@
 //!
 //! A change that breaks one of these is a contract break, not a test failure.
 
-use viden_types::{AgentTaskStatus, RuntimeEventKind, RuntimeWireEvent, TranscriptEntry};
+use viden_types::{
+    AgentTaskStatus, ConflictBaseline, ConflictContent, ConflictFile, ConflictHunk,
+    ConflictHunkReason, RuntimeEvent, RuntimeEventKind, RuntimeWireEvent, TranscriptEntry,
+};
 
 /// Rule 1: additive fields on a known variant are ignored by older readers.
 #[test]
@@ -163,4 +166,65 @@ fn known_persisted_runtime_event_still_replays() {
             input_id: "input_a".to_string(),
         }
     );
+}
+
+/// Rule 1, for `runtime.conflict_content`: adding `content` to an existing
+/// event must not change what an older payload means or what an older build
+/// can read. A pre-C3 `lane_conflict_detected` has no `content` key at all and
+/// must stay a *known* event reducing to `None`; a post-C3 one must survive
+/// the wire with its lines intact.
+#[test]
+fn lane_conflict_content_is_additive_in_both_directions() {
+    let pre_c3 = r#"{
+        "sequence": 2,
+        "timestamp": 5,
+        "kind": {
+            "type": "lane_conflict_detected",
+            "payload": {
+                "lane_id": "lane_a",
+                "summary": "patch conflict",
+                "paths": ["a.rs"]
+            }
+        }
+    }"#;
+    let event: RuntimeWireEvent =
+        serde_json::from_str(pre_c3).expect("a pre-C3 conflict payload must still parse");
+    let RuntimeWireEvent::Known(known) = event else {
+        panic!("lane_conflict_detected must stay a known event type");
+    };
+    let RuntimeEventKind::LaneConflictDetected { content, .. } = &known.kind else {
+        panic!("the payload must decode as the lane conflict variant");
+    };
+    assert!(
+        content.is_none(),
+        "a payload written before the field must read as unknown, not as an empty conflict"
+    );
+
+    let with_content = RuntimeWireEvent::Known(RuntimeEvent::new(
+        3,
+        RuntimeEventKind::LaneConflictDetected {
+            lane_id: "lane_a".to_string(),
+            summary: "patch conflict".to_string(),
+            paths: vec!["a.rs".to_string()],
+            content: Some(ConflictContent {
+                baseline: ConflictBaseline::Unknown,
+                files: vec![ConflictFile {
+                    path: "a.rs".to_string(),
+                    hunks: vec![ConflictHunk {
+                        ours_start: 1,
+                        ours: vec!["ours".to_string()],
+                        theirs_start: 1,
+                        theirs: vec!["theirs".to_string()],
+                        base: Some(vec!["base".to_string()]),
+                        reason: ConflictHunkReason::ContextMismatch,
+                    }],
+                    omitted: false,
+                }],
+                truncated: false,
+            }),
+        },
+    ));
+    let encoded = serde_json::to_string(&with_content).expect("encode");
+    let decoded: RuntimeWireEvent = serde_json::from_str(&encoded).expect("decode");
+    assert_eq!(decoded, with_content);
 }

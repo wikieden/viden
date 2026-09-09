@@ -224,6 +224,7 @@ fn emit_capture_projections() {
         evidence_ids: Vec::new(),
         baseline_evidence: Vec::new(),
         revalidation_evidence: Vec::new(),
+        content: None,
         audit_id: "audit-bounce-1".to_string(),
         created_at: 1_700_000_700,
         revalidated_at: Some(1_700_000_800),

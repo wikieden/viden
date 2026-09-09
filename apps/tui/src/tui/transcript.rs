@@ -150,6 +150,7 @@ mod tests {
             summary: "conflict waiting for Core".to_string(),
             paths: vec!["src/lib.rs".to_string()],
             timestamp: Some(3),
+            content: None,
         });
         state.runtime.lane_recoveries.push(LaneRecoveryView {
             lane_id: "lane-core".to_string(),

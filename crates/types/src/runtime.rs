@@ -596,6 +596,14 @@ pub struct LaneConflictView {
     pub summary: String,
     pub paths: Vec<String>,
     pub timestamp: Option<u64>,
+    /// The lines the failed lane apply collided with
+    /// (`runtime.conflict_content`, GUI-CORE-015).
+    ///
+    /// Additive since core-0.3.6. `None` means Core produced no content for
+    /// this conflict — a producer that predates the field, or an apply whose
+    /// failure carried no per-hunk detail — never "nothing collided".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content: Option<crate::ConflictContent>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -874,6 +882,11 @@ pub enum RuntimeEventKind {
         lane_id: crate::AgentLaneId,
         summary: String,
         paths: Vec<String>,
+        /// Additive since core-0.3.6 (`runtime.conflict_content`,
+        /// GUI-CORE-015). A payload written before the field deserializes to
+        /// `None` rather than failing the stream.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        content: Option<crate::ConflictContent>,
     },
     LaneRecoveryRequired {
         lane_id: crate::AgentLaneId,
@@ -1554,6 +1567,7 @@ impl RuntimeViewState {
                 lane_id,
                 summary,
                 paths,
+                content,
             } => {
                 upsert_by_id(
                     &mut self.lane_conflicts,
@@ -1562,6 +1576,10 @@ impl RuntimeViewState {
                         summary: summary.clone(),
                         paths: paths.clone(),
                         timestamp: event.timestamp,
+                        // Copied verbatim, absence included: the view states
+                        // what this event carried, never what an earlier one
+                        // did, so a client cannot read stale lines as current.
+                        content: content.clone(),
                     },
                     |existing| existing.lane_id == *lane_id,
                 );

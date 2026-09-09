@@ -3682,6 +3682,7 @@ mod tests {
                 source_hash: "hash-baseline".to_string(),
             }],
             revalidation_evidence: Vec::new(),
+            content: None,
             audit_id: "audit-bounce".to_string(),
             created_at: 3,
             revalidated_at: None,

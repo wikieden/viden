@@ -5753,3 +5753,179 @@ fn the_operator_git_capability_is_an_advertised_extension() {
         "extension capabilities must stay sorted and unique"
     );
 }
+
+// ---------------------------------------------------------------------------
+// `runtime.conflict_content` (C3, GUI-CORE-015)
+// ---------------------------------------------------------------------------
+
+fn conflict_content_sample() -> ConflictContent {
+    ConflictContent {
+        baseline: ConflictBaseline::Revision {
+            sha: "ab".repeat(20),
+        },
+        files: vec![ConflictFile {
+            path: "crates/types/src/lib.rs".to_string(),
+            hunks: vec![ConflictHunk {
+                ours_start: 12,
+                ours: vec!["let value = 2;".to_string()],
+                theirs_start: 12,
+                theirs: vec!["let value = 3;".to_string()],
+                base: Some(vec!["let value = 1;".to_string()]),
+                reason: ConflictHunkReason::ContextMismatch,
+            }],
+            omitted: false,
+        }],
+        truncated: false,
+    }
+}
+
+/// The conflict shape is two sides plus the patch preimage, and each side is
+/// separately addressable: a client renders `ours` at `ours_start` and
+/// `theirs` at `theirs_start` without recomputing either position.
+#[test]
+fn conflict_content_round_trips_both_sides_and_the_preimage() {
+    let content = conflict_content_sample();
+    let encoded = serde_json::to_string(&content).unwrap();
+    let decoded: ConflictContent = serde_json::from_str(&encoded).unwrap();
+    assert_eq!(decoded, content);
+    assert!(encoded.contains("\"context_mismatch\""));
+    assert!(encoded.contains("\"revision\""));
+}
+
+/// `base` absent and `base` empty are different facts: absent means the hunk
+/// had no preimage to show at all (a binary file), while empty means the hunk
+/// expected an empty region, which is what a creation patch expects.
+#[test]
+fn conflict_hunk_distinguishes_an_absent_preimage_from_an_empty_one() {
+    let absent = ConflictHunk {
+        ours_start: 0,
+        ours: Vec::new(),
+        theirs_start: 0,
+        theirs: Vec::new(),
+        base: None,
+        reason: ConflictHunkReason::Binary,
+    };
+    let empty = ConflictHunk {
+        base: Some(Vec::new()),
+        reason: ConflictHunkReason::AlreadyApplied,
+        ..absent.clone()
+    };
+    let absent_json = serde_json::to_string(&absent).unwrap();
+    let empty_json = serde_json::to_string(&empty).unwrap();
+    assert!(!absent_json.contains("\"base\""), "{absent_json}");
+    assert!(empty_json.contains("\"base\":[]"), "{empty_json}");
+    assert_ne!(absent_json, empty_json);
+}
+
+/// Additive rule: a bounce written before this capability existed encodes to
+/// exactly the bytes it did before, and decodes back with `content: None`.
+#[test]
+fn a_conflict_bounce_without_content_keeps_its_pre_c3_bytes() {
+    let mut bounce = ConflictBounce {
+        bounce_id: "conflict_1".to_string(),
+        gate_id: "gate_1".to_string(),
+        task_id: "task_1".to_string(),
+        original_lane_id: "lane_1".to_string(),
+        owner: RuntimeOwner::default(),
+        reason: "patch conflict".to_string(),
+        status: ConflictBounceStatus::Pending,
+        evidence_ids: Vec::new(),
+        baseline_evidence: Vec::new(),
+        revalidation_evidence: Vec::new(),
+        content: None,
+        audit_id: "audit_1".to_string(),
+        created_at: 7,
+        revalidated_at: None,
+    };
+    let without = serde_json::to_string(&bounce).unwrap();
+    assert!(!without.contains("\"content\""), "{without}");
+
+    let legacy: ConflictBounce = serde_json::from_str(&without).unwrap();
+    assert!(legacy.content.is_none());
+
+    bounce.content = Some(conflict_content_sample());
+    let with = serde_json::to_string(&bounce).unwrap();
+    assert!(with.contains("\"content\""));
+    let decoded: ConflictBounce = serde_json::from_str(&with).unwrap();
+    assert_eq!(decoded.content, bounce.content);
+}
+
+/// The reducer arm: `LaneConflictDetected` carries the content into the view,
+/// so a client reads it from `RuntimeViewState` rather than holding the event.
+#[test]
+fn a_lane_conflict_event_copies_its_content_into_the_view() {
+    let mut state = RuntimeViewState::new(runtime_snapshot_for_contract());
+    state.apply_event(&RuntimeEvent::new(
+        1,
+        RuntimeEventKind::LaneConflictDetected {
+            lane_id: "lane_1".to_string(),
+            summary: "patch conflict: expected hunk context was not found".to_string(),
+            paths: vec!["crates/types/src/lib.rs".to_string()],
+            content: Some(conflict_content_sample()),
+        },
+    ));
+    let conflict = state
+        .lane_conflicts
+        .first()
+        .expect("the lane conflict must reach the view");
+    assert_eq!(conflict.content, Some(conflict_content_sample()));
+
+    // A conflict published without content stays `None`: absence is never
+    // replaced by a stale earlier payload on the upsert.
+    state.apply_event(&RuntimeEvent::new(
+        2,
+        RuntimeEventKind::LaneConflictDetected {
+            lane_id: "lane_1".to_string(),
+            summary: "patch conflict".to_string(),
+            paths: vec!["crates/types/src/lib.rs".to_string()],
+            content: None,
+        },
+    ));
+    assert_eq!(state.lane_conflicts.len(), 1);
+    assert!(state.lane_conflicts[0].content.is_none());
+}
+
+/// A pre-C3 `lane_conflict_detected` payload has no `content` key at all and
+/// must still deserialize as the known event, not as `Unknown`.
+#[test]
+fn a_pre_c3_lane_conflict_payload_deserializes_with_no_content() {
+    let json = r#"{
+        "sequence": 4,
+        "timestamp": 9,
+        "kind": {
+            "type": "lane_conflict_detected",
+            "payload": {
+                "lane_id": "lane_1",
+                "summary": "patch conflict",
+                "paths": ["a.rs"]
+            }
+        }
+    }"#;
+    let event: RuntimeWireEvent = serde_json::from_str(json).unwrap();
+    let RuntimeWireEvent::Known(event) = event else {
+        panic!("lane_conflict_detected must stay a known event type");
+    };
+    assert_eq!(
+        event.kind,
+        RuntimeEventKind::LaneConflictDetected {
+            lane_id: "lane_1".to_string(),
+            summary: "patch conflict".to_string(),
+            paths: vec!["a.rs".to_string()],
+            content: None,
+        }
+    );
+}
+
+/// `runtime.conflict_content` is a post-checkpoint addition, so it belongs to
+/// the extension list and never to the frozen base capabilities.
+#[test]
+fn the_conflict_content_capability_is_an_advertised_extension() {
+    assert!(FRONTEND_V1_EXTENSION_CAPABILITIES.contains(&"runtime.conflict_content"));
+    assert!(!FRONTEND_V1_CAPABILITIES.contains(&"runtime.conflict_content"));
+    assert!(
+        FRONTEND_V1_EXTENSION_CAPABILITIES
+            .windows(2)
+            .all(|pair| pair[0] < pair[1]),
+        "extension capabilities must stay sorted and unique"
+    );
+}

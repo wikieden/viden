@@ -983,6 +983,7 @@ mod tests {
             evidence_ids: Vec::new(),
             baseline_evidence: Vec::new(),
             revalidation_evidence: Vec::new(),
+            content: None,
             audit_id: "audit-bounce".to_string(),
             created_at: 15,
             revalidated_at: None,

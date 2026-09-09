@@ -1001,6 +1001,7 @@ impl SessionEngine {
             evidence_ids: self.runtime_merge_gates[gate_index].evidence_ids.clone(),
             baseline_evidence,
             revalidation_evidence: Vec::new(),
+            content: None,
             audit_id: audit_id.clone(),
             created_at: now,
             revalidated_at: None,

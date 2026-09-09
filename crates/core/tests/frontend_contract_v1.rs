@@ -4648,6 +4648,7 @@ fn interaction_closed_loop_fixture() -> FrontendContractFixtureOut {
                 lane_id: "lane-loop-coder".to_string(),
                 summary: "conflict.apply.non_fast_forward".to_string(),
                 paths: vec!["src/lib.rs".to_string()],
+                content: None,
             },
         ),
         (

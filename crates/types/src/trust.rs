@@ -303,6 +303,15 @@ pub struct ConflictBounce {
     pub baseline_evidence: Vec<ReviewedEvidenceBinding>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub revalidation_evidence: Vec<ReviewedEvidenceBinding>,
+    /// The lines the failed apply collided with
+    /// (`runtime.conflict_content`, GUI-CORE-015).
+    ///
+    /// Additive since core-0.3.6, so a bounce published without it encodes to
+    /// exactly the bytes it did before. `None` means no apply failure stands
+    /// behind this bounce — an operator `BounceMergeConflict` carries a reason
+    /// and nothing to show — never "the conflict had no content".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content: Option<crate::ConflictContent>,
     pub audit_id: String,
     pub created_at: u64,
     pub revalidated_at: Option<u64>,

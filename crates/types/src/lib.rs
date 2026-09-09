@@ -6,6 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 mod agent;
 mod approval;
 mod audit;
+mod conflict;
 mod context;
 mod diff;
 mod frontend_services;
@@ -30,6 +31,10 @@ pub use audit::{
     AuditQuery, AuditRecord, MAX_AUDIT_ACTION_BYTES, MAX_AUDIT_ARG_KEY_BYTES,
     MAX_AUDIT_ARG_VALUE_BYTES, MAX_AUDIT_ARGS, MAX_AUDIT_ID_BYTES, MAX_AUDIT_OBJECT_KIND_BYTES,
     MAX_AUDIT_OBJECTS, MAX_AUDIT_PAGE_SIZE,
+};
+pub use conflict::{
+    ConflictBaseline, ConflictContent, ConflictFile, ConflictHunk, ConflictHunkReason,
+    MAX_CONFLICT_CONTENT_BYTES,
 };
 pub use context::{
     ContextBudgetRecord, ContextBundleSummaryRecord, ContextContentKind, ContextHandleRecord,

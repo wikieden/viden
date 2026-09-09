@@ -1016,6 +1016,7 @@ impl LaneWorker {
                     lane_id: self.lane.id.clone(),
                     summary: result.output,
                     paths: result.conflict_paths,
+                    content: None,
                 });
                 let _ = self.change_status(LaneStatus::Blocked, "lane patch conflict");
             }
