@@ -126,6 +126,30 @@ button.d1-topbar-project[aria-expanded="true"] {
   font-size: var(--fs-xs);
 }
 
+/*
+ * The dirty marker as the DiffReview entry. It keeps the marker's shape — the
+ * design draws a dot, not a button — and gains only the affordances a control
+ * owes a keyboard user.
+ */
+.d1-topbar-review {
+  border: none;
+  background: none;
+  padding: 0 var(--sp-1);
+  cursor: pointer;
+  line-height: 1;
+}
+
+.d1-topbar-review:disabled {
+  cursor: not-allowed;
+  color: var(--fg-faint);
+}
+
+.d1-topbar-review:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--r-xs);
+}
+
 .d1-titlebar .tbtools {
   margin-inline-start: auto;
 }

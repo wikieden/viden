@@ -1,0 +1,97 @@
+/*
+ * Shared hunk rows. Derived from the registered DiffReview family in
+ * `docs/viden-design/Viden/GUI/gui-kit.css` ("D1 次级视图" tail block) and
+ * written against the shared token layer only, the way every other GUI screen
+ * derives its CSS. No token value is copied.
+ */
+
+.diffbody {
+  flex: 1;
+  overflow: auto;
+  font: var(--fs-sm)/1.65 var(--font-mono);
+  padding: var(--sp-2) 0;
+}
+
+.diffbody .dl {
+  display: flex;
+}
+
+.diffbody .dl .ln {
+  width: 46px;
+  flex: none;
+  text-align: right;
+  padding-right: var(--sp-3);
+  color: var(--fg-faint);
+  user-select: none;
+  font-size: var(--fs-xs);
+}
+
+.diffbody .dl .tx {
+  flex: 1;
+  white-space: pre;
+  padding-right: var(--sp-4);
+}
+
+.diffbody .dl.add {
+  background: color-mix(in srgb, var(--success) 9%, transparent);
+}
+
+.diffbody .dl.add .tx {
+  color: var(--success);
+}
+
+.diffbody .dl.add .ln {
+  color: color-mix(in srgb, var(--success) 60%, transparent);
+}
+
+.diffbody .dl.del {
+  background: color-mix(in srgb, var(--error) 9%, transparent);
+}
+
+.diffbody .dl.del .tx {
+  color: var(--error);
+}
+
+.diffbody .dl.del .ln {
+  color: color-mix(in srgb, var(--error) 50%, transparent);
+}
+
+.diffbody .dl.hunk {
+  background: var(--bg-void);
+}
+
+.diffbody .dl.hunk .tx {
+  color: var(--accent);
+}
+
+.diffbody .dl .tx.ctx {
+  color: var(--fg-secondary);
+}
+
+/*
+ * A row kind this build cannot name. Deliberately not styled as context: an
+ * unmodeled row must not read as unchanged code.
+ */
+.diffbody .dl.unknown .tx {
+  color: var(--fg-muted);
+  font-style: italic;
+}
+
+/*
+ * "Rows not shown", "binary", and "Core produced no diff" — the three facts
+ * that must never render as an empty body.
+ */
+.diffbody .dl.note {
+  margin: 0;
+  padding: var(--sp-2) var(--sp-4);
+  color: var(--gold);
+  white-space: normal;
+}
+
+.diff-file-head {
+  margin: 0;
+  padding: var(--sp-2) var(--sp-4) 0;
+  color: var(--fg-primary);
+  font: var(--fs-xs)/var(--lh-ui) var(--font-mono);
+  overflow-wrap: anywhere;
+}

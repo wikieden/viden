@@ -61,6 +61,8 @@ function model(overrides: Partial<CommandPaletteModel> = {}): CommandPaletteMode
     canOpenSettings: true,
     canFocusComposer: true,
     canCancelTurn: true,
+    reviewBound: true,
+    reviewAvailable: true,
     ...overrides,
   };
 }
@@ -72,6 +74,7 @@ function handlers(overrides: Partial<CommandPaletteHandlers> = {}): CommandPalet
     onOpenSettings: vi.fn(),
     onFocusComposer: vi.fn(),
     onCancelTurn: vi.fn(),
+    onOpenReview: vi.fn(),
     onClose: vi.fn(),
     ...overrides,
   };
@@ -177,6 +180,9 @@ describe("palette index", () => {
     expect(ids(actions)).toEqual([
       "action:focus-composer",
       "action:cancel-turn",
+      // DiffReview is an in-cockpit view, not a route, so it sits with the
+      // in-place actions rather than with the screen navigations.
+      "action:open-review",
       "action:navigate:d2",
       "action:navigate:d4",
       "action:navigate:d10",
@@ -191,6 +197,8 @@ describe("palette index", () => {
   test("an unavailable capability leaves its action out rather than inert", () => {
     const list = items({
       canCancelTurn: false,
+    reviewBound: false,
+    reviewAvailable: false,
       canNavigate: false,
       canFocusComposer: false,
       canOpenSettings: false,

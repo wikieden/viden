@@ -36,6 +36,20 @@ export interface CockpitTopbarOptions {
    */
   onOpenProjectPicker?: () => void;
   projectPickerOpen?: boolean;
+  /**
+   * Opens the DiffReview view from the titlebar's changes marker.
+   *
+   * The marker is a *read* entry, not a git action: it opens a pane that
+   * renders `QueryWorkspaceDiff`. That is why it can be a button while the
+   * sync chip beside it stays a `role=status` element — GUI-CORE-020 governs
+   * acting on the branch, not looking at it.
+   *
+   * Absent while no host is bound, which leaves the design's inert `●`.
+   */
+  onOpenReview?: () => void;
+  /** Core published `runtime.structured_diff`; false disables the control. */
+  reviewAvailable?: boolean;
+  reviewOpen?: boolean;
 }
 
 /// The `.gitops` block: the workspace's source-control facts exactly as the
@@ -143,6 +157,9 @@ export function renderCockpitTopbar(
   brand.append(mark, wordmark);
 
   const source = showWelcome ? null : projection.topbarSource;
+  /// The dirty marker when it is a control; appended beside `.projsel`
+  /// because a button cannot be nested inside another button.
+  let reviewEntry: HTMLButtonElement | null = null;
 
   // The design draws a `▾` project picker here. The chevron and the button
   // semantics appear only when a handler is bound and a workspace is open —
@@ -174,12 +191,40 @@ export function renderCockpitTopbar(
       project.append(" ", branch);
     }
     if (source?.dirty) {
-      const marker = document.createElement("span");
-      marker.className = "d1-topbar-dirty";
-      marker.dataset.topbarDirty = "true";
-      marker.textContent = "●";
-      marker.title = translate(locale, "d1.topbar.dirty", {});
-      project.append(marker);
+      // The design's dirty marker, promoted to the review entry point when a
+      // host is bound. It is deliberately outside the `.projsel` button when
+      // it is itself a control — a button inside a button is not focusable —
+      // and stays the plain inert marker otherwise.
+      if (options.onOpenReview) {
+        const marker = document.createElement("button");
+        marker.type = "button";
+        marker.className = "d1-topbar-dirty d1-topbar-review";
+        marker.dataset.topbarDirty = "true";
+        marker.dataset.topbarReview = "true";
+        marker.textContent = "●";
+        const reviewLabel = translate(locale, "d1.topbar.reviewChanges", {});
+        // The label states the destination, never just "changes": a control
+        // whose tooltip does not name where it goes teaches the wrong map.
+        marker.title = options.reviewAvailable
+          ? reviewLabel
+          : translate(locale, "d1.review.entryUnavailable", {
+              capability: "runtime.structured_diff",
+            });
+        marker.setAttribute("aria-label", reviewLabel);
+        marker.setAttribute("aria-expanded", String(options.reviewOpen === true));
+        // Visible and disabled, never hidden: an absent Core capability is a
+        // fact the operator should be able to read off the chrome.
+        marker.disabled = options.reviewAvailable !== true;
+        marker.addEventListener("click", () => options.onOpenReview?.());
+        reviewEntry = marker;
+      } else {
+        const marker = document.createElement("span");
+        marker.className = "d1-topbar-dirty";
+        marker.dataset.topbarDirty = "true";
+        marker.textContent = "●";
+        marker.title = translate(locale, "d1.topbar.dirty", {});
+        project.append(marker);
+      }
     }
   }
   if (pickerAvailable) {
@@ -234,6 +279,7 @@ export function renderCockpitTopbar(
   tools.append(commandPaletteToggle, contextDrawerToggle);
   if (!nativeShell) titlebar.append(lights);
   titlebar.append(brand, project);
+  if (reviewEntry) titlebar.append(reviewEntry);
   if (source) titlebar.append(renderGitOps(source, locale, onNavigate));
   titlebar.append(laneSummary, tools);
   return { element: titlebar, contextDrawerToggle, commandPaletteToggle };

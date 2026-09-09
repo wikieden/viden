@@ -1,4 +1,5 @@
 import { translate, type Locale, type MessageKey } from "../i18n/catalog";
+import { STRUCTURED_DIFF_CAPABILITY } from "../models/diff_review";
 import type { D1CockpitProjection } from "../models/workspace";
 import { createCanonicalGuiIcon, type CanonicalGuiIcon } from "./activity_rail";
 import "./command_palette.css";
@@ -163,6 +164,14 @@ export interface CommandPaletteModel {
   canOpenSettings: boolean;
   canFocusComposer: boolean;
   canCancelTurn: boolean;
+  /** False while no host is bound, which omits the review row entirely. */
+  reviewBound: boolean;
+  /**
+   * Whether Core published `runtime.structured_diff`. A bound host without the
+   * capability keeps the row visible and disabled naming it (GUI-CORE-012),
+   * the way the `~` file scope names GUI-CORE-022.
+   */
+  reviewAvailable: boolean;
   /**
    * Where focus goes on close when the palette was not opened from a focused
    * element (a shortcut fired with nothing focused). Re-resolved on close, so a
@@ -179,6 +188,8 @@ export interface CommandPaletteHandlers {
   onOpenSettings?: () => void;
   onFocusComposer?: () => void;
   onCancelTurn?: () => void;
+  /** Opens the DiffReview view in the cockpit's centre pane. */
+  onOpenReview?: () => void;
   /** Keeps the operator's query in cockpit state across a forced remount. */
   onQueryChange?: (query: string) => void;
   onClose: () => void;
@@ -268,6 +279,38 @@ export function paletteItems(
         icon: "diagnostics",
         activate: () => handlers.onCancelTurn?.(),
       }),
+    );
+  }
+  if (model.reviewBound && handlers.onOpenReview) {
+    const title = translate(locale, "d1.palette.action.openReview", {});
+    items.push(
+      model.reviewAvailable
+        ? enabled({
+            kind: "command",
+            section: "actions",
+            id: "action:open-review",
+            title,
+            context: "",
+            keywords: "diff review changes git staged",
+            hint: "⌘R",
+            icon: "review",
+            activate: () => handlers.onOpenReview?.(),
+          })
+        : disabled(
+            {
+              kind: "command",
+              section: "actions",
+              id: "action:open-review",
+              title,
+              context: "",
+              keywords: "diff review changes git staged",
+              hint: null,
+              icon: "review",
+            },
+            translate(locale, "d1.review.entryUnavailable", {
+              capability: STRUCTURED_DIFF_CAPABILITY,
+            }),
+          ),
     );
   }
   if (model.canNavigate && handlers.onNavigate) {

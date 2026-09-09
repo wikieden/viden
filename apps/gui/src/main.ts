@@ -302,6 +302,7 @@ export async function hydrateShellFromCore(
             onOpenWorkspace: openWorkspace,
             loadPaletteCrossLane,
             loadPaletteFiles,
+            workspaceDiff: workspaceDiffPort,
             onNavigate: (route: string, arg?: string) => {
               // Every restored screen re-reads its own Core projection before
               // it renders; the caller only names the route and, when the
@@ -597,6 +598,26 @@ export async function hydrateShellFromCore(
        * refusal in place of the section rather than showing an empty inventory
        * (GUI-CORE-022).
        */
+      /**
+       * The DiffReview read pair (GUI-CORE-012).
+       *
+       * `read` is the no-traffic projection read the cockpit uses to learn the
+       * capability and to check staleness on an ordered Core wake; `query`
+       * sends the actual `QueryWorkspaceDiff` and drains until Core answers.
+       * Core owns the permission gate, the git invocations, the byte bound,
+       * and the ordering — the shell only names the target and waits.
+       */
+      const workspaceDiffPort = {
+        read: async () => await core.workspaceDiff(),
+        query: async (laneId: string | null) => {
+          let result = await core.queryWorkspaceDiff(`gui-diff-${crypto.randomUUID()}`, laneId);
+          for (let attempt = 0; attempt < 4 && result.outcome.state === "pending"; attempt += 1) {
+            result = await core.workspaceDiffPoll();
+          }
+          return result;
+        },
+      };
+
       const loadPaletteFiles = async () => {
         let result = await core.queryWorkspaceFiles(`gui-files-${crypto.randomUUID()}`);
         for (let attempt = 0; attempt < 4 && result.outcome.state === "pending"; attempt += 1) {

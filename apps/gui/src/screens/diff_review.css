@@ -1,0 +1,318 @@
+/*
+ * DiffReview (`.review > .filetree + .diffpane`), derived from the registered
+ * family in `docs/viden-design/Viden/GUI/gui-kit.css` ("D1 次级视图" tail
+ * block) against the shared token layer only — the same way every other GUI
+ * screen derives its CSS. No token value is copied, and the design package is
+ * not modified.
+ *
+ * Two rules the design's static mock has no need for, added here because this
+ * is a live view rather than a screenshot:
+ *
+ * - `.fthead` carries a Refresh control and `.dphead` a Close control. The
+ *   mock never re-reads and never returns anywhere.
+ * - `.ftrow .fn` is split into an ellipsizing directory half and a
+ *   non-shrinking basename, so the distinctive end of a long repository path
+ *   stays readable. The mock's paths are short enough that plain
+ *   `text-overflow` never bites.
+ */
+
+.review {
+  display: grid;
+  grid-template-columns: 236px 1fr;
+  height: 100%;
+  min-height: 0;
+}
+
+.review .filetree {
+  border-right: 1px solid var(--border-soft);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-panel);
+}
+
+.review .fthead {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.review .fthead h3 {
+  margin: 0;
+  font: 700 var(--fs-xs)/var(--lh-ui) var(--font-mono);
+  letter-spacing: var(--ls-label);
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.review .fthead .ct {
+  margin-left: auto;
+  font: var(--fs-xs)/var(--lh-ui) var(--font-mono);
+  color: var(--fg-muted);
+}
+
+/* Totals Core could not complete are marked, never silently under-reported. */
+.review .review-partial {
+  color: var(--gold);
+  font: var(--fs-xs)/var(--lh-ui) var(--font-mono);
+}
+
+.review .review-icon {
+  flex: none;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-xs);
+  background: var(--bg-base);
+  color: var(--fg-muted);
+  font: var(--fs-xs)/1 var(--font-mono);
+  padding: var(--sp-1) var(--sp-2);
+  cursor: pointer;
+}
+
+.review .review-icon:disabled {
+  cursor: not-allowed;
+  color: var(--fg-faint);
+}
+
+.review .review-icon:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.review .ftlist {
+  overflow: auto;
+  padding: var(--sp-2);
+}
+
+.review .ftrow {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  padding: var(--sp-2) var(--sp-3);
+  border: none;
+  border-radius: var(--r-sm);
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  font: var(--fs-sm)/var(--lh-ui) var(--font-mono);
+}
+
+.review .ftrow:hover {
+  background: var(--bg-base);
+}
+
+.review .ftrow.on {
+  background: var(--bg-sel);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.review .ftrow:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.review .ftrow .stat {
+  flex: none;
+  width: 14px;
+  text-align: center;
+  font-weight: 700;
+  color: var(--fg-muted);
+}
+
+.review .ftrow .stat.m {
+  color: var(--gold);
+}
+
+.review .ftrow .stat.a {
+  color: var(--success);
+}
+
+.review .ftrow .stat.d {
+  color: var(--error);
+}
+
+.review .ftrow .fn {
+  color: var(--fg-secondary);
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  white-space: nowrap;
+}
+
+.review .ftrow.on .fn {
+  color: var(--fg-primary);
+}
+
+/* The leading directories are the half allowed to disappear. */
+.review .ftrow .fn .dir {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--fg-muted);
+}
+
+.review .ftrow .fn .base {
+  flex: none;
+}
+
+.review .ftrow .pm {
+  flex: none;
+  font-size: var(--fs-xs);
+  color: var(--fg-muted);
+}
+
+.review .ftrow .ck {
+  flex: none;
+  color: var(--success);
+}
+
+/*
+ * "Core publishes no structured diff", "the read has not answered", "Core
+ * refused", and "the tree is clean" are four sentences, not one empty list.
+ */
+.review .review-state {
+  margin: var(--sp-2) 0 0;
+  padding: var(--sp-2) var(--sp-3);
+  color: var(--fg-muted);
+  font: var(--fs-xs)/var(--lh-body) var(--font-mono);
+  white-space: pre-wrap;
+}
+
+.review .review-state[data-review-state="rejected"] {
+  color: var(--error);
+  border-left: 2px solid var(--error);
+}
+
+.review .review-state[data-review-state="unavailable"] {
+  color: var(--gold);
+  border-left: 2px solid var(--gold);
+}
+
+.review .diffpane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--bg-base);
+}
+
+.review .dphead {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.review .dphead .fn {
+  font: var(--fs-sm)/var(--lh-ui) var(--font-mono);
+  color: var(--fg-primary);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.review .review-renamed {
+  font: var(--fs-xs)/var(--lh-ui) var(--font-mono);
+  color: var(--fg-muted);
+}
+
+.review .dphead .seg {
+  margin-left: auto;
+  display: flex;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-sm);
+  overflow: hidden;
+}
+
+.review .dphead .seg button {
+  font: var(--fs-xs)/var(--lh-ui) var(--font-mono);
+  padding: var(--sp-1) var(--sp-3);
+  background: var(--bg-panel);
+  color: var(--fg-muted);
+  border: none;
+  border-right: 1px solid var(--border-soft);
+  cursor: pointer;
+}
+
+.review .dphead .seg button:last-child {
+  border-right: none;
+}
+
+.review .dphead .seg button.on {
+  background: var(--bg-sel);
+  color: var(--accent);
+}
+
+.review .dphead .seg button:disabled {
+  cursor: not-allowed;
+  color: var(--fg-faint);
+}
+
+/* Page-level facts: the byte bound and the pending re-read. */
+.review .review-banner {
+  flex: none;
+  margin: 0;
+  padding: var(--sp-2) var(--sp-4);
+  border-bottom: 1px solid var(--border-soft);
+  color: var(--gold);
+  font: var(--fs-xs)/var(--lh-body) var(--font-mono);
+}
+
+.review .review-banner[data-review-stale] {
+  color: var(--accent);
+}
+
+.review .commitbar {
+  flex: none;
+  border-top: 1px solid var(--border-soft);
+  background: var(--bg-panel);
+  padding: var(--sp-3) var(--sp-4);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+
+.review .commitbar .msg-in {
+  flex: 1;
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: var(--sp-2) var(--sp-3);
+  font: var(--fs-xs)/var(--lh-body) var(--font-mono);
+  color: var(--fg-muted);
+}
+
+.review .cbtn {
+  font: 700 var(--fs-sm)/var(--lh-ui) var(--font-mono);
+  border-radius: var(--r-sm);
+  padding: var(--sp-2) var(--sp-4);
+  border: 1px solid var(--border);
+  background: var(--bg-base);
+  color: var(--fg-secondary);
+  white-space: nowrap;
+}
+
+/*
+ * The whole bar is inert until GUI-CORE-020 closes. It keeps the design's
+ * shape so the operator can see what is coming, and states why it cannot act.
+ */
+.review .cbtn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.review .cbtn.commit {
+  border-color: var(--success);
+  color: var(--success);
+}
+
+.review .cbtn.push {
+  border-color: var(--accent-dim);
+  color: var(--accent);
+}

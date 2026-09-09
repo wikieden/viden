@@ -70,6 +70,8 @@ import {
   type D1CockpitProjection,
   type D6RecoveryProjection,
 } from "../models/workspace";
+import { renderDiffReview } from "./diff_review";
+import type { WorkspaceDiffProjection } from "../models/diff_review";
 import { renderD6Recovery, type SendD6Intent } from "./d6_recovery";
 import "./d1_cockpit.css";
 
@@ -191,6 +193,22 @@ export interface D1RenderOptions {
    * would read as "you have no history".
    */
   loadRecentWork?: () => Promise<RecentWorkResult>;
+  /**
+   * The Core-owned structured diff behind the DiffReview view (GUI-CORE-012).
+   *
+   * `read` is the no-traffic projection read: the cockpit calls it once to
+   * learn whether Core published `runtime.structured_diff` at all, and again
+   * on each ordered Core wake while the view is open, to learn whether the
+   * page it is showing has been invalidated. `query` sends the actual
+   * `QueryWorkspaceDiff` and resolves with Core's answer.
+   *
+   * Absent while no host is bound, which renders every review entry point
+   * disabled-and-labelled rather than opening a view that can never fill.
+   */
+  workspaceDiff?: {
+    read: () => Promise<WorkspaceDiffProjection>;
+    query: (laneId: string | null) => Promise<WorkspaceDiffProjection>;
+  };
   /** Native folder chooser behind the picker's `Add directory…` row. */
   onPickProjectFolder?: () => Promise<string | null>;
   /**
@@ -481,6 +499,38 @@ export function renderD1Cockpit(
   /// carries the same ask does not undo it but a *new* ask does.
   let lastPermissionRequestId: string | null = initial.permissionDock.request?.id ?? null;
   let contextDrawerOpen = false;
+  /**
+   * Which view owns D1's centre pane.
+   *
+   * DiffReview is a *view* inside the cockpit, not a route: the design
+   * registers it as a D1 secondary surface, and `D-RAILNAV` keeps the activity
+   * rail pointed at the standalone D-screens. Closing it returns to the
+   * transcript without a navigation, so the operator never loses the
+   * conversation they were reviewing for.
+   */
+  let centerView: "transcript" | "review" = "transcript";
+  /** Core's last diff answer, or null before the first read. */
+  let reviewProjection: WorkspaceDiffProjection | null = null;
+  /** Selected file. Presentation state: an ordered refresh must not move it. */
+  let reviewSelectedPath: string | null = null;
+  /** True while a `QueryWorkspaceDiff` is out, so a wake cannot stack reads. */
+  let reviewReadInFlight = false;
+  /**
+   * The debounce behind the re-query rule.
+   *
+   * While the view is open, every ordered Core wake checks the no-traffic
+   * projection for `stale` — the host's count of `WorkspaceSourceUpdated` and
+   * `WorkspaceChangeUpdated` facts published since the page was read. A burst
+   * of file writes produces a burst of those facts, so the re-read is delayed
+   * by one window and coalesced instead of firing per event.
+   */
+  let reviewStaleTimer: number | null = null;
+  /**
+   * Whether Core published `runtime.structured_diff`. Null until the first
+   * no-traffic read answers; the entry points stay disabled until then rather
+   * than promising a view that may not exist.
+   */
+  let reviewCapability: boolean | null = null;
   let laneRailOpen = false;
   let laneRailFocusTarget: "rail" | "toggle" | null = null;
   let menuController: AgentMenuController | null = null;
@@ -624,9 +674,41 @@ export function renderD1Cockpit(
     if (paletteOpen) paletteController?.setQuery(">");
     else openPalette(">");
   };
+  /**
+   * ⌘R / ⌃R toggles DiffReview.
+   *
+   * The design's own binding: DockSD's summon menu puts `⌘R` on Review. It is
+   * unbound elsewhere in the GUI (the palette owns ⌘K and ⌃P, the composer
+   * owns Enter and Escape), so nothing is being re-pointed. `preventDefault`
+   * matters because the chord is the webview's reload: a reload would discard
+   * the transcript and the composer draft to show a diff.
+   *
+   * It stands down while a modal popover owns focus, exactly as the palette
+   * chords do, and while no host is bound or Core published no structured
+   * diff — the same condition the visible entry points fail closed on.
+   */
+  const handleReviewShortcut = (event: KeyboardEvent): void => {
+    if (event.repeat || composing) return;
+    if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return;
+    if (event.key.toLowerCase() !== "r") return;
+    const active = document.activeElement;
+    if (
+      active instanceof HTMLElement &&
+      active.closest(
+        "[data-settings-panel], [data-new-lane-popover], [data-control-popover], [data-command-palette]",
+      )
+    ) {
+      return;
+    }
+    if (!reviewAvailable()) return;
+    event.preventDefault();
+    if (centerView === "review") closeReview();
+    else openReview();
+  };
   window.addEventListener("keydown", handleCancelShortcut);
   window.addEventListener("keydown", handleWindowKeydown);
   window.addEventListener("keydown", handlePaletteShortcut);
+  window.addEventListener("keydown", handleReviewShortcut);
   const handleWindowResize = (): void => {
     const grid = root.querySelector<HTMLElement>("[data-cockpit-grid]");
     if (grid) grid.dataset.cockpitLayout = window.innerWidth <= 1100 ? "narrow" : "desktop";
@@ -801,6 +883,9 @@ export function renderD1Cockpit(
       window.removeEventListener("keydown", handleWindowKeydown);
       window.removeEventListener("keydown", handleCancelShortcut);
       window.removeEventListener("keydown", handlePaletteShortcut);
+      window.removeEventListener("keydown", handleReviewShortcut);
+      if (reviewStaleTimer !== null) window.clearTimeout(reviewStaleTimer);
+      reviewStaleTimer = null;
       workStatusStrip?.dispose();
       workStatusStrip = null;
       window.removeEventListener("resize", handleWindowResize);
@@ -842,7 +927,118 @@ export function renderD1Cockpit(
         releaseCommandSlotWaiters();
         queueMicrotask(maybeResumeLaneStart);
         queueMicrotask(advanceAgentDiscovery);
+        // The DiffReview re-query rule rides the same ordered Core wake the
+        // cockpit already listens on, so an open review never needs a timer.
+        queueMicrotask(noteReviewStaleness);
       });
+  };
+
+
+  /* ---- DiffReview (GUI-CORE-012) ---- */
+
+  /// Milliseconds a stale page waits before it re-reads.
+  ///
+  /// One window rather than one read per event: an agent writing a dozen files
+  /// publishes a dozen invalidating facts, and twelve bounded Core queries for
+  /// one visible change would be a client-made load spike.
+  const REVIEW_RESTALE_MS = 400;
+
+  /// Learns whether Core publishes structured diff rows at all, without
+  /// sending a command. Entry points read the answer.
+  const ensureReviewCapability = (): void => {
+    if (reviewCapability !== null || !options.workspaceDiff) return;
+    void options.workspaceDiff
+      .read()
+      .then((projection) => {
+        if (disposed) return;
+        const next = projection.capabilityAvailable;
+        if (next === reviewCapability) return;
+        reviewCapability = next;
+        render(false);
+      })
+      .catch(() => {
+        // A host that cannot answer is not a Core that lacks the capability.
+        // Leaving it unresolved keeps the entry disabled without claiming why.
+      });
+  };
+
+  /// Sends one `QueryWorkspaceDiff` for the current target and redraws.
+  ///
+  /// The target follows the cockpit's Lane selection: a selected Lane reviews
+  /// that Lane's worktree, and no selection reviews the workspace root. Core
+  /// resolves the worktree from the Lane id — the client passes no path.
+  const readReview = (): void => {
+    if (!options.workspaceDiff || reviewReadInFlight) return;
+    reviewReadInFlight = true;
+    const laneId = selectedLaneId;
+    void options.workspaceDiff
+      .query(laneId)
+      .then((projection) => {
+        if (disposed) return;
+        reviewProjection = projection;
+        reviewCapability = projection.capabilityAvailable;
+      })
+      .catch((error: unknown) => {
+        if (disposed) return;
+        // A transport failure is not Core's refusal, so it is reported as this
+        // client's own error rather than dressed up as a Core rejection.
+        reviewProjection = {
+          outcome: { state: "rejected", reason: String(error) },
+          targetLaneId: laneId,
+          source: null,
+          entries: [],
+          truncated: false,
+          loaded: false,
+          pendingCommandId: null,
+          capabilityAvailable: reviewCapability !== false,
+          stale: false,
+        };
+      })
+      .finally(() => {
+        reviewReadInFlight = false;
+        if (!disposed && centerView === "review") render(false);
+      });
+  };
+
+  /// The re-query rule, evaluated on every ordered Core wake.
+  ///
+  /// Only while the view is open: a closed review re-reads on open anyway, and
+  /// polling for a pane nobody is looking at would be traffic with no reader.
+  const noteReviewStaleness = (): void => {
+    if (centerView !== "review" || !options.workspaceDiff) return;
+    if (reviewReadInFlight || reviewStaleTimer !== null) return;
+    void options.workspaceDiff
+      .read()
+      .then((projection) => {
+        if (disposed || centerView !== "review" || !projection.stale) return;
+        reviewProjection = projection;
+        render(false);
+        reviewStaleTimer = window.setTimeout(() => {
+          reviewStaleTimer = null;
+          if (disposed || centerView !== "review") return;
+          readReview();
+        }, REVIEW_RESTALE_MS);
+      })
+      .catch(() => undefined);
+  };
+
+  const reviewAvailable = (): boolean =>
+    !!options.workspaceDiff && reviewCapability === true;
+
+  const openReview = (): void => {
+    if (!options.workspaceDiff) return;
+    centerView = "review";
+    render(false);
+    readReview();
+  };
+
+  const closeReview = (): void => {
+    centerView = "transcript";
+    if (reviewStaleTimer !== null) {
+      window.clearTimeout(reviewStaleTimer);
+      reviewStaleTimer = null;
+    }
+    render(true);
   };
 
   const schedulePoll = (): void => {
@@ -867,6 +1063,7 @@ export function renderD1Cockpit(
           releaseCommandSlotWaiters();
           queueMicrotask(maybeResumeLaneStart);
           queueMicrotask(advanceAgentDiscovery);
+          queueMicrotask(noteReviewStaleness);
           schedulePoll();
         });
     }, 250);
@@ -1379,6 +1576,11 @@ export function renderD1Cockpit(
         canOpenSettings: Boolean(options.preferences),
         canFocusComposer: Boolean(root.querySelector("[data-composer]")),
         canCancelTurn: Boolean(root.querySelector("[data-work-cancel]")),
+        // A bound host always gets the row; an absent capability renders it
+        // disabled naming the capability, the same honesty the `~` file scope
+        // ships, rather than a row that quietly disappears.
+        reviewBound: Boolean(options.workspaceDiff),
+        reviewAvailable: reviewAvailable(),
         returnFocus: root.querySelector<HTMLElement>("[data-command-palette-toggle]"),
       },
       {
@@ -1394,6 +1596,7 @@ export function renderD1Cockpit(
           root.querySelector<HTMLTextAreaElement>("[data-composer]")?.focus();
         },
         onCancelTurn: () => cancelActiveTurn(),
+        onOpenReview: () => openReview(),
         onQueryChange: (next) => {
           paletteQuery = next;
         },
@@ -1757,6 +1960,14 @@ export function renderD1Cockpit(
     const topbar = renderCockpitTopbar(projection, locale, showWelcome, options.onNavigate, {
       onToggleCommandPalette: () => togglePalette(""),
       commandPaletteOpen: paletteOpen,
+      // The titlebar's dirty marker is the changes chip the design puts on the
+      // source block, so it is the review's natural entry: it appears exactly
+      // when Core reports uncommitted work. A bound host always gets the
+      // control; an absent capability leaves it visible and disabled naming
+      // the capability, never hidden.
+      onOpenReview: options.workspaceDiff ? () => openReview() : undefined,
+      reviewAvailable: reviewAvailable(),
+      reviewOpen: centerView === "review",
       onOpenProjectPicker: projectPickerAvailable
         ? () => openProjectPicker("titlebar")
         : undefined,
@@ -1852,6 +2063,35 @@ export function renderD1Cockpit(
         locale,
         options.onOpenProject,
         options.sendD6Intent,
+      );
+    } else if (centerView === "review") {
+      // DiffReview owns the whole centre pane, including its own commit bar.
+      // The composer stays mounted below it: reviewing a change and telling
+      // the agent what to fix are the same sitting.
+      renderDiffReview(
+        workSurface,
+        reviewProjection ?? {
+          // Before the first answer the view renders the pending state rather
+          // than an empty tree, which would read as "nothing changed".
+          outcome: { state: "pending", reason: null },
+          targetLaneId: selectedLaneId,
+          source: null,
+          entries: [],
+          truncated: false,
+          loaded: false,
+          pendingCommandId: null,
+          capabilityAvailable: reviewCapability !== false,
+          stale: false,
+        },
+        locale,
+        {
+          onRefresh: options.workspaceDiff ? () => readReview() : undefined,
+          onClose: () => closeReview(),
+          onSelect: (path) => {
+            reviewSelectedPath = path;
+          },
+          selectedPath: reviewSelectedPath,
+        },
       );
     } else {
       const transcriptRegion = document.createElement("section");
@@ -2252,6 +2492,10 @@ export function renderD1Cockpit(
   };
 
   render(true);
+  // One no-traffic read at mount, so the review entry points know whether Core
+  // publishes structured diff rows before anyone clicks one. It sends no Core
+  // command, so it costs nothing on a Core that does not have the capability.
+  ensureReviewCapability();
   if (options.poll !== false) {
     if (options.onCoreWake) {
       // A host push replaces the drain timer outright: reading on the wake
