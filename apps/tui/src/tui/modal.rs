@@ -7,6 +7,10 @@ use super::{
         decision_picks, dormant_gate_count, find_gate, find_review, is_dormant_gate,
         overlay_actions, pending_conflict,
     },
+    diff_rows::{
+        MAX_APPROVAL_DIFF_ROWS, STRUCTURED_DIFF_CAPABILITY, decision_context_rows,
+        has_renderable_diff,
+    },
     glyphs::Glyph,
     jump::JumpIndex,
     keymap::OverlayKind,
@@ -75,8 +79,11 @@ pub(super) fn render_overlays(frame: &mut Frame, state: &TuiState, _right_rail_w
         };
         let title = super::i18n::text(state, title_key);
         let overlay_height = match overlay.kind {
-            OverlayKind::Approval
-            | OverlayKind::Decisions
+            // The approval panel grows with the hunk rows it renders so the
+            // decision context never pushes the approval actions off a short
+            // terminal. The growth is bounded by the row cap in `diff_rows`.
+            OverlayKind::Approval => 14 + approval_diff_row_budget(state),
+            OverlayKind::Decisions
             | OverlayKind::SupervisionDecision
             | OverlayKind::AuditTimeline => 14,
             _ => 10,
@@ -1170,7 +1177,20 @@ fn focused_approval_rows(state: &TuiState) -> Vec<String> {
         let once_availability = availability(once);
         let session_availability = availability(session);
         let repo_availability = availability(repo);
-        vec![
+        // Core's typed rows replace the preview string rather than joining it:
+        // the preview is a lossy rendering of the same proposal, and showing
+        // both would invite a reader to compare two spellings of one fact.
+        let context = approval.decision_context.as_ref();
+        let change_rows = if has_renderable_diff(state, context) {
+            decision_context_rows(state, context, APPROVAL_ROW_WIDTH)
+        } else {
+            vec![super::i18n::translate(
+                state,
+                "approval.input",
+                &[("input", input.as_str())],
+            )]
+        };
+        let mut rows = vec![
             format!("{} · {:?}", approval.title, approval.risk),
             truncate(&approval.message, 68),
             super::i18n::translate(
@@ -1178,7 +1198,9 @@ fn focused_approval_rows(state: &TuiState) -> Vec<String> {
                 "approval.target_only",
                 &[("target", target.as_str())],
             ),
-            super::i18n::translate(state, "approval.input", &[("input", input.as_str())]),
+        ];
+        rows.extend(change_rows);
+        rows.extend([
             super::i18n::translate(
                 state,
                 "approval.action.allow_once",
@@ -1201,8 +1223,42 @@ fn focused_approval_rows(state: &TuiState) -> Vec<String> {
                 "approval.audit",
                 &[("audit_id", approval.audit_id.as_str())],
             ),
-        ]
+        ]);
+        // Appended last, so it can never shift the index of a row above it.
+        // A client without the extension must say that hunk rows are
+        // unavailable rather than let the preview text stand for the change.
+        if !state.has_capability(STRUCTURED_DIFF_CAPABILITY) {
+            rows.push(super::i18n::translate(
+                state,
+                "approval.diff.unavailable",
+                &[("capability", STRUCTURED_DIFF_CAPABILITY)],
+            ));
+        }
+        rows
     })
+}
+
+/// Columns the approval panel gives one row, inside its border.
+const APPROVAL_ROW_WIDTH: usize = 70;
+
+/// Extra panel rows the focused approval's decision context needs.
+///
+/// Zero when there is none, so an approval without hunks renders exactly the
+/// panel it did before this capability existed.
+fn approval_diff_row_budget(state: &TuiState) -> usize {
+    let Some(approval) = focused_approval_request(state) else {
+        return 0;
+    };
+    let context = approval.decision_context.as_ref();
+    if !has_renderable_diff(state, context) {
+        return 0;
+    }
+    // One row of the budget already existed as the preview line the hunks
+    // replace.
+    decision_context_rows(state, context, APPROVAL_ROW_WIDTH)
+        .len()
+        .min(MAX_APPROVAL_DIFF_ROWS + 2)
+        .saturating_sub(1)
 }
 
 pub(super) fn focused_approval_request(
@@ -1723,6 +1779,92 @@ mod tests {
             rows.iter().any(|row| row.starts_with("> Files unavailabl")),
             "the disabled tail result must not be dropped by a continued header: {rows:?}"
         );
+    }
+
+    /// Replays the shared `runtime.structured_diff` fixture and asserts the
+    /// approval overlay reaches the same business facts the GUI does: Core's
+    /// hunks, Core's line numbers, and the base the preview was computed
+    /// against. Nothing here parses `input_preview`.
+    #[test]
+    fn structured_diff_fixture_replays_into_approval_hunk_rows() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../crates/types/tests/fixtures/frontend-contract-v1/structured-diff.json"
+        ))
+        .expect("structured diff fixture");
+        let mut state = TuiState {
+            capabilities: viden_core::frontend_capabilities(),
+            ..TuiState::default()
+        };
+        for envelope in fixture["events"].as_array().expect("fixture events") {
+            let envelope: RuntimeEventEnvelope =
+                serde_json::from_value(envelope.clone()).expect("fixture envelope");
+            if let RuntimeWireEvent::Known(event) = envelope.event {
+                state.runtime.apply_event(&event);
+            }
+        }
+
+        let mut overlay = OverlayState::new(OverlayKind::Approval);
+        overlay.selected_id = Some("approval_structured_edit".to_string());
+        state.ui.overlay = Some(overlay);
+        let edit_rows = focused_approval_rows(&state).join("\n");
+
+        assert!(edit_rows.contains("diff.rs"), "{edit_rows}");
+        assert!(edit_rows.contains("@@ -42,3 +42,3 @@"), "{edit_rows}");
+        assert!(
+            edit_rows.contains("pub truncated: bool, // bounded"),
+            "{edit_rows}"
+        );
+        // Git's numbering, not a row count: the removed line keeps its old-file
+        // number and gains no new-file one.
+        assert!(edit_rows.contains("   43       -"), "{edit_rows}");
+        assert!(
+            edit_rows.contains("computed against 3f79bb7b"),
+            "{edit_rows}"
+        );
+        // The preview string is replaced, not shown beside the typed rows.
+        assert!(!edit_rows.contains("INPUT"), "{edit_rows}");
+
+        let mut overlay = OverlayState::new(OverlayKind::Approval);
+        overlay.selected_id = Some("approval_structured_merge".to_string());
+        state.ui.overlay = Some(overlay);
+        let merge_rows = focused_approval_rows(&state).join("\n");
+
+        // The multi-file case GUI-CORE-012 asked for, and no invented base
+        // hash: one hash cannot describe several files.
+        assert!(merge_rows.contains("frontend_services.rs"), "{merge_rows}");
+        assert!(merge_rows.contains("decision_context.rs"), "{merge_rows}");
+        assert!(!merge_rows.contains("computed against"), "{merge_rows}");
+    }
+
+    /// Without the extension the overlay keeps the preview line *and* says the
+    /// rows are unavailable, rather than letting a lossy string stand in for
+    /// the change Core did not publish.
+    #[test]
+    fn an_approval_without_the_structured_diff_capability_states_the_gap() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../crates/types/tests/fixtures/frontend-contract-v1/structured-diff.json"
+        ))
+        .expect("structured diff fixture");
+        let mut state = TuiState::default();
+        for envelope in fixture["events"].as_array().expect("fixture events") {
+            let envelope: RuntimeEventEnvelope =
+                serde_json::from_value(envelope.clone()).expect("fixture envelope");
+            if let RuntimeWireEvent::Known(event) = envelope.event {
+                state.runtime.apply_event(&event);
+            }
+        }
+        let mut overlay = OverlayState::new(OverlayKind::Approval);
+        overlay.selected_id = Some("approval_structured_edit".to_string());
+        state.ui.overlay = Some(overlay);
+
+        let rows = focused_approval_rows(&state).join("\n");
+
+        assert!(
+            rows.contains("INPUT   path: crates/types/src/diff.rs"),
+            "{rows}"
+        );
+        assert!(rows.contains("runtime.structured_diff"), "{rows}");
+        assert!(!rows.contains("@@"), "{rows}");
     }
 
     #[test]

@@ -24,7 +24,7 @@ run_preview() {
     -u ANTHROPIC_API_KEY \
     cargo run -p viden-cli -- "$@" --provider "$PROVIDER" --model "$MODEL" >"$OUT_DIR/$name.txt"
   case "$name" in
-    main-command-palette | main-setup-wizard | main-provider-selector | main-provider-detail | main-model-selector | main-lane-selector | main-lane)
+    main-command-palette | main-setup-wizard | main-provider-selector | main-provider-detail | main-model-selector | main-lane-selector | main-lane | main-approval-hunks)
       perl -0pi -e 's/[ \t]+$//mg' "$OUT_DIR/$name.txt"
       ;;
   esac
@@ -191,6 +191,7 @@ run_preview main-provider-selector --tui-preview-provider-selector
 run_preview main-provider-detail --tui-preview-provider-detail
 run_preview main-model-selector --tui-preview-model-selector
 run_preview main-lane-selector --tui-preview-lane-selector
+run_preview main-approval-hunks --tui-preview-approval-hunks
 run_preview main-lane --tui-preview-lane
 run_preview side-1 --tui-preview-side
 run_preview side-2 --tui-preview-side-2
@@ -206,6 +207,7 @@ run_ansi_preview main-provider-selector --tui-preview-provider-selector-ansi
 run_ansi_preview main-provider-detail --tui-preview-provider-detail-ansi
 run_ansi_preview main-model-selector --tui-preview-model-selector-ansi
 run_ansi_preview main-lane-selector --tui-preview-lane-selector-ansi
+run_ansi_preview main-approval-hunks --tui-preview-approval-hunks-ansi
 run_ansi_preview main-lane --tui-preview-lane-ansi
 run_ansi_preview side-1 --tui-preview-side-ansi
 run_ansi_preview side-2 --tui-preview-side-2-ansi
@@ -225,6 +227,7 @@ render_svg_preview "$OUT_DIR/main-provider-selector.ansi" "$OUT_DIR/main-provide
 render_svg_preview "$OUT_DIR/main-provider-detail.ansi" "$OUT_DIR/main-provider-detail.svg"
 render_svg_preview "$OUT_DIR/main-model-selector.ansi" "$OUT_DIR/main-model-selector.svg"
 render_svg_preview "$OUT_DIR/main-lane-selector.ansi" "$OUT_DIR/main-lane-selector.svg"
+render_svg_preview "$OUT_DIR/main-approval-hunks.ansi" "$OUT_DIR/main-approval-hunks.svg"
 render_svg_preview "$OUT_DIR/main-lane.ansi" "$OUT_DIR/main-lane.svg"
 render_svg_preview "$OUT_DIR/side-1.ansi" "$OUT_DIR/side-1.svg"
 render_svg_preview "$OUT_DIR/side-2.ansi" "$OUT_DIR/side-2.svg"
@@ -344,6 +347,7 @@ assert_line_count "$OUT_DIR/main-provider-selector.txt" 40
 assert_line_count "$OUT_DIR/main-provider-detail.txt" 40
 assert_line_count "$OUT_DIR/main-model-selector.txt" 40
 assert_line_count "$OUT_DIR/main-lane-selector.txt" 40
+assert_line_count "$OUT_DIR/main-approval-hunks.txt" 40
 assert_line_count "$OUT_DIR/main-lane.txt" 40
 assert_line_count "$OUT_DIR/side-1.txt" 40
 assert_line_count "$OUT_DIR/side-2.txt" 40
@@ -359,6 +363,7 @@ assert_max_char_width "$OUT_DIR/main-provider-selector.txt" 140
 assert_max_char_width "$OUT_DIR/main-provider-detail.txt" 140
 assert_max_char_width "$OUT_DIR/main-model-selector.txt" 140
 assert_max_char_width "$OUT_DIR/main-lane-selector.txt" 140
+assert_max_char_width "$OUT_DIR/main-approval-hunks.txt" 140
 assert_max_char_width "$OUT_DIR/main-lane.txt" 140
 assert_char_width "$OUT_DIR/side-1.txt" 80
 assert_char_width "$OUT_DIR/side-2.txt" 80
@@ -375,6 +380,7 @@ for preview_file in \
   "$OUT_DIR/main-provider-detail.txt" \
   "$OUT_DIR/main-model-selector.txt" \
   "$OUT_DIR/main-lane-selector.txt" \
+  "$OUT_DIR/main-approval-hunks.txt" \
   "$OUT_DIR/main-lane.txt" \
   "$OUT_DIR/side-1.txt" \
   "$OUT_DIR/side-2.txt" \
@@ -438,6 +444,10 @@ assert_contains "$OUT_DIR/multiscreen.txt" "TESTS / LSP"
 assert_contains "$OUT_DIR/multiscreen.txt" "MCP / CONTEXT"
 assert_contains "$OUT_DIR/multiscreen.txt" "RECENT EVIDENCE"
 assert_contains "$OUT_DIR/multiscreen.txt" "pty/01"
+assert_contains "$OUT_DIR/main-approval-hunks.txt" "@@ -18,4 +18,5 @@"
+assert_contains "$OUT_DIR/main-approval-hunks.txt" "computed against 9c1185a5"
+assert_contains "$OUT_DIR/main-approval-hunks.txt" "rows omitted by the byte bound"
+assert_ansi_contains "$OUT_DIR/main-approval-hunks.ansi" "@@ -18,4 +18,5 @@"
 assert_contains "$OUT_DIR/main-lane.txt" "LANE DETAIL"
 assert_contains "$OUT_DIR/main-lane.txt" "ROUTE main→side-1"
 assert_contains "$OUT_DIR/main-lane.txt" "CMD    codex exec test fixes"
@@ -455,6 +465,7 @@ for ansi_file in \
   "$OUT_DIR/main-provider-detail.ansi" \
   "$OUT_DIR/main-model-selector.ansi" \
   "$OUT_DIR/main-lane-selector.ansi" \
+  "$OUT_DIR/main-approval-hunks.ansi" \
   "$OUT_DIR/main-lane.ansi" \
   "$OUT_DIR/side-1.ansi" \
   "$OUT_DIR/side-2.ansi"; do
@@ -503,6 +514,7 @@ Files:
 - \`main-provider-detail.txt\` / \`main-provider-detail.ansi\`
 - \`main-model-selector.txt\` / \`main-model-selector.ansi\`
 - \`main-lane-selector.txt\` / \`main-lane-selector.ansi\`
+- \`main-approval-hunks.txt\` / \`main-approval-hunks.ansi\`
 - \`main-lane.txt\` / \`main-lane.ansi\`
 - \`main.svg\` / \`main-idle.svg\` / \`main-live-turn.svg\` / \`main-resize.svg\` / \`main-cjk-input.svg\` / \`main-command-palette.svg\` / \`main-setup-wizard.svg\` / \`main-provider-selector.svg\` / \`main-provider-detail.svg\` / \`main-model-selector.svg\` / \`main-lane-selector.svg\` / \`main-lane.svg\` quick visual screenshots
 - \`side-1.txt\` / \`side-1.ansi\` / \`side-1.svg\`
@@ -511,4 +523,4 @@ Files:
 - \`main.<theme>.ansi\` for each generated theme variant
 EOF
 
-wc -l "$OUT_DIR"/main.txt "$OUT_DIR"/main-idle.txt "$OUT_DIR"/main-live-turn.txt "$OUT_DIR"/main-resize.txt "$OUT_DIR"/main-cjk-input.txt "$OUT_DIR"/main-command-palette.txt "$OUT_DIR"/main-setup-wizard.txt "$OUT_DIR"/main-provider-selector.txt "$OUT_DIR"/main-provider-detail.txt "$OUT_DIR"/main-model-selector.txt "$OUT_DIR"/main-lane-selector.txt "$OUT_DIR"/main-lane.txt "$OUT_DIR"/side-1.txt "$OUT_DIR"/side-2.txt
+wc -l "$OUT_DIR"/main-approval-hunks.txt "$OUT_DIR"/main.txt "$OUT_DIR"/main-idle.txt "$OUT_DIR"/main-live-turn.txt "$OUT_DIR"/main-resize.txt "$OUT_DIR"/main-cjk-input.txt "$OUT_DIR"/main-command-palette.txt "$OUT_DIR"/main-setup-wizard.txt "$OUT_DIR"/main-provider-selector.txt "$OUT_DIR"/main-provider-detail.txt "$OUT_DIR"/main-model-selector.txt "$OUT_DIR"/main-lane-selector.txt "$OUT_DIR"/main-lane.txt "$OUT_DIR"/side-1.txt "$OUT_DIR"/side-2.txt

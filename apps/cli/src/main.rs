@@ -227,6 +227,24 @@ fn run() -> Result<(), String> {
         }
         return Ok(());
     }
+    if startup.tui_preview_approval_hunks || startup.tui_preview_approval_hunks_ansi {
+        if startup.tui_preview_approval_hunks_ansi {
+            print!(
+                "{}",
+                tui::render_ansi_approval_hunks_preview_with_theme(
+                    preview_provider,
+                    preview_model,
+                    startup.tui_theme.as_deref()
+                )
+            );
+        } else {
+            println!(
+                "{}",
+                tui::render_approval_hunks_preview(preview_provider, preview_model)
+            );
+        }
+        return Ok(());
+    }
     if startup.tui_preview_lane_selector || startup.tui_preview_lane_selector_ansi {
         if startup.tui_preview_lane_selector_ansi {
             print!(
@@ -441,6 +459,8 @@ struct StartupOptions {
     tui_preview_provider_detail_ansi: bool,
     tui_preview_model_selector: bool,
     tui_preview_model_selector_ansi: bool,
+    tui_preview_approval_hunks: bool,
+    tui_preview_approval_hunks_ansi: bool,
     tui_preview_lane_selector: bool,
     tui_preview_lane_selector_ansi: bool,
     tui_preview_lane: bool,
@@ -561,6 +581,12 @@ impl StartupOptions {
         }
         if self.tui_preview_model_selector_ansi {
             overrides.push("--tui-preview-model-selector-ansi".to_string());
+        }
+        if self.tui_preview_approval_hunks {
+            overrides.push("--tui-preview-approval-hunks".to_string());
+        }
+        if self.tui_preview_approval_hunks_ansi {
+            overrides.push("--tui-preview-approval-hunks-ansi".to_string());
         }
         if self.tui_preview_lane_selector {
             overrides.push("--tui-preview-lane-selector".to_string());
@@ -753,6 +779,12 @@ fn parse_startup_options(args: &[String]) -> Result<StartupOptions, String> {
             "--tui-preview-model-selector-ansi" => {
                 options.tui_preview_model_selector_ansi = true;
             }
+            "--tui-preview-approval-hunks" => {
+                options.tui_preview_approval_hunks = true;
+            }
+            "--tui-preview-approval-hunks-ansi" => {
+                options.tui_preview_approval_hunks_ansi = true;
+            }
             "--tui-preview-lane-selector" => {
                 options.tui_preview_lane_selector = true;
             }
@@ -872,6 +904,10 @@ fn print_startup_help() {
     println!("                       Print a grouped model selector preview");
     println!("  --tui-preview-model-selector-ansi");
     println!("                       Print a themed grouped model selector preview");
+    println!("  --tui-preview-approval-hunks");
+    println!("                       Print an approval preview with Core decision-context hunks");
+    println!("  --tui-preview-approval-hunks-ansi");
+    println!("                       Print a themed approval decision-context hunk preview");
     println!("  --tui-preview-lane-selector");
     println!("                       Print a lane action selector preview");
     println!("  --tui-preview-lane-selector-ansi");

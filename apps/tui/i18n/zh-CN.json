@@ -257,5 +257,14 @@
   "audit.busy": "已有一个审计页在途，未发送任何命令。",
   "audit.load_older": "加载更早的记录",
   "audit.footer.more": "LOADED {count} · 仍有更早的记录",
-  "audit.footer.complete": "LOADED {count} · 没有更早的匹配记录"
+  "audit.footer.complete": "LOADED {count} · 没有更早的匹配记录",
+  "approval.diff.file": "{path}  {kind}  {counts}",
+  "approval.diff.rename": "  原路径 {old_path}",
+  "approval.diff.binary": "  二进制内容 · Core 未发布行",
+  "approval.diff.omitted": "  行已被字节上限省略 · 计数仍为真实值",
+  "approval.diff.hunk": "  @@ -{old} +{new} @@ {header}",
+  "approval.diff.truncated": "  差异在 {limit} 字节处截断",
+  "approval.diff.more": "  另有 {count} 行差异未显示",
+  "approval.diff.base": "基于 {sha} 计算",
+  "approval.diff.unavailable": "无法显示差异行 · {capability}"
 }

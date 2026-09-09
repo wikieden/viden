@@ -257,5 +257,14 @@
   "audit.busy": "An audit page is already in flight. Nothing was sent.",
   "audit.load_older": "Load older records",
   "audit.footer.more": "LOADED {count} · older records remain",
-  "audit.footer.complete": "LOADED {count} · nothing older matches"
+  "audit.footer.complete": "LOADED {count} · nothing older matches",
+  "approval.diff.file": "{path}  {kind}  {counts}",
+  "approval.diff.rename": "  renamed from {old_path}",
+  "approval.diff.binary": "  binary content · Core published no rows",
+  "approval.diff.omitted": "  rows omitted by the byte bound · counts are real",
+  "approval.diff.hunk": "  @@ -{old} +{new} @@ {header}",
+  "approval.diff.truncated": "  diff truncated at {limit} bytes",
+  "approval.diff.more": "  {count} more diff rows not shown",
+  "approval.diff.base": "computed against {sha}",
+  "approval.diff.unavailable": "hunk rows unavailable · {capability}"
 }

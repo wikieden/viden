@@ -68,6 +68,23 @@ pub(super) fn truncate_tail(value: &str, width: usize) -> String {
     format!("…{}", suffix_by_width(value, width - 1))
 }
 
+/// End-truncates, marking the cut with the registered `…` glyph.
+///
+/// The mirror image of [`truncate_tail`]: a diff content line is distinguished
+/// by how it *starts* — the indentation and the first tokens — so the cut goes
+/// at the end, and the marker is what separates "this line is this short" from
+/// "the rest did not fit". A plain [`truncate`] cannot say that.
+pub(super) fn truncate_end(value: &str, width: usize) -> String {
+    if char_width(value) <= width {
+        return value.to_string();
+    }
+    // Below two columns there is no room for both the marker and any content.
+    if width < 2 {
+        return truncate(value, width);
+    }
+    format!("{}…", truncate(value, width - 1))
+}
+
 #[allow(dead_code)]
 pub(super) fn compact_middle(value: &str, width: usize) -> String {
     if char_width(value) <= width {
@@ -196,6 +213,20 @@ mod tests {
 
         assert_eq!(rows, vec!["你好", "你好", "你好"]);
         assert!(rows.iter().all(|row| char_width(row) <= 4));
+    }
+
+    #[test]
+    fn end_truncation_marks_the_cut_and_never_exceeds_the_width() {
+        let line = "    pub truncated: bool, // bounded by byte_limit";
+        assert_eq!(truncate_end(line, 12), "    pub tru…");
+        for width in 0..24 {
+            assert!(
+                char_width(&truncate_end(line, width)) <= width,
+                "width {width}"
+            );
+        }
+        // A line that fits keeps every column and gains no marker.
+        assert_eq!(truncate_end("short", 16), "short");
     }
 
     #[test]

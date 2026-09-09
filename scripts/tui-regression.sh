@@ -397,6 +397,7 @@ copy_artifact "$OUT_DIR/main-provider-selector.svg" "$SCREENSHOT_DIR/${VERSION}-
 copy_artifact "$OUT_DIR/main-provider-detail.svg" "$SCREENSHOT_DIR/${VERSION}-tui-provider-detail.svg"
 copy_artifact "$OUT_DIR/main-model-selector.svg" "$SCREENSHOT_DIR/${VERSION}-tui-model-selector.svg"
 copy_artifact "$OUT_DIR/main-lane-selector.svg" "$SCREENSHOT_DIR/${VERSION}-tui-lane-selector.svg"
+copy_artifact "$OUT_DIR/main-approval-hunks.svg" "$SCREENSHOT_DIR/${VERSION}-tui-approval-hunks.svg"
 copy_artifact "$OUT_DIR/main-lane.svg" "$SCREENSHOT_DIR/${VERSION}-tui-lane-detail.svg"
 copy_artifact "$OUT_DIR/side-1.svg" "$SCREENSHOT_DIR/${VERSION}-tui-side-1.svg"
 copy_artifact "$OUT_DIR/side-2.svg" "$SCREENSHOT_DIR/${VERSION}-tui-side-2.svg"
@@ -421,6 +422,7 @@ required = {
     "provider_detail": out_dir / "main-provider-detail.txt",
     "model_selector": out_dir / "main-model-selector.txt",
     "lane_selector": out_dir / "main-lane-selector.txt",
+    "approval_hunks": out_dir / "main-approval-hunks.txt",
     "lane_detail": out_dir / "main-lane.txt",
     "side_1": out_dir / "side-1.txt",
     "side_2": out_dir / "side-2.txt",
@@ -575,6 +577,7 @@ Each SVG is a deterministic visual artifact for product review:
 - \`${VERSION}-tui-provider-detail.svg\`: safe provider health and trusted-ingress status
 - \`${VERSION}-tui-model-selector.svg\`: provider-grouped model selector evidence
 - \`${VERSION}-tui-lane-selector.svg\`: lane action selector evidence
+- \`${VERSION}-tui-approval-hunks.svg\`: approval overlay with Core decision-context hunk rows
 - \`${VERSION}-tui-lane-detail.svg\`: focused lane detail
 - \`${VERSION}-tui-side-1.svg\`: lane side screen
 - \`${VERSION}-tui-side-2.svg\`: ops/test side screen

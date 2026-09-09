@@ -6978,12 +6978,23 @@ mod tests {
         assert!(manifest.contains(
             "tokens_css = \"826826ee6ddab845897472701add67ee9f55aff25af539651e6089553b7e6398\""
         ));
-        assert!(manifest.contains(
-            "catalog_en = \"4f4914dfa3356b1f37af11e5b905ca55daf0eacc9ee4e46d81446a8e3c2fa0f6\""
-        ));
-        assert!(manifest.contains(
-            "catalog_zh_cn = \"5a96354a494899536acddaecfc8d5488a14dc3ac448507df4a9bee98e3706ae5\""
-        ));
+        // The catalogs are pinned by *recomputation*, not by a literal: a
+        // literal has to be edited by hand every time a string is added, which
+        // is exactly when the pin stops proving anything. Computing it here
+        // asserts what the manifest is for — the shipped catalogs are the ones
+        // the certification names — and `scripts/tui-regression.sh` recomputes
+        // the same two digests the same way.
+        for (key, catalog) in [
+            ("catalog_en", include_str!("../../i18n/en.json")),
+            ("catalog_zh_cn", include_str!("../../i18n/zh-CN.json")),
+        ] {
+            use sha2::{Digest, Sha256};
+            let digest = format!("{:x}", Sha256::digest(catalog.as_bytes()));
+            assert!(
+                manifest.contains(&format!("{key} = \"{digest}\"")),
+                "{key} digest {digest} is not pinned in the TUI release manifest"
+            );
+        }
         assert!(manifest.contains("min_core_version = \"0.3.4\""));
         assert!(
             manifest

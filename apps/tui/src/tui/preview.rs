@@ -1,8 +1,11 @@
 use super::state::{InteractionPanel, Lens, ProviderAuthMode, ProviderOption, TuiEntry, TuiState};
 use super::{render, terminal};
 use viden_core::{
-    AgentLaneRecord, AgentRole, AgentRoute, DataEgressPolicy, ExecutionTarget, GateStrength,
-    LaneBudget, LaneStatus, MutationPolicy, ProjectConfigState, ProjectProbe, ProviderHealthView,
+    AgentLaneRecord, AgentRole, AgentRoute, ApprovalDefaultAction, ApprovalRequestView,
+    ApprovalRisk, ApprovalScope, ApprovalTarget, DataEgressPolicy, DecisionContext, DiffDocument,
+    DiffFile, DiffHunk, DiffLine, DiffLineKind, ExecutionTarget, GateStrength, LaneBudget,
+    LaneStatus, MutationPolicy, ProjectConfigState, ProjectProbe, ProviderHealthView,
+    WorkspaceChangeKind,
 };
 
 pub fn render_preview(provider: &str, model: &str) -> String {
@@ -42,6 +45,11 @@ pub fn render_model_selector_preview(provider: &str, model: &str) -> String {
 
 pub fn render_lane_selector_preview(provider: &str, model: &str) -> String {
     let state = lane_selector_preview_state(provider, model, "aurora-cyan");
+    render::render_frame(&state, 140, 40)
+}
+
+pub fn render_approval_hunks_preview(provider: &str, model: &str) -> String {
+    let state = approval_hunks_preview_state(provider, model, "aurora-cyan");
     render::render_frame(&state, 140, 40)
 }
 
@@ -145,6 +153,19 @@ pub fn render_ansi_lane_selector_preview_with_theme(
 ) -> String {
     let theme_name = theme_name.unwrap_or("aurora-cyan");
     let state = lane_selector_preview_state(provider, model, theme_name);
+    terminal::render_ansi_preview_with_theme(
+        &render::render_frame(&state, 140, 40),
+        Some(theme_name),
+    )
+}
+
+pub fn render_ansi_approval_hunks_preview_with_theme(
+    provider: &str,
+    model: &str,
+    theme_name: Option<&str>,
+) -> String {
+    let theme_name = theme_name.unwrap_or("aurora-cyan");
+    let state = approval_hunks_preview_state(provider, model, theme_name);
     terminal::render_ansi_preview_with_theme(
         &render::render_frame(&state, 140, 40),
         Some(theme_name),
@@ -519,6 +540,128 @@ fn resize_preview_state(provider: &str, model: &str, theme_name: &str) -> TuiSta
         body: "Resize-safe redraw check: stale borders cleared; composer and panels reflow from one frame.".to_string(),
     });
     state
+}
+
+/// The approval overlay with Core's structured decision context
+/// (`runtime.structured_diff`, GUI-CORE-012).
+///
+/// Every row here comes from a `DecisionContext` value, never from
+/// `input_preview`: the point of the evidence is that a reviewer sees Core's
+/// hunks and Core's line numbers, including the file whose rows the byte bound
+/// dropped.
+fn approval_hunks_preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState {
+    let mut state = preview_state(provider, model, theme_name);
+    state.ui.input = "".into();
+    state.runtime.pending_approvals = vec![ApprovalRequestView {
+        id: "approval-preview-edit".to_string(),
+        tool_name: "edit_file".to_string(),
+        title: "Approve edit_file".to_string(),
+        message: "edit_file requires approval".to_string(),
+        input_preview: "path: src/config.rs".to_string(),
+        is_mutating: true,
+        reason: Some("edit_file requires approval".to_string()),
+        owner: Default::default(),
+        risk: ApprovalRisk::Medium,
+        target: ApprovalTarget {
+            kind: "edit_file".to_string(),
+            display: "src/config.rs".to_string(),
+            canonical_ref: None,
+        },
+        allowed_scopes: vec![ApprovalScope::Once],
+        policy_reason_key: "permission.requires_approval".to_string(),
+        policy_reason_args: Default::default(),
+        expires_at: 0,
+        default_action: ApprovalDefaultAction::Deny,
+        audit_id: "audit-preview-edit".to_string(),
+        decision_context: Some(DecisionContext {
+            diff: Some(DiffDocument {
+                files: vec![
+                    DiffFile {
+                        path: "src/config.rs".to_string(),
+                        old_path: None,
+                        kind: WorkspaceChangeKind::Modified,
+                        binary: false,
+                        omitted: false,
+                        additions: 2,
+                        deletions: 1,
+                        hunks: vec![DiffHunk {
+                            old_start: 18,
+                            old_lines: 4,
+                            new_start: 18,
+                            new_lines: 5,
+                            header: Some("pub fn load_config".to_string()),
+                            lines: vec![
+                                preview_diff_line(
+                                    DiffLineKind::Context,
+                                    "pub fn load_config(path: &Path) -> Result<Config> {",
+                                    Some(18),
+                                    Some(18),
+                                ),
+                                preview_diff_line(
+                                    DiffLineKind::Removed,
+                                    "    let raw = std::fs::read_to_string(path)?;",
+                                    Some(19),
+                                    None,
+                                ),
+                                preview_diff_line(
+                                    DiffLineKind::Added,
+                                    "    let raw = read_config_file(path)?;",
+                                    None,
+                                    Some(19),
+                                ),
+                                preview_diff_line(
+                                    DiffLineKind::Added,
+                                    "    let parsed = toml::from_str(&raw)?;",
+                                    None,
+                                    Some(20),
+                                ),
+                                preview_diff_line(
+                                    DiffLineKind::Context,
+                                    "    Ok(parsed)",
+                                    Some(20),
+                                    Some(21),
+                                ),
+                            ],
+                        }],
+                    },
+                    DiffFile {
+                        path: "tests/config_tests.rs".to_string(),
+                        old_path: None,
+                        kind: WorkspaceChangeKind::Added,
+                        binary: false,
+                        omitted: true,
+                        additions: 86,
+                        deletions: 0,
+                        hunks: Vec::new(),
+                    },
+                ],
+                truncated: true,
+                byte_limit: 65536,
+            }),
+            base_sha256: Some(
+                "9c1185a5c5e9fc54612808977ee8f548b2258d31a0f4e6e6f2a1b9c3d4e5f607".to_string(),
+            ),
+        }),
+    }];
+    let mut overlay = super::state::OverlayState::new(super::keymap::OverlayKind::Approval);
+    overlay.selected_id = Some("approval-preview-edit".to_string());
+    state.ui.overlay = Some(overlay);
+    state.ui.lens = Lens::Decisions;
+    state
+}
+
+fn preview_diff_line(
+    kind: DiffLineKind,
+    content: &str,
+    old_line: Option<u32>,
+    new_line: Option<u32>,
+) -> DiffLine {
+    DiffLine {
+        kind,
+        content: content.to_string(),
+        old_line,
+        new_line,
+    }
 }
 
 fn cjk_input_preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState {
