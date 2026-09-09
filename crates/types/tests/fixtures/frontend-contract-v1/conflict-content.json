@@ -1,0 +1,397 @@
+{
+  "fixture_id": "conflict-content",
+  "schema_version": 1,
+  "required_capabilities": [
+    "runtime.conflict_content",
+    "runtime.events",
+    "runtime.merge_gate",
+    "runtime.snapshot",
+    "runtime.typed_lanes"
+  ],
+  "initial_snapshot": {
+    "cwd": "workspace/viden",
+    "provider_family": "deepseek",
+    "model_label": "deepseek-v4-flash",
+    "work_mode": "build",
+    "permission_mode": "default",
+    "permission_level": "ask",
+    "config_summary": "{\"design_entry\":{\"d11\":\"onboarding subordinate\",\"gui\":\"GUI index -> component library -> D1 desktop cockpit\",\"hierarchy\":[\"docs/viden-design/Viden/index.html\",\"client design index\",\"component library\",\"TUI unified prototype or GUI D1 desktop cockpit\"],\"tui\":\"TUI index -> component library -> unified prototype\"},\"ui\":{\"density\":[\"compact\",\"regular\",\"comfy\"],\"effective\":{\"density\":\"regular\",\"locale\":\"zh-CN\",\"mode\":\"dark\",\"motion\":\"reduced\",\"skin\":\"aurora\"},\"locales\":[\"en\",\"zh-CN\"],\"motion\":[\"system\",\"reduced\",\"full\"],\"skin_mode_pairs\":[[\"aurora\",\"dark\"],[\"aurora\",\"light\"],[\"ice\",\"dark\"],[\"ice\",\"light\"],[\"mono\",\"dark\"],[\"mono\",\"light\"],[\"amber\",\"dark\"],[\"phosphor\",\"dark\"]]}}",
+    "loaded_config_files": [
+      "config/viden.toml"
+    ],
+    "startup_overrides": [
+      "--provider=deepseek"
+    ],
+    "ui_preferences": {
+      "locale": "zh-CN",
+      "skin": "aurora",
+      "mode": "dark",
+      "density": "regular",
+      "motion": "reduced",
+      "diagnostics": []
+    }
+  },
+  "events": [
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_conflict_b",
+        "session_id": "session_conflict_content",
+        "task_id": "task_conflict_b",
+        "turn_id": "turn_conflict_content"
+      },
+      "cursor": {
+        "stream_id": "fixture:conflict-content",
+        "sequence": 1
+      },
+      "event": {
+        "sequence": 1,
+        "timestamp": 1700003001,
+        "kind": {
+          "type": "merge_gate_updated",
+          "payload": {
+            "gate": {
+              "gate_id": "gate_conflict_a",
+              "task_id": "task_conflict_a",
+              "status": "merged",
+              "required_evidence": [
+                "patch"
+              ],
+              "evidence_ids": [
+                "ev_conflict_patch_a"
+              ],
+              "gate_type": "patch",
+              "owner": {
+                "workspace_id": "workspace_contract_v1",
+                "project_id": "project_viden",
+                "lane_id": "lane_conflict_a",
+                "session_id": "session_conflict_content",
+                "task_id": "task_conflict_a",
+                "turn_id": "turn_conflict_content"
+              },
+              "policy_snapshot": {
+                "required_evidence": [
+                  "patch"
+                ],
+                "permission_snapshot_id": "permission_conflict_content",
+                "requires_independent_validator": false,
+                "captured_at": 1700003000
+              },
+              "decision": {
+                "outcome": "merged",
+                "reason": "apply reviewed patch",
+                "owner": {
+                  "workspace_id": "workspace_contract_v1",
+                  "project_id": "project_viden",
+                  "lane_id": "lane_conflict_a",
+                  "session_id": "session_conflict_content",
+                  "task_id": "task_conflict_a",
+                  "turn_id": "turn_conflict_content"
+                },
+                "evidence_ids": [
+                  "ev_conflict_patch_a"
+                ],
+                "audit_id": "audit_conflict_merge_a",
+                "decided_at": 1700003001
+              },
+              "applied_change_id": "change_conflict_a",
+              "audit_ids": [
+                "audit_conflict_merge_a"
+              ],
+              "updated_at": 1700003001
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_conflict_b",
+        "session_id": "session_conflict_content",
+        "task_id": "task_conflict_b",
+        "turn_id": "turn_conflict_content"
+      },
+      "cursor": {
+        "stream_id": "fixture:conflict-content",
+        "sequence": 2
+      },
+      "event": {
+        "sequence": 2,
+        "timestamp": 1700003002,
+        "kind": {
+          "type": "merge_conflict_bounced",
+          "payload": {
+            "conflict": {
+              "bounce_id": "bounce_conflict_b",
+              "gate_id": "gate_conflict_b",
+              "task_id": "task_conflict_b",
+              "original_lane_id": "lane_conflict_b",
+              "owner": {
+                "workspace_id": "workspace_contract_v1",
+                "project_id": "project_viden",
+                "lane_id": "lane_conflict_b",
+                "session_id": "session_conflict_content",
+                "task_id": "task_conflict_b",
+                "turn_id": "turn_conflict_content"
+              },
+              "reason": "patch conflict: expected hunk context was not found",
+              "status": "pending",
+              "evidence_ids": [
+                "ev_conflict_patch_b"
+              ],
+              "baseline_evidence": [
+                {
+                  "evidence_id": "ev_conflict_patch_b",
+                  "source_hash": "cfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcf"
+                }
+              ],
+              "content": {
+                "baseline": {
+                  "evidence": {
+                    "bindings": [
+                      {
+                        "evidence_id": "ev_conflict_patch_b",
+                        "source_hash": "cfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcf"
+                      }
+                    ]
+                  }
+                },
+                "files": [
+                  {
+                    "path": "crates/runtime/src/trust_loop.rs",
+                    "hunks": [
+                      {
+                        "ours_start": 42,
+                        "ours": [
+                          "    let bounce = record_conflict_bounce(gate)?;\n"
+                        ],
+                        "theirs_start": 42,
+                        "theirs": [
+                          "    let bounce = bounce_with_reason(gate, reason)?;\n"
+                        ],
+                        "base": [
+                          "    let bounce = record_bounce(gate)?;\n"
+                        ],
+                        "reason": "context_mismatch"
+                      }
+                    ],
+                    "omitted": false
+                  }
+                ],
+                "truncated": false
+              },
+              "audit_id": "audit_conflict_bounce_b",
+              "created_at": 1700003002,
+              "revalidated_at": null
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_conflict_b",
+        "session_id": "session_conflict_content",
+        "task_id": "task_conflict_b",
+        "turn_id": "turn_conflict_content"
+      },
+      "cursor": {
+        "stream_id": "fixture:conflict-content",
+        "sequence": 3
+      },
+      "event": {
+        "sequence": 3,
+        "timestamp": 1700003003,
+        "kind": {
+          "type": "merge_gate_updated",
+          "payload": {
+            "gate": {
+              "gate_id": "gate_conflict_b",
+              "task_id": "task_conflict_b",
+              "status": "needs_changes",
+              "required_evidence": [
+                "patch"
+              ],
+              "evidence_ids": [
+                "ev_conflict_patch_b"
+              ],
+              "gate_type": "patch",
+              "owner": {
+                "workspace_id": "workspace_contract_v1",
+                "project_id": "project_viden",
+                "lane_id": "lane_conflict_b",
+                "session_id": "session_conflict_content",
+                "task_id": "task_conflict_b",
+                "turn_id": "turn_conflict_content"
+              },
+              "policy_snapshot": {
+                "required_evidence": [
+                  "patch"
+                ],
+                "permission_snapshot_id": "permission_conflict_content",
+                "requires_independent_validator": false,
+                "captured_at": 1700003000
+              },
+              "decision": {
+                "outcome": "conflict",
+                "reason": "patch conflict: expected hunk context was not found",
+                "owner": {
+                  "workspace_id": "workspace_contract_v1",
+                  "project_id": "project_viden",
+                  "lane_id": "lane_conflict_b",
+                  "session_id": "session_conflict_content",
+                  "task_id": "task_conflict_b",
+                  "turn_id": "turn_conflict_content"
+                },
+                "evidence_ids": [
+                  "ev_conflict_patch_b"
+                ],
+                "audit_id": "audit_conflict_bounce_b",
+                "decided_at": 1700003002
+              },
+              "conflict": {
+                "bounce_id": "bounce_conflict_b",
+                "gate_id": "gate_conflict_b",
+                "task_id": "task_conflict_b",
+                "original_lane_id": "lane_conflict_b",
+                "owner": {
+                  "workspace_id": "workspace_contract_v1",
+                  "project_id": "project_viden",
+                  "lane_id": "lane_conflict_b",
+                  "session_id": "session_conflict_content",
+                  "task_id": "task_conflict_b",
+                  "turn_id": "turn_conflict_content"
+                },
+                "reason": "patch conflict: expected hunk context was not found",
+                "status": "pending",
+                "evidence_ids": [
+                  "ev_conflict_patch_b"
+                ],
+                "baseline_evidence": [
+                  {
+                    "evidence_id": "ev_conflict_patch_b",
+                    "source_hash": "cfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcf"
+                  }
+                ],
+                "content": {
+                  "baseline": {
+                    "evidence": {
+                      "bindings": [
+                        {
+                          "evidence_id": "ev_conflict_patch_b",
+                          "source_hash": "cfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfcf"
+                        }
+                      ]
+                    }
+                  },
+                  "files": [
+                    {
+                      "path": "crates/runtime/src/trust_loop.rs",
+                      "hunks": [
+                        {
+                          "ours_start": 42,
+                          "ours": [
+                            "    let bounce = record_conflict_bounce(gate)?;\n"
+                          ],
+                          "theirs_start": 42,
+                          "theirs": [
+                            "    let bounce = bounce_with_reason(gate, reason)?;\n"
+                          ],
+                          "base": [
+                            "    let bounce = record_bounce(gate)?;\n"
+                          ],
+                          "reason": "context_mismatch"
+                        }
+                      ],
+                      "omitted": false
+                    }
+                  ],
+                  "truncated": false
+                },
+                "audit_id": "audit_conflict_bounce_b",
+                "created_at": 1700003002,
+                "revalidated_at": null
+              },
+              "audit_ids": [
+                "audit_conflict_bounce_b"
+              ],
+              "updated_at": 1700003002
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_conflict_b",
+        "session_id": "session_conflict_content",
+        "task_id": "task_conflict_b",
+        "turn_id": "turn_conflict_content"
+      },
+      "cursor": {
+        "stream_id": "fixture:conflict-content",
+        "sequence": 4
+      },
+      "event": {
+        "sequence": 4,
+        "timestamp": 1700003004,
+        "kind": {
+          "type": "lane_conflict_detected",
+          "payload": {
+            "lane_id": "lane_conflict_b",
+            "summary": "patch conflict: expected hunk context was not found",
+            "paths": [
+              "crates/runtime/src/trust_loop.rs"
+            ],
+            "content": {
+              "baseline": {
+                "revision": {
+                  "sha": "9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f"
+                }
+              },
+              "files": [
+                {
+                  "path": "crates/runtime/src/trust_loop.rs",
+                  "hunks": [
+                    {
+                      "ours_start": 42,
+                      "ours": [
+                        "    let bounce = record_conflict_bounce(gate)?;\n"
+                      ],
+                      "theirs_start": 42,
+                      "theirs": [
+                        "    let bounce = lane_bounce(gate)?;\n"
+                      ],
+                      "base": [
+                        "    let bounce = record_bounce(gate)?;\n"
+                      ],
+                      "reason": "context_mismatch"
+                    }
+                  ],
+                  "omitted": false
+                }
+              ],
+              "truncated": false
+            }
+          }
+        }
+      }
+    }
+  ],
+  "expected_final_cursor": {
+    "stream_id": "fixture:conflict-content",
+    "sequence": 4
+  },
+  "expected_view_sha256": "d73ea2a144cd2682f3c5121f124c952dfad158e4befdd1a60ec9b9dc1c4d01bf"
+}

@@ -16,11 +16,12 @@ use viden_types::{
     AgentStartability, AgentTaskKind, AgentTaskRecord, AgentTaskStatus, ApprovalDecision,
     ApprovalDefaultAction, ApprovalRequestView, ApprovalResponse, ApprovalRisk, ApprovalScope,
     ApprovalTarget, AuditActor, AuditActorFilter, AuditObjectRef, AuditOutcome, AuditPage,
-    AuditQuery, AuditRecord, CapabilityId, ContextBudgetRecord, ContextBundleRecord,
-    ContextOmittedSourceRecord, ContextScope, ContextSourceRecord, CostScope, CostUsageOutcome,
-    CostUsageRecord, DecisionContext, DiffDocument, DiffFile, DiffHunk, DiffLine, DiffLineKind,
-    EventCursor, EvidenceView, ExecutionTarget, FRONTEND_SCHEMA_V1, GateStrength, LaneBudget,
-    LaneRuntimeOwnerBinding, LaneStatus, MergeGateDecision, MergeGateDecisionOutcome,
+    AuditQuery, AuditRecord, CapabilityId, ConflictBaseline, ConflictBounce, ConflictBounceStatus,
+    ConflictContent, ConflictFile, ConflictHunk, ConflictHunkReason, ContextBudgetRecord,
+    ContextBundleRecord, ContextOmittedSourceRecord, ContextScope, ContextSourceRecord, CostScope,
+    CostUsageOutcome, CostUsageRecord, DecisionContext, DiffDocument, DiffFile, DiffHunk, DiffLine,
+    DiffLineKind, EventCursor, EvidenceView, ExecutionTarget, FRONTEND_SCHEMA_V1, GateStrength,
+    LaneBudget, LaneRuntimeOwnerBinding, LaneStatus, MergeGateDecision, MergeGateDecisionOutcome,
     MergeGatePolicySnapshot, MergeGateRecord, MergeGateStatus, MergeGateType, MergeGateValidator,
     MutationPolicy, OperatorGitAction, OperatorGitFailureClass, OperatorGitOutcome,
     PermissionLevel, PermissionMode, ProjectConfigState, ProjectProbe, QueuedInputView,
@@ -177,6 +178,10 @@ fn frontend_host_capabilities_are_schema_one_core_0_3_5_and_additive() {
         "runtime.agent_sessions",
         "runtime.audit",
         "runtime.cockpit_context_v1",
+        // GUI-CORE-015. Additive like the rows around it; the frozen base list
+        // is untouched, which is what keeps the nine base fixtures
+        // byte-identical.
+        "runtime.conflict_content",
         "runtime.credential_handles",
         "runtime.credential_staging",
         "runtime.lane_lifecycle",
@@ -1606,6 +1611,127 @@ fn operator_git_fixture_separates_a_refusal_a_completion_and_a_failure() {
             .is_some_and(|diff| !diff.files.is_empty()),
         "a commit approval must show the staged rows it would turn into a commit"
     );
+}
+
+/// GUI-CORE-015: canonical proof that a conflict is published as lines with a
+/// named baseline, and that the two attach sites answer with the same shape.
+///
+/// The merge bounce and the Lane conflict both carry `ours`, `theirs`, and the
+/// patch preimage, each separately addressable. Their baselines differ by kind
+/// on purpose — a gate's baseline is its canonical reviewed evidence, a Lane's
+/// is the revision its file was read at — and neither is invented. Nothing in
+/// the payload is a merged result: Core computed no merge base, and a client
+/// that presented these three sides as a resolvable three-way merge would
+/// offer an auto-resolution Core never produced.
+#[test]
+fn conflict_content_fixture_publishes_two_sides_and_a_preimage() {
+    let name = "conflict-content.json";
+    let root = fixture_root();
+    let fixture_bytes = fs::read(root.join(name)).expect("read conflict content fixture bytes");
+    let fixture_sha256 = format!("{:x}", Sha256::digest(&fixture_bytes));
+    let extension_manifest = include_str!("../frontend-contract-extensions.toml");
+    assert!(
+        extension_manifest.contains(&format!(
+            "conflict_content_fixture_sha256 = \"{fixture_sha256}\""
+        )),
+        "the extension manifest must register the exact conflict content fixture bytes"
+    );
+    assert!(extension_manifest.contains("conflict_content_fixture = \"conflict-content.json\""));
+
+    let fixture = read_fixture(&root, name);
+    assert_fixture_identity(name, &fixture);
+    assert_capabilities_are_sorted_unique_and_advertised(name, &fixture);
+    assert_cursors_are_contiguous(name, &fixture);
+
+    let (view, first_cursor, first_digest) = replay_fixture(&fixture);
+    let (_, second_cursor, second_digest) = replay_fixture(&fixture);
+    assert_eq!(first_cursor, second_cursor);
+    assert_eq!(first_digest, second_digest);
+    assert_eq!(first_cursor, fixture.expected_final_cursor);
+    assert_eq!(first_digest, fixture.expected_view_sha256);
+    assert!(
+        extension_manifest.contains(&format!(
+            "conflict_content_view_sha256 = \"{first_digest}\""
+        )),
+        "the extension manifest must register the replayed view digest"
+    );
+
+    for envelope in &fixture.events {
+        if let RuntimeWireEvent::Unknown { event_type, .. } = &envelope.event {
+            panic!(
+                "conflict content fixture events must all be known, got {event_type} — a client \
+                 whose conflict was quarantined is told a merge stalled for no reason"
+            );
+        }
+    }
+
+    // Lane A merged; Lane B did not, and its gate carries the bounce.
+    assert!(
+        view.merge_gates
+            .iter()
+            .any(|gate| gate.gate_id == "gate_conflict_a" && gate.status == MergeGateStatus::Merged)
+    );
+    let bounce = view
+        .merge_gates
+        .iter()
+        .find(|gate| gate.gate_id == "gate_conflict_b")
+        .and_then(|gate| gate.conflict.as_ref())
+        .expect("the refused merge must leave its bounce on the gate");
+    let merge_content = bounce
+        .content
+        .as_ref()
+        .expect("a bounce raised by a failed apply carries its lines");
+    assert_eq!(
+        merge_content.baseline,
+        ConflictBaseline::Evidence {
+            bindings: bounce.baseline_evidence.clone()
+        },
+        "a gate's baseline is the canonical evidence it was reviewed against"
+    );
+
+    let lane_conflict = view
+        .lane_conflicts
+        .iter()
+        .find(|conflict| conflict.lane_id == "lane_conflict_b")
+        .expect("the lane apply conflict must reach the view");
+    let lane_content = lane_conflict
+        .content
+        .as_ref()
+        .expect("a refused lane apply carries its lines");
+    assert!(
+        matches!(lane_content.baseline, ConflictBaseline::Revision { ref sha } if sha.len() == 40),
+        "a Lane has no reviewed baseline, so it names the revision it read"
+    );
+
+    // Both sites answer with the same shape: two sides plus the preimage, each
+    // separately positioned, and none of them a merged result.
+    for content in [merge_content, lane_content] {
+        assert!(!content.truncated);
+        assert_eq!(content.files.len(), 1);
+        assert!(!content.files[0].omitted);
+        assert_eq!(content.files[0].hunks.len(), 1);
+        let hunk = &content.files[0].hunks[0];
+        assert_eq!(hunk.reason, ConflictHunkReason::ContextMismatch);
+        assert_eq!(hunk.ours_start, 42);
+        assert_eq!(hunk.theirs_start, 42);
+        let base = hunk.base.as_ref().expect("the patch preimage is shown");
+        assert_ne!(&hunk.ours, &hunk.theirs);
+        assert_ne!(&hunk.ours, base);
+        assert_ne!(&hunk.theirs, base);
+    }
+}
+
+#[test]
+#[ignore = "manual conflict content fixture refresh; normal tests validate committed JSON only"]
+fn refresh_conflict_content_extension_fixture() {
+    let root = fixture_root();
+    fs::create_dir_all(&root).unwrap();
+    let fixture = conflict_content_fixture();
+    fs::write(
+        root.join("conflict-content.json"),
+        serde_json::to_string_pretty(&fixture).unwrap() + "\n",
+    )
+    .unwrap();
 }
 
 #[test]
@@ -3765,6 +3891,197 @@ fn operator_git_fixture() -> FrontendContractFixtureOut {
         ],
         snapshot(WorkMode::Build),
         owned_envelopes(fixture_id, owner, kinds, 1_700_002_000),
+    )
+}
+
+/// GUI-CORE-015: a merge that lands, a merge that collides, and a Lane apply
+/// that collides — with the lines, not a sentence.
+///
+/// Two Lanes touch the same file. Lane A's patch merges. Lane B's patch was
+/// written against the text Lane A replaced, so its apply is refused and the
+/// bounce carries the collision: what the file holds now, what Lane B's patch
+/// carried, and the preimage Lane B expected. Those three sides are the whole
+/// contract — Core computes no merge base and resolves nothing, so a client
+/// must render them as two sides plus a preimage and never as a three-way
+/// merge with a resolvable result.
+///
+/// The two baselines are deliberately different kinds. A merge gate's baseline
+/// *is* its canonical reviewed evidence, so the bounce says `Evidence`; a Lane
+/// has no reviewed baseline, so its conflict says `Revision` — the commit the
+/// worktree was read at. A single "baseline" string would have forced both
+/// into a shape that is a lie for one of them.
+///
+/// Every value is fixed and no machine path appears, so the bytes are
+/// identical on every machine that regenerates this fixture.
+fn conflict_content_fixture() -> FrontendContractFixtureOut {
+    let fixture_id = "conflict-content";
+    let owner = RuntimeOwner {
+        workspace_id: "workspace_contract_v1".to_string(),
+        project_id: "project_viden".to_string(),
+        lane_id: Some("lane_conflict_b".to_string()),
+        session_id: Some("session_conflict_content".to_string()),
+        task_id: Some("task_conflict_b".to_string()),
+        turn_id: Some("turn_conflict_content".to_string()),
+    };
+    let lane_a_owner = RuntimeOwner {
+        lane_id: Some("lane_conflict_a".to_string()),
+        task_id: Some("task_conflict_a".to_string()),
+        ..owner.clone()
+    };
+    let baseline_binding = viden_types::ReviewedEvidenceBinding {
+        evidence_id: "ev_conflict_patch_b".to_string(),
+        source_hash: "cf".repeat(32),
+    };
+
+    let merged_gate = MergeGateRecord {
+        gate_id: "gate_conflict_a".to_string(),
+        task_id: "task_conflict_a".to_string(),
+        status: MergeGateStatus::Merged,
+        required_evidence: vec!["patch".to_string()],
+        evidence_ids: vec!["ev_conflict_patch_a".to_string()],
+        gate_type: MergeGateType::Patch,
+        owner: lane_a_owner.clone(),
+        validator: None,
+        policy_snapshot: MergeGatePolicySnapshot {
+            required_evidence: vec!["patch".to_string()],
+            permission_snapshot_id: Some("permission_conflict_content".to_string()),
+            requires_independent_validator: false,
+            captured_at: Some(1_700_003_000),
+        },
+        decision: Some(MergeGateDecision {
+            outcome: MergeGateDecisionOutcome::Merged,
+            reason: "apply reviewed patch".to_string(),
+            owner: lane_a_owner,
+            evidence_ids: vec!["ev_conflict_patch_a".to_string()],
+            reviewed_evidence: Vec::new(),
+            review_request_id: None,
+            audit_id: "audit_conflict_merge_a".to_string(),
+            decided_at: 1_700_003_001,
+        }),
+        conflict: None,
+        applied_change_id: Some("change_conflict_a".to_string()),
+        recovery_snapshot: None,
+        audit_ids: vec!["audit_conflict_merge_a".to_string()],
+        updated_at: Some(1_700_003_001),
+    };
+
+    // What Lane B's apply collided with. One file, one hunk: the hunks after a
+    // refusal were never attempted, so listing them would report a collision
+    // nothing observed.
+    let bounce_content = ConflictContent {
+        // The gate holds canonical reviewed evidence, and that is what the
+        // reviewer accepted the patch against.
+        baseline: ConflictBaseline::Evidence {
+            bindings: vec![baseline_binding.clone()],
+        },
+        files: vec![ConflictFile {
+            path: "crates/runtime/src/trust_loop.rs".to_string(),
+            hunks: vec![ConflictHunk {
+                ours_start: 42,
+                ours: vec!["    let bounce = record_conflict_bounce(gate)?;\n".to_string()],
+                theirs_start: 42,
+                theirs: vec!["    let bounce = bounce_with_reason(gate, reason)?;\n".to_string()],
+                base: Some(vec!["    let bounce = record_bounce(gate)?;\n".to_string()]),
+                reason: ConflictHunkReason::ContextMismatch,
+            }],
+            omitted: false,
+        }],
+        truncated: false,
+    };
+    let bounce = ConflictBounce {
+        bounce_id: "bounce_conflict_b".to_string(),
+        gate_id: "gate_conflict_b".to_string(),
+        task_id: "task_conflict_b".to_string(),
+        original_lane_id: "lane_conflict_b".to_string(),
+        owner: owner.clone(),
+        reason: "patch conflict: expected hunk context was not found".to_string(),
+        status: ConflictBounceStatus::Pending,
+        evidence_ids: vec!["ev_conflict_patch_b".to_string()],
+        baseline_evidence: vec![baseline_binding],
+        revalidation_evidence: Vec::new(),
+        content: Some(bounce_content),
+        audit_id: "audit_conflict_bounce_b".to_string(),
+        created_at: 1_700_003_002,
+        revalidated_at: None,
+    };
+    let bounced_gate = MergeGateRecord {
+        gate_id: "gate_conflict_b".to_string(),
+        task_id: "task_conflict_b".to_string(),
+        status: MergeGateStatus::NeedsChanges,
+        required_evidence: vec!["patch".to_string()],
+        evidence_ids: vec!["ev_conflict_patch_b".to_string()],
+        gate_type: MergeGateType::Patch,
+        owner: owner.clone(),
+        validator: None,
+        policy_snapshot: MergeGatePolicySnapshot {
+            required_evidence: vec!["patch".to_string()],
+            permission_snapshot_id: Some("permission_conflict_content".to_string()),
+            requires_independent_validator: false,
+            captured_at: Some(1_700_003_000),
+        },
+        decision: Some(MergeGateDecision {
+            outcome: MergeGateDecisionOutcome::Conflict,
+            reason: "patch conflict: expected hunk context was not found".to_string(),
+            owner: owner.clone(),
+            evidence_ids: vec!["ev_conflict_patch_b".to_string()],
+            reviewed_evidence: Vec::new(),
+            review_request_id: None,
+            audit_id: "audit_conflict_bounce_b".to_string(),
+            decided_at: 1_700_003_002,
+        }),
+        conflict: Some(bounce.clone()),
+        applied_change_id: None,
+        recovery_snapshot: None,
+        audit_ids: vec!["audit_conflict_bounce_b".to_string()],
+        updated_at: Some(1_700_003_002),
+    };
+
+    // The Lane apply path. A Lane has no reviewed baseline, so the honest
+    // answer is the commit its worktree was read at.
+    let lane_content = ConflictContent {
+        baseline: ConflictBaseline::Revision {
+            sha: "9f".repeat(20),
+        },
+        files: vec![ConflictFile {
+            path: "crates/runtime/src/trust_loop.rs".to_string(),
+            hunks: vec![ConflictHunk {
+                ours_start: 42,
+                ours: vec!["    let bounce = record_conflict_bounce(gate)?;\n".to_string()],
+                theirs_start: 42,
+                theirs: vec!["    let bounce = lane_bounce(gate)?;\n".to_string()],
+                base: Some(vec!["    let bounce = record_bounce(gate)?;\n".to_string()]),
+                reason: ConflictHunkReason::ContextMismatch,
+            }],
+            omitted: false,
+        }],
+        truncated: false,
+    };
+
+    let kinds = vec![
+        RuntimeEventKind::MergeGateUpdated { gate: merged_gate },
+        RuntimeEventKind::MergeConflictBounced {
+            conflict: bounce.clone(),
+        },
+        RuntimeEventKind::MergeGateUpdated { gate: bounced_gate },
+        RuntimeEventKind::LaneConflictDetected {
+            lane_id: "lane_conflict_b".to_string(),
+            summary: "patch conflict: expected hunk context was not found".to_string(),
+            paths: vec!["crates/runtime/src/trust_loop.rs".to_string()],
+            content: Some(lane_content),
+        },
+    ];
+
+    fixture(
+        fixture_id,
+        &[
+            "runtime.conflict_content",
+            "runtime.events",
+            "runtime.merge_gate",
+            "runtime.snapshot",
+            "runtime.typed_lanes",
+        ],
+        snapshot(WorkMode::Build),
+        owned_envelopes(fixture_id, owner, kinds, 1_700_003_000),
     )
 }
 

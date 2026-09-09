@@ -3,7 +3,7 @@ base_component_version = "0.3.0"
 candidate_component_version = "0.3.5"
 base_contract_checkpoint = "5bd2b80b0953f4194d082940a7b9164c7231ca2d"
 compatibility = "additive_capability_gated"
-capabilities = ["core.workspace_host", "runtime.agent_adapters", "runtime.agent_conversation", "runtime.agent_permission_bridge", "runtime.agent_session_input", "runtime.agent_sessions", "runtime.audit", "runtime.cockpit_context_v1", "runtime.credential_handles", "runtime.credential_staging", "runtime.lane_lifecycle", "runtime.lane_owner_projection", "runtime.operator_git", "runtime.project_onboarding", "runtime.recent_work", "runtime.starter_lane_preview", "runtime.structured_diff", "runtime.trust_loop", "runtime.workspace_eligibility", "runtime.workspace_files", "ui.preference_persistence"]
+capabilities = ["core.workspace_host", "runtime.agent_adapters", "runtime.agent_conversation", "runtime.agent_permission_bridge", "runtime.agent_session_input", "runtime.agent_sessions", "runtime.audit", "runtime.cockpit_context_v1", "runtime.conflict_content", "runtime.credential_handles", "runtime.credential_staging", "runtime.lane_lifecycle", "runtime.lane_owner_projection", "runtime.operator_git", "runtime.project_onboarding", "runtime.recent_work", "runtime.starter_lane_preview", "runtime.structured_diff", "runtime.trust_loop", "runtime.workspace_eligibility", "runtime.workspace_files", "ui.preference_persistence"]
 extension_fixture = "frontend-host-services.json"
 extension_fixture_sha256 = "96dd5fde9f1241eb50f9d8978cf478d0ac5d3327448dc6ccde9d0e5018ce1580"
 interaction_fixture = "interaction-closed-loop.json"
@@ -39,6 +39,9 @@ structured_diff_view_sha256 = "3f5f4caf39cee2c46162999a35618599c0197aae15a3abfdd
 operator_git_fixture = "operator-git.json"
 operator_git_fixture_sha256 = "f29aa213870cfd2e511553453b077db7f193dac553068e932c787ae0ba683936"
 operator_git_view_sha256 = "07eadb0e93c8e151ba5e3dd0f069035ff5e97ca20156b6f1f0c0e85a86ac14e1"
+conflict_content_fixture = "conflict-content.json"
+conflict_content_fixture_sha256 = "830afb77c04cf807926d0010309b07c3f1802e580daf48bc0715d4722c96ce1f"
+conflict_content_view_sha256 = "d73ea2a144cd2682f3c5121f124c952dfad158e4befdd1a60ec9b9dc1c4d01bf"
 
 [live_work_owner]
 facts = ["agent_task_record", "tool_call_view", "queued_input_view", "evidence_view"]
@@ -158,3 +161,13 @@ upstream = "a push with set_upstream=false on a branch with no upstream is refus
 bounds = "git output is bounded to 8192 bytes with a `truncated` flag; a commit message is required, non-empty, and at most 4096 bytes"
 exclusions = "pull, merge, and rebase move HEAD and can create conflicts that belong to the lane conflict machinery; commit --amend, reset, force push, and branch delete rewrite history with no affordance in the registered DiffReview and no undo story; switch and checkout would invalidate a bound lane's owner binding, which Core owns through the starter lane path; stash is not in the design"
 state = "the finished event is a settled answer to one command and is never folded into `RuntimeViewState`; the `workspace_source_updated` that follows it carries the resampled source and is reduced as it always was"
+
+[runtime_conflict_content]
+events = ["merge_conflict_bounced", "lane_conflict_detected"]
+attach_sites = "a `ConflictBounce` raised by a failed `merge_agent_patch`, and the `LaneConflictDetected` a refused `apply_lane_changes` publishes, which the reducer copies onto `LaneConflictView`; no new event type exists, both existing events gained one optional field, and a payload written before this capability deserializes to `None` rather than failing the stream"
+producer = "one function in `viden_tools::patch` re-runs the same strict apply read-only after it refused, so the reason a client renders is the reason the apply saw; `theirs` is the incoming hunk's new side at its `new_start`, `base` is that hunk's own preimage, and `ours` is a read-only read of the target at the hunk's declared old range, clamped to the file"
+baseline = "`Evidence { bindings }` whenever the merge gate holds canonical reviewed evidence, because that is what the reviewer accepted and what the apply was authorised against; `Revision { sha }` for the Lane apply path and for a gate whose bindings no longer validate, naming the commit the `ours` side was read at; `Unknown` when Core held no baseline it could name, which is a real answer a client must render as unknown rather than silently as HEAD"
+not_a_merge = "this is two sides plus the patch preimage and nothing else — Core computes no merge base and resolves nothing, so a client must not present it as a three-way merge or offer to auto-resolve it"
+honesty = "only hunks the apply actually rejected are listed; a hunk after the refusal was never attempted, a patch the scanner could not parse and a refusal with no hunk shape produce no content at all, and an operator `bounce_merge_conflict` carries `None` because a human judgement has no apply failure behind it — `None` means Core has nothing to show, never that the conflict was empty"
+reasons = "context_mismatch, already_applied when the file already holds the hunk's new side, file_missing, file_deleted when a deletion's preimage would leave the file behind, and binary, which the local apply cannot produce because a binary file carries no rows to reject"
+bounds = "256 KiB across the published lines; a file over the bound keeps its entry with `omitted` set and no hunks, and the content sets `truncated`, so `not shown` stays distinguishable from `no conflict here`"

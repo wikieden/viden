@@ -153,8 +153,8 @@ if release["supported_schema_versions"] != [1]:
 # These counts track the manifest's own [compatibility] and [extensions] lists,
 # which in turn track FRONTEND_V1_CAPABILITIES / FRONTEND_V1_EXTENSION_CAPABILITIES;
 # bump them in the same change that adds a capability.
-if len(base_capabilities) != 15 or len(extension_capabilities) != 21:
-    raise SystemExit("TUI certification capability counts are not base 15 + extension 21")
+if len(base_capabilities) != 15 or len(extension_capabilities) != 22:
+    raise SystemExit("TUI certification capability counts are not base 15 + extension 22")
 if set(base_capabilities) & set(extension_capabilities):
     raise SystemExit("TUI certification base and extension capabilities overlap")
 
