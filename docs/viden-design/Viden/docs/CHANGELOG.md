@@ -20,6 +20,12 @@
 
 ---
 
+## 2026-09-09
+- [GUI][文档] **DiffReview / EvidenceView 升进 gui-kit 的尝试受阻,先记录实测再裁决**（D-SOT · D-RAILNAV ①②;本次**未动任何 CSS**,纯文档）：
+  - **D1 不能反向 link `gui-kit.css`**：两边同名规则已有意分叉,D1 只声明部分属性、kit 多出的属性会泄漏（`.envrow .cv` 多 font-family/font-size）→ 实测 chat 视图 **2584 px** 变化;结论写进 PROTO-STANDARD §5,升进只能做成逐字镜像。
+  - **`.review` 族与 D2 决策中心自带的 `.dl`/`.diffbody` 撞名**（两个不同组件、只是重名）→ 加进 kit 后实测 D2 **1698 px** 变化,阻塞;裁决项与 EvidenceView 可单独升进（D14/组件库/D1 实测 AE=0）都记进 DESIGN-REF「D1 次级视图」。
+  - 顺带更正文档笔误：DESIGN-REF 迁移状态与 CHECKLIST §5 原列「D1 已接 gui-kit」,实物从未 link,两处改为「有意不接」。
+
 ## 2026-09-08
 - [GUI][文档] **D1 次级面裁决定档：活动 rail = 路由器 + 四族登记**（SPEC 新增 `D-RAILNAV`）：
   - rail 按钮导航到独立 D 屏（D12/D2/D14/D10/D13）= 已接受的实现模型；旗舰 D1 的页内视图切换保留作设计探索。

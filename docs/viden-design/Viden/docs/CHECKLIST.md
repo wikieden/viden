@@ -70,5 +70,5 @@
 ## 5 · 迁移欠债（组件共享 · 持续收口）
 > 「改一处别处不跟」的根因是**页面没接 kit、各自内联**。新页直接用 kit;存量页逐屏迁移。状态见 `index.html` 卡片的 **KIT / INLINE** 徽章。
 - **TUI(已定稿 · 样板)**:全部产品屏已接 `tui-kit`;结构按 `PROTO-STANDARD`(入口 `统一原型` / `组件库` / `设计稿索引` + `pages/`)。新平台照此。
-- **GUI**:视觉真源 = `D1 驾驶舱`。`gui-kit.css` / `gui-statusbar.jsx` / `gui-titlebar.jsx` / `gui-icons.jsx` 已就位;**D1 旗舰 + D2/D4/D5/D7/D8/D9/D10/D11/D12/D13 + D6 已接 gui-kit**(窗口壳/标题栏/活动 rail/lane/状态栏走套件)。有意保持自包含:D2横/D3 召唤坞 · Pip 装饰。新页直接用套件。
+- **GUI**:视觉真源 = `D1 驾驶舱`。`gui-kit.css` / `gui-statusbar.jsx` / `gui-titlebar.jsx` / `gui-icons.jsx` 已就位;**D2/D4/D5/D6/D7/D8/D9/D10/D11/D12/D13/D14 + 组件库 已接 gui-kit**(窗口壳/标题栏/活动 rail/lane/状态栏走套件);**D1 旗舰有意不接**——它是视觉真源、kit 是它的镜像(2026-09-09 更正:原文列 D1 为「已接」是笔误,实物从未 link;反接会属性泄漏,实测见 PROTO-STANDARD §5)。有意保持自包含:D2横/D3 召唤坞 · Pip 装饰。新页直接用套件。
 - 迁移法:页头加 `<link href="(tui|gui)-kit.css">` → HTML 改类名 → 删被取代的内联 CSS → 截图比对基准屏 → 更新 index.html 徽章为 KIT。

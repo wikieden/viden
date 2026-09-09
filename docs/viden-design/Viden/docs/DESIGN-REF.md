@@ -270,7 +270,7 @@
 > **GUI canonical kit（`gui-kit.css` · 对标 tui-kit.css · 防漂移)**
 > **新 GUI 桌面屏一律用 `gui-kit.css` 的类**(窗口壳/标题栏/活动 rail/lane 行/Environment/状态栏/输入区/边缘浮出),别再各页内联自造。视觉真源 = D1 驾驶舱;数值真源仍是 tokens.css(本套件只引用 `var(--*)`)。
 > 接入:`<link href="../tokens.css"><link href="gui-kit.css">`。
-> 存量页迁移状态(2026-06-29):**D1 旗舰 + D2决策 / D4 / D5 / D7 / D9 / D10 / D11 / D12 / D13 共 10 屏已接 gui-kit**(窗口壳/标题栏/活动 rail `.act`·`.actbtn`·`.badge`/winbar dots 用套件,各页内联 `.vbar`/`.vrail`/`.vbtn` fork 已删,裸色收 token);D2存档 UI 语义色已收(图表数据序列色基线保留);**召唤坞 D2横/D3竖 与 宠物 Pip 为独立浮层/装饰概念,有意保持自包含**(token-clean·不接套件,避免全局 `.composer`/`.side` 泄漏)。新页直接用套件。下列条目即套件登记内容。
+> 存量页迁移状态(2026-06-29 · **2026-09-09 更正 D1**):**D2决策 / D4 / D5 / D6 / D7 / D8 / D9 / D10 / D11 / D12 / D13 / D14 + 组件库 已接 gui-kit**(窗口壳/标题栏/活动 rail `.act`·`.actbtn`·`.badge`/winbar dots 用套件,各页内联 `.vbar`/`.vrail`/`.vbtn` fork 已删,裸色收 token);**D1 旗舰有意不接** —— 它是视觉真源、kit 是它的镜像,反向 link 会让 kit 里已分叉的同名规则属性泄漏(2026-09-09 实测 chat 视图 2584 px 变化;原文列 D1 为「已接」是笔误,实物从未 link);D2存档 UI 语义色已收(图表数据序列色基线保留);**召唤坞 D2横/D3竖 与 宠物 Pip 为独立浮层/装饰概念,有意保持自包含**(token-clean·不接套件,避免全局 `.composer`/`.side` 泄漏)。新页直接用套件。下列条目即套件登记内容。
 
 **图标目录（`gui-icons.jsx` · GUI 图标单一真源 · 防重绘）** — 所有 GUI 线性图标 + agent 品牌徽标一份收口,视觉母版 = D1 驾驶舱。**别再各页内联 `VRAIL_ICONS`/`I*` 自画**(同一 worktree/lanes/review 此前被各画各的,已统一)。接入:`<script type="text/babel" src="../gui-icons.jsx"></script>`(gui-titlebar / 主脚本**之前**;根目录页用 `gui-icons.jsx`)。导出 `window.ICONS`(元素表)/ `GuiIcon`(换 class/尺寸)/ `AgentLogo`。
 ```jsx
@@ -401,6 +401,22 @@
 > 旗舰 D1 的页内视图切换保留作**设计探索**。下面四族是该次裁决**判定登记**的次级面 —— 登记后即「可复用」(D-COMP)。
 > **样式现状(如实登记)**:四族的 CSS 仍在 **D1 旗舰页内联**,尚未升进 `gui-kit.css`。第二个页面复用它们之前,
 > 先按 D-SOT 把样式提进 `gui-kit.css`(改一处全站跟随),别在第二页手抄一份 —— 手抄即漂移。
+> ⚠ **2026-09-09 升进尝试受阻,先做一次裁决再动手**(实测记录,别重跑一遍踩同样的坑):
+> ① **D1 不能反向 link `gui-kit.css`** —— 两边同名 chrome 规则已有意分叉,D1 只声明部分属性、kit 那条
+>   多出的属性会泄漏进来(`.envrow .cv` 多了 `font-family`/`font-size`,直接改掉 Environment 行字形);
+>   无头 Chrome 逐视图像素比对:chat **2584 px**、review 175 px、evidence/diagnostics 各 189 px 变化。
+>   → 升进只能做成**镜像**(kit 与 D1 内联逐字一致、改一侧同步另一侧 · PROTO-STANDARD §5),不是「搬走」。
+> ② **DiffReview 的裸类与 D2 决策中心撞名** —— 把 `.review` 族原样加进 kit 后,kit 的 `.diffbody`/`.dl`/
+>   `.dl.add .ln`/`.dl.del .ln` 泄漏进 D2 自带的 diff 渲染(D2 是 3 列 grid + `.sg` 符号列 + 删除行删除线,
+>   与 DiffReview 的 2 列 flex 是**两个不同组件、只是重名**),实测 D2 **1698 px 变化**(行高位移 + 行号染色)。
+>   → 先裁决:D2 的私有 `.dl`/`.diffbody` 改名(PROTO-STANDARD §5 撞名的既定解法),还是让 D2 收敛到登记的
+>   DiffReview 画法(那是视觉改动、要单独立项)。**没裁决前不要把 `.review` 族加进 kit。**
+> ③ **EvidenceView 单独升进是干净的**(实测 D14 `.evchip`、组件库、D1 三处 **AE=0**),但 `.evchip` 与 D14
+>   自带的同名类共存,靠 D14 逐属性覆盖才没出事 —— 升进时要一并把这层脆弱性写清楚。
+> **未升进的两族**:DiagnosticsView(`.dgwrap`)与 DockSD(`.sdock`)是 deferred / roadmap,没有第二消费者,
+> 暂不动;它们的详情壳复用 EvidenceView 的 `.evdethead`/`.evsec`/`.evfoot`,将来一起升进。
+> **家族边界(升进时照此切)**:`.fchip`/`.search` 归 EvidenceView(挂 `.evbar`);DiagnosticsView 的
+> `.dgbar .fchip` 是另一份;`.mpill`(`.evfoot` 用)、`.envrow .stat`、`.todorow .ck` 是别族共用件,不随族走。
 > **未登记(有意)**:`WorktreeBoard`(`.wtwrap`)与旗舰单 lane 内嵌 subagent 树 —— D-RAILNAV ③④ 判为
 > 不作实现目标 / 延后到 fleet 家族;原型 markup 留在旗舰作探索,**按 D-COMP 视为临时草稿,勿在新页复用**。
 > **登记 ≠ 已实现**:实现目标版本(0.3.3 / 0.3.4)是排期不是交付承诺,语义同 `D-ROADMAP`。

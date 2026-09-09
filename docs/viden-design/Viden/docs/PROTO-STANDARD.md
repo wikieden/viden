@@ -62,4 +62,5 @@
 - **同名定制组件别强接 kit**:召唤坞/装饰页的 `.composer`/`.side`/`.cbox` 是有意不同的变体——全量 link gui-kit 会让全局同名规则**属性泄漏**破坏布局。保持自包含(token-clean 即可)或改名再接,别硬接。
 - **旗舰窗口化配方**:App 只渲染 cockpit `<Win>` · `#root` 全屏 stage · 复用窗口管理器(GUI 适配 `.titlebar` 拖拽 + `.tl i.c` 绿灯最大化)· 换肤走根 `../chrome.js`;去文档外壳但驾驶舱代码仍只一份。
 - **镜像纪律(D1 ↔ gui-kit · 防漂移关键)**:D1 = GUI 视觉真源,gui-kit 是它的镜像;**改 D1 的 chrome 必须同步改 gui-kit**(否则消费 kit 的页面与 D1 漂移)。**不建议让 D1 反向消费 gui-kit**——同名定制组件会泄漏、且 D1 有意更丰富(`.statusbar` 配置弹层等),收益 < 风险。
+  - **2026-09-09 实测坐实(不再是「不建议」,是不行)**:给 D1 加 `<link href="gui-kit.css">`(放内联 `<style>` 之前,让同名规则仍以 D1 为准)后无头 Chrome 逐视图像素比对 —— chat **2584 px 变化**、review 175 px、evidence/diagnostics 各 189 px。根因不是特异性,是**同名规则的部分属性泄漏**:D1 的 `.envrow .cv` 只声明 `color`/`flex`,kit 那条还带 `font-family`/`font-size` → 直接改掉 Environment 行的字形。同类分叉 47 处 + kit 独有选择器 43 处。**新家族要跨页复用就镜像进 kit(逐字一致),别让 D1 反接。**
 - **baseline 随文件移动失真**:屏移动 / 脚本 root 化后 `check-tokens` baseline 路径会整批 "removed" → 复查确认无新增真违规后 `args=['--write-baseline']` 重固化,并在 CHANGELOG 注明原因。
