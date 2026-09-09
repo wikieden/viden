@@ -144,3 +144,7 @@ path = "../tests/workspace_files.rs"
 [[test]]
 name = "gate_dormancy"
 path = "../tests/gate_dormancy.rs"
+
+[[test]]
+name = "workspace_diff"
+path = "../tests/workspace_diff.rs"

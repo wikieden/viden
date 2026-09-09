@@ -29,6 +29,11 @@ export function createTauriCoreClient(): CoreClient {
     queryWorkspaceFiles: (commandId) => invoke("query_workspace_files", { commandId }),
     workspaceFilesPoll: () => invoke("workspace_files_poll"),
 
+    queryWorkspaceDiff: (commandId, laneId) =>
+      invoke("query_workspace_diff", { commandId, laneId }),
+    workspaceDiffPoll: () => invoke("workspace_diff_poll"),
+    workspaceDiff: () => invoke("workspace_diff"),
+
     d1Cockpit: (selectedLaneId) => invoke("d1_cockpit", { selectedLaneId }),
     d1SendIntent: (commandId, intent) => invoke("d1_send_intent", { commandId, intent }),
     d1Poll: (selectedLaneId, waitForEvent) =>

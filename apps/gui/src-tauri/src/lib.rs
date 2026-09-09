@@ -10,6 +10,7 @@ mod d14;
 mod d2;
 mod d4;
 mod d6;
+mod diff_review;
 mod permission;
 mod presentation;
 mod projection;
@@ -66,6 +67,10 @@ pub use d14::{
     AUDIT_CAPABILITY, D14_AUDIT_PAGE_LIMIT, D14AuditArgProjection, D14AuditObjectProjection,
     D14AuditProjection, D14AuditRowProjection, D14AuditScopeInput, D14AuditScopeProjection,
     D14AuditTimelineProjection, D14RowProjection,
+};
+pub use diff_review::{
+    DiffFileProjection, DiffHunkProjection, DiffLineProjection, STRUCTURED_DIFF_CAPABILITY,
+    WorkspaceDiffEntryProjection, WorkspaceDiffProjection,
 };
 pub use permission::{
     PermissionActionProjection, PermissionChoice, PermissionDockProjection, PermissionIntent,
@@ -276,6 +281,59 @@ fn workspace_files_poll(
         .as_mut()
         .ok_or_else(|| "Core adapter is not connected".to_string())?
         .poll_workspace_files(Duration::from_millis(250))
+}
+
+/// Sends one `QueryWorkspaceDiff` and waits briefly for Core's ordered answer.
+///
+/// Read-only and permission-gated by Core on the non-mutating `git_diff` tool,
+/// so it stays answerable in Plan mode. `laneId` names one Lane's worktree;
+/// omitting it reads the workspace root. The client never passes a path.
+#[tauri::command]
+fn query_workspace_diff(
+    command_id: String,
+    lane_id: Option<String>,
+    state: tauri::State<'_, DesktopState>,
+) -> Result<WorkspaceDiffProjection, String> {
+    state
+        .adapter
+        .lock()
+        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?
+        .as_mut()
+        .ok_or_else(|| "Core adapter is not connected".to_string())?
+        .query_workspace_diff_and_wait(&command_id, lane_id.as_deref(), Duration::from_millis(250))
+}
+
+/// Drains ordered Core events for a diff read still in flight.
+#[tauri::command]
+fn workspace_diff_poll(
+    state: tauri::State<'_, DesktopState>,
+) -> Result<WorkspaceDiffProjection, String> {
+    state
+        .adapter
+        .lock()
+        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?
+        .as_mut()
+        .ok_or_else(|| "Core adapter is not connected".to_string())?
+        .poll_workspace_diff(Duration::from_millis(250))
+}
+
+/// The current diff projection with no Core traffic.
+///
+/// The open review calls this on each host wake to learn whether an ordered
+/// Core fact has invalidated its page (`stale`), which is what schedules the
+/// debounced re-query. Reading it must not itself send a command, or the wake
+/// loop would become a poll.
+#[tauri::command]
+fn workspace_diff(
+    state: tauri::State<'_, DesktopState>,
+) -> Result<WorkspaceDiffProjection, String> {
+    Ok(state
+        .adapter
+        .lock()
+        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?
+        .as_ref()
+        .ok_or_else(|| "Core adapter is not connected".to_string())?
+        .workspace_diff())
 }
 
 #[tauri::command]
@@ -760,6 +818,9 @@ pub fn run_with_adapter(adapter: Option<GuiCoreAdapter>) {
             recent_work_poll,
             query_workspace_files,
             workspace_files_poll,
+            query_workspace_diff,
+            workspace_diff_poll,
+            workspace_diff,
             d11_intake,
             d11_send_intent,
             d11_poll,

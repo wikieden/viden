@@ -6,12 +6,13 @@ use viden_core::{
     AgentSessionStatus, AgentStartability, AgentTaskStatus, ApprovalDefaultAction,
     ApprovalRequestView, ApprovalRisk, ApprovalScope, AuditObjectRef, COCKPIT_CONTEXT_CAPABILITY,
     CheckRunStatus, ConflictBounceStatus, ContextScope, ContractDecision, ContractRecord,
-    CostMeterability, CredentialHandle, DependencyState, EventCursor, GateStrength, LaneStatus,
-    LocaleId, MergeGateRecord, MergeGateStatus, MergeGateType, MutationPolicy,
-    ProjectConfigPreview, ProjectProbe, ProviderHealthView, ReviewRequestRecord,
-    ReviewRequestStatus, RuntimeOwner, RuntimeServiceKind, RuntimeServiceStatus,
-    RuntimeSnapshotEnvelope, RuntimeViewState, UiColorMode, UiDensity, UiMotion, UiSkin, WorkMode,
-    WorkspaceChangeKind, WorkspaceSourceStatus,
+    CostMeterability, CredentialHandle, DependencyState, DiffFile, DiffHunk, DiffLine,
+    DiffLineKind, EventCursor, GateStrength, LaneStatus, LocaleId, MergeGateRecord,
+    MergeGateStatus, MergeGateType, MutationPolicy, ProjectConfigPreview, ProjectProbe,
+    ProviderHealthView, ReviewRequestRecord, ReviewRequestStatus, RuntimeOwner, RuntimeServiceKind,
+    RuntimeServiceStatus, RuntimeSnapshotEnvelope, RuntimeViewState, SourceTarget, UiColorMode,
+    UiDensity, UiMotion, UiSkin, WorkMode, WorkspaceChangeKind, WorkspaceDiffEntry,
+    WorkspaceSourceStatus, WorkspaceSourceView,
 };
 
 use crate::d1::{
@@ -42,6 +43,9 @@ use crate::d12::{
 use crate::d13::{
     D13BlockerProjection, D13FleetWorkflowProjection, D13HandoffProjection, D13NodeProjection,
     D13WorkflowProjection,
+};
+use crate::diff_review::{
+    DiffFileProjection, DiffHunkProjection, DiffLineProjection, WorkspaceDiffEntryProjection,
 };
 use crate::{
     D6ActionProjection, D6ConnectionState, D6RecoveryProjection, D6State,
@@ -1890,7 +1894,7 @@ fn agent_session_status(status: AgentSessionStatus) -> &'static str {
     }
 }
 
-fn workspace_source_status(status: WorkspaceSourceStatus) -> &'static str {
+pub(crate) fn workspace_source_status(status: WorkspaceSourceStatus) -> &'static str {
     match status {
         WorkspaceSourceStatus::Ready => "ready",
         WorkspaceSourceStatus::Unavailable => "unavailable",
@@ -1915,7 +1919,7 @@ fn runtime_service_status(status: RuntimeServiceStatus) -> &'static str {
     }
 }
 
-fn workspace_change_kind(kind: WorkspaceChangeKind) -> &'static str {
+pub(crate) fn workspace_change_kind(kind: WorkspaceChangeKind) -> &'static str {
     match kind {
         WorkspaceChangeKind::Added => "added",
         WorkspaceChangeKind::Modified => "modified",
@@ -2477,6 +2481,98 @@ fn owner_evidence(view: &RuntimeViewState, lane_id: Option<&str>) -> Vec<D2Evide
         .filter(|evidence| evidence.source.as_deref() == Some(lane_id))
         .map(evidence_projection)
         .collect()
+}
+
+/* ------------------------------------------------------------------ */
+/* Structured diff: Core -> projection (GUI-CORE-012)                  */
+/* ------------------------------------------------------------------ */
+
+/// Names a row kind without guessing.
+///
+/// `DiffLineKind` is `#[non_exhaustive]`: a newer Core may publish a row this
+/// build does not model (a `\ No newline` marker, a conflict marker). Folding
+/// one into `context` would draw it as unchanged code, so it keeps its own
+/// name and the frontend renders it as an unnamed row.
+fn diff_line_kind(kind: DiffLineKind) -> &'static str {
+    match kind {
+        DiffLineKind::Context => "context",
+        DiffLineKind::Added => "added",
+        DiffLineKind::Removed => "removed",
+        _ => "unknown",
+    }
+}
+
+pub(crate) fn diff_line_projection(line: &DiffLine) -> DiffLineProjection {
+    DiffLineProjection {
+        kind: diff_line_kind(line.kind),
+        content: line.content.clone(),
+        old_line: line.old_line,
+        new_line: line.new_line,
+    }
+}
+
+pub(crate) fn diff_hunk_projection(hunk: &DiffHunk) -> DiffHunkProjection {
+    DiffHunkProjection {
+        old_start: hunk.old_start,
+        old_lines: hunk.old_lines,
+        new_start: hunk.new_start,
+        new_lines: hunk.new_lines,
+        header: hunk.header.clone(),
+        lines: hunk.lines.iter().map(diff_line_projection).collect(),
+    }
+}
+
+pub(crate) fn diff_file_projection(file: &DiffFile) -> DiffFileProjection {
+    DiffFileProjection {
+        path: file.path.clone(),
+        old_path: file.old_path.clone(),
+        kind: workspace_change_kind(file.kind),
+        binary: file.binary,
+        omitted: file.omitted,
+        additions: file.additions,
+        deletions: file.deletions,
+        hunks: file.hunks.iter().map(diff_hunk_projection).collect(),
+    }
+}
+
+pub(crate) fn workspace_diff_entry_projection(
+    entry: &WorkspaceDiffEntry,
+) -> WorkspaceDiffEntryProjection {
+    WorkspaceDiffEntryProjection {
+        path: entry.path.clone(),
+        index: entry.index.map(workspace_change_kind),
+        worktree: entry.worktree.map(workspace_change_kind),
+        staged: entry.staged,
+        diff: entry.diff.as_ref().map(diff_file_projection),
+    }
+}
+
+pub(crate) fn workspace_diff_source_projection(
+    source: &WorkspaceSourceView,
+) -> D1WorkspaceSourceProjection {
+    D1WorkspaceSourceProjection {
+        status: workspace_source_status(source.status),
+        branch: source.branch.clone(),
+        worktree: source.worktree.clone(),
+        ahead: source.ahead,
+        behind: source.behind,
+        added: source.added,
+        deleted: source.deleted,
+        dirty: source.dirty,
+    }
+}
+
+/// The Lane a confirmed page describes, read back from Core's own answer.
+///
+/// `SourceTarget` is `#[non_exhaustive]`, so a target kind this build cannot
+/// name resolves to `None` — "not a Lane this build knows" — rather than being
+/// mislabelled as the workspace root.
+pub(crate) fn target_lane_id(target: &SourceTarget) -> Option<String> {
+    match target {
+        SourceTarget::Workspace => None,
+        SourceTarget::Lane { lane_id } => Some(lane_id.clone()),
+        _ => None,
+    }
 }
 
 #[cfg(test)]

@@ -16,6 +16,7 @@ use viden_core::{
     WorkspaceFileEntry, WorkspaceFileKind, WorkspaceFilesQuery, WorkspaceOpenRequest,
 };
 use viden_core::{RecentProjectSummary, RecentSessionSummary, RecentWorkQuery};
+use viden_core::{SourceTarget, WorkspaceDiffQuery, WorkspaceDiffScope};
 
 use crate::d1::{
     ComposerControlIntent, D1_OWNER_CAPABILITY, D1CockpitProjection, D1Intent, D1IntentResult,
@@ -27,9 +28,13 @@ use crate::d14::{
     AUDIT_CAPABILITY, D14_AUDIT_PAGE_LIMIT, D14AuditArgProjection, D14AuditObjectProjection,
     D14AuditProjection, D14AuditRowProjection, D14AuditScopeInput, D14AuditScopeProjection,
 };
+use crate::diff_review::{
+    STRUCTURED_DIFF_CAPABILITY, WorkspaceDiffEntryProjection, WorkspaceDiffProjection,
+};
 use crate::projection::{
     PreferenceDiagnosticProjection, ResolvedPreferencesProjection, exact_terminal_agent_session,
-    preference_diagnostic_projection,
+    preference_diagnostic_projection, target_lane_id, workspace_diff_entry_projection,
+    workspace_diff_source_projection,
 };
 use crate::recent_work::{
     RECENT_WORK_CAPABILITY, RecentProjectProjection, RecentSessionProjection, RecentWorkResult,
@@ -112,6 +117,21 @@ pub struct GuiCoreAdapter {
     /// confirming page fills this, so D14 can never render a record the
     /// ordered Core stream did not hand it.
     audit_receipt: AuditReceipt,
+    /// One structured diff read at a time, for the same reason the inventory
+    /// keeps one: DiffReview shows one page and a second read would only race
+    /// the first for it. `WorkspaceDiffLoaded` names the exact read it answers.
+    pending_workspace_diff: Option<PendingWorkspaceDiff>,
+    workspace_diff_outcome: D1OutcomeProjection,
+    /// What Core published for the diff reads confirmed so far.
+    workspace_diff_receipt: WorkspaceDiffReceipt,
+    /// How many Core facts that invalidate a diff have been observed.
+    ///
+    /// Incremented in [`Self::receive_event`], the single funnel every drain
+    /// path goes through, so a page cannot be invalidated by an event some
+    /// other screen's poll happened to consume. Compared against the revision
+    /// a loaded page was read at; it is a "re-read" signal, never a claim
+    /// about what changed.
+    workspace_revision: u64,
 }
 
 struct HostedCoreClient {
@@ -942,6 +962,60 @@ struct PendingWorkspaceFiles {
     command_id: String,
 }
 
+/// One in-flight `QueryWorkspaceDiff` awaiting its ordered Core answer.
+struct PendingWorkspaceDiff {
+    /// The only correlation this read needs: both events that can settle it —
+    /// `WorkspaceDiffLoaded` and `CommandRejected` — name the command id they
+    /// answer, and the page's id is a *required* field.
+    command_id: String,
+    /// The invalidation count at the moment the read was sent. A page is
+    /// current against the tree as of this revision, so a fact that arrives
+    /// while the read is in flight is already reflected in the answer.
+    read_revision: u64,
+}
+
+impl PendingWorkspaceDiff {
+    /// Reconciles one ordered event against this read.
+    ///
+    /// `RuntimeEventKind::Error` is deliberately not observed, for the reason
+    /// the inventory read documents: it carries no command id, so treating one
+    /// as this read's refusal because a read happened to be outstanding would
+    /// fabricate a refusal Core never issued.
+    fn observe(&self, envelope: &RuntimeEventEnvelope) -> AuditObservation {
+        let RuntimeWireEvent::Known(event) = &envelope.event else {
+            return AuditObservation::Continue;
+        };
+        match &event.kind {
+            RuntimeEventKind::CommandRejected { command_id, reason }
+                if command_id == &self.command_id =>
+            {
+                AuditObservation::Rejected(reason.clone())
+            }
+            RuntimeEventKind::WorkspaceDiffLoaded { command_id, .. }
+                if command_id == &self.command_id =>
+            {
+                AuditObservation::Confirmed
+            }
+            _ => AuditObservation::Continue,
+        }
+    }
+}
+
+/// What Core published for the diff reads confirmed so far.
+#[derive(Default)]
+struct WorkspaceDiffReceipt {
+    target_lane_id: Option<String>,
+    source: Option<crate::D1WorkspaceSourceProjection>,
+    /// Lexicographic by path, exactly as Core delivered.
+    entries: Vec<WorkspaceDiffEntryProjection>,
+    truncated: bool,
+    /// True once one page has actually arrived. Absence and emptiness are
+    /// different facts; see [`WorkspaceDiffProjection::loaded`].
+    loaded: bool,
+    /// The invalidation count the confirmed page describes.
+    read_revision: u64,
+}
+
 /// What Core published across the inventory reads confirmed so far.
 #[derive(Default)]
 struct WorkspaceFilesReceipt {
@@ -1267,6 +1341,10 @@ impl GuiCoreAdapter {
             workspace_files_receipt: WorkspaceFilesReceipt::default(),
             audit_outcome: D1OutcomeProjection::idle(),
             audit_receipt: AuditReceipt::default(),
+            pending_workspace_diff: None,
+            workspace_diff_outcome: D1OutcomeProjection::idle(),
+            workspace_diff_receipt: WorkspaceDiffReceipt::default(),
+            workspace_revision: 0,
         }
     }
 
@@ -1740,6 +1818,176 @@ impl GuiCoreAdapter {
                 .as_ref()
                 .map(|pending| pending.command_id.clone()),
             capability_available: self.supports_workspace_files(),
+        }
+    }
+
+    /// Whether Core's handshake published structured diff rows.
+    ///
+    /// DiffReview reads this before it offers an entry point, so a Core
+    /// without the capability renders the entry disabled-and-labelled rather
+    /// than opening a view that can never fill.
+    pub fn supports_structured_diff(&self) -> bool {
+        self.supports(STRUCTURED_DIFF_CAPABILITY)
+    }
+
+    /// Sends one `QueryWorkspaceDiff` and waits for Core's ordered answer.
+    ///
+    /// The query is the review pane's whole request: the named target, both
+    /// sides of the index, every changed path, and Core's own default byte
+    /// bound. `paths` stays empty because the operator has not filtered
+    /// anything, and `byte_limit` stays `None` because Core owns the bound and
+    /// publishes the one it used on the page.
+    ///
+    /// `lane_id` names one Lane's worktree; `None` is the workspace root.
+    /// Core resolves a Lane's worktree from its own records — the client never
+    /// passes a path — and an unknown or archived Lane comes back as a
+    /// refusal rather than as the workspace's facts under a Lane's name.
+    ///
+    /// A missing capability is not an error: it returns the honest projection
+    /// with `capability_available == false` and sends nothing.
+    pub fn query_workspace_diff_and_wait(
+        &mut self,
+        command_id: &str,
+        lane_id: Option<&str>,
+        event_timeout: Duration,
+    ) -> Result<WorkspaceDiffProjection, String> {
+        if !self.supports_structured_diff() {
+            return Ok(self.workspace_diff());
+        }
+        if let Some(pending) = &self.pending_workspace_diff {
+            return Err(format!(
+                "workspace diff query `{}` is still pending",
+                pending.command_id
+            ));
+        }
+        let target = match lane_id {
+            Some(lane_id) => SourceTarget::Lane {
+                lane_id: lane_id.to_string(),
+            },
+            None => SourceTarget::Workspace,
+        };
+        self.client
+            .send(RuntimeCommandEnvelope {
+                schema_version: FRONTEND_SCHEMA_V1,
+                client_id: "viden-gui".to_string(),
+                command_id: command_id.to_string(),
+                // The target is named in the query itself, so the read carries
+                // no Lane owner; Core resolves the worktree.
+                owner: RuntimeOwner::default(),
+                command: RuntimeCommand::QueryWorkspaceDiff {
+                    query: WorkspaceDiffQuery {
+                        target,
+                        scope: WorkspaceDiffScope::Both,
+                        paths: Vec::new(),
+                        byte_limit: None,
+                    },
+                },
+            })
+            .map_err(|error| error.to_string())?;
+        self.pending_workspace_diff = Some(PendingWorkspaceDiff {
+            command_id: command_id.to_string(),
+            read_revision: self.workspace_revision,
+        });
+        self.workspace_diff_outcome = D1OutcomeProjection::pending();
+        // A fresh read replaces the page. Clearing before the answer keeps one
+        // target's rows from being read as another's, and `loaded` goes back
+        // to false so the view says "reading", never "no changes".
+        self.workspace_diff_receipt = WorkspaceDiffReceipt::default();
+        self.poll_workspace_diff(event_timeout)
+    }
+
+    /// Drains ordered Core events for a diff read still in flight.
+    pub fn poll_workspace_diff(
+        &mut self,
+        event_timeout: Duration,
+    ) -> Result<WorkspaceDiffProjection, String> {
+        let mut received = false;
+        let mut receive_failed = false;
+        for _ in 0..8 {
+            let event = match self.receive_event_until(event_timeout) {
+                Ok(Some(event)) => event,
+                Ok(None) => break,
+                Err(_) => {
+                    receive_failed = true;
+                    break;
+                }
+            };
+            received = true;
+            if self.observe_pending_workspace_diff(&event) {
+                break;
+            }
+        }
+        if received && !receive_failed {
+            self.refresh_projection()
+                .map_err(|error| error.to_string())?;
+        }
+        Ok(self.workspace_diff())
+    }
+
+    /// Reconciles one ordered event against the in-flight diff read.
+    ///
+    /// Returns whether the read reached a terminal outcome. The desktop event
+    /// pump calls this too, so a background drain can never swallow the only
+    /// page the view is waiting for.
+    pub(crate) fn observe_pending_workspace_diff(&mut self, event: &RuntimeEventEnvelope) -> bool {
+        let observation = self
+            .pending_workspace_diff
+            .as_ref()
+            .map_or(AuditObservation::Continue, |pending| pending.observe(event));
+        match observation {
+            AuditObservation::Continue => false,
+            AuditObservation::Confirmed => {
+                let read_revision = self
+                    .pending_workspace_diff
+                    .take()
+                    .map_or(self.workspace_revision, |pending| pending.read_revision);
+                self.workspace_diff_outcome = D1OutcomeProjection::confirmed();
+                // The confirming page is the authority: nothing is re-ordered,
+                // re-sorted, or recomputed on this side.
+                if let RuntimeWireEvent::Known(known) = &event.event
+                    && let RuntimeEventKind::WorkspaceDiffLoaded { page, .. } = &known.kind
+                {
+                    self.workspace_diff_receipt = WorkspaceDiffReceipt {
+                        target_lane_id: target_lane_id(&page.target),
+                        source: Some(workspace_diff_source_projection(&page.source)),
+                        entries: page
+                            .entries
+                            .iter()
+                            .map(workspace_diff_entry_projection)
+                            .collect(),
+                        truncated: page.truncated,
+                        loaded: true,
+                        read_revision,
+                    };
+                }
+                true
+            }
+            AuditObservation::Rejected(reason) => {
+                self.pending_workspace_diff = None;
+                self.workspace_diff_outcome = D1OutcomeProjection::rejected(reason);
+                true
+            }
+        }
+    }
+
+    /// The DiffReview view's current projection, with no Core traffic.
+    pub fn workspace_diff(&self) -> WorkspaceDiffProjection {
+        WorkspaceDiffProjection {
+            outcome: self.workspace_diff_outcome.clone(),
+            target_lane_id: self.workspace_diff_receipt.target_lane_id.clone(),
+            source: self.workspace_diff_receipt.source.clone(),
+            entries: self.workspace_diff_receipt.entries.clone(),
+            truncated: self.workspace_diff_receipt.truncated,
+            loaded: self.workspace_diff_receipt.loaded,
+            pending_command_id: self
+                .pending_workspace_diff
+                .as_ref()
+                .map(|pending| pending.command_id.clone()),
+            capability_available: self.supports_structured_diff(),
+            // Only a page that is actually on screen can go stale; a read that
+            // never answered is "pending", which is a different sentence.
+            stale: self.workspace_diff_receipt.loaded
+                && self.workspace_revision != self.workspace_diff_receipt.read_revision,
         }
     }
 
@@ -3530,7 +3778,29 @@ impl GuiCoreAdapter {
                 return Err(error);
             }
         };
+        if let Some(envelope) = &event {
+            self.note_workspace_revision(envelope);
+        }
         Ok(event)
+    }
+
+    /// Counts the two ordered Core facts that invalidate a structured diff.
+    ///
+    /// This sits in the single receive funnel on purpose. Every screen's poll
+    /// and the background pump all drain through here, so a source or change
+    /// fact consumed by an unrelated read still advances the revision and the
+    /// open review still learns its page is stale.
+    fn note_workspace_revision(&mut self, envelope: &RuntimeEventEnvelope) {
+        let RuntimeWireEvent::Known(event) = &envelope.event else {
+            return;
+        };
+        if matches!(
+            event.kind,
+            RuntimeEventKind::WorkspaceSourceUpdated { .. }
+                | RuntimeEventKind::WorkspaceChangeUpdated { .. }
+        ) {
+            self.workspace_revision = self.workspace_revision.saturating_add(1);
+        }
     }
 
     /// Drains ordered Core events with one bounded wait and refreshes the
@@ -3562,6 +3832,7 @@ impl GuiCoreAdapter {
             self.observe_pending_recent_work(&event);
             self.observe_pending_audit(&event);
             self.observe_pending_workspace_files(&event);
+            self.observe_pending_workspace_diff(&event);
             self.observe_pending(&event);
             self.observe_pending_d12(&event);
             self.observe_d4(&event);

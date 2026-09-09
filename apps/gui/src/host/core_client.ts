@@ -1,5 +1,6 @@
 import type { PaletteWorkspaceFiles } from "../components/command_palette";
 import type { PermissionIntent, PermissionIntentResult } from "../components/permission_dock";
+import type { WorkspaceDiffProjection } from "../models/diff_review";
 import type { RecentWorkResult } from "../models/recent_work";
 import type { D6Intent, D6IntentResult, D6RecoveryProjection } from "../models/workspace";
 import type {
@@ -75,6 +76,27 @@ export interface CoreClient {
   queryWorkspaceFiles(commandId: string): Promise<PaletteWorkspaceFiles>;
   /** Drains ordered Core events while an inventory read is still pending. */
   workspaceFilesPoll(): Promise<PaletteWorkspaceFiles>;
+
+  /**
+   * Sends Core's read-only `QueryWorkspaceDiff` and resolves with whatever the
+   * ordered `WorkspaceDiffLoaded` page published. Core owns the permission
+   * gate (the non-mutating `git_diff` tool), the `git status`/`git diff` runs,
+   * the byte bound, the `omitted`/`truncated` flags, and the ordering; the
+   * frontend never shells out to git and never parses diff text into rows
+   * (GUI-CORE-012).
+   *
+   * `laneId` names one Lane's worktree; `null` reads the workspace root. Core
+   * resolves the worktree from its own records — a client never passes a path.
+   */
+  queryWorkspaceDiff(commandId: string, laneId: string | null): Promise<WorkspaceDiffProjection>;
+  /** Drains ordered Core events while a diff read is still pending. */
+  workspaceDiffPoll(): Promise<WorkspaceDiffProjection>;
+  /**
+   * The current diff projection with no Core traffic. The open review reads it
+   * on each host wake to learn whether an ordered Core fact invalidated its
+   * page, which is what schedules the debounced re-query.
+   */
+  workspaceDiff(): Promise<WorkspaceDiffProjection>;
 
   d1Cockpit(selectedLaneId: string | null): Promise<D1CockpitProjection | null>;
   d1SendIntent(commandId: string, intent: D1Intent): Promise<D1IntentResult>;
