@@ -3391,6 +3391,7 @@ fn approval_request_view(
         expires_at: now_timestamp().saturating_add(approval_ttl_secs),
         default_action: ApprovalDefaultAction::Deny,
         audit_id: fresh_id("audit"),
+        decision_context: None,
     }
 }
 

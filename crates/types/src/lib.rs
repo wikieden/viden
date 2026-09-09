@@ -7,6 +7,7 @@ mod agent;
 mod approval;
 mod audit;
 mod context;
+mod diff;
 mod frontend_services;
 mod lsp;
 mod project;
@@ -35,6 +36,11 @@ pub use context::{
     ContextScope, ContextViewRecord, CostAmount, CostEstimate, CostLedgerTotals, CostScope,
     CostUsageOutcome, CostUsageRecord, EvidenceCanonicalizationRecord,
     ProviderCacheObservationRecord, TokenUsage,
+};
+pub use diff::{
+    DEFAULT_WORKSPACE_DIFF_BYTES, DecisionContext, DiffDocument, DiffFile, DiffHunk, DiffLine,
+    DiffLineKind, MAX_WORKSPACE_DIFF_BYTES, SourceTarget, WorkspaceDiffEntry, WorkspaceDiffPage,
+    WorkspaceDiffQuery, WorkspaceDiffScope,
 };
 pub use frontend_services::{
     CheckRunStatus, CheckRunView, RecentProjectSummary, RecentSessionSummary, RecentWorkQuery,

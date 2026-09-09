@@ -5529,6 +5529,7 @@ fn approval_request_view(request_id: &str, prompt: &PermissionPrompt) -> Approva
         expires_at: now_timestamp().saturating_add(300),
         default_action: ApprovalDefaultAction::Deny,
         audit_id,
+        decision_context: None,
     }
 }
 

@@ -177,6 +177,7 @@ pub(crate) fn workspace_changes_from_tool_result(
         patch,
         additions,
         deletions,
+        diff: None,
     }]
 }
 

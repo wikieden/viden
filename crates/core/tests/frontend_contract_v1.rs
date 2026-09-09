@@ -4270,6 +4270,7 @@ fn approval(id: &str, title: &str, is_mutating: bool) -> ApprovalRequestView {
         expires_at: 1_700_003_600,
         default_action: ApprovalDefaultAction::Deny,
         audit_id: format!("audit_{id}"),
+        decision_context: None,
     }
 }
 

@@ -66,6 +66,7 @@ fn approval_request_with_preview(
         expires_at: 0,
         default_action: ApprovalDefaultAction::Deny,
         audit_id: format!("audit-{id}"),
+        decision_context: None,
     }
 }
 
@@ -214,6 +215,7 @@ fn d11_projection_exposes_pending_approval_and_rejection_facts() {
         expires_at: 0,
         default_action: ApprovalDefaultAction::Deny,
         audit_id: "audit-config-1".into(),
+        decision_context: None,
     });
     view.pending_approvals.push(ApprovalRequestView {
         id: "approval-lane-1".into(),
@@ -236,6 +238,7 @@ fn d11_projection_exposes_pending_approval_and_rejection_facts() {
         expires_at: 0,
         default_action: ApprovalDefaultAction::Deny,
         audit_id: "audit-lane-1".into(),
+        decision_context: None,
     });
     view.errors.push(RuntimeErrorView {
         message: "command confirm-1 rejected: permission denied".into(),
@@ -464,6 +467,7 @@ fn approval_request_remains_visible_without_clearing_the_pending_target() {
         expires_at: 0,
         default_action: ApprovalDefaultAction::Deny,
         audit_id: "audit-confirm-pending".into(),
+        decision_context: None,
     };
     let client = D11Client::new(d11_view(), sent)
         .with_event(accepted("confirm-pending", command))

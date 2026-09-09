@@ -1757,6 +1757,7 @@ mod tests {
             expires_at: 1,
             default_action: ApprovalDefaultAction::Deny,
             audit_id: "audit-four".to_string(),
+            decision_context: None,
         });
         let mut overlay = OverlayState::new(OverlayKind::Approval);
         overlay.selected_id = Some("approval-four".to_string());
@@ -1830,6 +1831,7 @@ mod tests {
             expires_at: 0,
             default_action: ApprovalDefaultAction::Deny,
             audit_id: "audit-visible-last-row".to_string(),
+            decision_context: None,
         });
         let mut overlay = OverlayState::new(OverlayKind::Approval);
         overlay.selected_id = Some("approval-visible".to_string());

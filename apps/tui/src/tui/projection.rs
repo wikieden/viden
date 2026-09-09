@@ -860,6 +860,7 @@ mod tests {
             expires_at: 0,
             default_action: ApprovalDefaultAction::Deny,
             audit_id: "audit-1".to_string(),
+            decision_context: None,
         });
         runtime.errors.push(RuntimeErrorView {
             message: "structured error".to_string(),

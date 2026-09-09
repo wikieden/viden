@@ -3044,6 +3044,7 @@ fn d1_workspace_and_service_facts_upsert_by_stable_identity_and_stay_bounded() {
                     patch: None,
                     additions: index as u32,
                     deletions: 0,
+                    diff: None,
                 },
             },
         ));
@@ -3092,6 +3093,7 @@ fn d1_workspace_and_service_facts_upsert_by_stable_identity_and_stay_bounded() {
                 patch: Some("rename".to_string()),
                 additions: 1,
                 deletions: 1,
+                diff: None,
             },
         },
     ));
@@ -3168,6 +3170,7 @@ fn d1_change_and_check_identity_is_scoped_by_runtime_owner() {
                     patch: None,
                     additions: 1,
                     deletions: 0,
+                    diff: None,
                 },
             },
         ));
@@ -3242,6 +3245,7 @@ fn d1_owner_bound_change_and_check_events_reject_mismatched_envelope_owner() {
                 patch: None,
                 additions: 1,
                 deletions: 0,
+                diff: None,
             },
         },
         RuntimeEventKind::CheckRunUpdated {
@@ -4022,6 +4026,7 @@ fn runtime_events_replay_into_ui_independent_view_state() {
         expires_at: 1,
         default_action: ApprovalDefaultAction::Deny,
         audit_id: "audit_1".to_string(),
+        decision_context: None,
     };
     let evidence = EvidenceView {
         id: "evidence_1".to_string(),
@@ -5326,4 +5331,228 @@ fn replayed_settled_sessions_do_not_concatenate_into_one_unattributed_blob() {
         "replay must not leave a historical blob in the unscoped stream, got {:?}",
         view.assistant_stream
     );
+}
+
+/// A `DiffLine` carries the numbers it has and omits the ones it does not.
+///
+/// A removed line has no line number in the new file and an added line has
+/// none in the old one. `None` there means "this line does not exist on that
+/// side", so it must serialize as absence and never as `0`, which a client
+/// would render as a real line.
+#[test]
+fn a_diff_line_omits_the_side_it_does_not_exist_on() {
+    let removed = DiffLine {
+        kind: DiffLineKind::Removed,
+        content: "old".to_string(),
+        old_line: Some(12),
+        new_line: None,
+    };
+    let encoded = serde_json::to_value(&removed).unwrap();
+    assert_eq!(encoded["kind"], "removed");
+    assert_eq!(encoded["old_line"], 12);
+    assert!(
+        encoded.get("new_line").is_none(),
+        "a removed line must omit the new-file number instead of publishing 0"
+    );
+    let decoded: DiffLine = serde_json::from_value(encoded).unwrap();
+    assert_eq!(decoded, removed);
+}
+
+/// A `DiffFile` written by a build that predates the optional fields still
+/// deserializes: every additive field defaults rather than failing the record.
+#[test]
+fn a_diff_file_reads_back_from_its_required_fields_alone() {
+    let file: DiffFile = serde_json::from_value(serde_json::json!({
+        "path": "crates/types/src/diff.rs",
+        "kind": "added",
+    }))
+    .expect("a diff file must default every additive field");
+    assert_eq!(file.old_path, None);
+    assert!(!file.binary);
+    assert!(!file.omitted);
+    assert_eq!(file.additions, 0);
+    assert_eq!(file.deletions, 0);
+    assert!(file.hunks.is_empty());
+}
+
+/// An omitted file keeps real counts. The bound drops the hunk rows, not the
+/// fact that the file changed, so a client renders "142 additions, not shown"
+/// rather than an unchanged file.
+#[test]
+fn an_omitted_diff_file_keeps_its_real_counts() {
+    let file = DiffFile {
+        path: "big.rs".to_string(),
+        old_path: None,
+        kind: WorkspaceChangeKind::Modified,
+        binary: false,
+        omitted: true,
+        additions: 142,
+        deletions: 7,
+        hunks: Vec::new(),
+    };
+    let round_trip: DiffFile =
+        serde_json::from_str(&serde_json::to_string(&file).unwrap()).unwrap();
+    assert_eq!(round_trip, file);
+    assert!(round_trip.hunks.is_empty());
+    assert_eq!(round_trip.additions, 142);
+}
+
+/// `DiffLineKind` is `#[non_exhaustive]`, so a sibling crate matching on it
+/// must already carry a wildcard arm and a future kind cannot break it.
+#[test]
+fn the_diff_line_kind_tags_are_snake_case() {
+    for (kind, tag) in [
+        (DiffLineKind::Context, "context"),
+        (DiffLineKind::Added, "added"),
+        (DiffLineKind::Removed, "removed"),
+    ] {
+        assert_eq!(serde_json::to_value(kind).unwrap(), tag);
+    }
+}
+
+/// A decision context with no diff is still a fact: it says Core computed no
+/// preview, which is different from Core not attaching a context at all.
+#[test]
+fn a_decision_context_omits_the_fields_core_did_not_know() {
+    let empty = DecisionContext {
+        diff: None,
+        base_sha256: None,
+    };
+    let encoded = serde_json::to_value(&empty).unwrap();
+    assert_eq!(encoded, serde_json::json!({}));
+    let decoded: DecisionContext = serde_json::from_value(encoded).unwrap();
+    assert_eq!(decoded, empty);
+}
+
+/// The byte limit is clamped rather than rejected, so a malformed client
+/// request still gets a well-formed page (the `WorkspaceFilesQuery`
+/// precedent).
+#[test]
+fn a_workspace_diff_query_clamps_its_byte_limit() {
+    assert_eq!(
+        WorkspaceDiffQuery::default().clamped_byte_limit(),
+        DEFAULT_WORKSPACE_DIFF_BYTES
+    );
+    assert_eq!(
+        WorkspaceDiffQuery {
+            byte_limit: Some(0),
+            ..WorkspaceDiffQuery::default()
+        }
+        .clamped_byte_limit(),
+        1
+    );
+    assert_eq!(
+        WorkspaceDiffQuery {
+            byte_limit: Some(u32::MAX),
+            ..WorkspaceDiffQuery::default()
+        }
+        .clamped_byte_limit(),
+        MAX_WORKSPACE_DIFF_BYTES
+    );
+}
+
+/// A path that leaves the target root is rejected rather than clamped or
+/// answered with an empty page, exactly as a workspace file prefix is.
+#[test]
+fn a_workspace_diff_query_rejects_a_path_that_leaves_the_target() {
+    for path in ["../secrets", "/etc/passwd", "crates\\types", "a/../../b"] {
+        let query = WorkspaceDiffQuery {
+            paths: vec![path.to_string()],
+            ..WorkspaceDiffQuery::default()
+        };
+        assert!(
+            query.validate().is_err(),
+            "`{path}` must be rejected, not clamped"
+        );
+    }
+    assert!(
+        WorkspaceDiffQuery {
+            paths: vec!["crates/types/src/diff.rs".to_string()],
+            ..WorkspaceDiffQuery::default()
+        }
+        .validate()
+        .is_ok()
+    );
+}
+
+/// The two wire enums the diff read introduces are `#[non_exhaustive]` and
+/// snake_case, so a client match keeps a wildcard arm and a future target or
+/// scope cannot break a sibling build.
+#[test]
+fn the_workspace_diff_target_and_scope_tags_are_stable() {
+    assert_eq!(
+        serde_json::to_value(SourceTarget::Workspace).unwrap(),
+        serde_json::json!("workspace")
+    );
+    assert_eq!(
+        serde_json::to_value(SourceTarget::Lane {
+            lane_id: "lane_alpha".to_string()
+        })
+        .unwrap(),
+        serde_json::json!({ "lane": { "lane_id": "lane_alpha" } })
+    );
+    for (scope, tag) in [
+        (WorkspaceDiffScope::Worktree, "worktree"),
+        (WorkspaceDiffScope::Index, "index"),
+        (WorkspaceDiffScope::Both, "both"),
+    ] {
+        assert_eq!(serde_json::to_value(scope).unwrap(), tag);
+    }
+}
+
+/// An approval view written before `decision_context` existed still reads, and
+/// an approval with no context serializes to exactly the bytes it did before
+/// the field was added. That is what keeps the frozen fixture corpus stable.
+#[test]
+fn an_approval_without_a_decision_context_encodes_as_it_did_before() {
+    let approval = ApprovalRequestView {
+        id: "approval-1".to_string(),
+        tool_name: "edit_file".to_string(),
+        title: "Approve edit_file".to_string(),
+        message: "edit_file requires approval".to_string(),
+        input_preview: "path=src/lib.rs".to_string(),
+        is_mutating: true,
+        reason: None,
+        owner: RuntimeOwner::default(),
+        risk: ApprovalRisk::Medium,
+        target: ApprovalTarget {
+            kind: "edit_file".to_string(),
+            display: "src/lib.rs".to_string(),
+            canonical_ref: None,
+        },
+        allowed_scopes: Vec::new(),
+        policy_reason_key: String::new(),
+        policy_reason_args: BTreeMap::new(),
+        expires_at: 0,
+        default_action: ApprovalDefaultAction::Deny,
+        audit_id: String::new(),
+        decision_context: None,
+    };
+    let encoded = serde_json::to_value(&approval).unwrap();
+    assert!(
+        encoded.get("decision_context").is_none(),
+        "an absent decision context must not appear on the wire"
+    );
+    let decoded: ApprovalRequestView = serde_json::from_value(encoded).unwrap();
+    assert_eq!(decoded, approval);
+}
+
+/// A workspace change without a structured diff encodes exactly as it did
+/// before the field existed, and `patch` keeps its meaning for base clients.
+#[test]
+fn a_workspace_change_without_a_structured_diff_encodes_as_it_did_before() {
+    let change = WorkspaceChangeView {
+        id: "call-1:src/lib.rs".to_string(),
+        owner: RuntimeOwner::default(),
+        path: "src/lib.rs".to_string(),
+        kind: WorkspaceChangeKind::Modified,
+        patch: Some("--- before\n+++ after\n".to_string()),
+        additions: 1,
+        deletions: 0,
+        diff: None,
+    };
+    let encoded = serde_json::to_value(&change).unwrap();
+    assert!(encoded.get("diff").is_none());
+    let decoded: WorkspaceChangeView = serde_json::from_value(encoded).unwrap();
+    assert_eq!(decoded, change);
 }

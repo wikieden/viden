@@ -1261,5 +1261,6 @@ fn lane_approval(
         expires_at,
         default_action: viden_types::ApprovalDefaultAction::Deny,
         audit_id: audit_id.to_string(),
+        decision_context: None,
     }
 }

@@ -7,7 +7,7 @@ use crate::{
     ContextBudgetRecord, ContextBundleRecord, ContextBundleSummaryRecord, ContextHandleRecord,
     ContextItemRecord, ContextQualityRecord, ContextReductionRecord, ContextRetrievalRecord,
     ContextScope, ContextViewRecord, ContractDecision, ContractRecord, CostLedgerTotals,
-    CostUsageRecord, CredentialHandle, DependencyRecord, DependencyState,
+    CostUsageRecord, CredentialHandle, DecisionContext, DependencyRecord, DependencyState,
     EvidenceCanonicalizationRecord, EvidenceId, HandoffAcceptance, HandoffRecord, LaneStatus,
     MergeGateId, MergeGateRecord, MessageId, PermissionLevel, ProjectConfigPreview, ProjectProbe,
     ProviderCacheObservationRecord, RecentProjectSummary, RecentSessionSummary, RecentWorkQuery,
@@ -351,6 +351,15 @@ pub struct ApprovalRequestView {
     pub default_action: ApprovalDefaultAction,
     #[serde(default)]
     pub audit_id: String,
+    /// What Core knows about the change this approval would make
+    /// (`runtime.structured_diff`, GUI-CORE-012).
+    ///
+    /// Additive and omitted when absent, so an approval with no context
+    /// encodes to exactly the bytes it did before this field existed and the
+    /// frozen fixture corpus is unchanged. `None` means Core computed no
+    /// preview for this tool — never "this tool changes nothing".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decision_context: Option<DecisionContext>,
 }
 
 fn default_approval_risk() -> ApprovalRisk {

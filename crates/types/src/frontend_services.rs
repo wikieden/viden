@@ -118,6 +118,13 @@ pub struct WorkspaceChangeView {
     pub patch: Option<String>,
     pub additions: u32,
     pub deletions: u32,
+    /// The same change as typed rows (`runtime.structured_diff`). `patch`
+    /// stays beside it for base clients: this field is additive and omitted
+    /// when absent, so a change published without it encodes to exactly the
+    /// bytes it did before. `None` means Core produced no structured diff for
+    /// this change — never "the change is empty".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diff: Option<crate::DiffDocument>,
 }
 
 /// Closed execution states for a runtime-owned check result.

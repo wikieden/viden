@@ -167,6 +167,7 @@ fn approval(owner: RuntimeOwner, lane_id: &str) -> ApprovalRequestView {
         expires_at: 0,
         default_action: ApprovalDefaultAction::Deny,
         audit_id: format!("audit-{lane_id}"),
+        decision_context: None,
     }
 }
 

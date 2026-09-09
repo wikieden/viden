@@ -244,6 +244,7 @@ fn d1_cockpit_context_dock_switches_only_owner_scoped_facts_for_the_selected_lan
         patch: None,
         additions: 7,
         deletions: 0,
+        diff: None,
     });
     view.check_runs.push(CheckRunView {
         id: "check-review".into(),
