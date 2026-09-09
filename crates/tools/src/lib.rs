@@ -22,9 +22,9 @@ pub use capability::{
 pub use files::render_diff;
 use files::{EditFileTool, ReadFileTool, WriteFileTool};
 use git::{
-    GitAddTool, GitBranchTool, GitCommitTool, GitDiffTool, GitPushTool, GitRestoreTool,
-    GitStashDropTool, GitStashListTool, GitStashPopTool, GitStashPushTool, GitStatusTool,
-    GitSwitchTool, GitWorktreeAddTool, GitWorktreeListTool, GitWorktreeRemoveTool,
+    GitAddTool, GitBranchTool, GitCommitTool, GitDiffTool, GitFetchTool, GitPushTool,
+    GitRestoreTool, GitStashDropTool, GitStashListTool, GitStashPopTool, GitStashPushTool,
+    GitStatusTool, GitSwitchTool, GitWorktreeAddTool, GitWorktreeListTool, GitWorktreeRemoveTool,
 };
 use lsp::{LspDiagnosticsTool, LspReferencesTool, LspSymbolsTool};
 use search::{GlobTool, GrepTool};
@@ -165,6 +165,7 @@ impl ToolRegistry {
         registry.register(GitRestoreTool);
         registry.register(GitCommitTool);
         registry.register(GitPushTool);
+        registry.register(GitFetchTool);
         registry.register(GitStashListTool);
         registry.register(GitStashPushTool);
         registry.register(GitStashPopTool);

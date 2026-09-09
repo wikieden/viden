@@ -11,6 +11,7 @@ pub(crate) struct GitCommitTool;
 pub(crate) struct GitAddTool;
 pub(crate) struct GitPushTool;
 pub(crate) struct GitRestoreTool;
+pub(crate) struct GitFetchTool;
 
 impl BuiltinTool for GitSwitchTool {
     fn spec(&self) -> ToolSpec {
@@ -224,6 +225,52 @@ impl BuiltinTool for GitRestoreTool {
             args.push(path_relative_to_repo(&repo, &ctx.cwd, &path)?);
         }
         let output = run_git_capture_owned(&repo, &args)?;
+        Ok(ToolExecutionOutput {
+            output,
+            diff: None,
+            success: true,
+            exit_code: None,
+        })
+    }
+}
+
+/// Updates remote-tracking refs without touching `HEAD` or the working tree.
+///
+/// `is_mutating: true` even though nothing under the operator's editor changes:
+/// it writes `refs/remotes/`, contacts a remote, and must therefore be blocked
+/// in plan mode and gated like every other write. Spelling it non-mutating
+/// would file it under the engine's safe-read branch, which is how a "harmless"
+/// tool becomes the one that runs when everything else is denied.
+///
+/// It exists as a tool rather than as operator-only code so an agent asked to
+/// sync gets exactly the same effect under exactly the same permission name.
+impl BuiltinTool for GitFetchTool {
+    fn spec(&self) -> ToolSpec {
+        ToolSpec {
+            name: "git_fetch".to_string(),
+            description: "Fetch remote-tracking refs from a git remote".to_string(),
+            is_mutating: true,
+            input_schema_hint: "remote=origin path=optional/repo/root".to_string(),
+        }
+    }
+
+    fn run(
+        &self,
+        ctx: &ToolExecutionContext,
+        input: &ToolInput,
+    ) -> Result<ToolExecutionOutput, String> {
+        let repo = resolve_git_base(ctx, input)?;
+        let remote = input
+            .get("remote")
+            .cloned()
+            .unwrap_or_else(|| "origin".to_string());
+        // A remote name that begins with `-` would be read by git as an
+        // option, so it is refused rather than passed through: `--` does not
+        // help here because the remote is the subcommand's own operand.
+        if remote.starts_with('-') {
+            return Err(format!("git_fetch remote `{remote}` cannot start with `-`"));
+        }
+        let output = run_git_capture_owned(&repo, &["fetch".to_string(), remote])?;
         Ok(ToolExecutionOutput {
             output,
             diff: None,

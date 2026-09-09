@@ -324,3 +324,87 @@ fn git_worktree_tools_reject_path_traversal_through_lane_effects() {
         .unwrap_err();
     assert!(err.contains("unsafe worktree path"));
 }
+
+/// `git_fetch` exists so an operator's sync control and an agent's fetch are
+/// the same tool under the same permission name (`runtime.operator_git`,
+/// GUI-CORE-020).
+///
+/// The remote here is a local bare repository. A test that reached a network
+/// remote would be a test of the network, and would fail closed on a machine
+/// with no credentials for reasons that have nothing to do with this tool.
+#[test]
+fn git_fetch_updates_remote_refs_from_a_local_bare_remote() {
+    let remote = temp_dir("git_fetch_remote");
+    let init = Command::new("git")
+        .args(["init", "--bare", "-b", "main"])
+        .current_dir(&remote)
+        .status()
+        .unwrap();
+    assert!(init.success());
+
+    let cwd = git_repo_with_tracked_file("git_fetch_clone");
+    let add_remote = Command::new("git")
+        .args(["remote", "add", "origin"])
+        .arg(&remote)
+        .current_dir(&cwd)
+        .status()
+        .unwrap();
+    assert!(add_remote.success());
+    let push = Command::new("git")
+        .args(["push", "--set-upstream", "origin", "main"])
+        .current_dir(&cwd)
+        .status()
+        .unwrap();
+    assert!(push.success());
+
+    let ctx = ToolExecutionContext::local(cwd.clone());
+    let registry = ToolRegistry::builtin();
+    let spec = registry.spec("git_fetch").expect("git_fetch is registered");
+    // It writes refs under `refs/remotes/`, so it is a mutation and the
+    // permission gate must treat it as one. A non-mutating spelling would let
+    // it run in plan mode.
+    assert!(spec.is_mutating);
+
+    let mut input = ToolInput::new();
+    input.insert("remote".into(), "origin".into());
+    let result = registry
+        .execute(
+            &ToolCall {
+                id: "tool_git_fetch".into(),
+                name: "git_fetch".into(),
+                input,
+            },
+            &ctx,
+        )
+        .unwrap();
+    assert!(result.success);
+
+    let refs = Command::new("git")
+        .args(["rev-parse", "refs/remotes/origin/main"])
+        .current_dir(&cwd)
+        .output()
+        .unwrap();
+    assert!(refs.status.success(), "the fetch must land a remote ref");
+}
+
+/// A fetch from a remote that is not configured fails loudly rather than
+/// reporting a clean no-op, which an operator would read as "already in sync".
+#[test]
+fn git_fetch_reports_an_unknown_remote_as_a_failure() {
+    let cwd = git_repo_with_tracked_file("git_fetch_unknown");
+    let ctx = ToolExecutionContext::local(cwd);
+    let registry = ToolRegistry::builtin();
+    let mut input = ToolInput::new();
+    input.insert("remote".into(), "nowhere".into());
+    let error = registry
+        .execute(
+            &ToolCall {
+                id: "tool_git_fetch_unknown".into(),
+                name: "git_fetch".into(),
+                input,
+            },
+            &ctx,
+        )
+        .unwrap_err();
+    assert!(!error.is_empty());
+}

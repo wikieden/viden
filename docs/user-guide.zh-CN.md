@@ -480,6 +480,7 @@ Extensions：
 - `git_restore`
 - `git_commit`
 - `git_push`
+- `git_fetch`
 - `git_stash_list`
 - `git_stash_push`
 - `git_stash_pop`

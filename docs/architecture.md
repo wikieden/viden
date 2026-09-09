@@ -406,6 +406,7 @@ Builtin tools:
 - `git_add`
 - `git_commit`
 - `git_push`
+- `git_fetch`
 - `git_restore`
 - `git_stash_list`
 - `git_stash_push`
