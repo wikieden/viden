@@ -709,13 +709,71 @@ Remaining client-side follow-up, not blocked on Core: D14 actor and time-range
 filter chips over the new `AuditQuery` fields. No client sends an actor or time
 filter yet, because no operator control chooses one.
 
-## GUI-CORE-025: Evidence reads
+## GUI-CORE-025: Evidence reads — CLOSED (Core side, 2026-09-09)
 
-Reserved by `docs/release-0.3.3-contract-design.md` for the paged evidence read
-(`QueryEvidence` / `EvidencePageLoaded`, `ReadEvidenceContent` /
-`EvidenceContentLoaded`) that the registered `EvidenceView` surface needs. Core
-batch C4 opens and closes it; the number is held here so no other request
-takes it.
+Request: the registered `EvidenceView` surface is a day-grouped archive with a
+detail rail — a key-value report, an output tail, chips linked from `metadata`
+and `canonical`, and "Open in review" for a `patch` row. The only evidence a
+frontend can reach today is `RuntimeViewState.latest_evidence`, and it cannot
+carry that surface for three reasons, none of which a client can work around:
+
+1. It is a **recent-window projection** — a client-side reduction of whatever
+   event stream that client happened to receive. A client that connected
+   mid-session, or one recovering from a sequence gap, holds a strict subset,
+   so "these are the last N pieces of evidence" would be a claim about the
+   archive it has no basis for.
+2. It carries **no ordering rule and no cursor**. It is an upsert-by-id list in
+   arrival order, so day grouping would mean the GUI inventing a sort, and
+   paging would mean the GUI deciding where a page ends — two definitions of
+   the archive, one of them outside Core.
+3. It carries **no content**. `EvidenceView` names a canonical reference but
+   never the bytes, and the only way to render the report or the tail would be
+   for the GUI to open the ContextStore itself — outside the client boundary,
+   and bypassing the hash verification that is the entire reason canonical
+   evidence means anything.
+
+Core status: delivered as `runtime.evidence_reads`. `QueryEvidence` ->
+`EvidencePageLoaded` pages the durable archive Core rebuilds at open from the
+append-only workflow agent log, and `ReadEvidenceContent` ->
+`EvidenceContentLoaded` answers the bytes behind one row. Two commands and two
+events are new, so nothing existing changed shape and the nine frozen base
+fixtures keep their bytes.
+
+The answers to the three points above, in order. Ordering is ascending on
+`(timestamp, id)`, and a row Core never dated sorts **first**: undated is the
+oldest thing Core can honestly say about it, so a forward-paging client meets
+it once at the start rather than after rows it already rendered as newer. The
+cursor is opaque — `next_after` goes back verbatim as `after`, and the GUI must
+not parse, construct, or compare it — and every filter runs before the page is
+cut, so `complete` describes the filtered archive rather than the raw one.
+Content is read only from canonical ContextStore bytes and only after they
+verify against the row's own `source_hash`.
+
+Two answers are worth naming because they are narrower than "give us the
+content". `EvidenceContent` has no variant for bytes Core could not verify:
+`SummaryOnly` for a row with no canonical reference, `MissingCanonicalBytes`
+for one whose bytes are gone, `HashMismatch` for bytes that are present and
+fail their own hash, and `Binary` for verified bytes with no text or diff
+shape. `HashMismatch` in particular is never served as content — those are
+exactly the bytes a reviewer must not be shown — so the detail rail renders a
+typed reason there rather than a body. And the gate posture is `QueryAudit`'s
+rather than `QueryWorkspaceFiles`': bounded and owner-scoped, never
+tool-gated, because the archive is Viden's own state rather than the operator's
+tree. Both reads stay answerable in Plan mode.
+
+The canonical fixture is `evidence-reads.json`: two pages tiling one three-row
+archive through the exact cursor the first published, a kind-filtered page
+`complete` for its filter while the unfiltered archive is not, three content
+reads answering text, parsed diff rows, and `Unavailable { SummaryOnly }`, and
+an over-limit `kinds` query answered by `CommandRejected` with no page at all.
+Those four render identically in a naive client — as "no evidence" — which is
+why they share one fixture.
+
+GUI status: not yet adopted. EvidenceView still renders whatever
+`latest_evidence` gives it; the day-grouped archive, the detail rail, the
+linked chips, and "Open in review" into DiffReview land with the EvidenceView
+batch (G2). TUI status: the evidence inspector deferred at the `0.3.2`
+supervision checkpoint, opened from the decisions overlay, lands with T1.
 
 ## GUI-CORE-026: Platform credential intake
 

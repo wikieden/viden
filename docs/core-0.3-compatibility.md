@@ -85,6 +85,7 @@ runtime.cockpit_context_v1
 runtime.conflict_content
 runtime.credential_handles
 runtime.credential_staging
+runtime.evidence_reads
 runtime.lane_lifecycle
 runtime.lane_owner_projection
 runtime.operator_git
@@ -285,6 +286,78 @@ digest identity.
   the resampled source and is reduced as it always was, so a client that only
   tracks the source chip still sees the post-effect tree.
 
+Evidence archive reads (`QueryEvidence` -> `EvidencePageLoaded`,
+`ReadEvidenceContent` -> `EvidenceContentLoaded`) require
+`runtime.evidence_reads` (GUI-CORE-025). Both commands and both events are new,
+so nothing existing changes shape and the frozen base fixtures keep their byte
+and digest identity. Without the capability a client keeps whatever
+`RuntimeViewState.latest_evidence` gives it and must not claim that is the
+archive.
+
+- The source is the durable archive, not the recent window. Core rebuilds it at
+  open from the append-only workflow agent log — the `runtime_projection` and
+  `runtime_projection_batch` rows carrying `EvidenceRecorded` — and pages that.
+  `latest_evidence` is a client-side reduction of whatever stream that client
+  received, with no ordering rule, no cursor, and no content, so paging it would
+  answer "what evidence exists" with "what you happened to see".
+- Ordering is ascending on `(timestamp, id)`, where `timestamp` is
+  `EvidenceView.timestamp`. A row Core never dated sorts **first**, before every
+  dated row: undated is the oldest thing Core can honestly say about it, so a
+  forward-paging client meets it once at the start rather than watching it
+  arrive after rows it already rendered as newer.
+- The cursor is opaque. `EvidencePage.next_after` is a string a client passes
+  back verbatim as `EvidenceQuery.after`; clients must not parse, construct, or
+  compare it. It is tagged rather than positional, so the undated position stays
+  distinct from `timestamp = 0` and an id containing the separator still
+  round-trips.
+- `owner` is a prefix scope match over `RuntimeOwner` that fails closed on both
+  sides. A query naming a task is not satisfied by a row that only knows its
+  lane, and a row with no recorded owner never satisfies a scoped read, because
+  answering one with it would turn "Core did not know" into "this lane produced
+  it". Empty `kinds` means every kind, never nothing.
+- Every filter runs before the page is cut, so `complete` and `next_after`
+  describe the *filtered* archive. This is why the filters are a contract
+  addition rather than client work: a client filtering a page it already holds
+  cannot see a matching row on a page it never loaded, so its "no `patch`
+  evidence for this lane" would be a completeness claim it has no evidence for.
+- Content is read only from the canonical ContextStore bytes named by
+  `EvidenceView.canonical`, and only after they verify against that reference's
+  `source_hash`. No canonical reference answers `Unavailable { SummaryOnly }`;
+  an unopenable store, a missing blob or handle, and a denied scope answer
+  `Unavailable { MissingCanonicalBytes }`; bytes that fail their own hash answer
+  `Unavailable { HashMismatch }`; verified non-UTF-8 bytes answer
+  `Unavailable { Binary }`; kind `patch` answers `Diff` through the same
+  `parse_diff_document` the structured diff capability uses; everything else
+  answers bounded `Text`.
+- **Core never serves unverified bytes as canonical.** There is no variant for
+  content Core could not verify, and `HashMismatch` is kept apart from every
+  other store failure because it is the opposite fact: the bytes are present and
+  are exactly the ones a reviewer must not be shown. A store Core cannot open
+  answers `MissingCanonicalBytes` rather than a mismatch, because nothing was
+  compared and claiming one would invent a fact.
+- Gate posture matches `QueryAudit` and is deliberately not
+  `QueryWorkspaceFiles`': bounded and owner-scoped, never tool-gated. The
+  evidence archive is Viden's own state rather than the operator's tree, so
+  there is no workspace read to authorize and no `git_*` or file tool whose
+  `viden.toml` rule would describe one; gating it on a tool spec would invent a
+  permission with no meaning and let a rule written about the filesystem hide
+  facts Core already holds. Both reads mutate nothing and prompt for nothing, so
+  both stay answerable in Plan mode.
+- Refusals are pre-answer and named. An over-limit `kinds` list, a cursor this
+  build did not issue, and an evidence id never recorded all arrive as
+  `CommandRejected` carrying the caller's own command id, never an empty page a
+  client would render as an empty archive. `limit` is clamped to `1..=200`
+  rather than refused, as `AuditQuery` does, because a client that asked for too
+  many rows still means something answerable.
+- Bounds: 50 rows per page by default and at most 200, at most 32 `kinds`
+  filters, and 256 KiB of content with `truncated` on the text path and the
+  document's own `truncated` on the diff path.
+- Both answers are query results and neither is folded into `RuntimeViewState`.
+  The reason is sharper here than for an audit page: the view already carries
+  `latest_evidence`, so folding an archive page in would let a paged read of old
+  rows overwrite the live projection with no way for a client to tell the two
+  apart.
+
 One further additive schema-1 extension since core-0.3.5 makes live work
 attributable (GUI-CORE-010). `AgentTaskRecord`, `ToolCallView`,
 `QueuedInputView`, and `EvidenceView` each gained an optional full
@@ -468,6 +541,7 @@ registered schema-1 extension fixtures are:
 | `structured-diff` | An `edit_file` approval whose decision context holds one file, one hunk, and the `base_sha256` of the bytes it was computed against; a `MergeAgentPatch` approval carrying the two-file change and no base hash; a diff page with one staged entry and one the byte bound omitted with its counts intact; and a second read refused by `CommandRejected` with its own command id | `3f5f4caf39cee2c46162999a35618599c0197aae15a3abfdd3a098e080676b8a` | `e24915b31f4192d85349be99da4c0ea81b6fb0b126b2076de17775d70de21cd0` |
 | `operator-git` | A `Stage` refused by policy and answered by `CommandRejected` naming the mapped `git_add` spec; a `Commit` approved through the ask path with the staged rows attached, completed, and followed by a resampled source where `ahead` moved and the tree is clean; and a `Push` settled as `Failed { NoUpstream }` rather than rejected, because the gate granted it and the attempt was audited | `07eadb0e93c8e151ba5e3dd0f069035ff5e97ca20156b6f1f0c0e85a86ac14e1` | `f29aa213870cfd2e511553453b077db7f193dac553068e932c787ae0ba683936` |
 | `conflict-content` | Two Lanes over one file: Lane A's patch merges, Lane B's `MergeAgentPatch` is refused and the bounce carries one hunk with `ours`, `theirs`, and the patch preimage against an `Evidence` baseline, plus a `LaneConflictDetected` carrying the same shape against a `Revision` baseline | `d73ea2a144cd2682f3c5121f124c952dfad158e4befdd1a60ec9b9dc1c4d01bf` | `830afb77c04cf807926d0010309b07c3f1802e580daf48bc0715d4722c96ce1f` |
+| `evidence-reads` | Two pages tiling one three-row archive through the exact opaque cursor the first published; a kind-filtered page `complete` for its filter while the unfiltered archive is not; three content reads answering bounded text, parsed diff rows for a `patch` row, and `Unavailable { SummaryOnly }` for display-only evidence; and an over-limit `kinds` query answered by `CommandRejected` with no page at all | `b15cb2fd024f60a1abb3a5a39b5c5736fca8bec443ae1a99a69e99f51edf8ef9` | `4d33513151bda26aa8e11242a9963d7fde25cc332980a40306f6393e6fc4caa0` |
 
 Semantics fix 2026-09-07 (review finding 4): `RuntimeViewState.assistant_stream`
 had no lifecycle — it was append-only for the life of the view, so startup
@@ -560,6 +634,22 @@ was read at, and a single baseline string would have been a lie for one of
 them. Nothing in the payload is a merged result, so a client that rendered it
 as a resolvable three-way merge would offer an auto-resolution Core never
 produced.
+
+The `evidence-reads` fixture is the generated evidence for
+`runtime.evidence_reads` (GUI-CORE-025). Its four situations render identically
+in a naive client — as "no evidence" — and each is a different fact, which is
+the whole reason they share one fixture. A cut page has rows behind a cursor and
+names it; the second page resumes from that exact string rather than a
+reconstructed one, which is what makes the cursor's opacity testable. A filtered
+page is `complete` for its filter while the unfiltered archive is not, so a
+client that read `complete` as a claim about the archive would stop paging. A
+`task_summary` row exists and has no canonical bytes, which is
+`Unavailable { SummaryOnly }` rather than an empty body. And an over-limit
+`kinds` query is refused with no page at all, because an empty page is
+indistinguishable from an empty archive. The replay assertion also proves both
+answers stay out of `RuntimeViewState`: reducing every page and every content
+event leaves `latest_evidence` empty, which is what keeps an archive page from
+overwriting the recent window.
 
 The `context-budgets` fixture backs the frontend-neutral facade export of
 `ContextScope` and `ContextBudgetRecord`. A budget belongs to a Lane only

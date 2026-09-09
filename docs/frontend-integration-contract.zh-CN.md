@@ -123,6 +123,7 @@ payload SHA。Payload commit 内没有猜测或写入自引用 SHA。
 | 结构化 diff | 审批决策上下文、变更文件行、DiffReview 文件树与 diff 面板 | `DiffDocument`、`DiffFile`、`DiffHunk`、`DiffLine`、`ApprovalRequestView.decision_context`、`WorkspaceChangeView.diff`、`WorkspaceDiffLoaded` | `QueryWorkspaceDiff` | Core `0.3.6` extension `runtime.structured_diff`；Core 是 diff 行的唯一生产者，读取在既有的非变更工具 `git_diff` 下过权限门禁，输入路径为解析后的目标根 |
 | 操作者源码控制 | DiffReview 提交栏、标题栏同步控件 | `OperatorGitAction`、`OperatorGitOutcome`、`OperatorGitFailureClass`、`OperatorGitActionFinished`，以及其后的 `WorkspaceSourceUpdated` | `RunOperatorGitAction` | Core `0.3.6` extension `runtime.operator_git`；每个动作在其映射到的**既有 agent** 工具 spec 下过门禁并执行，因此同一套规则同时约束操作者与 agent，失败分类是类型化的，客户端永不解析 git 输出 |
 | 冲突内容 | DiffReview 冲突面板、决策浮层的冲突详情 | `ConflictContent`、`ConflictBaseline`、`ConflictFile`、`ConflictHunk`、`ConflictHunkReason`、`ConflictBounce.content`、`LaneConflictView.content`、`LaneConflictDetected.content` | 无；内容搭载在失败应用本就会发布的事件上 | Core `0.3.6` extension `runtime.conflict_content`；两侧加上补丁原像，绝不是三方合并，带有指名的基线，且只列出严格应用真正拒绝掉的 hunk |
+| 证据归档读取 | EvidenceView 按天分组列表、行详情，以及行背后的内容 | `EvidenceQuery`、`EvidencePage`、`EvidenceCursor`、`EvidenceContent`、`EvidenceUnavailableReason`、`EvidencePageLoaded`、`EvidenceContentLoaded` | `QueryEvidence`、`ReadEvidenceContent` | Core `0.3.6` extension `runtime.evidence_reads`；读取的是持久归档而不是近期窗口 `latest_evidence`，按 `(timestamp, id)` 升序、未标注时间的行排最前，cursor 不透明，过滤在切页之前应用，内容只从与该行自身 `source_hash` 校验通过的 canonical 字节提供。门禁姿态与 `QueryAudit` 一致而非 `QueryWorkspaceFiles`：有界且带 owner 作用域、绝不由工具门禁把关，因为归档是 Viden 自己的状态而不是操作者的工作树 |
 | 工作区文件清单 | 当前工作区的有序路径列表 | `WorkspaceFileEntry`、`WorkspaceFileKind`、`WorkspaceFilePage`、`WorkspaceFilesLoaded` | `QueryWorkspaceFiles` | Core `0.3.5` extension `runtime.workspace_files`；在读取任何目录项之前先过权限门禁，工具名为非变更的 `workspace_file_inventory`，输入路径为工作区根。deny 与未解决的 ask 都以 `CommandRejected` 返回，指名这次确切的读取并携带拒绝原因——绝不发布空 page，也绝不发送不带 command id 的裸 `Error`（那会让有读取在途的客户端把无关失败误认成自己这次读取的拒绝）。该工具不产生变更，因此 plan mode 仍可回答。遍历遵循 gitignore，并无条件排除 `.git/`、`.viden/`、`.omx/`、`.worktrees/`、`.ref/`。条目按字典序排列；prefix 过滤、排他的 `after` 游标与 `1..=500` 的 limit 钳制都作用在该顺序之上，因此 `complete` 与 `next_after` 描述的是过滤后的有序清单。`WorkspaceFilesLoaded.command_id` 为必填，因此不像 audit page 那样存在无法关联的情形。客户端不得自行遍历文件系统 |
 
 Core `0.3.4` 中，续聊与 retry 保持逻辑 session id 和精确 `RuntimeOwner` 不变。
@@ -304,6 +305,8 @@ flowchart LR
 | 加载 recent work | `QueryRecentWork { query }` | shared-home 发现、canonical metadata 校验、稳定排序、边界、diagnostic 与安全 view projection |
 | 读取结构化 diff | `QueryWorkspaceDiff { command_id, query }` | 从 Core 自有 Lane 记录解析目标、在任何进程启动之前过 `git_diff` 权限门禁、`git status`/`git diff` 采样、排序、字节边界与类型化 page |
 | 执行操作者源码控制动作 | `RunOperatorGitAction { owner, target, action }` | 动作校验、从 Core 自有 Lane 记录解析目标、在任何进程启动之前过映射后的 `git_*` 权限门禁、效果之前的审计记录、工具执行、失败分类，以及重新采样的源码事实 |
+| 分页读取证据归档 | `QueryEvidence { command_id, query }` | 从 workflow agent 日志重建的持久归档、稳定的 `(timestamp, id)` 排序、不透明 cursor、在切页之前应用的 owner 作用域与 kind 过滤、边界，以及类型化 page |
+| 读取单条证据背后的字节 | `ReadEvidenceContent { command_id, evidence_id }` | canonical ContextStore 查找、在提供任何内容之前先做 `source_hash` 校验、类型化的内容或不可用原因，以及 256 KiB 边界 |
 | 创建 starter Lane | `PreviewStarterLane`，审阅结果后携带未变化 request/id/hash 发送 `CreateStarterLane` | preset 解析、workspace/isolation 校验、permission gate、执行前复检、补偿和 typed receipt |
 
 Starter Lane 的隔离模式由 Core 决定，而不是由前端决定。位于 Git work tree 且具有有效
@@ -477,6 +480,51 @@ command transport 零发送。未来未知 runtime-owner event 只作为可检�
 第一批一等 required evidence kind 是 `patch`、`test_result`、`review`、`doc_update`
 和 `release_artifact`。客户端可以显示其他 runtime kind，但 checklist 分组应优先覆盖这组
 核心类型。
+
+### 证据归档读取
+
+需要 `runtime.evidence_reads` extension（Core `0.3.6`，GUI-CORE-025）。不具备该 capability
+时，客户端只能沿用 `RuntimeViewState.latest_evidence` 给它的内容，不渲染归档、也不渲染内容，
+并且不得把那个窗口呈现为归档。
+
+`latest_evidence` 是**近期窗口投影**：客户端对它自己所收到那条事件流的归约，没有排序规则、
+没有 cursor、也没有内容。`QueryEvidence` -> `EvidencePageLoaded` 分页的是持久归档——Core 在
+打开时从追加式 workflow agent 日志重建的那份证据——`ReadEvidenceContent` ->
+`EvidenceContentLoaded` 回答单条行背后的字节。两条命令与两个事件都是新增的，两个回答都不归约进
+`RuntimeViewState`，因此发布它们不移动任何快照摘要。
+
+- **排序**按 `(timestamp, id)` 升序，其中 timestamp 是 `EvidenceView.timestamp`。Core 从未
+  标注时间的行排在**最前**，位于所有已标注时间的行之前：未标注时间是 Core 能诚实给出的最旧
+  说法，因此向前分页的客户端会在开头恰好遇到它一次，而不是看着它出现在已被渲染为更新的行之后。
+  `id` 用来打破时间戳并列，因此同一秒内记录的两行仍能确定性地分页。
+- **Cursor 不透明。** `EvidencePage.next_after` 是一个字符串，客户端原样作为
+  `EvidenceQuery.after` 传回。客户端不得解析、构造或比较它：重建 cursor 等于从一个字符串重新
+  推导 Core 的排序规则，而这正是不透明形式要防止的耦合。`complete` 为真时 `next_after` 恰好
+  为 `None`。
+- **过滤在切页之前执行**，因此 `complete` 与 `next_after` 描述的是**过滤后**的归档。`owner`
+  是对 `RuntimeOwner` 的前缀作用域匹配，两侧都 fail closed：指名 task 的查询不会被只知道自己
+  lane 的行满足；没有记录 owner 的行永远不满足带作用域的读取，因为用它来回答会把"Core 并不
+  知道"变成"这条 lane 产生了它"。`kinds` 为空表示所有 kind，绝不是"什么都不要"。
+- **内容只来自 canonical 字节。** Core 读取 `EvidenceView.canonical` 指名的 ContextStore
+  item，并在提供任何内容之前先与该引用的 `source_hash` 校验。`EvidenceContent` 为 `Text`
+  （有界，带 `truncated`）、`Diff`（kind 为 `patch`，由结构化 diff capability 所用的同一个
+  生产者解析，因此"在评审中打开"渲染的是一种形状而不是两种），或 `Unavailable { reason }`。
+  两个携带内容的变体都带上字节被校验所依据的 `sha256`，因此读者可以把所渲染的内容与该行自身的
+  canonical 引用对起来。
+- **Core 绝不把未经校验的字节当作 canonical 提供。** 不存在用于"Core 无法校验的内容"的变体。
+  `SummaryOnly` 表示该行根本没有 canonical 引用——例如 `task_summary` 这类仅供展示的证据，
+  merge gate 本就拒绝把它当作证据；`MissingCanonicalBytes` 表示引用指名的字节 store 已不再持有；
+  `HashMismatch` 表示字节就在那里，而且正是评审者绝不该被展示的那些，它们永不发布；`Binary`
+  表示字节校验通过但没有文本或 diff 形状。`EvidenceUnavailableReason` 是 `#[non_exhaustive]`，
+  客户端按 reason 分支而不是解析消息。
+- **门禁姿态与 `QueryAudit` 一致**，刻意不同于 `QueryWorkspaceFiles`：有界且带 owner 作用域、
+  绝不由工具门禁把关。证据归档是 Viden 自己的状态而不是操作者的工作树，因此这里没有需要授权的
+  工作区读取，也没有任何 `git_*` 或文件工具的 `viden.toml` 规则能描述它。两个读取都不产生变更、
+  不请求审批，因此在 Plan mode 下均可回答。
+- **拒绝绝不是空 page。** 越界的 `kinds` 列表、本构建从未签发过的 cursor、以及 Core 从未记录过的
+  evidence id，都以 `CommandRejected` 携带调用者自己的 command id 返回，并把可操作的提示折进
+  reason。`limit` 像 `AuditQuery` 一样钳制到 `1..=200` 而不是拒绝。边界：默认每页 50 行、最多
+  200 行；最多 32 个 `kinds` 过滤项；内容 256 KiB。
 
 ### 冲突内容
 

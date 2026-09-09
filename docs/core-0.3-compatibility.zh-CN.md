@@ -77,6 +77,7 @@ runtime.cockpit_context_v1
 runtime.conflict_content
 runtime.credential_handles
 runtime.credential_staging
+runtime.evidence_reads
 runtime.lane_lifecycle
 runtime.lane_owner_projection
 runtime.operator_git
@@ -217,6 +218,53 @@ fixture 保持其字节与摘要身份。
 - 完成事件是对单个命令的结论性回答，绝不折叠进 `RuntimeViewState`。其后的
   `WorkspaceSourceUpdated` 携带重新采样的源码事实并照常归约，因此只跟踪状态条的客户端
   仍能看到效果之后的工作树。
+
+证据归档读取（`QueryEvidence` -> `EvidencePageLoaded`，`ReadEvidenceContent` ->
+`EvidenceContentLoaded`）需要 `runtime.evidence_reads`（GUI-CORE-025）。两条命令与两个事件
+都是新增的，因此既有形状不变，冻结 base fixture 保持其字节与摘要身份。没有该 capability 时，
+客户端只能沿用 `RuntimeViewState.latest_evidence` 给它的内容，并且不得声称那就是归档。
+
+- 数据源是持久归档，不是近期窗口。Core 在打开时从追加式 workflow agent 日志重建它——即携带
+  `EvidenceRecorded` 的 `runtime_projection` 与 `runtime_projection_batch` 行——并对其分页。
+  `latest_evidence` 是客户端对它自己所收到那条事件流的归约，没有排序规则、没有 cursor、也没有
+  内容，因此对它分页等于用"你恰好看到了什么"回答"存在哪些证据"。
+- 排序按 `(timestamp, id)` 升序，其中 timestamp 是 `EvidenceView.timestamp`。Core 从未标注
+  时间的行排在**最前**，位于所有已标注时间的行之前：未标注时间是 Core 能诚实给出的最旧说法，
+  因此向前分页的客户端会在开头恰好遇到它一次，而不是看着它出现在已被渲染为更新的行之后。
+- Cursor 是不透明的。`EvidencePage.next_after` 是一个字符串，客户端原样作为
+  `EvidenceQuery.after` 传回；客户端不得解析、构造或比较它。它是带标签而非按位的，因此
+  "未标注时间"这个位置与 `timestamp = 0` 保持不同，且包含分隔符的 id 仍能往返。
+- `owner` 是对 `RuntimeOwner` 的前缀作用域匹配，且两侧都 fail closed。指名 task 的查询不会被
+  只知道自己 lane 的行满足；没有记录 owner 的行永远不满足带作用域的读取，因为用它来回答会把
+  "Core 并不知道"变成"这条 lane 产生了它"。`kinds` 为空表示所有 kind，绝不是"什么都不要"。
+- 所有过滤都在切页之前执行，因此 `complete` 与 `next_after` 描述的是**过滤后**的归档。这正是
+  过滤属于契约而不是客户端工作的原因：客户端对手上已有的一页做过滤，看不到落在它从未加载的
+  那一页上的匹配行，因此它的"该 lane 没有 `patch` 证据"是一个它并无依据的完备性断言。
+- 内容只从 `EvidenceView.canonical` 指名的 canonical ContextStore 字节读取，并且只有在这些
+  字节与该引用的 `source_hash` 校验通过之后才读取。没有 canonical 引用回答
+  `Unavailable { SummaryOnly }`；无法打开的 store、缺失的 blob 或 handle、被拒绝的 scope 回答
+  `Unavailable { MissingCanonicalBytes }`；未通过自身哈希的字节回答
+  `Unavailable { HashMismatch }`；校验通过但非 UTF-8 的字节回答 `Unavailable { Binary }`；
+  kind 为 `patch` 时经由结构化 diff capability 所用的同一个 `parse_diff_document` 回答 `Diff`；
+  其余一律回答有界的 `Text`。
+- **Core 绝不把未经校验的字节当作 canonical 提供。** 不存在用于"Core 无法校验的内容"的变体；
+  `HashMismatch` 与其他所有 store 失败刻意分开，因为它是相反的事实：字节就在那里，而且正是
+  评审者绝不该被展示的那些。Core 无法打开 store 时回答 `MissingCanonicalBytes` 而不是不匹配，
+  因为什么都没有被比较过，声称不匹配等于凭空造事实。
+- 门禁姿态与 `QueryAudit` 一致，刻意不同于 `QueryWorkspaceFiles`：有界且带 owner 作用域，
+  绝不由工具门禁把关。证据归档是 Viden 自己的状态而不是操作者的工作树，因此这里没有需要授权的
+  工作区读取，也没有任何 `git_*` 或文件工具的 `viden.toml` 规则能描述它；用工具 spec 来把关
+  会凭空造出一条毫无意义的权限，并让一条针对文件系统写的规则遮蔽 Core 本就持有的事实。两个
+  读取都不产生变更、不请求审批，因此在 Plan mode 下均可回答。
+- 拒绝发生在回答之前并且指名。越界的 `kinds` 列表、本构建从未签发过的 cursor、以及从未记录过的
+  evidence id，都以 `CommandRejected` 携带调用者自己的 command id 返回，绝不是一个会被客户端
+  渲染成空归档的空 page。`limit` 像 `AuditQuery` 一样钳制到 `1..=200` 而不是拒绝，因为请求了
+  过多行的客户端仍然表达了一个可回答的意思。
+- 边界：默认每页 50 行、最多 200 行，最多 32 个 `kinds` 过滤项，内容 256 KiB——文本路径用
+  `truncated`，diff 路径用文档自身的 `truncated`。
+- 两个回答都是查询结果，都不折叠进 `RuntimeViewState`。这里的理由比审计 page 更尖锐：视图本就
+  携带 `latest_evidence`，把归档 page 折进去会让一次对旧行的分页读取覆盖实时投影，而客户端将
+  无法区分二者。
 
 自 core-0.3.5 起还新增一处 additive schema-1 扩展，使实时工作可归属（GUI-CORE-010）。
 `AgentTaskRecord`、`ToolCallView`、`QueuedInputView` 与 `EvidenceView` 各自新增一个
@@ -362,6 +410,7 @@ Fixture 文件位于 `crates/types/tests/fixtures/frontend-contract-v1/`。下�
 | `structured-diff` | 一个 `edit_file` 审批，其决策上下文含一个文件、一个 hunk，以及其所基于字节的 `base_sha256`；一个 `MergeAgentPatch` 审批，携带两文件变更且不含基线哈希；一页 diff，其中一条为已暂存条目，另一条被字节边界省略但计数保持真实；以及第二次读取被 `CommandRejected` 以其自身 command id 拒绝 | `3f5f4caf39cee2c46162999a35618599c0197aae15a3abfdd3a098e080676b8a` | `e24915b31f4192d85349be99da4c0ea81b6fb0b126b2076de17775d70de21cd0` |
 | `operator-git` | 一个 `Stage` 被策略拒绝，并以 `CommandRejected` 指名映射后的 `git_add` spec 返回；一个 `Commit` 走 ask 路径、携带已暂存行被审批并完成，其后跟随重新采样的源码事实，其中 `ahead` 前进且工作树干净；一个 `Push` 结论为 `Failed { NoUpstream }` 而不是被拒绝，因为门禁放行了它且该尝试已被审计 | `07eadb0e93c8e151ba5e3dd0f069035ff5e97ca20156b6f1f0c0e85a86ac14e1` | `f29aa213870cfd2e511553453b077db7f193dac553068e932c787ae0ba683936` |
 | `conflict-content` | 两条 Lane 触及同一个文件：Lane A 的补丁合入，Lane B 的 `MergeAgentPatch` 被拒绝，bounce 携带一个 hunk，含 `ours`、`theirs` 与补丁原像，基线为 `Evidence`；另有一条 `LaneConflictDetected` 以相同形状携带内容，基线为 `Revision` | `d73ea2a144cd2682f3c5121f124c952dfad158e4befdd1a60ec9b9dc1c4d01bf` | `830afb77c04cf807926d0010309b07c3f1802e580daf48bc0715d4722c96ce1f` |
+| `evidence-reads` | 两页以第一页发布的那个不透明 cursor 原样拼接同一份三行归档；一页按 kind 过滤、对其过滤而言 `complete`，而未过滤的归档并非如此；三次内容读取分别回答有界文本、`patch` 行的已解析 diff 行、以及仅供展示证据的 `Unavailable { SummaryOnly }`；另有一次越界 `kinds` 查询以 `CommandRejected` 回答且完全不发布 page | `b15cb2fd024f60a1abb3a5a39b5c5736fca8bec443ae1a99a69e99f51edf8ef9` | `4d33513151bda26aa8e11242a9963d7fde25cc332980a40306f6393e6fc4caa0` |
 
 2026-09-07 语义修正（评审发现 4）：`RuntimeViewState.assistant_stream` 此前没有生命
 周期——它在整个 view 生命期内只追加，因此启动重放会把每个历史会话的回复串接成一整块
@@ -425,6 +474,16 @@ Lane B 的补丁是针对 Lane A 替换掉的那段文本写的，因此被拒�
 两个基线刻意是不同种类：gate 的基线是它的 canonical reviewed evidence，Lane 的基线是其文件
 被读取时的 revision，单一的基线字符串对其中之一必然是谎言。payload 中没有任何合并后的结果，
 因此若客户端把它渲染成可解决的三方合并，就会提供一个 Core 从未产生过的自动解决。
+
+`evidence-reads` fixture 是 `runtime.evidence_reads`（GUI-CORE-025）的生成式证据。它的四种情形
+在朴素客户端里渲染出来完全一样——都是"没有证据"——而每一种都是不同的事实，这正是它们共用一个
+fixture 的全部理由。被切断的一页在 cursor 之后还有行，并且指名了那个 cursor；第二页从那个确切
+字符串恢复，而不是从一个重建出来的字符串，这使 cursor 的不透明性变得可测。按 kind 过滤的一页
+对其过滤而言是 `complete`，而未过滤的归档并非如此，因此把 `complete` 读成关于归档的断言的客户端
+会提前停止分页。一条 `task_summary` 行确实存在且没有 canonical 字节，因此是
+`Unavailable { SummaryOnly }` 而不是空正文。而越界的 `kinds` 查询被拒绝且完全不发布 page，
+因为空 page 与空归档无法区分。回放断言同时证明两个回答都停在 `RuntimeViewState` 之外：归约每一个
+page 与每一个内容事件之后 `latest_evidence` 仍为空，这正是归档 page 不会覆盖近期窗口的保证。
 
 `context-budgets` fixture 为 `ContextScope` 与 `ContextBudgetRecord` 的 frontend-neutral
 facade 导出提供依据。Budget 只能通过该 Lane 精确绑定的 runtime owner 所指名的 typed task

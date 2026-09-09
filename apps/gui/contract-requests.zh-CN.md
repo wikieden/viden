@@ -532,12 +532,49 @@ schema-1 已知 event type 集合中，因此在任何序列化 snapshot/replay 
 剩余客户端后续项（不被 Core 阻塞）：基于新 `AuditQuery` 字段的 D14 actor 与时间范围过滤
 chip。目前没有客户端发送 actor 或时间过滤，因为还没有让操作者做出选择的控件。
 
-## GUI-CORE-025：证据读取
+## GUI-CORE-025：证据读取 — 已关闭（Core 侧，2026-09-09）
 
-由 `docs/release-0.3.3-contract-design.zh-CN.md` 预留，用于已注册的
-`EvidenceView` 界面所需的分页证据读取（`QueryEvidence` / `EvidencePageLoaded`、
-`ReadEvidenceContent` / `EvidenceContentLoaded`）。由 Core 批次 C4 开启并关闭；
-此处占位以免该编号被其他请求占用。
+请求：已注册的 `EvidenceView` 界面是一份按天分组的归档，外加详情侧栏——键值报告、输出尾部、
+由 `metadata` 与 `canonical` 链出的 chip，以及 `patch` 行的"在评审中打开"。前端今天唯一能拿到的
+证据是 `RuntimeViewState.latest_evidence`，它无法承载这个界面，原因有三条，且客户端都无法绕过：
+
+1. 它是**近期窗口投影**——客户端对它自己恰好收到的那条事件流的归约。中途连接的客户端，或从序列
+   缺口恢复的客户端，持有的是严格子集，因此"这是最近 N 条证据"是一个它并无依据的关于归档的断言。
+2. 它**没有排序规则、也没有 cursor**。它是按到达顺序 upsert-by-id 的列表，因此按天分组意味着
+   GUI 自行发明一套排序，分页意味着 GUI 自行决定一页在哪里结束——归档于是有两个定义，其中一个
+   在 Core 之外。
+3. 它**不携带内容**。`EvidenceView` 指名了 canonical 引用但从不给出字节，要渲染报告或输出尾部，
+   唯一的办法是 GUI 自己打开 ContextStore——那在客户端边界之外，并且绕过了哈希校验，而哈希校验
+   正是 canonical evidence 之所以有意义的全部原因。
+
+Core 状态：已交付为 `runtime.evidence_reads`。`QueryEvidence` -> `EvidencePageLoaded` 对 Core 在
+打开时从追加式 workflow agent 日志重建的持久归档分页，`ReadEvidenceContent` ->
+`EvidenceContentLoaded` 回答单条行背后的字节。两条命令与两个事件都是新增的，因此既有形状不变，
+九个冻结 base fixture 保持其字节。
+
+针对上面三点的回答，依次是：排序按 `(timestamp, id)` 升序，Core 从未标注时间的行排在**最前**
+——未标注时间是 Core 能诚实给出的最旧说法，因此向前分页的客户端在开头恰好遇到它一次，而不是在
+已被渲染为更新的行之后。Cursor 不透明——`next_after` 原样作为 `after` 传回，GUI 不得解析、构造或
+比较它——并且所有过滤都在切页之前执行，因此 `complete` 描述的是过滤后的归档而不是原始归档。
+内容只从 canonical ContextStore 字节读取，并且只有在它们与该行自身的 `source_hash` 校验通过之后。
+
+有两处答案值得点名，因为它们比"把内容给我们"更窄。`EvidenceContent` 没有用于"Core 无法校验的
+字节"的变体：没有 canonical 引用的行为 `SummaryOnly`，字节已消失的为 `MissingCanonicalBytes`，
+字节在场却未通过自身哈希的为 `HashMismatch`，校验通过但没有文本或 diff 形状的为 `Binary`。
+其中 `HashMismatch` 永不作为内容提供——那些正是评审者绝不该被展示的字节——因此详情侧栏在那里
+渲染的是一个类型化的原因而不是正文。门禁姿态与 `QueryAudit` 一致而非 `QueryWorkspaceFiles`：
+有界且带 owner 作用域、绝不由工具门禁把关，因为归档是 Viden 自己的状态而不是操作者的工作树。
+两个读取在 Plan mode 下均可回答。
+
+规范 fixture 是 `evidence-reads.json`：两页以第一页发布的那个确切 cursor 拼接同一份三行归档；
+一页按 kind 过滤、对其过滤而言 `complete` 而未过滤的归档并非如此；三次内容读取分别回答文本、
+已解析的 diff 行与 `Unavailable { SummaryOnly }`；以及一次越界 `kinds` 查询以 `CommandRejected`
+回答且完全不发布 page。这四种情形在朴素客户端里渲染出来完全一样——都是"没有证据"——这正是它们
+共用一个 fixture 的理由。
+
+GUI 状态：尚未采纳。EvidenceView 仍渲染 `latest_evidence` 给它的内容；按天分组的归档、详情侧栏、
+链出的 chip，以及进入 DiffReview 的"在评审中打开"，将随 EvidenceView 批次（G2）落地。
+TUI 状态：`0.3.2` 监督检查点上推迟的证据检视器，从决策浮层打开，随 T1 落地。
 
 ## GUI-CORE-026：平台凭据录入
 

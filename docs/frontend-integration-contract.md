@@ -128,6 +128,7 @@ self-referential inside the payload commit.
 | Structured diff | approval decision context, changed-file rows, DiffReview file tree and diff pane | `DiffDocument`, `DiffFile`, `DiffHunk`, `DiffLine`, `ApprovalRequestView.decision_context`, `WorkspaceChangeView.diff`, `WorkspaceDiffLoaded` | `QueryWorkspaceDiff` | Core `0.3.6` extension `runtime.structured_diff`; Core is the only producer of diff rows, and the read is permission-gated under the existing non-mutating `git_diff` tool with the resolved target root as the input path |
 | Operator source control | DiffReview commit bar, titlebar sync control | `OperatorGitAction`, `OperatorGitOutcome`, `OperatorGitFailureClass`, `OperatorGitActionFinished`, the `WorkspaceSourceUpdated` that follows it | `RunOperatorGitAction` | Core `0.3.6` extension `runtime.operator_git`; each action is gated and executed under the *existing agent* tool spec it maps to, so one rule set governs an operator and an agent, and the failure taxonomy is typed so no client parses git output |
 | Conflict content | DiffReview conflict pane, decisions overlay conflict detail | `ConflictContent`, `ConflictBaseline`, `ConflictFile`, `ConflictHunk`, `ConflictHunkReason`, `ConflictBounce.content`, `LaneConflictView.content`, `LaneConflictDetected.content` | none; the content rides the events a failed apply already publishes | Core `0.3.6` extension `runtime.conflict_content`; two sides plus the patch preimage, never a three-way merge, with a named baseline and only hunks the strict apply actually rejected |
+| Evidence archive reads | EvidenceView day-grouped list, row detail, and the content behind a row | `EvidenceQuery`, `EvidencePage`, `EvidenceCursor`, `EvidenceContent`, `EvidenceUnavailableReason`, `EvidencePageLoaded`, `EvidenceContentLoaded` | `QueryEvidence`, `ReadEvidenceContent` | Core `0.3.6` extension `runtime.evidence_reads`; the durable archive rather than the recent-window `latest_evidence`, ordered ascending on `(timestamp, id)` with undated rows first, an opaque cursor, filters applied before the page is cut, and content served only from canonical bytes that verified against the row's own `source_hash`. Gate posture is `QueryAudit`'s, not `QueryWorkspaceFiles`': bounded and owner-scoped, never tool-gated, because the archive is Viden's own state rather than the operator's tree |
 | Workspace file inventory | the ordered path list of the open workspace | `WorkspaceFileEntry`, `WorkspaceFileKind`, `WorkspaceFilePage`, `WorkspaceFilesLoaded` | `QueryWorkspaceFiles` | Core `0.3.5` extension `runtime.workspace_files`; permission-gated before any directory is read, under the non-mutating tool `workspace_file_inventory` with the workspace root as the input path. A deny, and an unresolved ask, both come back as `CommandRejected` naming this exact read and carrying the refusal — never an empty page, and never a bare `Error`, which has no command id and would let a client with a read outstanding mistake an unrelated failure for its own refusal. Plan mode still answers, because the tool mutates nothing. The walk is gitignore-aware and unconditionally excludes `.git/`, `.viden/`, `.omx/`, `.worktrees/`, `.ref/`. Entries are lexicographic; the prefix filter, the exclusive `after` cursor, and the `1..=500` limit clamp are applied to that order, so `complete` and `next_after` describe the filtered ordered inventory. `WorkspaceFilesLoaded.command_id` is required, so unlike an audit page there is no uncorrelated case. A client must never walk the filesystem itself |
 
 For Core `0.3.4`, follow-up and retry preserve the logical session id and exact
@@ -349,6 +350,8 @@ a contract change, not a refactor.
 | Load recent work | `QueryRecentWork { query }` | shared-home discovery, canonical metadata validation, stable ordering, bounds, diagnostics, and safe view projection |
 | Read a structured diff | `QueryWorkspaceDiff { command_id, query }` | target resolution from Core-owned Lane records, the `git_diff` permission gate before any process spawns, `git status`/`git diff` sampling, ordering, byte bounds, and the typed page |
 | Run an operator source-control action | `RunOperatorGitAction { owner, target, action }` | action validation, target resolution from Core-owned Lane records, the mapped `git_*` permission gate before any process spawns, the audit record before the effect, tool execution, failure classification, and the resampled source |
+| Page the evidence archive | `QueryEvidence { command_id, query }` | the durable archive rebuilt from the workflow agent log, stable `(timestamp, id)` ordering, the opaque cursor, owner-scope and kind filtering applied before the page is cut, bounds, and the typed page |
+| Read the bytes behind one evidence row | `ReadEvidenceContent { command_id, evidence_id }` | canonical ContextStore lookup, `source_hash` verification before anything is served, the typed content or unavailable reason, and the 256 KiB bound |
 | Create a starter Lane | `PreviewStarterLane`, review the result, then `CreateStarterLane` with the unchanged request/id/hash | preset resolution, workspace/isolation checks, permission gate, execution-time recheck, compensation, typed receipt |
 
 Starter Lane isolation is selected by Core, not by the frontend. A workspace
@@ -559,6 +562,68 @@ The first supported required evidence kinds are `patch`, `test_result`,
 `review`, `doc_update`, and `release_artifact`. Clients may display other
 runtime-provided kinds, but should treat the known set as first-class checklist
 groups.
+
+### Evidence archive reads
+
+Requires the `runtime.evidence_reads` extension (Core `0.3.6`, GUI-CORE-025).
+Without the capability a client keeps whatever `RuntimeViewState.latest_evidence`
+gives it, renders no archive and no content, and must not present that window as
+the archive.
+
+`latest_evidence` is a **recent-window projection**: a client-side reduction of
+whatever event stream that client received, with no ordering rule, no cursor and
+no content. `QueryEvidence` -> `EvidencePageLoaded` pages the durable archive
+instead — the evidence Core rebuilds at open from the append-only workflow agent
+log — and `ReadEvidenceContent` -> `EvidenceContentLoaded` answers the bytes
+behind one row. Both commands are new, both events are new, and neither answer is
+reduced into `RuntimeViewState`, so publishing one moves no snapshot digest.
+
+- **Ordering** is ascending on `(timestamp, id)`, where `timestamp` is
+  `EvidenceView.timestamp`. A row Core never dated sorts **first**, before every
+  dated row: undated is the oldest thing Core can honestly say about it, so a
+  forward-paging client meets it once at the start rather than watching it arrive
+  after rows it already rendered as newer. The `id` breaks a timestamp tie so two
+  rows recorded in the same second still page deterministically.
+- **The cursor is opaque.** `EvidencePage.next_after` is a string a client passes
+  back verbatim as `EvidenceQuery.after`. Clients must not parse, construct, or
+  compare it: a client that reconstructed one would be re-deriving Core's
+  ordering rule from a string, which is the coupling the opaque form exists to
+  prevent. `next_after` is `None` exactly when `complete` is true.
+- **Filters run before the page is cut**, so `complete` and `next_after` describe
+  the *filtered* archive. `owner` is a prefix scope match over `RuntimeOwner` that
+  fails closed on both sides: a query naming a task is not satisfied by a row that
+  only knows its lane, and a row with no recorded owner never satisfies a scoped
+  read, because answering one with it would turn "Core did not know" into "this
+  lane produced it". Empty `kinds` means every kind, never nothing.
+- **Content comes only from canonical bytes.** Core reads the ContextStore item
+  named by `EvidenceView.canonical` and verifies it against that reference's
+  `source_hash` before serving anything. `EvidenceContent` is `Text` (bounded, with
+  `truncated`), `Diff` (kind `patch`, parsed by the same producer the structured
+  diff capability uses, so "Open in review" renders one shape rather than two), or
+  `Unavailable { reason }`. Both content variants carry the `sha256` the bytes were
+  verified against, so a reader can join what it rendered to the row's own
+  canonical reference.
+- **Core never serves unverified bytes as canonical.** There is no variant for
+  content Core could not verify. `SummaryOnly` means the row carries no canonical
+  reference at all — display-only evidence such as `task_summary`, which the merge
+  gate already refuses as evidence; `MissingCanonicalBytes` means the reference
+  names bytes the store no longer holds; `HashMismatch` means the bytes are there
+  and are exactly the ones a reviewer must not be shown, and they are never
+  published; `Binary` means the bytes verify and have no text or diff shape.
+  `EvidenceUnavailableReason` is `#[non_exhaustive]`, and clients switch on the
+  reason rather than parsing a message.
+- **Gate posture matches `QueryAudit`**, deliberately not `QueryWorkspaceFiles`':
+  bounded and owner-scoped, never tool-gated. The evidence archive is Viden's own
+  state rather than the operator's tree, so there is no workspace read to authorize
+  and no `git_*` or file tool whose `viden.toml` rule would describe one. Both
+  reads mutate nothing and prompt for nothing, so both stay answerable in Plan
+  mode.
+- **A refusal is never an empty page.** An over-limit `kinds` list, a cursor this
+  build did not issue, and an evidence id Core never recorded all arrive as
+  `CommandRejected` carrying the caller's own command id, with the actionable hint
+  folded into the reason. `limit` is clamped to `1..=200` rather than refused, as
+  `AuditQuery` does. Bounds: 50 rows per page by default, at most 200; at most 32
+  `kinds` filters; 256 KiB of content.
 
 ### Conflict content
 
