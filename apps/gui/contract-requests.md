@@ -18,6 +18,11 @@ is 009, 013, 018, 019, 021, 023, 026, and 027. These entries are recorded
 against the `claude/int-0.3.3` integration branch; nothing here is on `main`
 until that branch is merged.
 
+Status note 2026-09-10 (E1): GUI-CORE-028 (durable evidence for
+supervisor-driven work) is opened by the release-evidence pass and scheduled for
+`0.3.4`, following the C5 adjudication of the same day. The open register is
+009, 013, 018, 019, 021, 023, 026, 027, and 028.
+
 ## GUI-CORE-008: Selected-Lane context scope — CLOSED
 
 History: Core `0.3.5` exposed `RuntimeViewState.context_budgets`, but the
@@ -864,6 +869,51 @@ which a Workspace-target operator action is authorized and audited under that
 owner. Scheduled for `0.3.4`; deliberately not added late in `0.3.3`, where it
 would have been a twenty-fourth capability after the count gate moved, and
 where the E1 evidence flow runs through a Lane.
+
+## GUI-CORE-028: Durable evidence for supervisor-driven work
+
+Opened 2026-09-10 by the E1 release-evidence pass, after the C5 adjudication of
+the same day deferred it out of `0.3.3`. Scheduled for `0.3.4`.
+
+`runtime.evidence_reads` (GUI-CORE-025) answers from the durable archive
+`SessionEngine::runtime_evidence`, which is rebuilt at open from the append-only
+`runtime_projection` / `runtime_projection_batch` rows of the workflow agent log
+(`crates/runtime/src/evidence_reads.rs:1-24`) and written only by the
+`EvidenceRecorded` arm of the engine's own reduction
+(`crates/runtime/src/session_lifecycle.rs:860`, through
+`crates/runtime/src/runtime_tasks.rs:42`). Nothing driven through
+`RuntimeSupervisor` — a native Lane turn, an ACP session — reaches that arm.
+
+The consequence, stated for each producer:
+
+- A native tool mutation publishes transcript facts plus a **live**
+  `WorkspaceChangeUpdated` / `CheckRunUpdated` derived from the structured tool
+  result (`crates/runtime/src/runtime_loop.rs:82-118`, stamped with an owner in
+  `crates/runtime/src/frontend_status.rs:262-263`) and a transient `tool_result`
+  row in `RuntimeViewState.latest_evidence`. It records no `patch` evidence
+  anywhere, so an applied `edit_file` or `write_file` leaves the archive empty.
+- ACP publishes `EvidenceRecorded` for patches, tool logs, and turn ends
+  (`crates/agents/src/glue.rs:1260`, `:1316`, `:1347`, `:1389`, `:1425`), but on
+  the supervisor's bus rather than through the engine, and its patch evidence
+  carries `canonical: None`, so even a reduced copy would name no bytes.
+- The only durable producers are `StartAgentTask` (a `task_summary`),
+  `RecordAgentEvidence`, and the provider-config commands
+  (`crates/runtime/src/runtime_contract.rs:732`, `:916`). Neither client
+  dispatches any of them.
+
+Two things follow that are not cosmetic. `QueryEvidence` answers "no evidence in
+this scope" for a session whose transcript is full of evidence, and both clients
+render that honestly, which is the correct behaviour over an archive that is
+genuinely empty. And a Lane driven by the native supervisor can never satisfy a
+merge gate that requires `patch` evidence, because it never produces any.
+
+Close this request when an applied native mutation and an ACP patch each produce
+an archived `patch` row carrying canonical ContextStore bytes and a
+`source_hash`, persisted through the same `runtime_projection` rows the archive
+rebuilds from, with a `frontend-contract-v1` fixture covering both. The
+live-event addition must be checked against the nine frozen base fixtures — they
+are static JSON, so only regeneration can move them; the check is that no
+regeneration is needed, not that the bytes happen to survive a code change.
 
 ## Retired pre-register codes
 

@@ -15,6 +15,10 @@
 019、021、023、026、027。这些条目记录在 `claude/int-0.3.3` 集成分支上；在该
 分支合并之前，此处内容尚未进入 `main`。
 
+状态注记 2026-09-10（E1）：GUI-CORE-028（由 supervisor 驱动的工作缺少持久证据）
+由发布证据回合开立，承接同日的 C5 裁定，排入 `0.3.4`。当前开放的登记项为
+009、013、018、019、021、023、026、027、028。
+
 ## GUI-CORE-008：所选 Lane 的上下文作用域 — 已关闭
 
 历史：Core `0.3.5` 已暴露 `RuntimeViewState.context_budgets`，但 frontend-neutral
@@ -650,6 +654,48 @@ project 字段在整个契约中语义上是惰性的 —— 这是本请求同�
 fixture，其中一次 Workspace 目标的操作者动作在该 owner 下被授权并被审计。排入
 `0.3.4`；刻意不在 `0.3.3` 末期加入 —— 那会在计数门已经移动之后再添第 24 项
 能力，而 E1 的证据流程本身走的就是 Lane。
+
+## GUI-CORE-028：由 supervisor 驱动的工作缺少持久证据
+
+由 2026-09-10 的 E1 发布证据回合开立；同日的 C5 裁定已把它移出 `0.3.3`。排入
+`0.3.4`。
+
+`runtime.evidence_reads`（GUI-CORE-025）回答的是持久归档
+`SessionEngine::runtime_evidence`。该归档在 open 时由 workflow agent log 中
+只追加的 `runtime_projection` / `runtime_projection_batch` 行重建
+（`crates/runtime/src/evidence_reads.rs:1-24`），而写入它的只有 engine 自身归约
+中的 `EvidenceRecorded` 分支（`crates/runtime/src/session_lifecycle.rs:860`，
+经由 `crates/runtime/src/runtime_tasks.rs:42`）。任何经 `RuntimeSupervisor`
+驱动的工作——原生 Lane 回合、ACP 会话——都到不了那个分支。
+
+按生产者逐条说明后果：
+
+- 原生工具变更会发布转录事实，加上由结构化工具结果派生的**实时**
+  `WorkspaceChangeUpdated` / `CheckRunUpdated`
+  （`crates/runtime/src/runtime_loop.rs:82-118`，owner 在
+  `crates/runtime/src/frontend_status.rs:262-263` 处打上），以及
+  `RuntimeViewState.latest_evidence` 中一条瞬态 `tool_result` 行。它在任何地方
+  都不记录 `patch` 证据，因此一次已应用的 `edit_file` 或 `write_file` 留下的是
+  空归档。
+- ACP 会为补丁、工具日志与回合结束发布 `EvidenceRecorded`
+  （`crates/agents/src/glue.rs:1260`、`:1316`、`:1347`、`:1389`、`:1425`），
+  但发布在 supervisor 的事件总线上而不是经过 engine；而且它的补丁证据
+  `canonical: None`，因此即使被归约复制一份，也指不出任何字节。
+- 唯一的持久生产者是 `StartAgentTask`（一条 `task_summary`）、
+  `RecordAgentEvidence` 以及 provider 配置命令
+  （`crates/runtime/src/runtime_contract.rs:732`、`:916`）。两个客户端都不发送
+  其中任何一个。
+
+由此有两件事并非表面问题。对于一个转录中满是证据的会话，`QueryEvidence` 会回答
+「此作用域内没有证据」，两个客户端都如实渲染——对一个真正为空的归档而言，这正是
+正确行为。而由原生 supervisor 驱动的 Lane 永远无法满足要求 `patch` 证据的合并
+门禁，因为它根本不产生这类证据。
+
+当一次已应用的原生变更与一次 ACP 补丁各自产生一条归档 `patch` 行、带有 canonical
+ContextStore 字节与 `source_hash`、并通过归档赖以重建的同一批 `runtime_projection`
+行持久化，且有覆盖两者的 `frontend-contract-v1` fixture 时，关闭此请求。新增的实时
+事件必须对照九个冻结的基线 fixture 检查——它们是静态 JSON，只有重新生成才会让它们
+变化；要检查的是「不需要重新生成」，而不是「字节碰巧没变」。
 
 ## 已退役的前登记编码
 
