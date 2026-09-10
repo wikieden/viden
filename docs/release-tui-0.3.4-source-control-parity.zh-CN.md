@@ -241,6 +241,202 @@ SYSTEM
 - `main-evidence-detail`：一条 `patch` 行的规范字节渲染成差异块行，并给出 Core
   校验它们所用的 sha256。
 
+## 输入框路由与 `/git` 目标（T1c，2026-09-10）
+
+E1 的发布证据实机跑通了一个真实任务，中途停住三次。三处在改动任何代码之前都先
+以失败测试复现；复现过程与 Core 侧事实见
+[Core 0.3 兼容性](core-0.3-compatibility.zh-CN.md)开放跟进项 5-7。
+
+### 输入框只在自己的目标忙时入队
+
+`command_for_composer` 过去基于一个统一的「Core 忙」判定路由，而该判定在以下情况
+为真：Core 不带作用域的 `assistant_stream` 仍残留着一次已完成的内置回合的答复、
+任何 Lane 处于 `Draft`、以及 `queued_inputs` 非空。Core 从不排空会话队列，所以
+最后一项再也回不到假：一次 fallback 回合之后，或创建一条 starter Lane 之后，
+后续每条提示都入队且都不执行。
+
+现在判定按各调用方真正要问的问题拆开：
+
+- `state::composer_target_busy` 回答路由问题，并以 owner 为作用域，与 GUI 输入框
+  采用同一条规则。它读取活跃工具调用、待决审批、活跃 task，或已发布 owner 属于
+  本次输入目标的活跃 Agent session，外加本客户端自己在途的原生回合。owner 缺失
+  按会话作用域计：前端契约规定 owner 缺失表示该事实不属于任何 Lane 作用域，而
+  内建 provider 发布的每一条事实都是这样，把它们当成别人的工作会开出第二个并发
+  回合。
+- `state::has_active_work` 回答呈现问题——状态行的 `ACTIVE`、活跃工作条、退出
+  确认、`Ctrl-C`——且不以 owner 为作用域，因此一条正在跑自己回合的 Lane 仍然
+  显示为「有事情在发生」。
+
+H1 的单一判定规则以蕴含而非等价的形式在这次拆分中保留下来，并且是构造上成立的：
+呈现判定由路由判定计算而来，所以只要输入框入队，状态行就说 `ACTIVE`。两者可以在
+描述两个不同的回合，但绝不会对同一个回合给出两种说法。
+
+Lane 生命周期状态已从两个判定中移除。`LaneStatus::is_active` 是一个生命周期判定，
+它把 `Draft`、`Attached` 与 `Detached` 都算作活跃；真正「在跑」的子集是 `Queued`、
+`Starting`、`Running`、`WaitingApproval` 与 `NeedsInput`。`queued_inputs` 也从两个
+判定中移除，Core 的队列缺口仍然开放并有记录——本客户端只是不再把一个 Core 不会
+执行的队列当作回合的证据。
+
+### 原生回合的残留窗口，写得确切
+
+Core 不为内建 provider 发布任何回合活跃性事实：没有 Agent session、没有 task，
+`AssistantDelta` 也不带 session id。它还只在收到终结性的 Agent session 事实时才
+结算那条不带作用域的流，因此一次已完成的答复会在视图里留到会话结束。
+`apps/tui/src/tui/native_turn.rs` 改为持有这个窗口，并且不持有任何权威事实：
+
+- 它在输入框派发 `SubmitUserInput` 时**打开**；
+- 它在本命令的 `CommandRejected`、派发之后的第一条 `SnapshotUpdated`（原生回合
+  返回时 `runtime_events_for_streaming_output` 发出的终结批次的首事件，而中途的
+  审批边界批次不带这个前缀），或一次丢弃了相关流的快照替换时**关闭**。
+
+`SnapshotUpdated` 不是回合活跃性事实。有三条操作者命令会自行发布一条
+`SnapshotUpdated`——`SetWorkMode`、`SetPermissionLevel`、`SelectModel`——因此在
+原生回合流式输出**期间**更改工作模式、权限级别或模型会提前关闭该窗口。这一次误判
+是有界的，并且由 Core 而不是由猜测来回答：下一条提示会被提交，而 supervisor 以
+`active runtime job … is already running` 拒绝为同一 owner 开出第二个作业，转录会
+渲染该答复。它取代的那种失败——一个永远不会关闭的窗口——在会话内部根本无法恢复。
+要真正正确地关闭它，需要开放跟进项 3 里那条 Core 回合活跃性事实。
+
+### 被选中的 Lane 在离开详情面板后仍然存在
+
+`/git` 是在输入框里键入的，而 Lane 的选中态过去会随操作者为了到达输入框而关闭的
+lane 详情面板一起消失，于是从输入框打开的每个 `/git` 都以工作区为目标并被
+GUI-CORE-027 拒绝。第一个成因背后还有第二个：环境性的 lane 详情面板在渲染顺序上
+压过交互面板，因此即便选中态得以保留，看到的仍会是 lane 检视面板，而不是选择器的
+行。第三个成因只有在前两个修好、能够走通实机流程之后才暴露出来：一条被选中且没有
+session 的 Lane 会把客户端拉到 board 视图，而 board 与 `Setup`、`Decisions`、
+`Gallery` 一样根本不渲染输入框（`render::render_frame`）。如果目标所服务的那个界面
+不在屏幕上，保住目标本身毫无意义。
+
+- `TuiUiState.lane_detail_open` 与 `TuiUiState.focused_lane` 分离。前者表示屏幕上
+  显示着什么，后者表示下一条命令点名哪条 Lane。
+- `Esc` 的回退链多了一级：浮层 -> lane 详情 -> Lane 目标 -> 插入模式。第一次
+  `Esc` 收起面板并说明该 Lane 仍是目标；第二次清除它并同样给出说明，因此清除目标
+  的方式是有据可查而非隐藏手势。状态行的 `L:<lane>` 全程表示目标。
+- 交互面板在环境性 lane 详情之前渲染。操作者主动打开的选择器不会被没打开的面板
+  遮住。
+- board 视图由收起面板的同一级回退一并撤销，且 `reconcile_ui_state_with_runtime`
+  在该面板关闭之后不再把 Session 视图拉回 board。两处都以 `lane_detail_open` 为
+  条件，因此操作者正在查看该 Lane 时 board 仍然优先，而按名字主动进入的视图
+  ——`Setup`、`Decisions`、`Gallery`——不会被这一级动到。
+- 工作区目标的 027 拒绝行为未变。
+
+选择器的 TARGET 行现在会点名该 Lane，并对 Lane 目标声明源状态未知。
+`RuntimeViewState.workspace_source` 是单一的工作区作用域视图，Core 不为每条 Lane
+发布任何源状态，因此把工作区的分支与领先/落后印在 Lane 的名字旁边，等于把一棵树
+的状态安到另一棵树上。
+
+### 离线实机检查，2026-09-10
+
+在 tmux（120x40）中，针对 `.viden` 的一份临时副本运行——包含 `agents/`、
+`context-engine/`、`projects/`、`workflows/`、`index.sqlite3` 与 `lanes.tsv`，
+排除 `cache/`——工作区是一个临时 Git 仓库，参数为 `--provider fallback --model
+test-local`。仓库自身的 `.viden/` 未被打开。序列即 E1 的序列，并越过它停住的那个
+点继续：一次 fallback 回合、`New Lane`、批准、`Esc` 退出详情面板、第二次输入框
+提交、`/git`，再按一次 `Esc`。
+
+下面每个块都是那次运行的 `tmux capture-pane` 帧，裁到所述的行，并缩短了临时路径。
+lane id 是 Core 在那次运行中生成的。
+
+**1. 一次 fallback 回合完成之后。** 输入框给出 `Send`，状态行是 `IDLE`。在 T1c
+之前，这里两者都会永久变成 `Queue` / `ACTIVE`，因为 Core 不带作用域的流里仍留着
+那条答复。
+
+```
+│ MODE [Build]  PERM [Ask]      ACTIONS: [^J Send] [^K Clr] [^R Regenerate] [^N New Task] [? Help] │
+ P:t1c-live L:- M:Build INSERT · IDLE · EVENTS 8 · TOKENS 0 · PROVIDER healthy
+```
+
+**2. `New Lane` 与 `Allow once` 之后。** 这条 Lane 是真的——Core 创建了分支
+`viden/lane_1789024399248187000` 及其工作树，两者都用 `git branch` 与
+`git worktree list` 在带外确认过。它处于 `Draft`，状态行是 `IDLE` 而不是
+`ACTIVE`：创建出来的 Lane 不是正在跑的回合。
+
+```
+┌ LANE DETAIL ─────────────────────────────────── lane_1789024399248187000 ┐
+│ lane_1789024399248187000 coder                                           │
+│ ROUTE main→side-1                                                        │
+│ STATE  Draft                                                             │
+ P:t1c-live L:lane_178902439 M:Build NORMAL · IDLE · EVENTS 10 · TOKENS 0 · PROVIDER healthy
+```
+
+**3. `Esc` 退出 lane 详情。** 面板收起，cockpit 与它的输入框回来了，
+`L:lane_178902439` 保留，转录说明了发生了什么以及如何撤销。
+
+```
+ VIDEN / COCKPIT  fallback  test-local  healthy
+ /private/tmp/…  lane lane_1789024399248187000  session -  approvals 0
+...
+│ MODE [Build]  PERM [Ask]      ACTIONS: [^J Send] [^K Clr] [^R Regenerate] [^N New Task] [? Help] │
+ P:t1c-live L:lane_178902439 M:Build NORMAL · IDLE · EVENTS 10 · TOKENS 0 · PROVIDER healthy
+```
+
+```
+SYSTEM
+  Closed the lane detail. The Lane stays the target for /git; Esc again clears it.
+```
+
+**4. Lane 存在的情况下再做一次输入框提交。** 被接受并得到答复——一条 `USER` 行
+与一条回复，整个会话里没有任何 `queued …` 行。在旧判定下，这就是 E1 的第二次
+停住。
+
+```
+USER
+  where does the config loader live
+
+USER
+  add a config loader note
+
+SYSTEM
+  Closed the lane detail. The Lane stays the target for /git; Esc again clears it.
+
+USER
+  third prompt after the Lane exists
+```
+
+**5. 在输入框中键入 `/git`。** 选择器点名该 Lane，四行全部可选：Core 为这条 Lane
+发布了 runtime owner，因此 `runtime.operator_git` 从本客户端可达。没有真的执行
+提交；这张截图要证明的是目标与被启用的行。
+
+```
+┌ Source control ──────────────────────────────────────────────────────┐
+│ > Stage all changes                                                  │
+│   Commit…                                                            │
+│   Push                                                               │
+│   Fetch                                                              │
+│ TARGET  lane_1789024399248187000 · source unknown                    │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+**6. 有据可查的清除方式。** 再按一次 `Esc` 清除目标并给出说明；`L:` 回到 `-`。
+
+```
+SYSTEM
+  Cleared the Lane target lane_1789024399248187000. /git now names the workspace.
+
+ P:t1c-live L:- M:Build INSERT · IDLE · EVENTS 13 · TOKENS 0 · PROVIDER healthy
+```
+
+**7. 工作区目标未变。** 没有选中 Lane 时的 `/git` 仍然把四行渲染成受
+GUI-CORE-027 拒绝，旁边是工作区自己的源状态事实——这些事实它确实有。
+
+```
+┌ Source control ──────────────────────────────────────────────────────┐
+│ > Stage all changes · no workspace owner · GUI-CORE-027              │
+│   Commit… · no workspace owner · GUI-CORE-027                        │
+│   Push · no workspace owner · GUI-CORE-027                           │
+│   Fetch · no workspace owner · GUI-CORE-027                          │
+│ TARGET  workspace · main · ahead 0 behind 0 · dirty                  │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+关于同一次运行的三点如实说明。Core 的 `assistant_stream` 明显把每条答复连在一起，
+因为 Core 对内建路径仍然从不结算它——那是开放跟进项 3，此处未变，而它现在只是一个
+显示层的瑕疵，不再是路由输入。临时 `.viden` 副本带来了八个来自被复制会话的
+`Proposed` 门，监督条会全程列出它们；它们属于被复制的状态，而不属于这次运行。
+另外有一条 `USER` 行内容是 `i/git`，因为驱动脚本在输入框已处于插入模式时又发了
+一个 `i`；那是脚本操作者的问题，不是客户端的问题。
+
 ## 已知缺口
 
 - 冲突弹窗由监督浮层的查看行打开，该行面向合并门退回。Lane 冲突在其记录条目上给出

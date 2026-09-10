@@ -285,6 +285,228 @@ exported by `scripts/tui-regression.sh`:
 - `main-evidence-detail`: one `patch` row's canonical bytes as hunk rows beside
   the sha256 Core verified them against.
 
+## Composer Routing And The `/git` Target (T1c, 2026-09-10)
+
+E1's release-evidence run drove one real task through this client and stopped
+three times. All three were reproduced as failing tests before anything was
+changed; the reproduction and the Core-side facts are
+[Core 0.3 compatibility](core-0.3-compatibility.md), open follow-ups 5-7.
+
+### The composer queues only when its own target is busy
+
+`command_for_composer` routed on one unified "Core is busy" predicate, which was
+true whenever Core's unscoped `assistant_stream` still held a finished built-in
+turn's reply, whenever any Lane sat in `Draft`, and whenever `queued_inputs` was
+non-empty. Core never drains the session queue, so the last one never went back
+to false: after one fallback turn, or after creating one starter Lane, every
+later prompt queued and none ran.
+
+The predicate now splits along the question each caller asks:
+
+- `state::composer_target_busy` answers routing and is owner-scoped, the same
+  rule the GUI's composer applies. It reads an active tool call, a pending
+  approval, an active task, or a live Agent session whose published owner is
+  this input's target, plus this client's own in-flight native turn. An absent
+  owner counts as the session scope: the frontend contract says an absent owner
+  means the fact belongs to no Lane scope, and the built-in provider publishes
+  every one of its facts that way, so treating them as someone else's work
+  would start a second concurrent turn.
+- `state::has_active_work` answers presentation — the status row's `ACTIVE`, the
+  live-work strip, the exit confirmation, `Ctrl-C` — and is not owner-scoped, so
+  a Lane running its own turn still reads as something happening.
+
+H1's single-predicate rule survives the split as an implication rather than an
+equality, and it holds by construction: presentation is computed *from* the
+routing answer, so whenever the composer queues the status row says `ACTIVE`.
+The two can describe two different turns; they can never describe one turn two
+ways.
+
+Lane lifecycle state is gone from both. `LaneStatus::is_active` is a lifecycle
+predicate that counts `Draft`, `Attached` and `Detached`; the running subset is
+`Queued`, `Starting`, `Running`, `WaitingApproval` and `NeedsInput`.
+`queued_inputs` is gone from both, and the Core queue gap stays open and
+recorded — this client simply stops treating a queue Core will not run as
+evidence of a turn.
+
+### The residue window for a native turn, stated exactly
+
+Core publishes no turn-liveness fact for the built-in provider: no Agent
+session, no task, and `AssistantDelta`s with no session id. It also settles the
+unscoped stream only on a terminal Agent-session fact, so a finished reply stays
+in the view for the rest of the session. `apps/tui/src/tui/native_turn.rs` holds
+the window instead, and holds nothing authoritative:
+
+- it **opens** when the composer dispatches `SubmitUserInput`;
+- it **closes** on that command's `CommandRejected`, on the first
+  `SnapshotUpdated` after dispatch — the head of the terminal batch
+  `runtime_events_for_streaming_output` emits when a native turn returns, where
+  the intermediate approval-boundary batches carry no such prefix — or on a
+  snapshot replacement, which discards the stream the correlation was reading.
+
+`SnapshotUpdated` is not a turn-liveness fact. Three operator commands publish
+one of their own — `SetWorkMode`, `SetPermissionLevel`, `SelectModel` — so
+changing work mode, permission level or model *while a native turn streams*
+closes the window early. That miss is bounded and answered by Core rather than
+guessed at: the next prompt is submitted, and the supervisor refuses a second
+job for one owner with `active runtime job … is already running`, which the
+transcript renders. The failure it replaces — a window that never closed — could
+not be recovered from inside a session at all. Closing it properly needs the
+Core turn-liveness fact of open follow-up 3.
+
+### The selected Lane survives leaving its detail panel
+
+`/git` is typed in the composer, and the Lane selection used to die with the
+lane-detail panel the operator closed to get there, so every `/git` opened from
+the composer targeted the workspace and was refused under GUI-CORE-027. A second
+cause sat behind it: the ambient lane-detail panel out-rendered the interaction
+panel, so even a surviving selection would have shown a lane inspector where the
+picker's rows belong. A third surfaced only once the first two were fixed and
+the flow could be walked live: a selected Lane with no session pulls the client
+to the board lens, and the board, like `Setup`, `Decisions` and `Gallery`,
+renders no composer at all (`render::render_frame`). A target that survives is
+worth nothing if the surface it is a target *for* is off screen.
+
+- `TuiUiState.lane_detail_open` is separate from `TuiUiState.focused_lane`. The
+  first is what is on screen; the second is which Lane the next command names.
+- The `Esc` unwind chain gained a rung: overlay -> lane detail -> Lane target ->
+  insert. The first `Esc` puts the panel away and states that the Lane stays the
+  target; the second clears it and states that too, so the documented way to
+  drop the target is discoverable rather than hidden. `L:<lane>` on the status
+  row is the target throughout.
+- The interaction panel renders before the ambient lane detail. A selector the
+  operator opened is never hidden by one they did not.
+- The board lens is unwound by the same rung that closes the panel, and
+  `reconcile_ui_state_with_runtime` stops pulling a Session lens back to the
+  board once that panel is closed. Both moves are conditioned on
+  `lane_detail_open`, so the board still wins while the operator is looking at
+  the Lane, and a lens they asked for by name — `Setup`, `Decisions`,
+  `Gallery` — is never unwound by this rung.
+- The 027 refusal for the workspace target is unchanged.
+
+The picker's TARGET row now names the Lane and states the source as unknown for
+a Lane target. `RuntimeViewState.workspace_source` is a single workspace-scoped
+view and Core publishes nothing per Lane, so printing the workspace's branch and
+ahead/behind beside a Lane's name would attribute one tree's state to another.
+
+### Live offline check, 2026-09-10
+
+Run in tmux (120x40) against a scratch copy of `.viden` — `agents/`,
+`context-engine/`, `projects/`, `workflows/`, `index.sqlite3` and `lanes.tsv`,
+with `cache/` excluded — over a temporary Git repository, `--provider fallback
+--model test-local`. The repository's own `.viden/` was not opened. The sequence
+is E1's, continued past the point where it stalled: one fallback turn, `New
+Lane`, approve, `Esc` out of the detail panel, a second composer submit, `/git`,
+then `Esc` again.
+
+Every block below is a `tmux capture-pane` frame of that run, trimmed to the
+rows described and with the scratch path shortened. The lane id is the one Core
+minted in that run.
+
+**1. After one completed fallback turn.** The composer offers `Send` and the
+status row says `IDLE`. Before T1c this is where both went permanently to
+`Queue` / `ACTIVE`, because Core's unscoped stream still held the reply.
+
+```
+│ MODE [Build]  PERM [Ask]      ACTIONS: [^J Send] [^K Clr] [^R Regenerate] [^N New Task] [? Help] │
+ P:t1c-live L:- M:Build INSERT · IDLE · EVENTS 8 · TOKENS 0 · PROVIDER healthy
+```
+
+**2. After `New Lane` and `Allow once`.** The Lane is real — Core created the
+branch `viden/lane_1789024399248187000` and its worktree, both confirmed out of
+band with `git branch` and `git worktree list`. It sits in `Draft`, and the
+status row says `IDLE`, not `ACTIVE`: a created Lane is not a running turn.
+
+```
+┌ LANE DETAIL ─────────────────────────────────── lane_1789024399248187000 ┐
+│ lane_1789024399248187000 coder                                           │
+│ ROUTE main→side-1                                                        │
+│ STATE  Draft                                                             │
+ P:t1c-live L:lane_178902439 M:Build NORMAL · IDLE · EVENTS 10 · TOKENS 0 · PROVIDER healthy
+```
+
+**3. `Esc` out of the lane detail.** The panel closes, the cockpit and its
+composer come back, `L:lane_178902439` survives, and the transcript states what
+happened and how to undo it.
+
+```
+ VIDEN / COCKPIT  fallback  test-local  healthy
+ /private/tmp/…  lane lane_1789024399248187000  session -  approvals 0
+...
+│ MODE [Build]  PERM [Ask]      ACTIONS: [^J Send] [^K Clr] [^R Regenerate] [^N New Task] [? Help] │
+ P:t1c-live L:lane_178902439 M:Build NORMAL · IDLE · EVENTS 10 · TOKENS 0 · PROVIDER healthy
+```
+
+```
+SYSTEM
+  Closed the lane detail. The Lane stays the target for /git; Esc again clears it.
+```
+
+**4. A composer submit with the Lane in existence.** Accepted and answered — a
+`USER` row and a reply, no `queued …` row anywhere in the session. Under the old
+predicate this is E1's second stall.
+
+```
+USER
+  where does the config loader live
+
+USER
+  add a config loader note
+
+SYSTEM
+  Closed the lane detail. The Lane stays the target for /git; Esc again clears it.
+
+USER
+  third prompt after the Lane exists
+```
+
+**5. `/git` typed in the composer.** The picker names the Lane and all four rows
+are pickable: Core published a runtime owner for this Lane, so
+`runtime.operator_git` is reachable from this client. No commit was run; the
+point of the capture is the target and the enabled rows.
+
+```
+┌ Source control ──────────────────────────────────────────────────────┐
+│ > Stage all changes                                                  │
+│   Commit…                                                            │
+│   Push                                                               │
+│   Fetch                                                              │
+│ TARGET  lane_1789024399248187000 · source unknown                    │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+**6. The documented way to drop the target.** One more `Esc` clears it and says
+so; `L:` returns to `-`.
+
+```
+SYSTEM
+  Cleared the Lane target lane_1789024399248187000. /git now names the workspace.
+
+ P:t1c-live L:- M:Build INSERT · IDLE · EVENTS 13 · TOKENS 0 · PROVIDER healthy
+```
+
+**7. The workspace target is unchanged.** `/git` with no Lane selected still
+renders all four rows refused under GUI-CORE-027, beside the workspace's own
+source facts — which it does have.
+
+```
+┌ Source control ──────────────────────────────────────────────────────┐
+│ > Stage all changes · no workspace owner · GUI-CORE-027              │
+│   Commit… · no workspace owner · GUI-CORE-027                        │
+│   Push · no workspace owner · GUI-CORE-027                           │
+│   Fetch · no workspace owner · GUI-CORE-027                          │
+│ TARGET  workspace · main · ahead 0 behind 0 · dirty                  │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+Three honest notes about the same run. Core's `assistant_stream` visibly
+concatenates every reply, because Core still never settles it for the built-in
+path — that is open follow-up 3, unchanged here, and it is now only a display
+artefact rather than a routing input. The scratch `.viden` copy carries eight
+`Proposed` gates from the sessions it was copied from, which the supervision
+strip lists throughout; they belong to the copied state, not to this run. And
+one `USER` row reads `i/git`, because the harness sent an `i` while the composer
+was already in Insert mode; that is the operator of the harness, not the client.
+
 ## Known Gaps
 
 - The conflict modal is reached from the supervision overlay's inspect row,

@@ -715,30 +715,84 @@ provider. Each was reproduced, not inferred; none was fixed in E1.
    publishes and never acts on.
 6. **The TUI composer stops submitting for the rest of a session** (TUI,
    blocking, and a consequence of 5 and of item 3 above).
-   `command_for_composer` (`apps/tui/src/tui/app.rs:2601`) routes to
-   `QueueFollowUp` whenever `state::runtime_has_active_work`
-   (`apps/tui/src/tui/state.rs:261`) is true, and that predicate is true when
-   `assistant_stream` still holds a completed built-in turn's text, when any
-   Lane is in `Draft` (`LaneStatus::is_active`, `crates/types/src/agent.rs:403`,
-   which is where Core leaves a starter Lane), or when `queued_inputs` is
-   non-empty — which, by 5, it stays forever once anything is queued. Observed:
-   after one completed fallback turn, or after creating one starter Lane, every
-   later prompt queued and none ran. The GUI is not affected by this half: its
-   composer `busy` is owner-scoped on `turn_id` and Agent-session status and
-   deliberately excludes Lane lifecycle state
-   (`apps/gui/src-tauri/src/projection.rs:1281`), which is the right predicate.
-   The two clients disagree about what "busy" means, and only one of them is
-   reading a fact about the turn.
+   **Fixed in TUI (T1c, 2026-09-10).** `command_for_composer` routed to
+   `QueueFollowUp` whenever `state::runtime_has_active_work` was true, and that
+   predicate was true when `assistant_stream` still held a completed built-in
+   turn's text, when any Lane was in `Draft` (`LaneStatus::is_active`,
+   `crates/types/src/agent.rs:403`, which is where Core leaves a starter Lane),
+   or when `queued_inputs` was non-empty — which, by 5, it stays forever once
+   anything is queued. Observed: after one completed fallback turn, or after
+   creating one starter Lane, every later prompt queued and none ran. The GUI
+   was never affected by this half: its composer `busy` is owner-scoped on
+   `turn_id` and Agent-session status and deliberately excludes Lane lifecycle
+   state (`apps/gui/src-tauri/src/projection.rs:1281`), which is the right
+   predicate.
+
+   The fix splits the TUI predicate along the question each caller asks.
+   `state::composer_target_busy` answers routing and is owner-scoped like the
+   GUI's: an active tool call, a pending approval, an active task, or a live
+   Agent session whose published owner is this input's target, plus this
+   client's own in-flight native turn. An absent owner counts as the session
+   scope, which is what the frontend contract says an absent owner means and
+   what the built-in provider publishes for every one of its facts.
+   `state::has_active_work` answers presentation — the status row's `ACTIVE`,
+   the exit confirmation, `Ctrl-C` — and is not owner-scoped, so a Lane running
+   its own turn still reads as something happening. H1's single-predicate rule
+   survives as an implication that holds by construction: presentation is
+   computed *from* the routing answer, so whenever the composer queues the
+   status row agrees. Neither predicate reads Lane lifecycle state,
+   `queued_inputs`, or `assistant_stream` any more. Item 5 stays open and this
+   client simply stops treating a queue Core will not run as evidence of a
+   turn.
+
+   The native turn's own liveness window is `apps/tui/src/tui/native_turn.rs`.
+   It opens when the composer dispatches `SubmitUserInput` and closes on this
+   command's `CommandRejected`, on the first `SnapshotUpdated` after dispatch
+   (the head of the terminal batch `runtime_events_for_streaming_output`
+   emits for a native turn), or on a snapshot replacement. `SnapshotUpdated` is
+   not a turn-liveness fact — that is item 3, still open — so changing work
+   mode, permission level or model *while a native turn streams* closes the
+   window early; the next prompt is then submitted and Core answers it with
+   `active runtime job … is already running`, which the transcript renders. The
+   module documents that window exactly. Item 3 remains the real close
+   condition.
 7. **The TUI `/git` picker can only ever see the workspace target** (TUI).
-   `runtime.operator_git` needs a Core-published Lane owner, and the TUI's Lane
-   selection is bound to the lane-detail overlay focus: closing that overlay to
-   reach the composer, which is where `/git` is typed, clears the selection
-   (observed as `L:-` in the status bar). Every `/git` opened from the composer
-   therefore targets the workspace and renders all four rows disabled with
-   `no workspace owner · GUI-CORE-027`, which is correct for that target and
-   means the capability is unreachable from the TUI in practice. Closing
-   GUI-CORE-027 removes the symptom; a selectable Lane that survives leaving the
-   detail overlay removes the cause.
+   **Fixed in TUI (T1c, 2026-09-10).** `runtime.operator_git` needs a
+   Core-published Lane owner, and the TUI's Lane selection died with the
+   lane-detail panel: closing that panel to reach the composer, which is where
+   `/git` is typed, cleared the selection (observed as `L:-` in the status
+   bar). Every `/git` opened from the composer therefore targeted the workspace
+   and rendered all four rows disabled with
+   `no workspace owner · GUI-CORE-027`. A second cause sat behind the first:
+   the ambient lane-detail panel out-rendered the interaction panel, so even a
+   surviving selection would have shown a lane inspector where the picker's
+   rows belong. A third showed up only in the live walk-through, once the first
+   two were fixed: a selected Lane with no session pulls the client to the
+   board lens, and the board renders no composer at all
+   (`apps/tui/src/tui/render.rs`, `render_frame`), so the surviving target had
+   nothing to be typed into.
+
+   All three are closed. `TuiUiState.lane_detail_open` is now separate from
+   `TuiUiState.focused_lane`, and the `Esc` unwind chain gained a rung:
+   overlay -> lane detail -> Lane target -> insert. The first `Esc` puts the
+   panel away and says the Lane stays the target; the second clears it and says
+   so, which is the documented way to drop it. `L:<lane>` on the status row is
+   the target throughout. The interaction panel is rendered before the ambient
+   lane detail, so a selector the operator opened is never hidden by one they
+   did not. The board lens is unwound by the same rung that closes the panel,
+   and `reconcile_ui_state_with_runtime` no longer pulls a Session lens back to
+   the board once that panel is closed — both conditioned on
+   `lane_detail_open`, so the board still wins while the operator is looking at
+   the Lane, and a lens asked for by name is left alone. The 027 refusal for
+   the workspace target is unchanged.
+
+   One honesty consequence: `RuntimeViewState.workspace_source` is a single
+   workspace-scoped view and Core publishes nothing per Lane, so a reachable
+   Lane target has no branch, ahead/behind or dirty facts. The picker's TARGET
+   row names the Lane and states the source as unknown rather than printing the
+   workspace's numbers beside a Lane's name. A per-Lane source view is a Core
+   fact this surface would use if it existed; it is not requested here because
+   nothing in `0.3.3` is blocked on it.
 8. **An approval's audit id is not a durable audit record** (Core). The pinned
    approval panel shows `AUDIT audit_<id>` for an `edit_file` permission prompt,
    but the durable timeline `QueryAudit` reads is appended only by the trust

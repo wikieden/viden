@@ -538,24 +538,65 @@ page 与每一个内容事件之后 `latest_evidence` 仍为空，这正是归�
    `RuntimeViewState.queued_inputs` 只增不减，排队的提示是 Core 发布出来却从不
    处理的事实。
 6. **TUI 的输入框在一次会话余下的时间里不再提交**（TUI，阻断级，是第 5 条与上文
-   第 3 条的后果）。`command_for_composer`（`apps/tui/src/tui/app.rs:2601`）在
-   `state::runtime_has_active_work`（`apps/tui/src/tui/state.rs:261`）为真时一律
-   路由到 `QueueFollowUp`；而该判定在以下情况为真：`assistant_stream` 仍残留着
-   一次已完成的内置回合的文本、任何 Lane 处于 `Draft`
+   第 3 条的后果）。**已在 TUI 修复（T1c，2026-09-10）。**
+   `command_for_composer` 在 `state::runtime_has_active_work` 为真时一律路由到
+   `QueueFollowUp`；而该判定在以下情况为真：`assistant_stream` 仍残留着一次已完成
+   的内置回合的文本、任何 Lane 处于 `Draft`
    （`LaneStatus::is_active`，`crates/types/src/agent.rs:403`，而 Core 正是把
    starter Lane 留在这个状态）、或 `queued_inputs` 非空——按第 5 条，一旦有东西
    入队它就永远非空。实测：一次 fallback 回合完成之后，或创建一条 starter Lane
-   之后，后续每条提示都入队且都不执行。GUI 不受这一半影响：它的输入框 `busy`
+   之后，后续每条提示都入队且都不执行。GUI 从来不受这一半影响：它的输入框 `busy`
    以 owner 为作用域、基于 `turn_id` 与 Agent session 状态，并刻意排除 Lane
-   生命周期状态（`apps/gui/src-tauri/src/projection.rs:1281`），这才是正确的
-   判定。两个客户端对「忙」的定义不一致，而其中只有一个读的是关于回合的事实。
-7. **TUI 的 `/git` 选择器只可能看到工作区目标**（TUI）。`runtime.operator_git`
-   需要 Core 发布的 Lane owner，而 TUI 的 Lane 选中态绑定在 lane 详情浮层的焦点
-   上：为了到达输入框（`/git` 是在那里键入的）而关闭该浮层，选中态就被清空
-   （状态栏上表现为 `L:-`）。因此从输入框打开的 `/git` 一律以工作区为目标，四行
-   全部禁用并标注 `no workspace owner · GUI-CORE-027`——对该目标而言这是正确的，
-   也意味着该能力在 TUI 上实际不可达。关闭 GUI-CORE-027 能消除症状；让 Lane 的
-   选中态在离开详情浮层后仍然保持，才能消除成因。
+   生命周期状态（`apps/gui/src-tauri/src/projection.rs:1281`），这才是正确的判定。
+
+   修复把 TUI 的判定按各调用方真正要问的问题拆开。`state::composer_target_busy`
+   回答路由问题，并与 GUI 一样以 owner 为作用域：活跃工具调用、待决审批、活跃
+   task，或已发布 owner 属于本次输入目标的活跃 Agent session，外加本客户端自己
+   在途的原生回合。owner 缺失按会话作用域计——前端契约正是这样定义 owner 缺失，
+   而内建 provider 发布的每一条事实都不带 owner。`state::has_active_work` 回答
+   呈现问题——状态行的 `ACTIVE`、退出确认、`Ctrl-C`——且不以 owner 为作用域，
+   因此一条正在跑自己回合的 Lane 仍然显示为「有事情在发生」。H1 的单一判定规则
+   以蕴含关系的形式保留，并且是构造上成立的：呈现判定由路由判定计算而来，所以
+   只要输入框入队，状态行就必然同意。两个判定都不再读取 Lane 生命周期状态、
+   `queued_inputs` 或 `assistant_stream`。第 5 条仍然开放，本客户端只是不再把一个
+   Core 不会执行的队列当作回合的证据。
+
+   原生回合自身的活跃性窗口在 `apps/tui/src/tui/native_turn.rs`。它在输入框派发
+   `SubmitUserInput` 时打开，并在本命令的 `CommandRejected`、派发之后的第一条
+   `SnapshotUpdated`（`runtime_events_for_streaming_output` 为原生回合发出的终结
+   批次的首事件），或一次快照替换时关闭。`SnapshotUpdated` 不是回合活跃性事实
+   ——那正是第 3 条，仍然开放——因此在原生回合流式输出**期间**更改工作模式、
+   权限级别或模型会提前关闭该窗口；此时下一条提示会被提交，Core 以
+   `active runtime job … is already running` 作答，转录会渲染该答复。该模块把这个
+   窗口写得很确切。第 3 条仍是真正的关闭条件。
+7. **TUI 的 `/git` 选择器只可能看到工作区目标**（TUI）。
+   **已在 TUI 修复（T1c，2026-09-10）。** `runtime.operator_git` 需要 Core 发布的
+   Lane owner，而 TUI 的 Lane 选中态随 lane 详情面板一同消失：为了到达输入框
+   （`/git` 是在那里键入的）而关闭该面板，选中态就被清空（状态栏上表现为
+   `L:-`）。因此从输入框打开的 `/git` 一律以工作区为目标，四行全部禁用并标注
+   `no workspace owner · GUI-CORE-027`。第一个成因背后还有第二个：环境性的 lane
+   详情面板在渲染顺序上压过交互面板，因此即便选中态得以保留，看到的仍会是 lane
+   检视面板，而不是选择器的行。第三个成因只有在前两个修好、能够走通实机流程之后
+   才暴露出来：一条被选中且没有 session 的 Lane 会把客户端拉到 board 视图，而
+   board 根本不渲染输入框（`apps/tui/src/tui/render.rs` 的 `render_frame`），
+   于是保住的目标没有任何可供键入的界面。
+
+   三个成因都已关闭。`TuiUiState.lane_detail_open` 现在与
+   `TuiUiState.focused_lane` 分离，`Esc` 的回退链多了一级：浮层 -> lane 详情 ->
+   Lane 目标 -> 插入模式。第一次 `Esc` 收起面板并说明该 Lane 仍是目标；第二次
+   清除它并说明，这就是有据可查的清除方式。状态行的 `L:<lane>` 全程表示目标。
+   交互面板在环境性 lane 详情之前渲染，因此操作者主动打开的选择器不会被没打开的
+   面板遮住。board 视图由收起面板的同一级回退一并撤销，且
+   `reconcile_ui_state_with_runtime` 在面板关闭之后不再把 Session 视图拉回
+   board——两处都以 `lane_detail_open` 为条件，因此操作者正在查看该 Lane 时
+   board 仍然优先，而按名字主动进入的视图不会被这一级动到。工作区目标的 027
+   拒绝行为未变。
+
+   由此带来一条诚实性后果：`RuntimeViewState.workspace_source` 是单一的工作区
+   作用域视图，Core 不为每条 Lane 发布任何源状态，因此一个可达的 Lane 目标没有
+   分支、领先/落后或脏状态事实。选择器的 TARGET 行会点名该 Lane 并声明源状态未知，
+   而不是把工作区的数字印在 Lane 的名字旁边。按 Lane 的源视图是这个界面一旦存在
+   就会使用的 Core 事实；此处不提出该请求，因为 `0.3.3` 没有任何东西被它阻塞。
 8. **审批上的 audit id 不是一条持久审计记录**（Core）。`edit_file` 权限提示的
    固定审批面板会显示 `AUDIT audit_<id>`，但 `QueryAudit` 读取的持久时间线只由
    trust loop 与 operator git 动作追加
