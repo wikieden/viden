@@ -41,7 +41,7 @@ use super::projection::{CancelOwnerProjection, CockpitProjection};
 use super::state::{
     AcpPickerPhase, ConflictDetailTarget, FocusedConversation, GitPickerPhase, InteractionPanel,
     Lens, OverlayState, PendingAcpStart, PendingNativeLane, SupervisionInput, SupervisionPanel,
-    TuiEntry, TuiState, runtime_has_active_work,
+    TuiEntry, TuiState, composer_target_busy, has_active_work,
 };
 use super::terminal::TerminalGuard;
 use super::text::truncate_tail;
@@ -486,7 +486,7 @@ fn handle_ui_key<C: CoreClient>(
     let focus = input_focus(state);
     let facts = RuntimeFacts {
         current_work_owner: current_work_owner(driver, state),
-        has_active_work: runtime_has_active_work(&state.runtime),
+        has_active_work: has_active_work(state),
     };
     let is_ctrl_c = key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL);
     if !is_ctrl_c || facts.has_active_work {
@@ -686,7 +686,7 @@ fn apply_input_intent<C: CoreClient>(
                 .as_ref()
                 .is_some_and(|overlay| overlay.kind == OverlayKind::ExitConfirm)
             {
-                if runtime_has_active_work(&state.runtime) {
+                if has_active_work(state) {
                     if let Some(owner) = current_work_owner(driver, state) {
                         driver.send_for_owner(owner, RuntimeCommand::CancelActiveTurn)?;
                         state.ui.entries.push(TuiEntry {
@@ -1521,7 +1521,16 @@ fn submit_composer<C: CoreClient>(
         )?;
     } else {
         let command = command_for_composer(state, &content);
-        dispatch_intent(driver, command)?;
+        let starts_a_turn = matches!(command, RuntimeCommand::SubmitUserInput { .. });
+        let command_id = dispatch_intent(driver, command)?;
+        // The built-in provider publishes no turn-liveness fact, so this
+        // client's own dispatched command id is the only thing that says its
+        // turn is running. `native_turn` holds that window and documents where
+        // it closes; without it the composer would read Core's unsettled
+        // `assistant_stream` residue as a live turn forever.
+        if starts_a_turn {
+            state.native_turn.begin(command_id);
+        }
     }
     state.ui.lens = Lens::Session;
     state.ui.input.clear();
@@ -2434,6 +2443,11 @@ fn observe_driver_events<C: CoreClient>(
         // Confirm-on-fact: a supervision decision settles only when Core
         // publishes the business fact it asked for, never on the receipt.
         state.supervision.observe_event(event);
+        // The composer's own native turn closes its liveness window here. It
+        // correlates on this client's command id and on the terminal batch Core
+        // emits for the turn; it settles no business fact and claims nothing
+        // about what Core produced.
+        state.native_turn.observe_event(event);
         // The operator source-control slot correlates on this client's own
         // command id, so a `/git` action and a supervision decision never
         // settle each other and neither can block the other.
@@ -2598,8 +2612,21 @@ fn looks_like_terminal_escape_residue(input: &str) -> bool {
         && parts.len() >= 3
 }
 
+/// Routes one composer submission: a new turn, or a follow-up on the running
+/// one.
+///
+/// The question is only ever about *this input's target*, which for a plain
+/// composer submission is the driver's own envelope owner — the session, naming
+/// no Lane. `state::composer_target_busy` documents the exact facts that answer
+/// it and the three that deliberately do not, and mirrors the owner-scoped rule
+/// the GUI's composer already applies.
+///
+/// When neither client nor Core has a fact saying the target is busy, this
+/// submits. If Core disagrees it says so: the supervisor refuses a second job
+/// for one owner with `CommandRejected`, which is a Core answer rather than a
+/// client guess, and the transcript renders it.
 fn command_for_composer(state: &TuiState, content: &str) -> RuntimeCommand {
-    if runtime_has_active_work(&state.runtime) {
+    if composer_target_busy(state) {
         RuntimeCommand::QueueFollowUp {
             content: content.to_string(),
         }
@@ -2633,7 +2660,13 @@ fn apply_pump_outcome<C: CoreClient>(
         // like the startup one. Anything already terminal in it finished
         // outside this client's view of the stream, so it must not arrive in
         // the transcript as a completion the operator watched.
-        PumpOutcome::Recovered(_) => seed_settled_agent_sessions(state, driver.view()),
+        PumpOutcome::Recovered(_) => {
+            // The ordered stream this correlation was reading is gone, so the
+            // events that would close the native turn's window are not coming.
+            // Stopping the wait is not a claim that the turn finished.
+            state.native_turn.reset();
+            seed_settled_agent_sessions(state, driver.view());
+        }
         PumpOutcome::Idle | PumpOutcome::Applied(_) => {}
     }
 }
@@ -3000,10 +3033,16 @@ mod tests {
         .expect("approval-time composer submit");
 
         assert!(state.ui.input.is_empty());
+        // Moved baseline: this used to expect `QueueFollowUp`. The contract
+        // fixture's approval is owner-scoped to `lane_core`, so it is a Lane's
+        // decision and not this input's target; routing on it queued a session
+        // prompt behind another owner's gate. The subject of the test — the
+        // pinned panel never owning `y`/`n`/`d`/Enter — is unchanged, and the
+        // composer's text still reaches Core in one command.
         assert!(matches!(
             sent.lock().expect("sent commands").as_slice(),
             [RuntimeCommandEnvelope {
-                command: RuntimeCommand::QueueFollowUp { content },
+                command: RuntimeCommand::SubmitUserInput { content },
                 ..
             }] if content == "ynd"
         ));
@@ -8562,6 +8601,91 @@ mod tests {
         assert!(matches!(
             command_for_composer(&state, "second"),
             RuntimeCommand::QueueFollowUp { content } if content == "second"
+        ));
+    }
+
+    /// E1's first stall, reproduced.
+    ///
+    /// One completed built-in fallback turn leaves its reply in Core's unscoped
+    /// `assistant_stream`, and Core settles that stream only on a terminal
+    /// Agent-session fact, which the built-in path never publishes. Routing on
+    /// the residue queued every later prompt for the rest of the session, and
+    /// by the Core queue gap nothing ever ran them.
+    #[test]
+    fn a_settled_built_in_turn_stream_does_not_queue_the_next_prompt() {
+        let mut state = TuiState::default();
+        state.runtime.assistant_stream =
+            "The config loader lives in crates/runtime/src/config.rs.".to_string();
+
+        assert!(state.runtime.active_tool_calls.is_empty());
+        assert!(state.runtime.pending_approvals.is_empty());
+        assert!(matches!(
+            command_for_composer(&state, "second"),
+            RuntimeCommand::SubmitUserInput { content } if content == "second"
+        ));
+    }
+
+    /// E1's second stall, reproduced.
+    ///
+    /// Core leaves a starter Lane in `Draft`, and `LaneStatus::is_active` is a
+    /// lifecycle predicate that counts `Draft` as active. Once anything was
+    /// queued, `queued_inputs` also stayed non-empty forever, because Core
+    /// never drains the session queue. Neither fact says the owner this
+    /// composer input addresses is running a turn.
+    #[test]
+    fn a_draft_starter_lane_and_a_stuck_session_queue_do_not_queue_the_next_prompt() {
+        let mut state = TuiState::default();
+        let mut lanes: Vec<AgentLaneRecord> = serde_json::from_str(include_str!(
+            "../../../../crates/types/tests/fixtures/frontend-contract-v1/typed-lanes.json"
+        ))
+        .expect("typed lanes");
+        lanes.truncate(1);
+        lanes[0].status = LaneStatus::Draft;
+        state.runtime.lanes = lanes;
+        state
+            .runtime
+            .queued_inputs
+            .push(viden_core::QueuedInputView {
+                id: "queued-1".to_string(),
+                content_preview: "first".to_string(),
+                created_at: None,
+                owner: None,
+            });
+
+        assert!(
+            state.runtime.lanes[0].is_active(),
+            "the lifecycle fact holds"
+        );
+        assert!(matches!(
+            command_for_composer(&state, "second"),
+            RuntimeCommand::SubmitUserInput { content } if content == "second"
+        ));
+    }
+
+    /// The other half of the owner rule: a Lane running its own turn is not
+    /// this input's target. The GUI's composer is owner-scoped for exactly this
+    /// reason, and the two clients must not disagree about what "busy" means.
+    #[test]
+    fn a_lane_scoped_turn_does_not_queue_a_session_scoped_prompt() {
+        let mut state = TuiState::default();
+        let lane_owner = RuntimeOwner {
+            workspace_id: "workspace".to_string(),
+            project_id: "viden".to_string(),
+            lane_id: Some("lane-a".to_string()),
+            session_id: Some("session-a".to_string()),
+            task_id: None,
+            turn_id: Some("turn-a".to_string()),
+        };
+        state.runtime.active_tool_calls.push(ToolCallView {
+            tool_call_id: "tool-1".to_string(),
+            name: "edit_file".to_string(),
+            input_preview: "{}".to_string(),
+            owner: Some(lane_owner),
+        });
+
+        assert!(matches!(
+            command_for_composer(&state, "second"),
+            RuntimeCommand::SubmitUserInput { content } if content == "second"
         ));
     }
 

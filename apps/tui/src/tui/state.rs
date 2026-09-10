@@ -9,6 +9,7 @@ use viden_core::{
 };
 use viden_types::{AgentNextAction, CapabilityId};
 
+pub(super) use super::native_turn::NativeTurnSlot;
 pub(super) use super::operator_git::OperatorGitMachine;
 pub(super) use super::pending::SupervisionMachine;
 pub(super) use super::ui_state::{
@@ -32,6 +33,10 @@ pub(super) struct TuiState {
     /// It is a separate slot because a `/git` action and a merge-gate decision
     /// answer different questions and must not block each other.
     pub(super) operator_git: OperatorGitMachine,
+    /// The one liveness window this client holds for a built-in-provider turn,
+    /// which Core publishes no turn-liveness fact for. See
+    /// [`super::native_turn`] for the exact window and how it closes.
+    pub(super) native_turn: NativeTurnSlot,
 }
 
 impl TuiState {
@@ -42,6 +47,7 @@ impl TuiState {
             capabilities: BTreeSet::new(),
             supervision: SupervisionMachine::default(),
             operator_git: OperatorGitMachine::default(),
+            native_turn: NativeTurnSlot::default(),
         }
     }
 
@@ -238,49 +244,125 @@ pub(super) fn agent_lanes(state: &TuiState) -> Vec<AgentLane> {
         .collect()
 }
 
-/// The single "Core is busy" predicate for this client.
+/// Whether an Agent session Core published is running right now.
+fn agent_session_is_live(session: &viden_core::AgentSessionView) -> bool {
+    matches!(
+        session.status,
+        AgentSessionStatus::Starting
+            | AgentSessionStatus::Running
+            | AgentSessionStatus::WaitingApproval
+    )
+}
+
+/// Whether a Lane lifecycle state means Core is running work for that Lane.
 ///
-/// Command routing (queue versus submit, and what `Ctrl-C` cancels) and the
-/// status line must never disagree about whether a turn is running, so both
-/// read exactly these facts and nothing else. It is deliberately a function of
-/// [`RuntimeViewState`] alone: no TUI-local presentation state may make Core
-/// look busier or idler than the facts it published. The status line used to
-/// omit `agent_sessions`, so an Agent turn that had published nothing else yet
-/// read as busy to the composer and as idle to the status row.
+/// [`LaneStatus::is_active`](viden_types::LaneStatus::is_active) cannot answer
+/// this: it is a *lifecycle* predicate and is true for `Draft`, `Attached`, and
+/// `Detached` — `Draft` being exactly where Core leaves a starter Lane the
+/// moment it is created. Treating it as liveness told this client that a
+/// freshly created, idle Lane was a running turn, which is half of open
+/// follow-up 6 in `docs/core-0.3-compatibility.md`.
 ///
-/// `assistant_stream` stays in the set because for a built-in-provider turn it
-/// is the only liveness fact Core publishes at all: that path emits no Agent
-/// session and no task, and the supervisor streams its deltas from a worker
-/// thread, so the composer is live while the turn runs. The known cost is that
-/// Core settles the stream only on a terminal agent-session fact, so a
-/// built-in turn's text stays there after it ends and this predicate stays
-/// true. That residue is Core's recorded limitation (see the streaming
-/// semantics note in `docs/core-0.3-compatibility.md`); closing it needs a
-/// turn-liveness fact for the built-in path, not a client-side guess that a
-/// turn ended.
-pub(super) fn runtime_has_active_work(view: &RuntimeViewState) -> bool {
-    !view.active_tool_calls.is_empty()
-        || !view.pending_approvals.is_empty()
-        || !view.assistant_stream.is_empty()
-        || view.tasks.iter().any(|task| task.is_active())
-        || view.lanes.iter().any(|lane| lane.is_active())
-        || view.agent_sessions.iter().any(|session| {
-            matches!(
-                session.status,
-                AgentSessionStatus::Starting
-                    | AgentSessionStatus::Running
-                    | AgentSessionStatus::WaitingApproval
-            )
-        })
-        || !view.queued_inputs.is_empty()
+/// `Blocked` is excluded on the same grounds: an apply conflict is waiting for
+/// a person, and it is rendered as a decision rather than as activity.
+fn lane_is_running(status: viden_types::LaneStatus) -> bool {
+    matches!(
+        status,
+        viden_types::LaneStatus::Queued
+            | viden_types::LaneStatus::Starting
+            | viden_types::LaneStatus::Running
+            | viden_types::LaneStatus::WaitingApproval
+            | viden_types::LaneStatus::NeedsInput
+    )
+}
+
+/// Whether a Core fact carrying an optional owner belongs to the session scope
+/// this composer addresses.
+///
+/// The composer sends `SubmitUserInput` on the driver's own envelope owner,
+/// which names no Lane, so a fact whose owner names a Lane addresses different
+/// work. An *absent* owner is counted as this scope on purpose: the frontend
+/// contract says an absent owner "means the fact belongs to no Lane scope"
+/// (`docs/frontend-integration-contract.md`), and the built-in provider path
+/// emits every one of its tool-call and evidence facts with `owner: None`
+/// (`crates/runtime/src/runtime_contract.rs`). Reading those as somebody
+/// else's work would let the composer start a second concurrent turn; a client
+/// may err toward busy for an unattributed fact, never toward idle.
+fn owner_is_session_scoped(owner: Option<&viden_core::RuntimeOwner>) -> bool {
+    owner.is_none_or(|owner| owner.lane_id.is_none())
+}
+
+/// Whether the owner *this composer input addresses* is running a turn.
+///
+/// This is the routing half of the client's busy question — queue versus
+/// submit — and it is owner-scoped, mirroring the rule the GUI's composer
+/// already applies (`apps/gui/src-tauri/src/projection.rs`). It reads only
+/// facts that say a turn is in flight for that owner:
+///
+/// - a native turn this client submitted and is still waiting on
+///   ([`super::native_turn`], which also documents the exact residue window);
+/// - an active tool call, a pending approval, an active task, or a live Agent
+///   session whose published owner is this scope.
+///
+/// Three facts are deliberately *not* read, because none of them is about this
+/// input's target:
+///
+/// - Lane lifecycle state. A `Draft` starter Lane, or any Lane running its own
+///   turn, is different work with a different owner. This was E1's second
+///   stall.
+/// - `queued_inputs`. Core publishes the session queue and never drains it —
+///   the only producer of `InputDequeued` is the Lane worker's own queue — so
+///   once anything was queued this stayed true forever. That is Core's open
+///   follow-up 5 in `docs/core-0.3-compatibility.md`, still open; this client
+///   simply stops treating a queue Core will not run as evidence of a turn.
+/// - `assistant_stream`. It is Core's *unscoped* stream and Core settles it
+///   only on a terminal Agent-session fact, which the built-in path never
+///   publishes, so a finished reply stays there for the rest of the session.
+///   That was E1's first stall. The live window for that path is held by
+///   [`super::native_turn`] instead.
+pub(super) fn composer_target_busy(state: &TuiState) -> bool {
+    let view = &state.runtime;
+    state.native_turn.is_in_flight()
+        || view
+            .active_tool_calls
+            .iter()
+            .any(|call| owner_is_session_scoped(call.owner.as_ref()))
+        || view
+            .pending_approvals
+            .iter()
+            .any(|approval| owner_is_session_scoped(Some(&approval.owner)))
+        || view
+            .tasks
+            .iter()
+            .any(|task| task.is_active() && owner_is_session_scoped(task.owner.as_ref()))
+        || view
+            .agent_sessions
+            .iter()
+            .any(|session| agent_session_is_live(session) && session.owner.lane_id.is_none())
 }
 
 /// Presentation-level "something is happening" signal.
 ///
-/// This is the same predicate command routing uses; the status line and the
-/// composer cannot describe one turn two ways.
+/// This is the status line's `ACTIVE` word, the live-work strip, the exit
+/// confirmation, and what `Ctrl-C`/`Esc` treat as work in progress. Unlike
+/// [`composer_target_busy`] it is not owner-scoped: a Lane running its own turn
+/// is something happening, and the status row must say so even though the
+/// composer's own target is idle.
+///
+/// H1's single-predicate rule survives the split as an implication rather than
+/// an equality, and it holds *by construction* because this function starts
+/// from the routing answer: whenever the composer queues, the status line says
+/// `ACTIVE`. The two can never describe one turn two ways; they can only
+/// describe two different turns. `state_tests::the_two_predicates_never_
+/// disagree_about_the_composer_s_own_turn` pins that direction.
 pub(super) fn has_active_work(state: &TuiState) -> bool {
-    runtime_has_active_work(&state.runtime)
+    let view = &state.runtime;
+    composer_target_busy(state)
+        || !view.active_tool_calls.is_empty()
+        || !view.pending_approvals.is_empty()
+        || view.tasks.iter().any(|task| task.is_active())
+        || view.lanes.iter().any(|lane| lane_is_running(lane.status))
+        || view.agent_sessions.iter().any(agent_session_is_live)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -383,7 +465,7 @@ mod tests {
         RuntimeViewState, WorkMode,
     };
 
-    use super::{TuiState, has_active_work, runtime_has_active_work};
+    use super::{TuiState, composer_target_busy, has_active_work};
 
     fn empty_view() -> RuntimeViewState {
         RuntimeViewState::new(RuntimeSnapshot {
@@ -414,21 +496,19 @@ mod tests {
         }
     }
 
-    /// The first case where the two definitions disagreed: a live Agent session
-    /// is the only fact in the view. Command routing already queued against it
-    /// while the status line called the client idle, so the composer and the
-    /// status row described one turn two ways.
+    /// H1's case, kept: a live Agent session is the only fact in the view. It is
+    /// session-scoped here — the owner names no Lane — so it is this composer's
+    /// own target and both predicates must see it. The bug this pinned was a
+    /// status line that omitted `agent_sessions` while routing read it, so the
+    /// composer and the status row described one turn two ways.
     #[test]
     fn a_live_agent_session_is_active_work_for_routing_and_for_status_text() {
         let mut view = empty_view();
         view.agent_sessions.push(running_session());
         let state = TuiState::new(view);
 
-        assert!(runtime_has_active_work(&state.runtime));
-        assert_eq!(
-            has_active_work(&state),
-            runtime_has_active_work(&state.runtime)
-        );
+        assert!(composer_target_busy(&state));
+        assert!(has_active_work(&state));
     }
 
     /// A finished Agent session is not live work: the published status is the
@@ -443,24 +523,101 @@ mod tests {
         view.agent_sessions.push(session);
         let state = TuiState::new(view);
 
-        assert!(!runtime_has_active_work(&state.runtime));
+        assert!(!composer_target_busy(&state));
         assert!(!has_active_work(&state));
     }
 
-    /// A built-in-provider turn publishes no Agent session and no task, and the
-    /// supervisor streams its deltas from a worker thread while the composer is
-    /// live. `assistant_stream` is therefore the only fact that says the turn is
-    /// running; dropping it from the unified predicate would submit a second
-    /// concurrent turn instead of queueing a follow-up.
+    /// Moved baseline. It used to assert that Core's unscoped `assistant_stream`
+    /// *is* the built-in path's liveness fact, which was true of the code and
+    /// false of the runtime: Core settles that stream only on a terminal
+    /// Agent-session fact, and the built-in path publishes none, so the residue
+    /// never cleared and the composer queued for the rest of the session (E1's
+    /// first stall, open follow-up 6). The liveness it was reaching for now
+    /// lives in `native_turn`, which opens on this client's own dispatched
+    /// command id and closes on the batch that ends the turn.
     #[test]
-    fn a_streaming_built_in_turn_is_active_work_with_no_session_or_task_fact() {
+    fn a_streaming_built_in_turn_is_live_by_this_client_s_own_dispatch_not_by_stream_residue() {
         let mut view = empty_view();
         view.assistant_stream = "Working on the config loader...".to_string();
-        let state = TuiState::new(view);
+        let mut state = TuiState::new(view);
 
         assert!(state.runtime.agent_sessions.is_empty());
         assert!(state.runtime.tasks.is_empty());
-        assert!(runtime_has_active_work(&state.runtime));
+        assert!(
+            !composer_target_busy(&state),
+            "settled stream text is residue, not a running turn"
+        );
+        assert!(!has_active_work(&state));
+
+        state.native_turn.begin("tui-7");
+
+        assert!(composer_target_busy(&state));
+        assert!(has_active_work(&state));
+    }
+
+    /// E1's second stall at the predicate level. `LaneStatus::is_active` is a
+    /// lifecycle predicate that counts `Draft` — where Core leaves a starter
+    /// Lane — and `queued_inputs` never empties because Core never drains the
+    /// session queue (open follow-up 5, still open). Neither says a turn is
+    /// running, for this composer's target or for anyone.
+    #[test]
+    fn a_draft_lane_and_a_stuck_session_queue_are_not_active_work() {
+        let mut view = empty_view();
+        let mut lanes: Vec<viden_types::AgentLaneRecord> = serde_json::from_str(include_str!(
+            "../../../../crates/types/tests/fixtures/frontend-contract-v1/typed-lanes.json"
+        ))
+        .expect("typed lanes");
+        lanes.truncate(1);
+        lanes[0].status = viden_types::LaneStatus::Draft;
+        view.lanes = lanes;
+        view.queued_inputs.push(viden_core::QueuedInputView {
+            id: "queued-1".to_string(),
+            content_preview: "first".to_string(),
+            created_at: None,
+            owner: None,
+        });
+        let state = TuiState::new(view);
+
+        assert!(
+            state.runtime.lanes[0].is_active(),
+            "the lifecycle fact holds"
+        );
+        assert!(!composer_target_busy(&state));
+        assert!(!has_active_work(&state));
+    }
+
+    /// The documented shape of the split: routing is owner-scoped, presentation
+    /// is not, and presentation is built *from* routing so the implication can
+    /// never be broken by editing one of them. A Lane running its own turn is
+    /// `ACTIVE` on the status row and is not this input's target.
+    #[test]
+    fn the_two_predicates_never_disagree_about_the_composer_s_own_turn() {
+        let mut view = empty_view();
+        let mut lanes: Vec<viden_types::AgentLaneRecord> = serde_json::from_str(include_str!(
+            "../../../../crates/types/tests/fixtures/frontend-contract-v1/typed-lanes.json"
+        ))
+        .expect("typed lanes");
+        lanes.truncate(1);
+        lanes[0].status = viden_types::LaneStatus::Running;
+        view.lanes = lanes;
+        let mut lane_session = running_session();
+        lane_session.owner = viden_core::RuntimeOwner {
+            lane_id: Some("lane-a".to_string()),
+            ..Default::default()
+        };
+        view.agent_sessions.push(lane_session);
+        let mut state = TuiState::new(view);
+
+        assert!(has_active_work(&state), "the status row says ACTIVE");
+        assert!(
+            !composer_target_busy(&state),
+            "another owner's turn is not this input's target"
+        );
+
+        // Whenever routing queues, presentation must agree. That direction is
+        // structural: `has_active_work` starts from `composer_target_busy`.
+        state.native_turn.begin("tui-1");
+        assert!(composer_target_busy(&state));
         assert!(has_active_work(&state));
     }
 
