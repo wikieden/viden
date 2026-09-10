@@ -238,6 +238,145 @@ evidence recorded". The honest statement is:
 - **Not attempted** through the native GUI window, because the host's screen was
   locked.
 
+## Native GUI Run — 2026-09-10
+
+E1 could not drive the native window because the host's screen was locked. This
+section records the rerun that could: branch `claude/e1b-native-gui` in
+`.worktrees/e1b-native-gui`, HEAD `cd1d28f4a2702f17c80ba818ec963a7066d742d2` —
+the same complete `0.3.3` candidate as the `claude/int-0.3.3` tip, so the
+candidate line above is unchanged. The screen was verified unlocked before every
+keystroke batch with `CGSessionCopyCurrentDictionary()`. It locked again during
+the run, and the run stops exactly where it stopped. Nothing below is inferred
+from a fixture replay.
+
+### The application under test
+
+`npm --prefix apps/gui run tauri -- build --bundles app` PASSED in 1 m 48 s and
+produced `target/release/bundle/macos/Viden.app`:
+`CFBundleShortVersionString` `0.1.0-rc.4`, `CFBundleIdentifier` `dev.viden.gui`,
+`arm64`, ad-hoc linker-signed with no TeamIdentifier, executable 38,946,048
+bytes. It was launched from the bundle with `VIDEN_HOME` pointed at a scratch
+directory, so the repository's own `.viden/` was never read or written.
+
+### Fixture
+
+A fresh temporary Git repository under the run's scratch directory: one commit
+`fc39694d4239b3fbad22c0968139dde55e21221b` ("Add the fixture README"), a
+`README.md`, and a `.viden/config.toml` selecting `provider = "fallback"` /
+`model = "test-local"`. The bare `origin` was deliberately not created, because
+it is only added after the first refused push — a step this run did not reach.
+
+### How a native Tauri window is driven, and what got in the way
+
+These are facts about the harness, recorded because the next run needs them:
+
+- The window's `CGWindowListCopyWindowInfo` owner name is `Viden`, but the
+  Accessibility process name is **`viden-gui`**. `System Events` addressed as
+  `process "Viden"` raises `-1719`; every command here targets `viden-gui`.
+- `screencapture -x -o -l <window id>` frequently returns the frame from
+  *before* the last state change. The command palette was open in the
+  Accessibility tree while two consecutive captures still showed the previous
+  screen. Every capture below was therefore taken twice and the second frame
+  read; the Accessibility tree, not the screenshot, is the reliable state read.
+- The `Open project folder` panel is hosted by
+  `com.apple.appkit.xpc.openAndSavePanelService`, not by `viden-gui`, so
+  `System Events` reports no window for it and its `Open` button cannot be
+  pressed through Accessibility. It is reachable by keystroke only
+  (`⌘⇧G`, the path, `Return`, `Return`).
+- Synthetic mouse clicks posted with `CGEvent(... .leftMouseDown ...)` from this
+  shell had no effect on the window, so pointer input was limited to
+  `System Events`' own `click at`, which resolves through Accessibility.
+
+### Step by step
+
+| # | Step | Result | Capture |
+| --- | --- | --- | --- |
+| 1 | Welcome | The window opened on Welcome: `No project open`, one `Open project` action with `⌘O`, and `Recent project history is unavailable · Core adapter is not connected`. Status bar `MODE — · PERM — · CONTEXT — · EVENTS #0 · LANE — · DIAG 0× · REQ —`. | [`01-welcome.png`](native/01-welcome.png) |
+| 2 | Open Project | `⌘O` opened the native `Open project folder` panel; `⌘⇧G` and the fixture path drove it to the fixture. | [`02-open-panel-goto.png`](native/02-open-panel-goto.png) |
+| 3 | Panel at the fixture | The panel listed the fixture's `README.md` with `Open` enabled. | [`03-open-panel-at-fixture.png`](native/03-open-panel-at-fixture.png) |
+| 4 | **Intake** | `Open` bound the workspace and Core built a supervisor for it. The cockpit shows Provider `fallback`, Model `test-local`, Mode `build`, Permission `ask`; Changes/Source `Branch override main`, the fixture path as `Worktree`, `Ahead 0`, `Behind 0`, `Dirty Clean`; the titlebar `⎇ 0 worktrees`; the status bar `MODE build · PERM ask · EVENTS #7 · LANE — · REQ 0 req / 0 err`. Verified out of band: Core wrote `session_meta` `canonical_root` = the fixture path, `work_mode` `build`, `permission_mode` `default`, `model` `test-local` into the scratch `VIDEN_HOME`. | [`04-cockpit-bound.png`](native/04-cockpit-bound.png) |
+| 5 | Command palette | `⌘K` opened it. With a bound project and no Lane its `ACTIONS` group held exactly one row, `Focus the composer`; `JUMP TO` said `Cross-Lane gates and decisions are…` unavailable and `FILES` said `Files unavailable · Core publishes no workspace file inventory`. **The palette offers no Lane-creation entry**, so New Lane has to come from the activity rail. | [`05-command-palette.png`](native/05-command-palette.png) |
+| 6 | New Lane | **Not reached.** Dismissing the palette was followed by the cockpit replacing its centre pane with `CONNECTING · Establishing the versioned Core connection. · Core connection pending`, and seconds later the window disappeared and the process was gone. See defect 7. | [`06-core-connection-pending.png`](native/06-core-connection-pending.png) |
+| 7 | Lane selected, composer, D2 hunks, DiffReview, Stage, Commit, Push, EvidenceView, D14 audit | **Not reached.** A third launch repeated steps 1–4 successfully and stopped there: the host's screen locked (`CGSSessionScreenIsLocked = 1`) before the Lane could be created, and no keystroke may be sent to a locked session. | — |
+
+Every capture listed was read before it was listed. The activity rail's Lane
+entry point was located in the Accessibility tree during the third launch —
+`AXButton` `Lanes` at (230, 248), between `Integration gate` and `Decisions` —
+but it was never pressed, so nothing is claimed about what it opens.
+
+### Exact Core outcome variants observed in the GUI
+
+- Workspace intake: a Core supervisor built for the chosen root, with the
+  durable `session_meta` facts above — observed live.
+- `RuntimeViewState` with `workspace_source` `Ready`, branch `main`, ahead 0,
+  behind 0, clean, and a resolved `fallback` / `test-local` environment —
+  observed live.
+- `ApprovalRequestView`, `ApprovalDecision`, `OperatorGitActionFinished`
+  (`Completed` / `Failed { NoUpstream }` / `Failed { RemoteUnreachable }`),
+  `WorkspaceDiffPage`, `EvidencePage`, and `AuditPage` — **not observed** in the
+  GUI. They remain covered by the TUI run above (approval and decision only) and
+  by fixture replay.
+
+### Defects and observations from this run
+
+Numbering continues from the list above. None was fixed here.
+
+7. **The GUI window can disappear and the process exit while a project is
+   bound** (GUI, blocking for this run). After `⌘K` and `Escape`, the cockpit
+   swapped its centre pane for `CONNECTING · Establishing the versioned Core
+   connection. · Core connection pending` and the titlebar project chip fell
+   back to `—`; within about ten seconds the window was gone from
+   `CGWindowListCopyWindowInfo` and the process no longer existed. There is no
+   entry in `~/Library/Logs/DiagnosticReports`, and the process's merged
+   stdout/stderr log is empty, so this was an exit rather than a crash. Seen
+   once, in the second of three launches; the third launch was still running
+   when the screen locked. The frontend's own honesty is correct here — it said
+   the Core connection was pending rather than showing stale facts — but a
+   client that loses its adapter and then terminates loses the operator's
+   session with no message.
+8. **The Welcome screen does not fill the window** (GUI, cosmetic). Its content
+   and status bar stop at roughly 525 px, leaving the rest of the window empty:
+   the same at an 800 px, a 900 px, and a 640 px window height, and the three
+   captures are byte-identical where the window size did not change the layout.
+   The bound cockpit fills the window correctly, so this is Welcome's layout,
+   not the shell's.
+9. **Welcome states the reason for an empty recent list as `Core adapter is not
+   connected`** (GUI, wording). At that moment the adapter is not connected
+   because no project is bound, which is the normal first-run state, so the
+   sentence reads as a fault where D1's own vocabulary would call it "no project
+   open yet".
+
+One observation is recorded without being called a defect, because it could not
+be reproduced. The **first** launch was seen bound to
+`/Users/wiki/Documents/GitHub/viden-test` — a directory this run never chose —
+with a `session_meta` `canonical_root` naming it in the run's own scratch
+`VIDEN_HOME`. `VIDEN_GUI_WORKSPACE` was unset, and two further launches with a
+fresh `VIDEN_HOME` stayed on Welcome and never bound anything until `⌘O` was
+driven. The host is a shared desktop that other software was using during the
+run, so this is reported as unexplained rather than attributed to the GUI.
+
+### What this means for plan goal 4, per surface
+
+`docs/release-0.3.3-plan.md` goal 4 is "one real local-first development task
+completes through the GUI, from intake to a committed change, with audit and
+evidence recorded". Updating the statement above with this run:
+
+- **Intake through the native GUI window — met.** The window opened, the native
+  folder panel bound a real project, and Core built a supervisor whose durable
+  session facts name that project.
+- **Lane creation, the approved mutation, DiffReview, Stage, Commit, Push,
+  EvidenceView, and the D14 audit trail through the native GUI window — not
+  reached**, for the two environmental reasons in the table (an unexplained
+  process exit, then a locked host screen), not for a contract or capability
+  reason. E1's line "not attempted through the native GUI window, because the
+  host's screen was locked" is therefore replaced by: attempted, intake reached,
+  the rest not reached.
+- The TUI statements above are unchanged: Lane creation under a Core approval
+  and a mutation approved against Core's typed decision context are met there;
+  the committed change, archived evidence, and a durable audit record are not.
+- **No surface has yet carried the whole task end to end.** Goal 4 remains
+  unmet, and the parts of it that are met are met on the TUI.
+
 ## Boundary Statement
 
 This is a local candidate. The candidate versions Core `0.3.6`, TUI `0.3.4`, and

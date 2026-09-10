@@ -213,6 +213,119 @@ fixture 现在会让发布记录失败。
 - 归档证据（GUI-CORE-028）与该次变更的持久审计记录（缺陷 4）——**未达成**。
 - 通过原生 GUI 窗口——**未尝试**，因为宿主屏幕处于锁定状态。
 
+## 原生 GUI 运行 —— 2026-09-10
+
+E1 无法驱动原生窗口，因为宿主屏幕处于锁定状态。本节记录一次能够驱动它的重跑：分支
+`claude/e1b-native-gui`，位于 `.worktrees/e1b-native-gui`，HEAD 为
+`cd1d28f4a2702f17c80ba818ec963a7066d742d2` —— 与 `claude/int-0.3.3` 的 tip 是同一个
+完整的 `0.3.3` 候选，因此上文的候选线没有变化。每一批按键之前都用
+`CGSessionCopyCurrentDictionary()` 确认过屏幕未锁定。运行途中屏幕再次锁定，运行就
+停在它停下的地方。下文没有任何一条是从 fixture 回放推断出来的。
+
+### 被测应用
+
+`npm --prefix apps/gui run tauri -- build --bundles app` 用时 1 分 48 秒 PASS，产出
+`target/release/bundle/macos/Viden.app`：`CFBundleShortVersionString` 为
+`0.1.0-rc.4`，`CFBundleIdentifier` 为 `dev.viden.gui`，`arm64`，ad-hoc
+linker-signed 且没有 TeamIdentifier，可执行文件 38,946,048 字节。它从该 bundle 启动，
+`VIDEN_HOME` 指向一个 scratch 目录，因此本仓库自己的 `.viden/` 从未被读取或写入。
+
+### Fixture
+
+运行 scratch 目录下一个全新的临时 Git 仓库：一个提交
+`fc39694d4239b3fbad22c0968139dde55e21221b`（「Add the fixture README」）、一个
+`README.md`，以及一个选择 `provider = "fallback"` / `model = "test-local"` 的
+`.viden/config.toml`。裸仓库 `origin` 被刻意没有创建，因为它只在第一次 push 被拒绝
+之后才添加——而本次运行没有走到那一步。
+
+### 原生 Tauri 窗口如何驱动，以及遇到了什么
+
+以下是关于驱动手段的事实，记录下来是因为下一次运行需要它们：
+
+- 窗口在 `CGWindowListCopyWindowInfo` 里的 owner 名是 `Viden`，但辅助功能
+  （Accessibility）进程名是 **`viden-gui`**。以 `process "Viden"` 寻址
+  `System Events` 会报 `-1719`；这里每条命令都指向 `viden-gui`。
+- `screencapture -x -o -l <window id>` 经常返回**上一次**状态变化之前的那一帧。命令
+  面板已经出现在辅助功能树里时，连续两次截图仍显示的是上一个界面。因此下文每张截图
+  都截了两次并读取第二帧；可靠的状态读取来自辅助功能树，而不是截图。
+- `Open project folder` 面板由 `com.apple.appkit.xpc.openAndSavePanelService` 托管，
+  而不是 `viden-gui`，所以 `System Events` 看不到它的窗口，它的 `Open` 按钮也无法通过
+  辅助功能按下。它只能用按键驱动（`⌘⇧G`、路径、`Return`、`Return`）。
+- 从本 shell 用 `CGEvent(... .leftMouseDown ...)` 投递的合成鼠标点击对窗口没有任何
+  作用，因此指针输入只能用 `System Events` 自己的 `click at`，它是走辅助功能解析的。
+
+### 逐步记录
+
+| # | 步骤 | 结果 | 截图 |
+| --- | --- | --- | --- |
+| 1 | Welcome | 窗口在 Welcome 打开：`No project open`、一个带 `⌘O` 的 `Open project` 动作，以及 `Recent project history is unavailable · Core adapter is not connected`。状态栏 `MODE — · PERM — · CONTEXT — · EVENTS #0 · LANE — · DIAG 0× · REQ —`。 | [`01-welcome.png`](native/01-welcome.png) |
+| 2 | Open Project | `⌘O` 打开原生的 `Open project folder` 面板；`⌘⇧G` 加 fixture 路径把它带到 fixture。 | [`02-open-panel-goto.png`](native/02-open-panel-goto.png) |
+| 3 | 面板停在 fixture | 面板列出 fixture 的 `README.md`，`Open` 可用。 | [`03-open-panel-at-fixture.png`](native/03-open-panel-at-fixture.png) |
+| 4 | **接入** | `Open` 绑定了工作区，Core 为它建立了 supervisor。座舱显示 Provider `fallback`、Model `test-local`、Mode `build`、Permission `ask`；Changes/Source 为 `Branch override main`、`Worktree` 是 fixture 路径、`Ahead 0`、`Behind 0`、`Dirty Clean`；标题栏 `⎇ 0 worktrees`；状态栏 `MODE build · PERM ask · EVENTS #7 · LANE — · REQ 0 req / 0 err`。带外验证：Core 在 scratch `VIDEN_HOME` 中写入了 `session_meta` 的 `canonical_root` = fixture 路径、`work_mode` `build`、`permission_mode` `default`、`model` `test-local`。 | [`04-cockpit-bound.png`](native/04-cockpit-bound.png) |
+| 5 | 命令面板 | `⌘K` 打开了它。在已绑定项目且没有 Lane 的状态下，`ACTIONS` 组里只有一行 `Focus the composer`；`JUMP TO` 显示 `Cross-Lane gates and decisions are…` 不可用，`FILES` 显示 `Files unavailable · Core publishes no workspace file inventory`。**命令面板没有提供创建 Lane 的入口**，因此 New Lane 只能从活动栏进入。 | [`05-command-palette.png`](native/05-command-palette.png) |
+| 6 | New Lane | **未走到。** 关闭命令面板之后，座舱把中间栏换成了 `CONNECTING · Establishing the versioned Core connection. · Core connection pending`，几秒后窗口消失，进程也不存在了。见缺陷 7。 | [`06-core-connection-pending.png`](native/06-core-connection-pending.png) |
+| 7 | 选中 Lane、输入框、D2 hunks、DiffReview、Stage、Commit、Push、EvidenceView、D14 审计 | **未走到。** 第三次启动成功重复了第 1–4 步并停在那里：宿主屏幕在 Lane 被创建之前锁定（`CGSSessionScreenIsLocked = 1`），而向锁定会话发送按键是不允许的。 | — |
+
+上表列出的每一张截图都在列出之前被读过。活动栏的 Lane 入口在第三次启动时已在辅助
+功能树中定位到 —— `AXButton` `Lanes`，位于 (230, 248)，在 `Integration gate` 与
+`Decisions` 之间 —— 但它从未被按下，因此这里不对它打开什么下任何结论。
+
+### 在 GUI 中实际观察到的 Core 结果变体
+
+- 工作区接入：Core 为所选根目录建立 supervisor，并写下上述持久 `session_meta`
+  事实 —— 实机观察到。
+- `RuntimeViewState` 的 `workspace_source` 为 `Ready`、分支 `main`、ahead 0、
+  behind 0、clean，环境解析为 `fallback` / `test-local` —— 实机观察到。
+- `ApprovalRequestView`、`ApprovalDecision`、`OperatorGitActionFinished`
+  （`Completed` / `Failed { NoUpstream }` / `Failed { RemoteUnreachable }`）、
+  `WorkspaceDiffPage`、`EvidencePage`、`AuditPage` —— 在 GUI 中**未观察到**。
+  它们仍然只由上文的 TUI 运行（仅审批与决策）以及 fixture 回放覆盖。
+
+### 本次运行的缺陷与观察
+
+编号接续上文的列表。这里没有修复其中任何一项。
+
+7. **在已绑定项目的情况下，GUI 窗口可能消失且进程退出**（GUI，对本次运行是阻塞
+   性的）。在 `⌘K` 与 `Escape` 之后，座舱把中间栏换成了 `CONNECTING · Establishing
+   the versioned Core connection. · Core connection pending`，标题栏的项目 chip 退回
+   `—`；约十秒内窗口就从 `CGWindowListCopyWindowInfo` 中消失，进程也不再存在。
+   `~/Library/Logs/DiagnosticReports` 中没有对应条目，进程合并后的 stdout/stderr
+   日志是空的，所以这是一次退出而不是崩溃。三次启动中只在第二次见到；第三次启动在
+   屏幕锁定时仍在运行。前端本身的诚实性在这里是对的 —— 它说的是 Core 连接待定，而
+   不是继续显示过期事实 —— 但一个丢失 adapter 之后直接终止的客户端，会让操作者的
+   会话在没有任何说明的情况下消失。
+8. **Welcome 界面没有填满窗口**（GUI，观感问题）。它的内容与状态栏大约停在 525 px，
+   窗口其余部分留空：在 800 px、900 px 与 640 px 三种窗口高度下都是如此，其中窗口
+   尺寸没有改变布局的两张截图逐字节相同。已绑定的座舱能正确填满窗口，所以这是
+   Welcome 的布局问题，不是外壳的问题。
+9. **Welcome 把最近列表为空的原因写成 `Core adapter is not connected`**（GUI，措辞）。
+   在那一刻 adapter 未连接，是因为还没有绑定项目，这是正常的首次启动状态，因此这句话
+   读起来像故障，而 D1 自己的词汇会把它称作「还没有打开项目」。
+
+有一条观察被记录下来但没有被称作缺陷，因为它无法复现。**第一次**启动时看到它绑定了
+`/Users/wiki/Documents/GitHub/viden-test` —— 一个本次运行从未选择过的目录 —— 并且在
+本次运行自己的 scratch `VIDEN_HOME` 里写下了指向它的 `session_meta` `canonical_root`。
+`VIDEN_GUI_WORKSPACE` 并未设置，之后两次用全新 `VIDEN_HOME` 的启动都停在 Welcome，
+直到被 `⌘O` 驱动才绑定任何东西。宿主是一台运行期间还有其他软件在使用的共享桌面，
+因此这里按「原因不明」报告，而不归因于 GUI。
+
+### 这对计划目标 4 意味着什么（按界面分别说明）
+
+`docs/release-0.3.3-plan.zh-CN.md` 的目标 4 是「一个真实的 local-first 开发任务通过
+GUI 从接入走到一次已提交的变更，并记录审计与证据」。结合本次运行更新上文的表述：
+
+- **通过原生 GUI 窗口接入 —— 已达成。** 窗口打开了，原生文件夹面板绑定了一个真实
+  项目，Core 为它建立的 supervisor 写下的持久会话事实指名了那个项目。
+- **通过原生 GUI 窗口完成 Lane 创建、被批准的变更、DiffReview、Stage、Commit、
+  Push、EvidenceView 与 D14 审计时间线 —— 未走到**，原因是上表中两个环境性原因
+  （一次原因不明的进程退出，然后是宿主屏幕锁定），而不是契约或能力上的原因。因此
+  E1 的那句「未通过原生 GUI 窗口尝试，因为宿主屏幕处于锁定状态」被替换为：已尝试，
+  接入已达成，其余未走到。
+- 上文关于 TUI 的表述不变：在 Core 审批下创建 Lane、以及在 Core 的类型化决策上下文
+  之上批准一次变更，在那里是已达成的；已提交的变更、归档证据与持久审计记录不是。
+- **目前还没有任何一个界面把整个任务端到端走通。** 目标 4 仍未达成，其中已达成的
+  部分是在 TUI 上达成的。
+
 ## 边界声明
 
 这是一个本地候选。候选版本 Core `0.3.6`、TUI `0.3.4`、GUI `0.1.0-rc.4` 只存在于
