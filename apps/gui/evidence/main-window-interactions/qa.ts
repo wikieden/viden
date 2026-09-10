@@ -1214,6 +1214,8 @@ function evidenceRow(
       producerIdentity: "lane_evidence_reads",
       producerRole: "coder",
       producerTaskId: "task_evidence_reads",
+      verification: "verified",
+      quality: "pass",
     },
     metadata: [],
     ...overrides,
