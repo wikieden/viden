@@ -49,6 +49,8 @@ function row(overrides: Partial<EvidenceRowProjection> = {}): EvidenceRowProject
       producerIdentity: "lane_evidence_reads",
       producerRole: "coder",
       producerTaskId: "task_evidence_reads",
+      verification: "verified",
+      quality: "pass",
     },
     metadata: [{ key: "command", value: "cargo test -p viden-types" }],
     ...overrides,
@@ -267,6 +269,40 @@ describe("EvidenceView detail rail", () => {
     expect(facts.some((text) => text?.includes("item_evidence_alpha"))).toBe(true);
     expect(facts.some((text) => text?.includes("a".repeat(64)))).toBe(true);
     expect(facts.filter((text) => text?.includes("Core recorded none"))).toHaveLength(2);
+  });
+
+  test("the report states Core's verification and quality verdicts on the bytes", () => {
+    renderEvidenceView(host, archive(), "en");
+    const facts = [...host.querySelectorAll("[data-evidence-section='report'] .evkv")].map(
+      (node) => node.textContent,
+    );
+    expect(facts.some((text) => text?.includes("verified"))).toBe(true);
+    expect(facts.some((text) => text?.includes("pass"))).toBe(true);
+  });
+
+  test("a distrusted reference states both verdicts instead of reading as verified", () => {
+    renderEvidenceView(
+      host,
+      archive({
+        rows: [
+          row({
+            canonical: {
+              ...row().canonical!,
+              verification: "failed",
+              quality: "warn",
+            },
+          }),
+        ],
+      }),
+      "en",
+    );
+    const facts = [...host.querySelectorAll("[data-evidence-section='report'] .evkv")].map(
+      (node) => node.textContent,
+    );
+    expect(facts.some((text) => text?.includes("failed"))).toBe(true);
+    expect(facts.some((text) => text?.includes("warn"))).toBe(true);
+    // The bytes are still Core's; a failed verdict is not an absent reference.
+    expect(host.querySelector("[data-evidence-no-canonical]")).toBeNull();
   });
 
   test("a row with no canonical reference says so rather than showing empty fields", () => {

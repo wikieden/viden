@@ -17,7 +17,7 @@
 //! them would tell a reviewer the patch expected nothing when it expected an
 //! empty file.
 
-use viden_types::{
+use viden_core::{
     ConflictBaseline, ConflictContent, ConflictFile, ConflictHunk, ConflictHunkReason,
 };
 

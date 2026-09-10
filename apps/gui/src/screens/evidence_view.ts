@@ -143,6 +143,41 @@ function section(host: HTMLElement, title: string, id: string): HTMLElement {
   return block;
 }
 
+/**
+ * Names Core's verification verdict on the canonical bytes.
+ *
+ * The three states Core publishes each get their own sentence. A tag this
+ * build cannot name is stated with the tag itself rather than folded into
+ * `unverified`, because "Core has not checked" and "this build does not know
+ * what Core said" are different facts and only one of them is Core's answer.
+ */
+function verificationLabel(state: string, locale: Locale): string {
+  switch (state) {
+    case "unverified":
+      return translate(locale, "d1.evidence.verification.unverified", {});
+    case "verified":
+      return translate(locale, "d1.evidence.verification.verified", {});
+    case "failed":
+      return translate(locale, "d1.evidence.verification.failed", {});
+    default:
+      return translate(locale, "d1.evidence.verification.unnamed", { state });
+  }
+}
+
+/** Names Core's quality verdict, with the same rule for an unnamed status. */
+function qualityLabel(status: string, locale: Locale): string {
+  switch (status) {
+    case "pass":
+      return translate(locale, "d1.evidence.quality.pass", {});
+    case "warn":
+      return translate(locale, "d1.evidence.quality.warn", {});
+    case "fail":
+      return translate(locale, "d1.evidence.quality.fail", {});
+    default:
+      return translate(locale, "d1.evidence.quality.unnamed", { state: status });
+  }
+}
+
 function keyValue(host: HTMLElement, key: string, value: string): void {
   const row = document.createElement("div");
   row.className = "evkv";
@@ -483,6 +518,19 @@ export function renderEvidenceView(
         report,
         translate(locale, "d1.evidence.field.producer", {}),
         `${selected.canonical.producerIdentity} · ${selected.canonical.producerRole}`,
+      );
+      /* Core's verdicts on those bytes, stated rather than inferred from the
+         content read: a row can hold bytes Core distrusts, and reading that as
+         "verified" is the one wrong answer. */
+      keyValue(
+        report,
+        translate(locale, "d1.evidence.field.verification", {}),
+        verificationLabel(selected.canonical.verification, locale),
+      );
+      keyValue(
+        report,
+        translate(locale, "d1.evidence.field.quality", {}),
+        qualityLabel(selected.canonical.quality, locale),
       );
     } else {
       const note = document.createElement("p");

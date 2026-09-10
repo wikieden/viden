@@ -13,10 +13,10 @@ use std::time::Duration;
 
 use viden_core::{
     DiffDocument, DiffFile, DiffHunk, DiffLine, DiffLineKind, EventCursor, EvidenceContent,
-    EvidencePage, EvidenceUnavailableReason, EvidenceView, FRONTEND_SCHEMA_V1,
-    LaneRuntimeOwnerBinding, RuntimeCommand, RuntimeCommandEnvelope, RuntimeErrorView,
-    RuntimeEvent, RuntimeEventEnvelope, RuntimeEventKind, RuntimeOwner, RuntimeSnapshot,
-    RuntimeViewState, RuntimeWireEvent, WorkspaceChangeKind,
+    EvidencePage, EvidenceQualityStatus, EvidenceUnavailableReason, EvidenceVerificationState,
+    EvidenceView, FRONTEND_SCHEMA_V1, LaneRuntimeOwnerBinding, RuntimeCommand,
+    RuntimeCommandEnvelope, RuntimeErrorView, RuntimeEvent, RuntimeEventEnvelope, RuntimeEventKind,
+    RuntimeOwner, RuntimeSnapshot, RuntimeViewState, RuntimeWireEvent, WorkspaceChangeKind,
 };
 use viden_gui::{EVIDENCE_READS_CAPABILITY, GuiCoreAdapter};
 
@@ -140,10 +140,11 @@ fn recorded(sequence: u64) -> RuntimeEventEnvelope {
 
 /// Builds one archive row from Core's own wire form.
 ///
-/// Deserialized rather than constructed: `CanonicalEvidenceReference`,
-/// `EvidenceProducer`, and the verification/quality enums are not part of the
-/// `viden-core` facade, and the GUI crate may depend on nothing else. The JSON
-/// here is exactly the shape `evidence-reads.json` publishes.
+/// Deserialized rather than constructed: `CanonicalEvidenceReference` and
+/// `EvidenceProducer` are not part of the `viden-core` facade, and the GUI
+/// crate may depend on nothing else. The JSON here is exactly the shape
+/// `evidence-reads.json` publishes. The two verdict enums *are* on the facade
+/// now, which is what lets [`distrusted_row`] set them by name.
 fn row(id: &str, kind: &str, timestamp: Option<u64>) -> EvidenceView {
     serde_json::from_value(serde_json::json!({
         "id": id,
@@ -191,6 +192,22 @@ fn summary_row(id: &str) -> EvidenceView {
         metadata: None,
         ..row(id, "task_summary", None)
     }
+}
+
+/// A row Core holds bytes for but could not verify, and whose quality it
+/// warned on.
+///
+/// Both verdicts are Core's own enums, assigned here through the facade
+/// re-exports. Neither may collapse into "no canonical reference": a reviewer
+/// reading this row must be able to tell bytes Core distrusts from bytes Core
+/// never had.
+fn distrusted_row(id: &str) -> EvidenceView {
+    let mut entry = row(id, "patch", Some(1_700_000_500));
+    if let Some(canonical) = entry.canonical.as_mut() {
+        canonical.verification = EvidenceVerificationState::Failed;
+        canonical.quality.status = EvidenceQualityStatus::Warn;
+    }
+    entry
 }
 
 fn page(entries: Vec<EvidenceView>, complete: bool, next_after: Option<&str>) -> EvidencePage {
@@ -321,6 +338,11 @@ fn a_confirming_page_becomes_the_archive_in_cores_own_order() {
     let reference = patch.canonical.as_ref().expect("canonical reference");
     assert_eq!(reference.item_id, "item_evidence_alpha_patch");
     assert_eq!(reference.producer_role, "coder");
+    // Core's own verdicts on the reference, named rather than inferred from
+    // the hash or the summary. The facade re-exports both enums, so the client
+    // states what Core concluded instead of leaving the row silent about it.
+    assert_eq!(reference.verification, "verified");
+    assert_eq!(reference.quality, "pass");
     assert_eq!(patch.owner_lane_id.as_deref(), Some("lane_evidence_reads"));
 
     // The unscoped default: no owner, no kind filter, Core's default page.
@@ -330,6 +352,30 @@ fn a_confirming_page_becomes_the_archive_in_cores_own_order() {
     assert!(queries[0].kinds.is_empty());
     assert_eq!(queries[0].after, None);
     assert_eq!(queries[0].limit, viden_gui::EVIDENCE_PAGE_LIMIT);
+}
+
+/// A distrusted reference states both verdicts; it does not become a row
+/// without canonical bytes.
+#[test]
+fn a_failed_verification_and_a_warned_quality_reach_the_row_as_themselves() {
+    let mut harness = harness(
+        vec![page_loaded(
+            1,
+            "gui-evidence-1",
+            page(vec![distrusted_row("evidence_distrusted")], true, None),
+        )],
+        true,
+    );
+    let projection = harness
+        .adapter
+        .query_evidence_and_wait("gui-evidence-1", None, Vec::new(), TIMEOUT)
+        .expect("evidence read");
+    let reference = projection.rows[0]
+        .canonical
+        .as_ref()
+        .expect("the row still names the bytes Core holds");
+    assert_eq!(reference.verification, "failed");
+    assert_eq!(reference.quality, "warn");
 }
 
 #[test]

@@ -6,7 +6,8 @@ use viden_core::{
     AgentConversationRole, AgentDagStatus, AgentLaneRecord, AgentRole, AgentRoute,
     AgentSessionStatus, AgentStartability, AgentTaskStatus, ApprovalDefaultAction,
     ApprovalRequestView, ApprovalRisk, ApprovalScope, AuditObjectRef, COCKPIT_CONTEXT_CAPABILITY,
-    CheckRunStatus, ConflictBounceStatus, ContextScope, ContractDecision, ContractRecord,
+    CheckRunStatus, ConflictBaseline, ConflictBounceStatus, ConflictContent, ConflictFile,
+    ConflictHunk, ConflictHunkReason, ContextScope, ContractDecision, ContractRecord,
     CostMeterability, CredentialHandle, DecisionContext, DependencyState, DiffDocument, DiffFile,
     DiffHunk, DiffLine, DiffLineKind, EventCursor, GateStrength, LaneStatus, LocaleId,
     MergeGateRecord, MergeGateStatus, MergeGateType, MutationPolicy, OperatorGitAction,
@@ -809,10 +810,7 @@ impl RuntimeProjection {
                     reason: bounce.reason.clone(),
                     status: conflict_bounce_status(bounce.status).to_string(),
                     evidence_ids: bounce.evidence_ids.clone(),
-                    content: bounce
-                        .content
-                        .as_ref()
-                        .and_then(conflict_content_projection),
+                    content: bounce.content.as_ref().map(conflict_content_projection),
                 })
                 .collect();
             // The Lane apply path publishes its own collisions as
@@ -835,10 +833,7 @@ impl RuntimeProjection {
                     summary: conflict.summary.clone(),
                     paths: conflict.paths.clone(),
                     timestamp: conflict.timestamp,
-                    content: conflict
-                        .content
-                        .as_ref()
-                        .and_then(conflict_content_projection),
+                    content: conflict.content.as_ref().map(conflict_content_projection),
                 })
                 .collect();
             let reverts = view
@@ -2127,82 +2122,79 @@ fn merge_gate_type(gate_type: MergeGateType) -> &'static str {
     }
 }
 
-/// Projects one `ConflictContent` through Core's own canonical encoding.
+/// Projects one `ConflictContent` into the renderable D12 shape.
 ///
-/// `viden-core` re-exports `ConflictBounce` and `LaneConflictView` but not the
-/// `ConflictContent` family they carry, and the GUI may hold no second
-/// `viden-*` dependency (`tests/architecture_boundary.rs`), so those types
-/// cannot be named here at all. The value is therefore read through the exact
-/// serde encoding Core publishes on the wire — the same precedent the client
-/// already uses for a Core event kind's canonical tag — and never through a
-/// second parser: every field below is either Core's own value or an explicit
-/// unnamed marker, never a guess. A Core-side re-export would remove this hop
-/// and is recorded against GUI-CORE-015.
-fn conflict_content_projection<T: serde::Serialize>(
-    content: &T,
-) -> Option<D12ConflictContentProjection> {
-    let value = serde_json::to_value(content).ok()?;
-    Some(D12ConflictContentProjection {
-        baseline: conflict_baseline_projection(value.get("baseline")),
-        files: value
-            .get("files")
-            .and_then(serde_json::Value::as_array)
-            .map(|files| files.iter().map(conflict_file_projection).collect())
-            .unwrap_or_default(),
-        truncated: value
-            .get("truncated")
-            .and_then(serde_json::Value::as_bool)
-            .unwrap_or(false),
-    })
+/// The whole family — `ConflictContent`, `ConflictBaseline`, `ConflictFile`,
+/// `ConflictHunk`, `ConflictHunkReason` — is named through the `viden-core`
+/// facade, so every field below is Core's own value read from Core's own type.
+/// It used to be read out of `serde_json` because the facade re-exported
+/// `ConflictBounce` and `LaneConflictView` but not the content they carry, and
+/// the GUI may hold no second `viden-*` dependency
+/// (`tests/architecture_boundary.rs`). That hop is gone; the shapes and the
+/// rendered facts are identical.
+fn conflict_content_projection(content: &ConflictContent) -> D12ConflictContentProjection {
+    D12ConflictContentProjection {
+        baseline: conflict_baseline_projection(&content.baseline),
+        files: content.files.iter().map(conflict_file_projection).collect(),
+        truncated: content.truncated,
+    }
 }
 
 /// What the `ours` side was read against.
 ///
-/// `ConflictBaseline` is `#[non_exhaustive]`: a unit variant encodes as a bare
-/// tag string and a struct variant as a single-key object, so an unnamed
-/// future kind keeps Core's own tag and reaches the screen as itself instead
-/// of collapsing into `unknown` — which is a real answer Core gives, not a
-/// place to put everything this build cannot read.
-fn conflict_baseline_projection(
-    value: Option<&serde_json::Value>,
-) -> D12ConflictBaselineProjection {
-    let unnamed = D12ConflictBaselineProjection {
+/// `ConflictBaseline` is `#[non_exhaustive]`, so the wildcard arm recovers
+/// Core's own serde tag instead of collapsing an unnamed future kind into
+/// `unknown` — which is a real answer Core gives, not a place to put everything
+/// this build cannot read. A tag that cannot be recovered stays empty, and the
+/// frontend renders that as unnamed.
+fn conflict_baseline_projection(baseline: &ConflictBaseline) -> D12ConflictBaselineProjection {
+    let empty = D12ConflictBaselineProjection {
         kind: String::new(),
         sha: None,
         short_sha: None,
         bindings: Vec::new(),
     };
-    let Some(value) = value else {
-        return unnamed;
-    };
-    if let Some(kind) = value.as_str() {
-        return D12ConflictBaselineProjection {
-            kind: kind.to_string(),
-            ..unnamed
-        };
+    match baseline {
+        ConflictBaseline::Revision { sha } => D12ConflictBaselineProjection {
+            kind: "revision".to_string(),
+            short_sha: Some(short_conflict_hash(sha)),
+            sha: Some(sha.clone()),
+            ..empty
+        },
+        ConflictBaseline::Evidence { bindings } => D12ConflictBaselineProjection {
+            kind: "evidence".to_string(),
+            bindings: bindings
+                .iter()
+                .filter_map(conflict_evidence_projection)
+                .collect(),
+            ..empty
+        },
+        ConflictBaseline::Unknown => D12ConflictBaselineProjection {
+            kind: "unknown".to_string(),
+            ..empty
+        },
+        other => D12ConflictBaselineProjection {
+            kind: unnamed_serde_tag(other),
+            ..empty
+        },
     }
-    let Some((kind, payload)) = value.as_object().and_then(|map| map.iter().next()) else {
-        return unnamed;
+}
+
+/// The serde tag a `#[non_exhaustive]` variant this build cannot name encodes
+/// as: a bare string for a unit variant, the single key of the object for a
+/// data variant. Empty when neither shape applies, which the frontend renders
+/// as unnamed rather than as one of the kinds it knows.
+fn unnamed_serde_tag<T: serde::Serialize>(value: &T) -> String {
+    let Ok(encoded) = serde_json::to_value(value) else {
+        return String::new();
     };
-    let sha = payload
-        .get("sha")
-        .and_then(serde_json::Value::as_str)
-        .map(str::to_string);
-    D12ConflictBaselineProjection {
-        kind: kind.clone(),
-        short_sha: sha.as_deref().map(short_conflict_hash),
-        sha,
-        bindings: payload
-            .get("bindings")
-            .and_then(serde_json::Value::as_array)
-            .map(|bindings| {
-                bindings
-                    .iter()
-                    .filter_map(conflict_evidence_projection)
-                    .collect()
-            })
-            .unwrap_or_default(),
+    if let Some(tag) = encoded.as_str() {
+        return tag.to_string();
     }
+    encoded
+        .as_object()
+        .and_then(|map| map.keys().next().cloned())
+        .unwrap_or_default()
 }
 
 /// One baseline evidence binding, carrying the audit object it routes to.
@@ -2210,86 +2202,65 @@ fn conflict_baseline_projection(
 /// A binding without an evidence id is dropped rather than rendered as a chip
 /// that can open nothing.
 fn conflict_evidence_projection(
-    value: &serde_json::Value,
+    binding: &viden_core::ReviewedEvidenceBinding,
 ) -> Option<D12ConflictEvidenceProjection> {
-    let evidence_id = value
-        .get("evidence_id")
-        .and_then(serde_json::Value::as_str)?;
-    let source_hash = value
-        .get("source_hash")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or_default();
+    if binding.evidence_id.is_empty() {
+        return None;
+    }
     Some(D12ConflictEvidenceProjection {
-        evidence_id: evidence_id.to_string(),
-        source_hash: source_hash.to_string(),
-        short_hash: short_conflict_hash(source_hash),
+        evidence_id: binding.evidence_id.clone(),
+        source_hash: binding.source_hash.clone(),
+        short_hash: short_conflict_hash(&binding.source_hash),
         // `AuditQuery` filters by object, never by id alone, so the chip
         // carries the evidence object Core links — the same route D12's revert
         // rows already take to their own trail.
-        audit_scope: audit_scope(AuditObjectRef::KIND_EVIDENCE, evidence_id),
+        audit_scope: audit_scope(AuditObjectRef::KIND_EVIDENCE, &binding.evidence_id),
     })
 }
 
-fn conflict_file_projection(value: &serde_json::Value) -> D12ConflictFileProjection {
+fn conflict_file_projection(file: &ConflictFile) -> D12ConflictFileProjection {
     D12ConflictFileProjection {
-        path: value
-            .get("path")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or_default()
-            .to_string(),
-        hunks: value
-            .get("hunks")
-            .and_then(serde_json::Value::as_array)
-            .map(|hunks| hunks.iter().map(conflict_hunk_projection).collect())
-            .unwrap_or_default(),
-        omitted: value
-            .get("omitted")
-            .and_then(serde_json::Value::as_bool)
-            .unwrap_or(false),
+        path: file.path.clone(),
+        hunks: file.hunks.iter().map(conflict_hunk_projection).collect(),
+        omitted: file.omitted,
     }
 }
 
-fn conflict_hunk_projection(value: &serde_json::Value) -> D12ConflictHunkProjection {
-    let lines = |key: &str| -> Vec<String> {
-        value
-            .get(key)
-            .and_then(serde_json::Value::as_array)
-            .map(|lines| conflict_lines(lines))
-            .unwrap_or_default()
-    };
-    let start = |key: &str| -> u32 {
-        value
-            .get(key)
-            .and_then(serde_json::Value::as_u64)
-            .and_then(|start| u32::try_from(start).ok())
-            .unwrap_or(0)
-    };
+fn conflict_hunk_projection(hunk: &ConflictHunk) -> D12ConflictHunkProjection {
     D12ConflictHunkProjection {
-        ours_start: start("ours_start"),
-        ours: lines("ours"),
-        theirs_start: start("theirs_start"),
-        theirs: lines("theirs"),
+        ours_start: hunk.ours_start,
+        ours: hunk.ours.clone(),
+        theirs_start: hunk.theirs_start,
+        theirs: hunk.theirs.clone(),
         // Absent and empty are different facts and stay different here: absent
         // is "this hunk had no preimage at all", empty is "it expected an
         // empty region", which is what a creation hunk expects.
-        base: value
-            .get("base")
-            .and_then(serde_json::Value::as_array)
-            .map(|lines| conflict_lines(lines)),
-        reason: value
-            .get("reason")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or("unnamed")
-            .to_string(),
+        base: hunk.base.clone(),
+        reason: conflict_hunk_reason_name(hunk.reason),
     }
 }
 
-fn conflict_lines(lines: &[serde_json::Value]) -> Vec<String> {
-    lines
-        .iter()
-        .filter_map(serde_json::Value::as_str)
-        .map(str::to_string)
-        .collect()
+/// Core's own `ConflictHunkReason` tag.
+///
+/// `#[non_exhaustive]`: a rejection a newer apply path saw keeps Core's tag
+/// through the wildcard arm rather than being mislabelled as a context
+/// mismatch, because the remedy the frontend offers differs per reason.
+fn conflict_hunk_reason_name(reason: ConflictHunkReason) -> String {
+    match reason {
+        ConflictHunkReason::ContextMismatch => "context_mismatch".to_string(),
+        ConflictHunkReason::AlreadyApplied => "already_applied".to_string(),
+        ConflictHunkReason::FileMissing => "file_missing".to_string(),
+        ConflictHunkReason::FileDeleted => "file_deleted".to_string(),
+        ConflictHunkReason::Binary => "binary".to_string(),
+        other => {
+            let tag = unnamed_serde_tag(&other);
+            if tag.is_empty() {
+                "unnamed".to_string()
+            } else {
+                tag
+            }
+        }
+    }
 }
 
 /// Twelve characters, the length the design's hash chips use. Cut by character
@@ -3035,8 +3006,33 @@ pub(crate) fn evidence_row_projection(entry: &viden_core::EvidenceView) -> Evide
                 producer_identity: canonical.producer.identity.clone(),
                 producer_role: canonical.producer.role.clone(),
                 producer_task_id: canonical.producer.task_id.clone(),
+                verification: verification_state_name(canonical.verification),
+                quality: quality_status_name(canonical.quality.status),
             }),
         metadata: metadata_projection(entry.metadata.as_ref()),
+    }
+}
+
+/// Names Core's verification verdict on the canonical bytes.
+///
+/// A closed enum, matched exhaustively: every state Core can publish has a
+/// name here, so a new one is a compile error rather than a row that silently
+/// reads as verified.
+fn verification_state_name(state: viden_core::EvidenceVerificationState) -> &'static str {
+    match state {
+        viden_core::EvidenceVerificationState::Unverified => "unverified",
+        viden_core::EvidenceVerificationState::Verified => "verified",
+        viden_core::EvidenceVerificationState::Failed => "failed",
+    }
+}
+
+/// Names Core's quality verdict on the canonical bytes. Closed enum, matched
+/// exhaustively for the same reason.
+fn quality_status_name(status: viden_core::EvidenceQualityStatus) -> &'static str {
+    match status {
+        viden_core::EvidenceQualityStatus::Pass => "pass",
+        viden_core::EvidenceQualityStatus::Warn => "warn",
+        viden_core::EvidenceQualityStatus::Fail => "fail",
     }
 }
 

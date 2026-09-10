@@ -338,7 +338,7 @@ pub(super) fn overlay_actions(
 pub(super) fn conflict_content_target<'a>(
     view: &'a RuntimeViewState,
     target: &SupervisionTarget,
-) -> Option<&'a viden_types::ConflictContent> {
+) -> Option<&'a viden_core::ConflictContent> {
     let (SupervisionTarget::Gate { gate_id } | SupervisionTarget::Bounce { gate_id }) = target
     else {
         return None;
@@ -1334,8 +1334,8 @@ mod tests {
             "a bounce with no content offers no inspect row"
         );
 
-        pending.content = Some(viden_types::ConflictContent {
-            baseline: viden_types::ConflictBaseline::Unknown,
+        pending.content = Some(viden_core::ConflictContent {
+            baseline: viden_core::ConflictBaseline::Unknown,
             files: Vec::new(),
             truncated: false,
         });

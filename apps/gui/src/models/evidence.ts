@@ -56,6 +56,14 @@ export interface EvidenceCanonicalProjection {
   producerIdentity: string;
   producerRole: string;
   producerTaskId: string;
+  /**
+   * Core's verification verdict on the bytes: `unverified`, `verified`, or
+   * `failed`. A failed verdict still names bytes Core holds, which is a
+   * different fact from a null reference above.
+   */
+  verification: string;
+  /** Core's quality verdict: `pass`, `warn`, or `fail`. */
+  quality: string;
 }
 
 export interface EvidenceRowProjection {

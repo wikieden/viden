@@ -29,35 +29,36 @@ pub use viden_types::{
     ApprovalDefaultAction, ApprovalRequestView, ApprovalResponse, ApprovalRisk, ApprovalScope,
     ApprovalTarget, AuditActor, AuditActorFilter, AuditCursor, AuditId, AuditObjectRef,
     AuditOutcome, AuditPage, AuditQuery, AuditRecord, CapabilityId, CheckRunStatus, CheckRunView,
-    CommandAction, ConflictBounce, ConflictBounceStatus, ContextBudgetRecord, ContextBundleRecord,
+    CommandAction, ConflictBaseline, ConflictBounce, ConflictBounceStatus, ConflictContent,
+    ConflictFile, ConflictHunk, ConflictHunkReason, ContextBudgetRecord, ContextBundleRecord,
     ContextOmittedSourceRecord, ContextScope, ContextSourceRecord, ContractDecision,
     ContractRecord, CoreHandshake, CostLedgerTotals, CostMeterability, CostUsageRecord,
     CredentialHandle, CredentialRequestId, CredentialStatus, DEFAULT_EVIDENCE_PAGE_SIZE,
     DEFAULT_WORKSPACE_DIFF_BYTES, DataEgressPolicy, DecisionContext, DependencyRecord,
     DependencyState, DiffDocument, DiffFile, DiffHunk, DiffLine, DiffLineKind, EventCursor,
-    EvidenceContent, EvidenceCursor, EvidencePage, EvidenceQuery, EvidenceUnavailableReason,
-    EvidenceView, ExecutionTarget, FRONTEND_SCHEMA_V1, GapRecovery, GateStrength,
-    HandoffAcceptance, HandoffRecord, LaneBudget, LaneConflictView, LaneRunStats,
-    LaneRuntimeOwnerBinding, LaneStatus, LocaleId, MAX_EVIDENCE_CONTENT_BYTES,
-    MAX_EVIDENCE_PAGE_SIZE, MAX_EVIDENCE_QUERY_KINDS, MAX_OPERATOR_COMMIT_MESSAGE_BYTES,
-    MAX_OPERATOR_GIT_OUTPUT_BYTES, MAX_WORKSPACE_DIFF_BYTES, MergeGatePolicySnapshot,
-    MergeGateRecord, MergeGateStatus, MergeGateType, MergeGateValidator, MutationPolicy,
-    OperatorGitAction, OperatorGitFailureClass, OperatorGitOutcome, PermissionLevel,
-    PermissionMode, ProjectConfigPreview, ProjectConfigState, ProjectProbe, ProviderHealthView,
-    QueuedInputView, RecentProjectSummary, RecentSessionSummary, RecentWorkQuery, ReplayBatch,
-    ReplayRequest, ResolvedUiPreferences, RevertRecord, ReviewRequestRecord, ReviewRequestStatus,
-    ReviewVerdict, ReviewedEvidenceBinding, RuntimeCommand, RuntimeCommandEnvelope,
-    RuntimeErrorView, RuntimeEvent, RuntimeEventEnvelope, RuntimeEventKind, RuntimeOwner,
-    RuntimeServiceHealthView, RuntimeServiceKind, RuntimeServiceStatus, RuntimeSnapshot,
-    RuntimeSnapshotEnvelope, RuntimeViewState, RuntimeWireEvent, SchemaVersion, SourceTarget,
-    StarterLanePreset, StarterLanePreview, StarterLanePreviewInvalidationReason,
-    StarterLaneReceipt, StarterLaneRequest, TokenCostView, ToolCallView, TranscriptPage,
-    TranscriptPageRequest, TranscriptRow, TranscriptRowId, TranscriptRowKind, TuiColorDepth,
-    UiColorMode, UiDensity, UiMotion, UiPreferenceDiagnostic, UiPreferencePatch, UiPreferences,
-    UiSkin, WorkMode, WorkspaceChangeKind, WorkspaceChangeView, WorkspaceDiffEntry,
-    WorkspaceDiffPage, WorkspaceDiffQuery, WorkspaceDiffScope, WorkspaceEligibility,
-    WorkspaceFileEntry, WorkspaceFileKind, WorkspaceFilePage, WorkspaceFilesQuery,
-    WorkspaceSourceStatus, WorkspaceSourceView,
+    EvidenceContent, EvidenceCursor, EvidencePage, EvidenceQualityStatus, EvidenceQuery,
+    EvidenceUnavailableReason, EvidenceVerificationState, EvidenceView, ExecutionTarget,
+    FRONTEND_SCHEMA_V1, GapRecovery, GateStrength, HandoffAcceptance, HandoffRecord, LaneBudget,
+    LaneConflictView, LaneRunStats, LaneRuntimeOwnerBinding, LaneStatus, LocaleId,
+    MAX_CONFLICT_CONTENT_BYTES, MAX_EVIDENCE_CONTENT_BYTES, MAX_EVIDENCE_PAGE_SIZE,
+    MAX_EVIDENCE_QUERY_KINDS, MAX_OPERATOR_COMMIT_MESSAGE_BYTES, MAX_OPERATOR_GIT_OUTPUT_BYTES,
+    MAX_WORKSPACE_DIFF_BYTES, MergeGatePolicySnapshot, MergeGateRecord, MergeGateStatus,
+    MergeGateType, MergeGateValidator, MutationPolicy, OperatorGitAction, OperatorGitFailureClass,
+    OperatorGitOutcome, PermissionLevel, PermissionMode, ProjectConfigPreview, ProjectConfigState,
+    ProjectProbe, ProviderHealthView, QueuedInputView, RecentProjectSummary, RecentSessionSummary,
+    RecentWorkQuery, ReplayBatch, ReplayRequest, ResolvedUiPreferences, RevertRecord,
+    ReviewRequestRecord, ReviewRequestStatus, ReviewVerdict, ReviewedEvidenceBinding,
+    RuntimeCommand, RuntimeCommandEnvelope, RuntimeErrorView, RuntimeEvent, RuntimeEventEnvelope,
+    RuntimeEventKind, RuntimeOwner, RuntimeServiceHealthView, RuntimeServiceKind,
+    RuntimeServiceStatus, RuntimeSnapshot, RuntimeSnapshotEnvelope, RuntimeViewState,
+    RuntimeWireEvent, SchemaVersion, SourceTarget, StarterLanePreset, StarterLanePreview,
+    StarterLanePreviewInvalidationReason, StarterLaneReceipt, StarterLaneRequest, TokenCostView,
+    ToolCallView, TranscriptPage, TranscriptPageRequest, TranscriptRow, TranscriptRowId,
+    TranscriptRowKind, TuiColorDepth, UiColorMode, UiDensity, UiMotion, UiPreferenceDiagnostic,
+    UiPreferencePatch, UiPreferences, UiSkin, WorkMode, WorkspaceChangeKind, WorkspaceChangeView,
+    WorkspaceDiffEntry, WorkspaceDiffPage, WorkspaceDiffQuery, WorkspaceDiffScope,
+    WorkspaceEligibility, WorkspaceFileEntry, WorkspaceFileKind, WorkspaceFilePage,
+    WorkspaceFilesQuery, WorkspaceSourceStatus, WorkspaceSourceView,
 };
 
 /// Temporary compatibility imports for the pre-v3 TUI bootstrap.
@@ -164,6 +165,33 @@ mod tests {
         assert_eq!(MAX_EVIDENCE_QUERY_KINDS, 32);
         assert_eq!(MAX_EVIDENCE_CONTENT_BYTES, 256 * 1024);
         assert!(CORE_EXTENSION_CAPABILITIES.contains(&"runtime.evidence_reads"));
+        // The canonical reference's own verdicts. `EvidenceView.canonical`
+        // carries Core's verification and quality state, so a client that
+        // cannot name these two enums can render the reference and not what
+        // Core concluded about it — and would have to invent a second
+        // vocabulary for a verdict Core already owns.
+        assert!(
+            std::any::type_name::<EvidenceVerificationState>()
+                .contains("EvidenceVerificationState")
+        );
+        assert!(std::any::type_name::<EvidenceQualityStatus>().contains("EvidenceQualityStatus"));
+        assert_eq!(
+            EvidenceVerificationState::Verified,
+            EvidenceVerificationState::Verified
+        );
+        assert_eq!(EvidenceQualityStatus::Pass, EvidenceQualityStatus::Pass);
+        // GUI-CORE-015: the typed conflict lines. `ConflictBounce` and
+        // `LaneConflictView` were already exported, but the family they carry
+        // was not, so a client could hold the record and not read the hunks
+        // inside it without a second `viden-*` dependency or a private decoder
+        // of Core's wire encoding. Both are outside the client boundary.
+        assert!(std::any::type_name::<ConflictContent>().contains("ConflictContent"));
+        assert!(std::any::type_name::<ConflictBaseline>().contains("ConflictBaseline"));
+        assert!(std::any::type_name::<ConflictFile>().contains("ConflictFile"));
+        assert!(std::any::type_name::<ConflictHunk>().contains("ConflictHunk"));
+        assert!(std::any::type_name::<ConflictHunkReason>().contains("ConflictHunkReason"));
+        assert_eq!(MAX_CONFLICT_CONTENT_BYTES, 256 * 1024);
+        assert!(CORE_EXTENSION_CAPABILITIES.contains(&"runtime.conflict_content"));
         // GUI-CORE-008: the typed context budget and its scope. A frontend must
         // be able to prove that a budget belongs to the selected Lane's task
         // instead of reconstructing a private serialization of the scope shape.

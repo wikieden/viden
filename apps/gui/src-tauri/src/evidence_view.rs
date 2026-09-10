@@ -81,10 +81,11 @@ pub struct EvidenceMetadataProjection {
 /// `Unavailable { SummaryOnly }`: display-only evidence the merge gate already
 /// refuses. The two facts agree because they come from the same place.
 ///
-/// `verification` and `quality` are deliberately absent: `viden-core` does not
-/// re-export `EvidenceVerificationState` or `EvidenceQualityStatus`, so this
-/// client cannot name either state without inventing its own vocabulary for
-/// Core's. The row states what Core's facade lets it state and no more.
+/// `verification` and `quality` are Core's own verdicts on the reference,
+/// carried as Core's serde tags. They are facts about the bytes, not about the
+/// row: a `failed` verification still names bytes Core holds, which is a
+/// different thing from the `None` above, and nothing here infers either
+/// verdict from the hash, the summary, or whether a content read succeeded.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EvidenceCanonicalProjection {
@@ -96,6 +97,11 @@ pub struct EvidenceCanonicalProjection {
     pub producer_identity: String,
     pub producer_role: String,
     pub producer_task_id: String,
+    /// `unverified`, `verified`, or `failed` — Core's `EvidenceVerificationState`.
+    pub verification: &'static str,
+    /// `pass`, `warn`, or `fail` — the status of Core's `EvidenceQualityFacts`.
+    /// The reason codes behind it stay with Core; this is the verdict only.
+    pub quality: &'static str,
 }
 
 /// One archive row, exactly as `EvidenceView` published it.
