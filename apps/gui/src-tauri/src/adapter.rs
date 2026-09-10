@@ -15,8 +15,8 @@ use viden_core::{
     UiColorMode, UiDensity, UiMotion, UiPreferencePatch, UiPreferences, UiSkin, WorkMode,
     WorkspaceFileEntry, WorkspaceFileKind, WorkspaceFilesQuery, WorkspaceOpenRequest,
 };
+use viden_core::{EvidenceQuery, SourceTarget, WorkspaceDiffQuery, WorkspaceDiffScope};
 use viden_core::{RecentProjectSummary, RecentSessionSummary, RecentWorkQuery};
-use viden_core::{SourceTarget, WorkspaceDiffQuery, WorkspaceDiffScope};
 
 use crate::d1::{
     ComposerControlIntent, D1_OWNER_CAPABILITY, D1CockpitProjection, D1Intent, D1IntentResult,
@@ -31,15 +31,19 @@ use crate::d14::{
 use crate::diff_review::{
     STRUCTURED_DIFF_CAPABILITY, WorkspaceDiffEntryProjection, WorkspaceDiffProjection,
 };
+use crate::evidence_view::{
+    EVIDENCE_NO_OWNER_CODE, EVIDENCE_PAGE_LIMIT, EVIDENCE_READS_CAPABILITY,
+    EvidenceArchiveProjection, EvidenceContentProjection, EvidenceRowProjection,
+};
 use crate::operator_git::{
     OPERATOR_GIT_CAPABILITY, OPERATOR_GIT_NO_OWNER_CODE, OperatorGitIntent, OperatorGitProjection,
     OperatorGitResultProjection,
 };
 use crate::projection::{
     PreferenceDiagnosticProjection, ResolvedPreferencesProjection, awaits_operator_git_approval,
-    exact_terminal_agent_session, operator_git_action, operator_git_result_projection,
-    preference_diagnostic_projection, target_lane_id, workspace_diff_entry_projection,
-    workspace_diff_source_projection,
+    evidence_content_projection, evidence_row_projection, exact_terminal_agent_session,
+    operator_git_action, operator_git_result_projection, preference_diagnostic_projection,
+    target_lane_id, workspace_diff_entry_projection, workspace_diff_source_projection,
 };
 use crate::recent_work::{
     RECENT_WORK_CAPABILITY, RecentProjectProjection, RecentSessionProjection, RecentWorkResult,
@@ -149,6 +153,29 @@ pub struct GuiCoreAdapter {
     /// What Core answered for the last settled action. Cleared when the next
     /// action leaves, so a stale success line can never sit under a new one.
     operator_git_result: Option<OperatorGitResultProjection>,
+    /// One evidence archive read at a time (`runtime.evidence_reads`,
+    /// GUI-CORE-025).
+    ///
+    /// `EvidencePageLoaded` names the exact read it answers, so two reads
+    /// *could* be told apart; a single slot keeps the receipt's replace/append
+    /// decision unambiguous and keeps the view from paging two lists into one.
+    pending_evidence: Option<PendingEvidencePage>,
+    evidence_outcome: D1OutcomeProjection,
+    /// What Core published across the evidence pages confirmed so far.
+    evidence_receipt: EvidenceReceipt,
+    /// One content read at a time. The detail rail shows one row's bytes, and
+    /// a second read could only race the first for that pane.
+    pending_evidence_content: Option<PendingEvidenceContent>,
+    /// Core's last content answer, or the absent state before any read.
+    evidence_content: EvidenceContentProjection,
+    /// How many `EvidenceRecorded` facts have been observed.
+    ///
+    /// Incremented in [`Self::receive_event`], the single funnel every drain
+    /// path goes through, so a recording drained by an unrelated screen's poll
+    /// still reaches an open EvidenceView. Compared against the revision the
+    /// loaded pages were read at; it is a "re-read" signal, never a claim
+    /// about which row was recorded.
+    evidence_revision: u64,
 }
 
 struct HostedCoreClient {
@@ -1060,6 +1087,98 @@ impl PendingOperatorGit {
     }
 }
 
+/// One in-flight `QueryEvidence` awaiting its ordered Core answer.
+struct PendingEvidencePage {
+    /// The only correlation this read needs: both events that can settle it —
+    /// `EvidencePageLoaded` and `CommandRejected` — name the command id they
+    /// answer, and the page's id is a *required* field, so there is no
+    /// acceptance-gated fallback and no id-less legacy page.
+    command_id: String,
+    /// Whether this read appends to the loaded pages or replaces them. A
+    /// "Load older" appends; a first read, a re-scope, and a Refresh replace.
+    older: bool,
+    /// The `EvidenceRecorded` count at the moment the read was sent, so a
+    /// recording that arrives while the read is in flight is already in the
+    /// answer and does not mark the fresh page stale.
+    read_revision: u64,
+}
+
+impl PendingEvidencePage {
+    /// Reconciles one ordered event against this read.
+    ///
+    /// `RuntimeEventKind::Error` is deliberately not observed, for the reason
+    /// every correlated read here documents: it carries no command id, so
+    /// treating one as this read's refusal because a read happened to be
+    /// outstanding would fabricate a refusal Core never issued.
+    fn observe(&self, envelope: &RuntimeEventEnvelope) -> AuditObservation {
+        let RuntimeWireEvent::Known(event) = &envelope.event else {
+            return AuditObservation::Continue;
+        };
+        match &event.kind {
+            RuntimeEventKind::CommandRejected { command_id, reason }
+                if command_id == &self.command_id =>
+            {
+                AuditObservation::Rejected(reason.clone())
+            }
+            RuntimeEventKind::EvidencePageLoaded { command_id, .. }
+                if command_id == &self.command_id =>
+            {
+                AuditObservation::Confirmed
+            }
+            _ => AuditObservation::Continue,
+        }
+    }
+}
+
+/// One in-flight `ReadEvidenceContent` awaiting its ordered Core answer.
+struct PendingEvidenceContent {
+    command_id: String,
+    /// The row the read was sent for. Core echoes its own `evidence_id` on the
+    /// answer, and the answer's id is the authority; this copy is what the
+    /// detail rail names while the read is still out.
+    evidence_id: String,
+}
+
+impl PendingEvidenceContent {
+    fn observe(&self, envelope: &RuntimeEventEnvelope) -> AuditObservation {
+        let RuntimeWireEvent::Known(event) = &envelope.event else {
+            return AuditObservation::Continue;
+        };
+        match &event.kind {
+            RuntimeEventKind::CommandRejected { command_id, reason }
+                if command_id == &self.command_id =>
+            {
+                AuditObservation::Rejected(reason.clone())
+            }
+            RuntimeEventKind::EvidenceContentLoaded { command_id, .. }
+                if command_id == &self.command_id =>
+            {
+                AuditObservation::Confirmed
+            }
+            _ => AuditObservation::Continue,
+        }
+    }
+}
+
+/// What Core published across the evidence pages confirmed so far.
+#[derive(Default)]
+struct EvidenceReceipt {
+    /// Core's order, appended page by page. Never re-sorted on this side.
+    rows: Vec<EvidenceRowProjection>,
+    /// Core's opaque cursor, carried verbatim. Never parsed or constructed.
+    next_after: Option<String>,
+    complete: bool,
+    /// True once one page has actually arrived. Absence and emptiness are
+    /// different facts; see [`EvidenceArchiveProjection::loaded`].
+    loaded: bool,
+    /// The Lane scope the confirmed pages were read under.
+    scope_lane_id: Option<String>,
+    /// The kind filter the confirmed pages were read under.
+    kinds: Vec<String>,
+    /// The `EvidenceRecorded` count the confirmed pages describe.
+    read_revision: u64,
+}
+
 /// What Core published for the diff reads confirmed so far.
 #[derive(Default)]
 struct WorkspaceDiffReceipt {
@@ -1407,6 +1526,12 @@ impl GuiCoreAdapter {
             operator_git_outcome: D1OutcomeProjection::idle(),
             operator_git_result: None,
             workspace_revision: 0,
+            pending_evidence: None,
+            evidence_outcome: D1OutcomeProjection::idle(),
+            evidence_receipt: EvidenceReceipt::default(),
+            pending_evidence_content: None,
+            evidence_content: EvidenceContentProjection::absent(),
+            evidence_revision: 0,
         }
     }
 
@@ -2051,6 +2176,381 @@ impl GuiCoreAdapter {
             stale: self.workspace_diff_receipt.loaded
                 && self.workspace_revision != self.workspace_diff_receipt.read_revision,
         }
+    }
+
+    /// Whether Core's handshake published the evidence archive reads.
+    ///
+    /// The EvidenceView entry points read this before they render, so an
+    /// absent capability shows as a disabled row naming
+    /// `runtime.evidence_reads` rather than an empty archive, which would read
+    /// as "this workspace produced no evidence".
+    pub fn supports_evidence_reads(&self) -> bool {
+        self.supports(EVIDENCE_READS_CAPABILITY)
+    }
+
+    /// The owner scope one Lane's evidence read is narrowed to.
+    ///
+    /// `EvidenceQuery.owner` is a *prefix* scope match: every field the query
+    /// sets must equal the record's. So the scope names the workspace, the
+    /// project, and the Lane, and deliberately leaves session, task, and turn
+    /// unset — Core's binding carries a specific turn, and sending it would
+    /// answer "this turn's evidence" for a question about the Lane.
+    ///
+    /// A selected Lane with no exact Core owner is refused locally rather than
+    /// read unscoped: an unscoped answer under a Lane's name would show every
+    /// Lane's evidence as that Lane's.
+    fn evidence_owner_scope(&self, lane_id: Option<&str>) -> Result<Option<RuntimeOwner>, String> {
+        let Some(lane_id) = lane_id else {
+            return Ok(None);
+        };
+        let owner = self
+            .exact_lane_owner(lane_id, "evidence")
+            .map_err(|error| format!("{EVIDENCE_NO_OWNER_CODE}: {error}"))?;
+        Ok(Some(RuntimeOwner {
+            workspace_id: owner.workspace_id,
+            project_id: owner.project_id,
+            lane_id: Some(lane_id.to_string()),
+            session_id: None,
+            task_id: None,
+            turn_id: None,
+        }))
+    }
+
+    /// Sends one `QueryEvidence` for the first page and waits for Core.
+    ///
+    /// `lane_id` scopes the read to one Lane; `None` reads the whole archive.
+    /// `kinds` is the operator's chip filter, sent verbatim — Core applies it
+    /// *before* it cuts the page, which is why the filter belongs in the query
+    /// rather than in the client: a client filtering a page it already holds
+    /// cannot know whether a matching row sits on a page it never loaded.
+    ///
+    /// A missing capability is not an error: it returns the honest projection
+    /// with `capability_available == false` and sends nothing.
+    pub fn query_evidence_and_wait(
+        &mut self,
+        command_id: &str,
+        lane_id: Option<&str>,
+        kinds: Vec<String>,
+        event_timeout: Duration,
+    ) -> Result<EvidenceArchiveProjection, String> {
+        let scope = self.evidence_owner_scope(lane_id)?;
+        self.send_evidence_query(
+            command_id,
+            lane_id,
+            scope,
+            kinds,
+            None,
+            false,
+            event_timeout,
+        )
+    }
+
+    /// Sends one `QueryEvidence` for the page after Core's own cursor.
+    ///
+    /// The cursor travels back verbatim as `after`; this client never parses,
+    /// constructs, or compares one. The scope and the kind filter are the ones
+    /// the loaded pages were read under, so "older" continues the same
+    /// question rather than asking a new one.
+    pub fn load_older_evidence_and_wait(
+        &mut self,
+        command_id: &str,
+        event_timeout: Duration,
+    ) -> Result<EvidenceArchiveProjection, String> {
+        let after = self
+            .evidence_receipt
+            .next_after
+            .clone()
+            .ok_or_else(|| "Core published no older evidence cursor".to_string())?;
+        let lane_id = self.evidence_receipt.scope_lane_id.clone();
+        let kinds = self.evidence_receipt.kinds.clone();
+        let scope = self.evidence_owner_scope(lane_id.as_deref())?;
+        self.send_evidence_query(
+            command_id,
+            lane_id.as_deref(),
+            scope,
+            kinds,
+            Some(after),
+            true,
+            event_timeout,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn send_evidence_query(
+        &mut self,
+        command_id: &str,
+        lane_id: Option<&str>,
+        owner: Option<RuntimeOwner>,
+        kinds: Vec<String>,
+        after: Option<String>,
+        older: bool,
+        event_timeout: Duration,
+    ) -> Result<EvidenceArchiveProjection, String> {
+        if !self.supports_evidence_reads() {
+            return Ok(self.evidence_archive());
+        }
+        if let Some(pending) = &self.pending_evidence {
+            return Err(format!(
+                "evidence query `{}` is still pending",
+                pending.command_id
+            ));
+        }
+        let query = EvidenceQuery {
+            owner,
+            kinds: kinds.clone(),
+            limit: EVIDENCE_PAGE_LIMIT,
+            after,
+        };
+        // Core's own validator, so a locally refused query says exactly what
+        // Core would have said rather than growing a second vocabulary.
+        query.validate()?;
+        self.client
+            .send(RuntimeCommandEnvelope {
+                schema_version: FRONTEND_SCHEMA_V1,
+                client_id: "viden-gui".to_string(),
+                command_id: command_id.to_string(),
+                // The scope is named inside the query; the read itself is not
+                // an owner-bound mutation, so the envelope carries no owner.
+                owner: RuntimeOwner::default(),
+                command: RuntimeCommand::QueryEvidence { query },
+            })
+            .map_err(|error| error.to_string())?;
+        self.pending_evidence = Some(PendingEvidencePage {
+            command_id: command_id.to_string(),
+            older,
+            read_revision: self.evidence_revision,
+        });
+        self.evidence_outcome = D1OutcomeProjection::pending();
+        if !older {
+            // A first read, a re-scope, and a Refresh all replace the list.
+            // Clearing before the answer keeps one scope's rows from being
+            // read as another's, and `loaded` goes back to false so the view
+            // says "reading", never "no evidence".
+            self.evidence_receipt = EvidenceReceipt {
+                scope_lane_id: lane_id.map(str::to_string),
+                kinds,
+                ..EvidenceReceipt::default()
+            };
+        }
+        self.poll_evidence(event_timeout)
+    }
+
+    /// Drains ordered Core events for an evidence page read still in flight.
+    pub fn poll_evidence(
+        &mut self,
+        event_timeout: Duration,
+    ) -> Result<EvidenceArchiveProjection, String> {
+        let mut received = false;
+        let mut receive_failed = false;
+        for _ in 0..8 {
+            let event = match self.receive_event_until(event_timeout) {
+                Ok(Some(event)) => event,
+                Ok(None) => break,
+                Err(_) => {
+                    receive_failed = true;
+                    break;
+                }
+            };
+            received = true;
+            if self.observe_pending_evidence(&event) {
+                break;
+            }
+        }
+        if received && !receive_failed {
+            self.refresh_projection()
+                .map_err(|error| error.to_string())?;
+        }
+        Ok(self.evidence_archive())
+    }
+
+    /// Reconciles one ordered event against the in-flight evidence page read.
+    ///
+    /// Returns whether the read reached a terminal outcome. The desktop event
+    /// pump calls this too, so a background drain can never swallow the only
+    /// page the view is waiting for.
+    pub(crate) fn observe_pending_evidence(&mut self, event: &RuntimeEventEnvelope) -> bool {
+        let observation = self
+            .pending_evidence
+            .as_ref()
+            .map_or(AuditObservation::Continue, |pending| pending.observe(event));
+        match observation {
+            AuditObservation::Continue => false,
+            AuditObservation::Confirmed => {
+                let pending = self.pending_evidence.take();
+                let older = pending.as_ref().is_some_and(|pending| pending.older);
+                let read_revision =
+                    pending.map_or(self.evidence_revision, |pending| pending.read_revision);
+                self.evidence_outcome = D1OutcomeProjection::confirmed();
+                // The confirming page is the authority for the rows and for
+                // the next cursor; nothing is re-ordered or recomputed here.
+                if let RuntimeWireEvent::Known(known) = &event.event
+                    && let RuntimeEventKind::EvidencePageLoaded { page, .. } = &known.kind
+                {
+                    let rows = page.entries.iter().map(evidence_row_projection);
+                    if older {
+                        self.evidence_receipt.rows.extend(rows);
+                    } else {
+                        self.evidence_receipt.rows = rows.collect();
+                    }
+                    self.evidence_receipt.next_after = page.next_after.clone();
+                    self.evidence_receipt.complete = page.complete;
+                    self.evidence_receipt.loaded = true;
+                    self.evidence_receipt.read_revision = read_revision;
+                }
+                true
+            }
+            AuditObservation::Rejected(reason) => {
+                self.pending_evidence = None;
+                self.evidence_outcome = D1OutcomeProjection::rejected(reason);
+                true
+            }
+        }
+    }
+
+    /// The EvidenceView list's current projection, with no Core traffic.
+    pub fn evidence_archive(&self) -> EvidenceArchiveProjection {
+        EvidenceArchiveProjection {
+            outcome: self.evidence_outcome.clone(),
+            rows: self.evidence_receipt.rows.clone(),
+            next_after: self.evidence_receipt.next_after.clone(),
+            complete: self.evidence_receipt.complete,
+            loaded: self.evidence_receipt.loaded,
+            pending_command_id: self
+                .pending_evidence
+                .as_ref()
+                .map(|pending| pending.command_id.clone()),
+            capability_available: self.supports_evidence_reads(),
+            // Only pages that are actually on screen can go stale; a read that
+            // never answered is "pending", which is a different sentence.
+            stale: self.evidence_receipt.loaded
+                && self.evidence_revision != self.evidence_receipt.read_revision,
+            scope_lane_id: self.evidence_receipt.scope_lane_id.clone(),
+            kinds: self.evidence_receipt.kinds.clone(),
+        }
+    }
+
+    /// Sends one `ReadEvidenceContent` for a row and waits for Core's answer.
+    ///
+    /// Core reads only the canonical ContextStore bytes the row's own
+    /// reference names and verifies them against its `source_hash` first, so
+    /// every non-content outcome arrives as a typed
+    /// `EvidenceContent::Unavailable` rather than as an empty body. An
+    /// evidence id Core never recorded is a `CommandRejected`, not a silence.
+    pub fn read_evidence_content_and_wait(
+        &mut self,
+        command_id: &str,
+        evidence_id: &str,
+        event_timeout: Duration,
+    ) -> Result<EvidenceContentProjection, String> {
+        if !self.supports_evidence_reads() {
+            return Ok(self.evidence_content());
+        }
+        if let Some(pending) = &self.pending_evidence_content {
+            return Err(format!(
+                "evidence content read `{}` is still pending",
+                pending.command_id
+            ));
+        }
+        self.client
+            .send(RuntimeCommandEnvelope {
+                schema_version: FRONTEND_SCHEMA_V1,
+                client_id: "viden-gui".to_string(),
+                command_id: command_id.to_string(),
+                owner: RuntimeOwner::default(),
+                command: RuntimeCommand::ReadEvidenceContent {
+                    evidence_id: evidence_id.to_string(),
+                },
+            })
+            .map_err(|error| error.to_string())?;
+        self.pending_evidence_content = Some(PendingEvidenceContent {
+            command_id: command_id.to_string(),
+            evidence_id: evidence_id.to_string(),
+        });
+        // The previous row's bytes are dropped the moment a new read leaves:
+        // leaving them under a different row's header would attribute one
+        // row's content to another.
+        self.evidence_content = EvidenceContentProjection {
+            outcome: D1OutcomeProjection::pending(),
+            evidence_id: Some(evidence_id.to_string()),
+            pending_command_id: Some(command_id.to_string()),
+            ..EvidenceContentProjection::absent()
+        };
+        self.poll_evidence_content(event_timeout)
+    }
+
+    /// Drains ordered Core events for a content read still in flight.
+    pub fn poll_evidence_content(
+        &mut self,
+        event_timeout: Duration,
+    ) -> Result<EvidenceContentProjection, String> {
+        let mut received = false;
+        let mut receive_failed = false;
+        for _ in 0..8 {
+            let event = match self.receive_event_until(event_timeout) {
+                Ok(Some(event)) => event,
+                Ok(None) => break,
+                Err(_) => {
+                    receive_failed = true;
+                    break;
+                }
+            };
+            received = true;
+            if self.observe_pending_evidence_content(&event) {
+                break;
+            }
+        }
+        if received && !receive_failed {
+            self.refresh_projection()
+                .map_err(|error| error.to_string())?;
+        }
+        Ok(self.evidence_content())
+    }
+
+    /// Reconciles one ordered event against the in-flight content read.
+    pub(crate) fn observe_pending_evidence_content(
+        &mut self,
+        event: &RuntimeEventEnvelope,
+    ) -> bool {
+        let observation = self
+            .pending_evidence_content
+            .as_ref()
+            .map_or(AuditObservation::Continue, |pending| pending.observe(event));
+        match observation {
+            AuditObservation::Continue => false,
+            AuditObservation::Confirmed => {
+                self.pending_evidence_content = None;
+                if let RuntimeWireEvent::Known(known) = &event.event
+                    && let RuntimeEventKind::EvidenceContentLoaded {
+                        evidence_id,
+                        content,
+                        ..
+                    } = &known.kind
+                {
+                    // Core's own echoed `evidence_id` is the authority for
+                    // which row the bytes belong to, not the id this client
+                    // asked with.
+                    self.evidence_content = evidence_content_projection(evidence_id, content);
+                }
+                true
+            }
+            AuditObservation::Rejected(reason) => {
+                let evidence_id = self
+                    .pending_evidence_content
+                    .take()
+                    .map(|pending| pending.evidence_id);
+                self.evidence_content = EvidenceContentProjection {
+                    outcome: D1OutcomeProjection::rejected(reason),
+                    evidence_id,
+                    ..EvidenceContentProjection::absent()
+                };
+                true
+            }
+        }
+    }
+
+    /// The detail rail's current content projection, with no Core traffic.
+    pub fn evidence_content(&self) -> EvidenceContentProjection {
+        self.evidence_content.clone()
     }
 
     /// Whether Core's handshake published operator source-control actions.
@@ -4073,6 +4573,12 @@ impl GuiCoreAdapter {
         ) {
             self.workspace_revision = self.workspace_revision.saturating_add(1);
         }
+        // The one ordered fact that can make a loaded evidence page
+        // incomplete. Counted in the same funnel and for the same reason: an
+        // open EvidenceView must learn about a recording drained elsewhere.
+        if matches!(event.kind, RuntimeEventKind::EvidenceRecorded { .. }) {
+            self.evidence_revision = self.evidence_revision.saturating_add(1);
+        }
     }
 
     /// Drains ordered Core events with one bounded wait and refreshes the
@@ -4105,6 +4611,8 @@ impl GuiCoreAdapter {
             self.observe_pending_audit(&event);
             self.observe_pending_workspace_files(&event);
             self.observe_pending_workspace_diff(&event);
+            self.observe_pending_evidence(&event);
+            self.observe_pending_evidence_content(&event);
             self.observe_pending_operator_git(&event);
             self.observe_pending(&event);
             self.observe_pending_d12(&event);

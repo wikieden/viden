@@ -39,6 +39,15 @@ export function createTauriCoreClient(): CoreClient {
     operatorGitPoll: (laneId) => invoke("operator_git_poll", { laneId }),
     operatorGit: (laneId) => invoke("operator_git", { laneId }),
 
+    queryEvidence: (commandId, laneId, kinds) =>
+      invoke("query_evidence", { commandId, laneId, kinds }),
+    evidenceLoadOlder: (commandId) => invoke("evidence_load_older", { commandId }),
+    evidencePoll: () => invoke("evidence_poll"),
+    evidenceArchive: () => invoke("evidence_archive"),
+    readEvidenceContent: (commandId, evidenceId) =>
+      invoke("read_evidence_content", { commandId, evidenceId }),
+    evidenceContentPoll: () => invoke("evidence_content_poll"),
+
     d1Cockpit: (selectedLaneId) => invoke("d1_cockpit", { selectedLaneId }),
     d1SendIntent: (commandId, intent) => invoke("d1_send_intent", { commandId, intent }),
     d1Poll: (selectedLaneId, waitForEvent) =>

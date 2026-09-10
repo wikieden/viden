@@ -74,6 +74,25 @@ function fakeCoreClient(overrides: Partial<CoreClient> = {}): CoreClient {
     runOperatorGitAction: unreachable("run_operator_git_action"),
     operatorGitPoll: unreachable("operator_git_poll"),
     operatorGit: unreachable("operator_git"),
+    // The evidence archive stays unbound in a shell test: the entry points ask
+    // only for the no-traffic projection, which answers with the capability.
+    queryEvidence: unreachable("query_evidence"),
+    evidenceLoadOlder: unreachable("evidence_load_older"),
+    evidencePoll: unreachable("evidence_poll"),
+    evidenceArchive: async () => ({
+      outcome: { state: "idle", reason: null },
+      rows: [],
+      nextAfter: null,
+      complete: false,
+      loaded: false,
+      pendingCommandId: null,
+      capabilityAvailable: false,
+      stale: false,
+      scopeLaneId: null,
+      kinds: [],
+    }),
+    readEvidenceContent: unreachable("read_evidence_content"),
+    evidenceContentPoll: unreachable("evidence_content_poll"),
     d1Cockpit: async () => D1_PROJECTION,
     d1SendIntent: async () => ({
       projection: D1_PROJECTION,

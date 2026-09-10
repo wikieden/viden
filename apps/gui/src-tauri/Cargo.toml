@@ -156,3 +156,7 @@ path = "../tests/operator_git.rs"
 [[test]]
 name = "decision_context"
 path = "../tests/decision_context.rs"
+
+[[test]]
+name = "evidence_reads"
+path = "../tests/evidence_reads.rs"

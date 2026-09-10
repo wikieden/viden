@@ -11,6 +11,7 @@ mod d2;
 mod d4;
 mod d6;
 mod diff_review;
+mod evidence_view;
 mod operator_git;
 mod permission;
 mod presentation;
@@ -74,6 +75,11 @@ pub use d14::{
 pub use diff_review::{
     DiffFileProjection, DiffHunkProjection, DiffLineProjection, STRUCTURED_DIFF_CAPABILITY,
     WorkspaceDiffEntryProjection, WorkspaceDiffProjection,
+};
+pub use evidence_view::{
+    EVIDENCE_NO_OWNER_CODE, EVIDENCE_PAGE_LIMIT, EVIDENCE_READS_CAPABILITY,
+    EvidenceArchiveProjection, EvidenceCanonicalProjection, EvidenceContentProjection,
+    EvidenceMetadataProjection, EvidenceRowProjection,
 };
 pub use operator_git::{
     OPERATOR_GIT_APPROVAL_KIND, OPERATOR_GIT_CAPABILITY, OPERATOR_GIT_NO_OWNER_CODE,
@@ -341,6 +347,119 @@ fn workspace_diff(
         .as_ref()
         .ok_or_else(|| "Core adapter is not connected".to_string())?
         .workspace_diff())
+}
+
+/// Sends one `QueryEvidence` for the first page and waits briefly for Core.
+///
+/// Read-only and bounded, gated exactly as `QueryAudit` is — owner-scoped and
+/// never tool-gated, because the evidence archive is Viden's own state rather
+/// than the operator's tree — so it stays answerable in Plan mode. `laneId`
+/// scopes the read to one Lane; omitting it reads the whole archive. `kinds`
+/// is the operator's chip filter, applied by Core before the page is cut.
+#[tauri::command]
+fn query_evidence(
+    command_id: String,
+    lane_id: Option<String>,
+    kinds: Vec<String>,
+    state: tauri::State<'_, DesktopState>,
+) -> Result<EvidenceArchiveProjection, String> {
+    state
+        .adapter
+        .lock()
+        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?
+        .as_mut()
+        .ok_or_else(|| "Core adapter is not connected".to_string())?
+        .query_evidence_and_wait(
+            &command_id,
+            lane_id.as_deref(),
+            kinds,
+            Duration::from_millis(250),
+        )
+}
+
+/// Sends one `QueryEvidence` for the page after Core's own opaque cursor.
+///
+/// The cursor is Core's `next_after`, carried back verbatim; the client never
+/// parses, constructs, or compares one.
+#[tauri::command]
+fn evidence_load_older(
+    command_id: String,
+    state: tauri::State<'_, DesktopState>,
+) -> Result<EvidenceArchiveProjection, String> {
+    state
+        .adapter
+        .lock()
+        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?
+        .as_mut()
+        .ok_or_else(|| "Core adapter is not connected".to_string())?
+        .load_older_evidence_and_wait(&command_id, Duration::from_millis(250))
+}
+
+/// Drains ordered Core events for an evidence page read still in flight.
+#[tauri::command]
+fn evidence_poll(
+    state: tauri::State<'_, DesktopState>,
+) -> Result<EvidenceArchiveProjection, String> {
+    state
+        .adapter
+        .lock()
+        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?
+        .as_mut()
+        .ok_or_else(|| "Core adapter is not connected".to_string())?
+        .poll_evidence(Duration::from_millis(250))
+}
+
+/// The current evidence archive projection with no Core traffic.
+///
+/// The entry points call this for the capability, and the open view calls it on
+/// each host wake to learn whether Core recorded evidence since the loaded
+/// pages were read (`stale`). Reading it must not itself send a command, or the
+/// wake loop would become a poll — and a paged list must never reload under the
+/// operator on its own.
+#[tauri::command]
+fn evidence_archive(
+    state: tauri::State<'_, DesktopState>,
+) -> Result<EvidenceArchiveProjection, String> {
+    Ok(state
+        .adapter
+        .lock()
+        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?
+        .as_ref()
+        .ok_or_else(|| "Core adapter is not connected".to_string())?
+        .evidence_archive())
+}
+
+/// Sends one `ReadEvidenceContent` for a row and waits briefly for Core.
+///
+/// Core serves only canonical ContextStore bytes it has verified against the
+/// row's own `source_hash`; every other outcome is a typed unavailable reason.
+#[tauri::command]
+fn read_evidence_content(
+    command_id: String,
+    evidence_id: String,
+    state: tauri::State<'_, DesktopState>,
+) -> Result<EvidenceContentProjection, String> {
+    state
+        .adapter
+        .lock()
+        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?
+        .as_mut()
+        .ok_or_else(|| "Core adapter is not connected".to_string())?
+        .read_evidence_content_and_wait(&command_id, &evidence_id, Duration::from_millis(250))
+}
+
+/// Drains ordered Core events for a content read still in flight.
+#[tauri::command]
+fn evidence_content_poll(
+    state: tauri::State<'_, DesktopState>,
+) -> Result<EvidenceContentProjection, String> {
+    state
+        .adapter
+        .lock()
+        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?
+        .as_mut()
+        .ok_or_else(|| "Core adapter is not connected".to_string())?
+        .poll_evidence_content(Duration::from_millis(250))
 }
 
 /// Sends one `RunOperatorGitAction` and waits briefly for Core's ordered answer.
@@ -898,6 +1017,12 @@ pub fn run_with_adapter(adapter: Option<GuiCoreAdapter>) {
             run_operator_git_action,
             operator_git_poll,
             operator_git,
+            query_evidence,
+            evidence_load_older,
+            evidence_poll,
+            evidence_archive,
+            read_evidence_content,
+            evidence_content_poll,
             d11_intake,
             d11_send_intent,
             d11_poll,

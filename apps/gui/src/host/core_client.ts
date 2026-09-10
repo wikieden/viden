@@ -2,6 +2,10 @@ import type { PaletteWorkspaceFiles } from "../components/command_palette";
 import type { PermissionIntent, PermissionIntentResult } from "../components/permission_dock";
 import type { WorkspaceDiffProjection } from "../models/diff_review";
 import type {
+  EvidenceArchiveProjection,
+  EvidenceContentProjection,
+} from "../models/evidence";
+import type {
   OperatorGitActionRequest,
   OperatorGitProjection,
 } from "../models/operator_git";
@@ -130,6 +134,60 @@ export interface CoreClient {
    * answered, so this is also what the cockpit's ordered wake re-reads.
    */
   operatorGit(laneId: string | null): Promise<OperatorGitProjection>;
+
+  /**
+   * Sends Core's read-only `QueryEvidence` and resolves with whatever the
+   * ordered `EvidencePageLoaded` published (GUI-CORE-025).
+   *
+   * Core owns the archive, the `(timestamp, id)` order with undated rows
+   * first, the opaque cursor, the `1..=200` clamp, and the kind filter — which
+   * it applies *before* it cuts the page, so `complete` describes the filtered
+   * archive. The frontend never reads the workflow log, never sorts, and never
+   * decides where a page ends.
+   *
+   * The gate posture is `QueryAudit`'s rather than `QueryWorkspaceFiles`':
+   * bounded and owner-scoped, never tool-gated, so the read stays answerable
+   * in Plan mode.
+   *
+   * `laneId` scopes the read to one Lane; `null` reads the whole archive. A
+   * Lane Core published no exact owner for is refused by the host rather than
+   * read unscoped, which would show every Lane's evidence under one Lane.
+   */
+  queryEvidence(
+    commandId: string,
+    laneId: string | null,
+    kinds: string[],
+  ): Promise<EvidenceArchiveProjection>;
+  /**
+   * One more `QueryEvidence` through Core's own `next_after`, carried back
+   * verbatim. The client never parses, constructs, or compares a cursor.
+   */
+  evidenceLoadOlder(commandId: string): Promise<EvidenceArchiveProjection>;
+  /** Drains ordered Core events while an archive read is still pending. */
+  evidencePoll(): Promise<EvidenceArchiveProjection>;
+  /**
+   * The current archive projection with no Core traffic. The entry points read
+   * it for the capability, and the open view reads it on each host wake to
+   * learn whether Core recorded evidence since the pages were read (`stale`).
+   */
+  evidenceArchive(): Promise<EvidenceArchiveProjection>;
+
+  /**
+   * Sends Core's read-only `ReadEvidenceContent` and resolves with whatever
+   * the ordered `EvidenceContentLoaded` published.
+   *
+   * Core reads only the canonical ContextStore bytes the row's own reference
+   * names and verifies them against its `source_hash` first, so every
+   * non-content outcome is a typed `Unavailable` reason rather than an empty
+   * body. The frontend never opens the store and never renders unverified
+   * bytes, because Core never publishes any.
+   */
+  readEvidenceContent(
+    commandId: string,
+    evidenceId: string,
+  ): Promise<EvidenceContentProjection>;
+  /** Drains ordered Core events while a content read is still pending. */
+  evidenceContentPoll(): Promise<EvidenceContentProjection>;
 
   d1Cockpit(selectedLaneId: string | null): Promise<D1CockpitProjection | null>;
   d1SendIntent(commandId: string, intent: D1Intent): Promise<D1IntentResult>;

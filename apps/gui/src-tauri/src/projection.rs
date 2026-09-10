@@ -1,6 +1,7 @@
 use std::collections::BTreeSet;
 
 use serde::Serialize;
+use serde_json::Value;
 use viden_core::{
     AgentConversationRole, AgentDagStatus, AgentLaneRecord, AgentRole, AgentRoute,
     AgentSessionStatus, AgentStartability, AgentTaskStatus, ApprovalDefaultAction,
@@ -22,7 +23,7 @@ use crate::d1::{
     D1ChecklistItemProjection, D1CockpitProjection, D1ComposerProjection, D1ContentPartProjection,
     D1ContextDockProjection, D1ContextUsageProjection, D1CostUsageProjection, D1CursorProjection,
     D1EnvironmentProjection, D1EvidenceProjection, D1LaneAgentProjection, D1LaneProjection,
-    D1LiveWorkProjection, D1ProviderHealthProjection, D1QueuedInputProjection,
+    D1LiveWorkProjection, D1OutcomeProjection, D1ProviderHealthProjection, D1QueuedInputProjection,
     D1RuntimeServiceProjection, D1StarterLanePreviewProjection, D1StarterLaneReceiptProjection,
     D1StatusbarContextProjection, D1StatusbarLaneProjection, D1StatusbarLatencyProjection,
     D1StatusbarProjection, D1StatusbarRequestsProjection, D1StatusbarTokensProjection,
@@ -51,6 +52,10 @@ use crate::d13::{
 use crate::diff_review::{
     DecisionContextProjection, DiffDocumentProjection, DiffFileProjection, DiffHunkProjection,
     DiffLineProjection, WorkspaceDiffEntryProjection,
+};
+use crate::evidence_view::{
+    EvidenceCanonicalProjection, EvidenceContentProjection, EvidenceMetadataProjection,
+    EvidenceRowProjection,
 };
 use crate::operator_git::OperatorGitResultProjection;
 use crate::{
@@ -2963,6 +2968,136 @@ pub(crate) fn target_lane_id(target: &SourceTarget) -> Option<String> {
         SourceTarget::Workspace => None,
         SourceTarget::Lane { lane_id } => Some(lane_id.clone()),
         _ => None,
+    }
+}
+
+/* ---- EvidenceView (`runtime.evidence_reads`, GUI-CORE-025) ---- */
+//
+// The renderable shapes live in `evidence_view.rs`; the Core-typed
+// projections live here, where the architecture boundary test keeps every
+// `viden_core` reference outside the presentation modules.
+
+/// Flattens `EvidenceView.metadata` into renderable facts.
+///
+/// A JSON object becomes one row per top-level key in Core's own key order; a
+/// scalar or an array becomes a single `metadata` row. Values are compact JSON
+/// except a plain string, which is unquoted so a command line or a path reads
+/// as itself. Nested structure is *serialized*, not walked: a client that
+/// unpacked it would be deciding what Core's free-form shape means.
+pub(crate) fn metadata_projection(metadata: Option<&Value>) -> Vec<EvidenceMetadataProjection> {
+    let Some(metadata) = metadata else {
+        return Vec::new();
+    };
+    match metadata {
+        Value::Object(fields) => fields
+            .iter()
+            .map(|(key, value)| EvidenceMetadataProjection {
+                key: key.clone(),
+                value: render_metadata_value(value),
+            })
+            .collect(),
+        Value::Null => Vec::new(),
+        other => vec![EvidenceMetadataProjection {
+            key: "metadata".to_string(),
+            value: render_metadata_value(other),
+        }],
+    }
+}
+
+fn render_metadata_value(value: &Value) -> String {
+    match value {
+        Value::String(text) => text.clone(),
+        other => other.to_string(),
+    }
+}
+
+/// Projects one `EvidenceView` archive row.
+pub(crate) fn evidence_row_projection(entry: &viden_core::EvidenceView) -> EvidenceRowProjection {
+    EvidenceRowProjection {
+        id: entry.id.clone(),
+        kind: entry.kind.clone(),
+        summary: entry.summary.clone(),
+        path: entry.path.clone(),
+        source: entry.source.clone(),
+        timestamp: entry.timestamp,
+        // Straight off the owner Core recorded. `source` is deliberately not a
+        // fallback: it is the producing identity's label, and treating it as an
+        // owner would turn "Core did not know" into an attribution.
+        owner_lane_id: entry.owner.as_ref().and_then(|owner| owner.lane_id.clone()),
+        owner_task_id: entry.owner.as_ref().and_then(|owner| owner.task_id.clone()),
+        canonical: entry
+            .canonical
+            .as_ref()
+            .map(|canonical| EvidenceCanonicalProjection {
+                item_id: canonical.item_id.clone(),
+                bundle_id: canonical.bundle_id.clone(),
+                source_hash: canonical.source_hash.clone(),
+                producer_identity: canonical.producer.identity.clone(),
+                producer_role: canonical.producer.role.clone(),
+                producer_task_id: canonical.producer.task_id.clone(),
+            }),
+        metadata: metadata_projection(entry.metadata.as_ref()),
+    }
+}
+
+/// Projects Core's answer to one `ReadEvidenceContent`.
+pub(crate) fn evidence_content_projection(
+    evidence_id: &str,
+    content: &viden_core::EvidenceContent,
+) -> EvidenceContentProjection {
+    let base = EvidenceContentProjection {
+        outcome: D1OutcomeProjection::confirmed(),
+        evidence_id: Some(evidence_id.to_string()),
+        ..EvidenceContentProjection::absent()
+    };
+    match content {
+        viden_core::EvidenceContent::Text {
+            text,
+            truncated,
+            sha256,
+        } => EvidenceContentProjection {
+            kind: "text",
+            text: Some(text.clone()),
+            truncated: *truncated,
+            sha256: Some(sha256.clone()),
+            ..base
+        },
+        viden_core::EvidenceContent::Diff { document, sha256 } => EvidenceContentProjection {
+            kind: "diff",
+            sha256: Some(sha256.clone()),
+            document: Some(diff_document_projection(document)),
+            ..base
+        },
+        viden_core::EvidenceContent::Unavailable { reason } => EvidenceContentProjection {
+            kind: "unavailable",
+            reason: Some(unavailable_reason_name(*reason)),
+            ..base
+        },
+        // `EvidenceContent` is `#[non_exhaustive]`. An unmodeled shape keeps
+        // its own state instead of being drawn as one of the four reasons,
+        // which would attribute a cause Core never named.
+        _ => EvidenceContentProjection {
+            kind: "unknown",
+            ..base
+        },
+    }
+}
+
+/// Names Core's unavailable reason without folding two into one.
+///
+/// `EvidenceUnavailableReason` is `#[non_exhaustive]`, so an unmodeled reason
+/// reaches the frontend as `unknown` rather than borrowing the nearest-looking
+/// one — the affordance differs per reason, and the wrong one is worse than
+/// none.
+pub(crate) fn unavailable_reason_name(
+    reason: viden_core::EvidenceUnavailableReason,
+) -> &'static str {
+    match reason {
+        viden_core::EvidenceUnavailableReason::SummaryOnly => "summary_only",
+        viden_core::EvidenceUnavailableReason::MissingCanonicalBytes => "missing_canonical_bytes",
+        viden_core::EvidenceUnavailableReason::HashMismatch => "hash_mismatch",
+        viden_core::EvidenceUnavailableReason::Binary => "binary",
+        _ => "unknown",
     }
 }
 
