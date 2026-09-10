@@ -1,3 +1,4 @@
+use super::evidence_panel::EvidencePanel;
 use super::operator_git::OperatorGitSettlement;
 use super::state::{
     ConflictDetailTarget, GitPickerPhase, InteractionPanel, Lens, ProviderAuthMode, ProviderOption,
@@ -14,7 +15,8 @@ use viden_core::{
 };
 use viden_types::{
     ConflictBaseline, ConflictContent, ConflictFile, ConflictHunk, ConflictHunkReason,
-    LaneConflictView,
+    EvidenceContent, EvidencePage, EvidenceUnavailableReason, EvidenceView, LaneConflictView,
+    RuntimeEvent, RuntimeEventKind, RuntimeOwner,
 };
 
 pub fn render_preview(provider: &str, model: &str) -> String {
@@ -69,6 +71,16 @@ pub fn render_git_picker_preview(provider: &str, model: &str) -> String {
 
 pub fn render_git_outcome_preview(provider: &str, model: &str) -> String {
     let state = git_outcome_preview_state(provider, model, "aurora-cyan");
+    render::render_frame(&state, 140, 40)
+}
+
+pub fn render_evidence_list_preview(provider: &str, model: &str) -> String {
+    let state = evidence_list_preview_state(provider, model, "aurora-cyan");
+    render::render_frame(&state, 140, 40)
+}
+
+pub fn render_evidence_detail_preview(provider: &str, model: &str) -> String {
+    let state = evidence_detail_preview_state(provider, model, "aurora-cyan");
     render::render_frame(&state, 140, 40)
 }
 
@@ -216,6 +228,32 @@ pub fn render_ansi_git_outcome_preview_with_theme(
 ) -> String {
     let theme_name = theme_name.unwrap_or("aurora-cyan");
     let state = git_outcome_preview_state(provider, model, theme_name);
+    terminal::render_ansi_preview_with_theme(
+        &render::render_frame(&state, 140, 40),
+        Some(theme_name),
+    )
+}
+
+pub fn render_ansi_evidence_list_preview_with_theme(
+    provider: &str,
+    model: &str,
+    theme_name: Option<&str>,
+) -> String {
+    let theme_name = theme_name.unwrap_or("aurora-cyan");
+    let state = evidence_list_preview_state(provider, model, theme_name);
+    terminal::render_ansi_preview_with_theme(
+        &render::render_frame(&state, 140, 40),
+        Some(theme_name),
+    )
+}
+
+pub fn render_ansi_evidence_detail_preview_with_theme(
+    provider: &str,
+    model: &str,
+    theme_name: Option<&str>,
+) -> String {
+    let theme_name = theme_name.unwrap_or("aurora-cyan");
+    let state = evidence_detail_preview_state(provider, model, theme_name);
     terminal::render_ansi_preview_with_theme(
         &render::render_frame(&state, 140, 40),
         Some(theme_name),
@@ -800,6 +838,168 @@ fn git_outcome_preview_state(provider: &str, model: &str, theme_name: &str) -> T
         state.ui.entries.push(entry);
     }
     state.ui.lens = Lens::Session;
+    state
+}
+
+/// One page of the evidence archive, exactly as Core delivered it.
+///
+/// The rows come from an `EvidencePageLoaded` this state replays through the
+/// panel's own correlation, not from a hand-built row list: a preview that
+/// bypassed the read would not be evidence of the read.
+fn evidence_preview_panel(complete: bool) -> EvidencePanel {
+    let owner = RuntimeOwner {
+        workspace_id: "workspace".to_string(),
+        project_id: "viden".to_string(),
+        lane_id: Some("L1".to_string()),
+        ..RuntimeOwner::default()
+    };
+    let row = |id: &str, kind: &str, summary: &str, timestamp: Option<u64>| EvidenceView {
+        id: id.to_string(),
+        kind: kind.to_string(),
+        summary: summary.to_string(),
+        path: Some("crates/types/src/evidence_reads.rs".to_string()),
+        source: Some("L1".to_string()),
+        canonical: None,
+        metadata: None,
+        timestamp,
+        owner: Some(owner.clone()),
+    };
+    let mut panel = EvidencePanel::new(Some(RuntimeOwner {
+        lane_id: Some("L1".to_string()),
+        ..RuntimeOwner::default()
+    }));
+    panel.begin_page("preview-evidence-page");
+    panel.observe_event(&RuntimeEvent::new(
+        1,
+        RuntimeEventKind::EvidencePageLoaded {
+            command_id: "preview-evidence-page".to_string(),
+            page: EvidencePage {
+                entries: vec![
+                    // Core orders the row it never dated first; the preview
+                    // shows that the undated group leads the list.
+                    row(
+                        "evidence-undated-review",
+                        "review",
+                        "reviewer accepted the canonical bindings",
+                        None,
+                    ),
+                    row(
+                        "evidence-alpha-patch",
+                        "patch",
+                        "canonical patch for the evidence read module",
+                        Some(1_700_000_100),
+                    ),
+                    row(
+                        "evidence-bravo-tests",
+                        "test_result",
+                        "workspace suite passed",
+                        Some(1_700_100_200),
+                    ),
+                ],
+                complete,
+                next_after: (!complete).then(|| "t:1700100200:evidence-bravo-tests".to_string()),
+            },
+        },
+    ));
+    panel
+}
+
+/// The evidence inspector list (`runtime.evidence_reads`, GUI-CORE-025).
+///
+/// Day-grouped with the undated group first, a load-more row while Core says
+/// the archive continues, and a footer that states how much is loaded.
+fn evidence_list_preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState {
+    let mut state = preview_state(provider, model, theme_name);
+    state.ui.input = "".into();
+    state.ui.evidence = Some(evidence_preview_panel(false));
+    state.ui.overlay = Some(super::state::OverlayState::new(
+        super::keymap::OverlayKind::EvidenceInspector,
+    ));
+    state.ui.lens = Lens::Decisions;
+    state
+}
+
+/// The evidence detail pane for one `patch` row.
+///
+/// The canonical bytes render through the same hunk producer the approval
+/// overlay uses, and the verified `sha256` is shown beside them so a reader can
+/// join what is on screen to the row's own canonical reference. The summary-only
+/// row beside it is what a display-only `task_summary` answers instead.
+fn evidence_detail_preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState {
+    let mut state = preview_state(provider, model, theme_name);
+    state.ui.input = "".into();
+    let mut panel = evidence_preview_panel(true);
+    panel.begin_content("preview-evidence-content", "evidence-alpha-patch");
+    panel.observe_event(&RuntimeEvent::new(
+        2,
+        RuntimeEventKind::EvidenceContentLoaded {
+            command_id: "preview-evidence-content".to_string(),
+            evidence_id: "evidence-alpha-patch".to_string(),
+            content: EvidenceContent::Diff {
+                document: DiffDocument {
+                    files: vec![DiffFile {
+                        path: "crates/types/src/evidence_reads.rs".to_string(),
+                        old_path: None,
+                        kind: WorkspaceChangeKind::Modified,
+                        binary: false,
+                        omitted: false,
+                        additions: 1,
+                        deletions: 1,
+                        hunks: vec![DiffHunk {
+                            old_start: 12,
+                            old_lines: 3,
+                            new_start: 12,
+                            new_lines: 3,
+                            header: Some("impl EvidenceQuery".to_string()),
+                            lines: vec![
+                                preview_diff_line(
+                                    DiffLineKind::Context,
+                                    "    pub fn clamped_limit(&self) -> usize {",
+                                    Some(12),
+                                    Some(12),
+                                ),
+                                preview_diff_line(
+                                    DiffLineKind::Removed,
+                                    "        self.limit as usize",
+                                    Some(13),
+                                    None,
+                                ),
+                                preview_diff_line(
+                                    DiffLineKind::Added,
+                                    "        self.limit.clamp(1, 200) as usize",
+                                    None,
+                                    Some(13),
+                                ),
+                            ],
+                        }],
+                    }],
+                    truncated: false,
+                    byte_limit: 262_144,
+                },
+                sha256: "9c1185a5c5e9fc54612808977ee8f548b2258d31a0f4e6e6f2a1b9c3d4e5f607"
+                    .to_string(),
+            },
+        },
+    ));
+    // The summary-only answer is cached beside it so the preview carries both
+    // shapes: verified bytes, and the typed reason there are none.
+    panel.begin_content("preview-evidence-summary", "evidence-undated-review");
+    panel.observe_event(&RuntimeEvent::new(
+        3,
+        RuntimeEventKind::EvidenceContentLoaded {
+            command_id: "preview-evidence-summary".to_string(),
+            evidence_id: "evidence-undated-review".to_string(),
+            content: EvidenceContent::Unavailable {
+                reason: EvidenceUnavailableReason::SummaryOnly,
+            },
+        },
+    ));
+    panel.open_detail("evidence-alpha-patch");
+    state.ui.evidence = Some(panel);
+    state.ui.overlay = Some(super::state::OverlayState::new(
+        super::keymap::OverlayKind::EvidenceInspector,
+    ));
+    state.ui.lens = Lens::Decisions;
     state
 }
 

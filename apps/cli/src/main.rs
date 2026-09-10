@@ -281,6 +281,42 @@ fn run() -> Result<(), String> {
         }
         return Ok(());
     }
+    if startup.tui_preview_evidence_list || startup.tui_preview_evidence_list_ansi {
+        if startup.tui_preview_evidence_list_ansi {
+            print!(
+                "{}",
+                tui::render_ansi_evidence_list_preview_with_theme(
+                    preview_provider,
+                    preview_model,
+                    startup.tui_theme.as_deref()
+                )
+            );
+        } else {
+            println!(
+                "{}",
+                tui::render_evidence_list_preview(preview_provider, preview_model)
+            );
+        }
+        return Ok(());
+    }
+    if startup.tui_preview_evidence_detail || startup.tui_preview_evidence_detail_ansi {
+        if startup.tui_preview_evidence_detail_ansi {
+            print!(
+                "{}",
+                tui::render_ansi_evidence_detail_preview_with_theme(
+                    preview_provider,
+                    preview_model,
+                    startup.tui_theme.as_deref()
+                )
+            );
+        } else {
+            println!(
+                "{}",
+                tui::render_evidence_detail_preview(preview_provider, preview_model)
+            );
+        }
+        return Ok(());
+    }
     if startup.tui_preview_conflict_detail || startup.tui_preview_conflict_detail_ansi {
         if startup.tui_preview_conflict_detail_ansi {
             print!(
@@ -521,6 +557,10 @@ struct StartupOptions {
     tui_preview_git_outcome_ansi: bool,
     tui_preview_conflict_detail: bool,
     tui_preview_conflict_detail_ansi: bool,
+    tui_preview_evidence_list: bool,
+    tui_preview_evidence_list_ansi: bool,
+    tui_preview_evidence_detail: bool,
+    tui_preview_evidence_detail_ansi: bool,
     tui_preview_lane_selector: bool,
     tui_preview_lane_selector_ansi: bool,
     tui_preview_lane: bool,
@@ -665,6 +705,18 @@ impl StartupOptions {
         }
         if self.tui_preview_conflict_detail_ansi {
             overrides.push("--tui-preview-conflict-detail-ansi".to_string());
+        }
+        if self.tui_preview_evidence_list {
+            overrides.push("--tui-preview-evidence-list".to_string());
+        }
+        if self.tui_preview_evidence_list_ansi {
+            overrides.push("--tui-preview-evidence-list-ansi".to_string());
+        }
+        if self.tui_preview_evidence_detail {
+            overrides.push("--tui-preview-evidence-detail".to_string());
+        }
+        if self.tui_preview_evidence_detail_ansi {
+            overrides.push("--tui-preview-evidence-detail-ansi".to_string());
         }
         if self.tui_preview_lane_selector {
             overrides.push("--tui-preview-lane-selector".to_string());
@@ -881,6 +933,18 @@ fn parse_startup_options(args: &[String]) -> Result<StartupOptions, String> {
             "--tui-preview-conflict-detail-ansi" => {
                 options.tui_preview_conflict_detail_ansi = true;
             }
+            "--tui-preview-evidence-list" => {
+                options.tui_preview_evidence_list = true;
+            }
+            "--tui-preview-evidence-list-ansi" => {
+                options.tui_preview_evidence_list_ansi = true;
+            }
+            "--tui-preview-evidence-detail" => {
+                options.tui_preview_evidence_detail = true;
+            }
+            "--tui-preview-evidence-detail-ansi" => {
+                options.tui_preview_evidence_detail_ansi = true;
+            }
             "--tui-preview-lane-selector" => {
                 options.tui_preview_lane_selector = true;
             }
@@ -1016,6 +1080,14 @@ fn print_startup_help() {
     println!("                       Print the structured conflict content modal preview");
     println!("  --tui-preview-conflict-detail-ansi");
     println!("                       Print a themed structured conflict content modal preview");
+    println!("  --tui-preview-evidence-list");
+    println!("                       Print the paged evidence inspector list preview");
+    println!("  --tui-preview-evidence-list-ansi");
+    println!("                       Print a themed paged evidence inspector list preview");
+    println!("  --tui-preview-evidence-detail");
+    println!("                       Print the evidence inspector canonical content preview");
+    println!("  --tui-preview-evidence-detail-ansi");
+    println!("                       Print a themed evidence inspector canonical content preview");
     println!("  --tui-preview-lane-selector");
     println!("                       Print a lane action selector preview");
     println!("  --tui-preview-lane-selector-ansi");

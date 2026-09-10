@@ -691,7 +691,12 @@ fn detail_rows(state: &TuiState, panel: &EvidencePanel, width: usize) -> Vec<Str
             "evidence.detail.header",
             &[
                 ("kind", &entry.kind),
-                ("summary", &truncate_end(&entry.summary, width / 2)),
+                // The whole header row is width-fitted below, so the summary
+                // gets every column the kind tag leaves it.
+                (
+                    "summary",
+                    &truncate_end(&entry.summary, width.saturating_sub(8)),
+                ),
             ],
         ),
         super::i18n::translate(

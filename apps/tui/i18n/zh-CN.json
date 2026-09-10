@@ -261,7 +261,7 @@
   "supervision.action.evidence": "查看证据…",
   "supervision.evidence.unavailable": "未发送任何命令。证据归档读取需要 runtime.evidence_reads 能力，当前 Core 未发布该能力。",
   "overlay.title.evidence": "EVIDENCE INSPECTOR · 证据检视器",
-  "evidence.hint": "Esc 返回 · 方向键移动 · Enter 打开 · f 过滤 · r 重新加载",
+  "evidence.hint": "Esc 返回 · Enter 打开 · f 过滤 · r 重载",
   "evidence.pick.command": "证据检视器",
   "evidence.scope.all": "SCOPE 整个归档 · 由旧到新",
   "evidence.scope.owner": "SCOPE {owner} · 由旧到新",

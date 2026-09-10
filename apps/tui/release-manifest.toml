@@ -84,8 +84,8 @@ mouse_capture = false
 [source_revisions]
 algorithm = "sha256"
 tokens_css = "826826ee6ddab845897472701add67ee9f55aff25af539651e6089553b7e6398"
-catalog_en = "a2fdb5e646a512ccc28659cd315dca17f1a1d7a7446bc09589caa91978b4772f"
-catalog_zh_cn = "fae99f7c0c7fe87c03c96bd0b592377bd59c605e866990aac992e9cccd7ab60f"
+catalog_en = "3e607ddae48ee62f358e22a12c65d424082d9ec10c84021525fda09667e6a30b"
+catalog_zh_cn = "267439de3f84be1f1892bddf0411d21858585d7dc1645743b07859202f42a4b1"
 
 [fixture_revisions]
 algorithm = "sha256"

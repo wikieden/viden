@@ -195,6 +195,8 @@ run_preview main-approval-hunks --tui-preview-approval-hunks
 run_preview main-git-picker --tui-preview-git-picker
 run_preview main-git-outcome --tui-preview-git-outcome
 run_preview main-conflict-detail --tui-preview-conflict-detail
+run_preview main-evidence-list --tui-preview-evidence-list
+run_preview main-evidence-detail --tui-preview-evidence-detail
 run_preview main-lane --tui-preview-lane
 run_preview side-1 --tui-preview-side
 run_preview side-2 --tui-preview-side-2
@@ -214,6 +216,8 @@ run_ansi_preview main-approval-hunks --tui-preview-approval-hunks-ansi
 run_ansi_preview main-git-picker --tui-preview-git-picker-ansi
 run_ansi_preview main-git-outcome --tui-preview-git-outcome-ansi
 run_ansi_preview main-conflict-detail --tui-preview-conflict-detail-ansi
+run_ansi_preview main-evidence-list --tui-preview-evidence-list-ansi
+run_ansi_preview main-evidence-detail --tui-preview-evidence-detail-ansi
 run_ansi_preview main-lane --tui-preview-lane-ansi
 run_ansi_preview side-1 --tui-preview-side-ansi
 run_ansi_preview side-2 --tui-preview-side-2-ansi
@@ -237,6 +241,8 @@ render_svg_preview "$OUT_DIR/main-approval-hunks.ansi" "$OUT_DIR/main-approval-h
 render_svg_preview "$OUT_DIR/main-git-picker.ansi" "$OUT_DIR/main-git-picker.svg"
 render_svg_preview "$OUT_DIR/main-git-outcome.ansi" "$OUT_DIR/main-git-outcome.svg"
 render_svg_preview "$OUT_DIR/main-conflict-detail.ansi" "$OUT_DIR/main-conflict-detail.svg"
+render_svg_preview "$OUT_DIR/main-evidence-list.ansi" "$OUT_DIR/main-evidence-list.svg"
+render_svg_preview "$OUT_DIR/main-evidence-detail.ansi" "$OUT_DIR/main-evidence-detail.svg"
 render_svg_preview "$OUT_DIR/main-lane.ansi" "$OUT_DIR/main-lane.svg"
 render_svg_preview "$OUT_DIR/side-1.ansi" "$OUT_DIR/side-1.svg"
 render_svg_preview "$OUT_DIR/side-2.ansi" "$OUT_DIR/side-2.svg"
@@ -360,6 +366,8 @@ assert_line_count "$OUT_DIR/main-approval-hunks.txt" 40
 assert_line_count "$OUT_DIR/main-git-picker.txt" 40
 assert_line_count "$OUT_DIR/main-git-outcome.txt" 40
 assert_line_count "$OUT_DIR/main-conflict-detail.txt" 40
+assert_line_count "$OUT_DIR/main-evidence-list.txt" 40
+assert_line_count "$OUT_DIR/main-evidence-detail.txt" 40
 assert_line_count "$OUT_DIR/main-lane.txt" 40
 assert_line_count "$OUT_DIR/side-1.txt" 40
 assert_line_count "$OUT_DIR/side-2.txt" 40
@@ -379,6 +387,8 @@ assert_max_char_width "$OUT_DIR/main-approval-hunks.txt" 140
 assert_max_char_width "$OUT_DIR/main-git-picker.txt" 140
 assert_max_char_width "$OUT_DIR/main-git-outcome.txt" 140
 assert_max_char_width "$OUT_DIR/main-conflict-detail.txt" 140
+assert_max_char_width "$OUT_DIR/main-evidence-list.txt" 140
+assert_max_char_width "$OUT_DIR/main-evidence-detail.txt" 140
 assert_max_char_width "$OUT_DIR/main-lane.txt" 140
 assert_char_width "$OUT_DIR/side-1.txt" 80
 assert_char_width "$OUT_DIR/side-2.txt" 80
@@ -399,6 +409,8 @@ for preview_file in \
   "$OUT_DIR/main-git-picker.txt" \
   "$OUT_DIR/main-git-outcome.txt" \
   "$OUT_DIR/main-conflict-detail.txt" \
+  "$OUT_DIR/main-evidence-list.txt" \
+  "$OUT_DIR/main-evidence-detail.txt" \
   "$OUT_DIR/main-lane.txt" \
   "$OUT_DIR/side-1.txt" \
   "$OUT_DIR/side-2.txt" \
@@ -480,6 +492,19 @@ assert_contains "$OUT_DIR/main-conflict-detail.txt" "THEIRS"
 assert_contains "$OUT_DIR/main-conflict-detail.txt" "BASE"
 assert_contains "$OUT_DIR/main-conflict-detail.txt" "lines omitted by the byte bound"
 assert_ansi_contains "$OUT_DIR/main-conflict-detail.ansi" "not a merge result"
+# The evidence inspector states the archive it paged, not the recent window:
+# the undated group leads, days are UTC, and the footer says what is loaded.
+assert_contains "$OUT_DIR/main-evidence-list.txt" "UNDATED · Core recorded no time"
+assert_contains "$OUT_DIR/main-evidence-list.txt" "2023-11-14 UTC"
+assert_contains "$OUT_DIR/main-evidence-list.txt" "Load the next page"
+assert_contains "$OUT_DIR/main-evidence-list.txt" "LOADED 3 · more"
+assert_ansi_contains "$OUT_DIR/main-evidence-list.ansi" "UNDATED · Core recorded no time"
+# The detail pane renders canonical bytes through the shared hunk producer
+# and names the hash Core verified them against.
+assert_contains "$OUT_DIR/main-evidence-detail.txt" "DIFF verified against 9c1185a5"
+assert_contains "$OUT_DIR/main-evidence-detail.txt" "@@ -12,3 +12,3 @@"
+assert_contains "$OUT_DIR/main-evidence-detail.txt" "OWNER  workspace=workspace"
+assert_ansi_contains "$OUT_DIR/main-evidence-detail.ansi" "DIFF verified against 9c1185a5"
 assert_contains "$OUT_DIR/main-lane.txt" "LANE DETAIL"
 assert_contains "$OUT_DIR/main-lane.txt" "ROUTE main→side-1"
 assert_contains "$OUT_DIR/main-lane.txt" "CMD    codex exec test fixes"
@@ -501,6 +526,8 @@ for ansi_file in \
   "$OUT_DIR/main-git-picker.ansi" \
   "$OUT_DIR/main-git-outcome.ansi" \
   "$OUT_DIR/main-conflict-detail.ansi" \
+  "$OUT_DIR/main-evidence-list.ansi" \
+  "$OUT_DIR/main-evidence-detail.ansi" \
   "$OUT_DIR/main-lane.ansi" \
   "$OUT_DIR/side-1.ansi" \
   "$OUT_DIR/side-2.ansi"; do
@@ -561,4 +588,4 @@ Files:
 - \`main.<theme>.ansi\` for each generated theme variant
 EOF
 
-wc -l "$OUT_DIR"/main-approval-hunks.txt "$OUT_DIR"/main-git-picker.txt "$OUT_DIR"/main-git-outcome.txt "$OUT_DIR"/main-conflict-detail.txt "$OUT_DIR"/main.txt "$OUT_DIR"/main-idle.txt "$OUT_DIR"/main-live-turn.txt "$OUT_DIR"/main-resize.txt "$OUT_DIR"/main-cjk-input.txt "$OUT_DIR"/main-command-palette.txt "$OUT_DIR"/main-setup-wizard.txt "$OUT_DIR"/main-provider-selector.txt "$OUT_DIR"/main-provider-detail.txt "$OUT_DIR"/main-model-selector.txt "$OUT_DIR"/main-lane-selector.txt "$OUT_DIR"/main-lane.txt "$OUT_DIR"/side-1.txt "$OUT_DIR"/side-2.txt
+wc -l "$OUT_DIR"/main-approval-hunks.txt "$OUT_DIR"/main-git-picker.txt "$OUT_DIR"/main-git-outcome.txt "$OUT_DIR"/main-conflict-detail.txt "$OUT_DIR"/main-evidence-list.txt "$OUT_DIR"/main-evidence-detail.txt "$OUT_DIR"/main.txt "$OUT_DIR"/main-idle.txt "$OUT_DIR"/main-live-turn.txt "$OUT_DIR"/main-resize.txt "$OUT_DIR"/main-cjk-input.txt "$OUT_DIR"/main-command-palette.txt "$OUT_DIR"/main-setup-wizard.txt "$OUT_DIR"/main-provider-selector.txt "$OUT_DIR"/main-provider-detail.txt "$OUT_DIR"/main-model-selector.txt "$OUT_DIR"/main-lane-selector.txt "$OUT_DIR"/main-lane.txt "$OUT_DIR"/side-1.txt "$OUT_DIR"/side-2.txt

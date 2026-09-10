@@ -261,7 +261,7 @@
   "supervision.action.evidence": "Evidence…",
   "supervision.evidence.unavailable": "Nothing was sent. Evidence archive reads need the runtime.evidence_reads capability, which this Core does not publish.",
   "overlay.title.evidence": "EVIDENCE INSPECTOR",
-  "evidence.hint": "Esc back · arrows move · Enter open · f filter · r reload",
+  "evidence.hint": "Esc back · Enter open · f filter · r reload",
   "evidence.pick.command": "Evidence inspector",
   "evidence.scope.all": "SCOPE whole archive · oldest first",
   "evidence.scope.owner": "SCOPE {owner} · oldest first",
