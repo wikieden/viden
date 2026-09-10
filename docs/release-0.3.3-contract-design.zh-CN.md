@@ -124,7 +124,8 @@ pub enum DiffLineKind { Context, Added, Removed }
    pub struct DecisionContext {
        pub diff: Option<DiffDocument>,
        /// diff 所依据的文件内容的 SHA-256，仅当 diff 来自一次拟议的
-       /// 单文件变更时存在。
+       /// 单文件变更、且 Core 能读到该内容时存在
+       /// （2026-09-09 修订，见"实现修订"）。
        pub base_sha256: Option<String>,
    }
    ```
@@ -159,6 +160,8 @@ pub enum DiffLineKind { Context, Added, Removed }
 
    #[non_exhaustive]
    pub enum WorkspaceDiffScope { Worktree, Index, Both }
+   // `Both` 以带 `staged` 标记的 worktree 行应答，而非每个路径两行
+   // （2026-09-09 修订，见"实现修订"）。
 
    RuntimeEventKind::WorkspaceDiffLoaded { command_id: String, page: WorkspaceDiffPage }
 
@@ -352,8 +355,9 @@ pub enum ConflictHunkReason {
 时，Core 从传入 hunk 取 `theirs`，只读读取当前文件在该 hunk 旧区间处取
 `ours`，从该 hunk 自身的前像行取 `base`。该前像正是冲突所依据的基线，
 所以没有任何编造。`ConflictBaseline` 在 gate 持有规范基线绑定时为
-`Evidence`（已在 `ConflictBounce.baseline_evidence` 上），在已知 Lane 的
-`base_revision` 且无绑定时为 `Revision`，否则为 `Unknown`。操作者经
+`Evidence`（已在 `ConflictBounce.baseline_evidence` 上），无绑定时取 apply
+目标中的 `git rev-parse HEAD` 作为 `Revision`，否则为 `Unknown`
+（2026-09-09 修订，见"实现修订"：`AgentLaneRecord` 并无 `base_revision`）。操作者经
 `BounceMergeConflict` 带理由发起的弹回背后没有 apply 失败，因此没有内容。
 上限：256 KiB，按文件 `omitted`。
 
@@ -386,9 +390,11 @@ RuntimeCommand::QueryEvidence { command_id: String, query: EvidenceQuery }
 pub struct EvidenceQuery {
     /// owner 前缀作用域匹配，同 `AuditQuery.lane_id`。
     pub owner: Option<RuntimeOwner>,
-    /// 空表示全部种类。
+    /// 空表示全部种类。上限 32 条；超限的过滤器被拒绝，而非收窄
+    /// （2026-09-09 修订，见"实现修订"）。
     pub kinds: Vec<String>,
-    /// 夹到 1..=200。
+    /// 夹到 1..=200。是夹取而非拒绝：请求了过多行的客户端，其意图仍是
+    /// 可以回答的。
     pub limit: u16,
     pub after: Option<String>,
 }
@@ -438,7 +444,8 @@ owner 作用域、不经 tool 门，因为证据存储是 Viden 自身状态而�
 ### fixture `evidence-reads.json`
 
 镜像 `audit-reads.json`：两页、一个种类过滤、一次文本内容读取、一个仅摘要
-的 `Unavailable`、一个超限查询以 `CommandRejected` 应答。
+的 `Unavailable`、一个 `kinds` 过滤器超出 32 条上限、以 `CommandRejected`
+应答的查询。
 
 ### 客户端
 
@@ -469,3 +476,94 @@ DiffReview。TUI：`0.3.2` 监督 checkpoints 中延后的证据检视器，从�
   权限门并对该 Lane 审计。
 - diff 与冲突载荷上限：workspace 变更事实 64 KiB，diff 读取默认 256 KiB、
   最大 1 MiB，冲突内容与证据文本 256 KiB。
+
+## 实现修订（2026-09-09）
+
+前言说明：批次可以偏离本设计，前提是在其报告中记录理由；若该偏离通过评审
+后仍然成立，则记入本文档。本节即该记录。以下每一条都已在对应批次的批准
+记录中被接受；上文正文只在与其矛盾处做最小订正，原始措辞的历史保留不改写。
+
+### C1 `runtime.structured_diff`
+
+- **Core 读不到的文件，`base_sha256` 缺省**，而不是空内容的 SHA-256。空内容
+  的哈希是读者可以拿去比对并因此出错的值；缺省则表示 Core 不知道。
+- **多文件补丁不带 `base_sha256`。** 它命名的是单个文件的前像，而
+  `MergeAgentPatch` 有多个文件；在那里给一个哈希会宣称超出其覆盖范围的事实。
+- **`render_diff` 的输出折叠为一个隐式的整文件 hunk**，使既有渲染器的字节
+  不变，同时在其旁边给出类型化的行。
+- **审批预览的 `DiffFile.path` 与 `DiffFile.kind` 取自工具入参**：拟议变更
+  已经命名了两者，而内存中对替换内容做的 diff 不带文件头。
+- **`Both` 作用域以 worktree 行加 `staged` 标记应答**，而非每个路径两行。
+  一个文件两行会被读成两处变更。
+- **直接工作区 Lane 解析到工作区根目录。** 没有自有 worktree 的 Lane 不是
+  错误，它的目标就是工作区本身。
+
+### C2 `runtime.operator_git`
+
+- **命令携带 `owner`**，并与信封 actor 做相等校验。被审计的变更必须指明
+  是谁发起的。
+- **`Completed` 在 `output` 旁携带 `truncated`**，使被截断的 8 KiB 尾部是
+  一个明示事实，而不是一条看起来很短的命令输出。
+- **每个动作写两条审计记录**而非一条：效果之前写 `authorized`，之后写
+  `completed` 或 `failed`，以 `attempt` 关联。只在事后写一条记录，无法在
+  效果执行中途崩溃时留下痕迹。
+- **不带 `set_upstream` 的 `Push` 先做 `NoUpstream` 预检**，使未跟踪分支以
+  可操作的失败类别被拒绝，而不是抛出 git 的 stderr。
+- **未知远端归类为 `RemoteUnreachable`。** 该类别的补救动作——指定一个存在
+  的远端——正好匹配。
+- **类型位于 `crates/types/src/source_control.rs`**，与其重采样的
+  workspace source view 放在一起。
+
+### C3 `runtime.conflict_content`
+
+- **Lane 基线取 apply 目标中的 `git rev-parse HEAD`。** `AgentLaneRecord`
+  并无 `base_revision` 字段，设计中的措辞命名了 Core 并不持有的事实；实际
+  被 apply 所依据的修订版本是诚实的替代。
+- **合并路径在 gate 无规范绑定时回退到工作区 `HEAD`。**
+- **生产者位于 `crates/tools/src/patch.rs`**，即唯一的严格 apply，而不在
+  runtime 中。两个生产者就是"被拒绝的 hunk"的两种定义。
+- **本地 apply 从不产生 `Binary`**：它在进入 hunk 匹配之前就拒绝二进制
+  补丁。该变体为后续 apply 路径保留，并记录为当前不可达。
+- **写入失败、后像失败与重命名拒绝的 `content` 为 `None`。** 它们不是 hunk
+  冲突，把它们装扮成冲突，等于向评审者展示从未冲突过的行。
+- **fixture 为 `conflict-content.json`。** `merge-gate.json` 不含弹回，新的
+  内容在那里无处附着。
+
+### C4 `runtime.evidence_reads`
+
+- **`limit` 夹取；`kinds` 上限 32 条，超限则拒绝。** 这解决了设计自身的
+  不一致：一处说夹取，另一处说拒绝。页大小是 Core 可以代为收窄的偏好；
+  过滤器列表不是——收窄它等于回答了另一个问题。
+- **owner 作用域匹配器为本 capability 新写。** `AuditQuery` 没有可复用的
+  通用匹配器。
+- **`EvidenceCursor` 公开，无日期行排在最前。** Core 从未标注日期的行在
+  顺序中有真实位置，而那个位置就是开头。
+- **上限是具名常量**（`MAX_EVIDENCE_PAGE_SIZE`、
+  `DEFAULT_EVIDENCE_PAGE_SIZE`、`MAX_EVIDENCE_QUERY_KINDS`、
+  `MAX_EVIDENCE_CONTENT_BYTES`），而不是字面量，客户端因此可以断言它们。
+
+### 客户端
+
+- **G1a（GUI DiffReview 读取侧）。** 入口是标题栏的 dirty 标记而非同步
+  芯片，另加 Actions 分组下的命令面板条目与 `⌘R`。芯片改为在 G1b 中成为
+  push/fetch 控件。
+- **G1b（GUI DiffReview 动作侧）。** "Commit and Push" 是两条命令，第二条
+  仅在第一条报告 `Completed` 之后发出。按文件的暂存/取消暂存是字形开关。
+  apply 行以 capability 为条件，沿用 GUI-CORE-012 的先例。
+- **G2a（GUI D12 冲突）。** ours 与 theirs 并排渲染，而非按设计标记的上下
+  堆叠，因为这处碰撞读起来就是一次对照。操作者发起的弹回与"产生不了内容
+  的 apply 弹回"无法区分——`ConflictBounce.reason` 不是可选字段——因此二者
+  由一句诚实的说明共同覆盖，而不是断言某个成因。对冲突类型的 serde 编码
+  读取已由 F1 的 facade 再导出终结。
+- **G2b（GUI EvidenceView）。** D1 没有证据芯片或状态栏计数，因此未接线。
+  `EvidenceVerificationState` 与 `EvidenceQualityStatus` 当时不在
+  `viden-core` facade 上；F1 已再导出，详情栏现在陈述这两项判定。
+- **T1a（TUI 对等）。** 冲突详情仅对 gate 弹回可达，因为 Core 只在那里
+  附上 TUI 能取到的内容。固定审批面板保留 `input_preview`，hunk 行是新增。
+  两个客户端在目标没有 Core 发布的 owner 时都拒绝操作者 git 动作（GUI 为
+  `D1-OPERATOR-GIT-OWNER`，TUI 为禁用并标注的选择行），并援引
+  GUI-CORE-027。
+- **T1b（TUI 证据检视器）。** `JumpIndex` 与 `CommandDefinition` 增加了
+  capability 门控，使入口诚实地消失而不是在使用时失败。没有实时详情截图：
+  离线原生会话中持久归档为空——见 `docs/core-0.3-compatibility.md` 中记录
+  的未决 Core 缺口。

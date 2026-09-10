@@ -138,7 +138,8 @@ clients never parse text into rows.
    pub struct DecisionContext {
        pub diff: Option<DiffDocument>,
        /// SHA-256 of the file contents the diff was computed against, when
-       /// the diff came from a proposed single-file mutation.
+       /// the diff came from a proposed single-file mutation and Core could
+       /// read those contents (amended 2026-09-09, see Amendments).
        pub base_sha256: Option<String>,
    }
    ```
@@ -176,6 +177,8 @@ clients never parse text into rows.
 
    #[non_exhaustive]
    pub enum WorkspaceDiffScope { Worktree, Index, Both }
+   // `Both` answers with worktree rows carrying a `staged` flag rather than
+   // a second row per path (amended 2026-09-09, see Amendments).
 
    RuntimeEventKind::WorkspaceDiffLoaded { command_id: String, page: WorkspaceDiffPage }
 
@@ -381,8 +384,9 @@ read of the current file at the hunk's old range, and `base` from the hunk's
 own preimage lines. That preimage is exactly the baseline the conflict was
 computed against, so nothing is invented. `ConflictBaseline` is `Evidence`
 when the gate holds canonical baseline bindings (already on
-`ConflictBounce.baseline_evidence`), `Revision` when the Lane's
-`base_revision` is known and no bindings exist, otherwise `Unknown`. A bounce
+`ConflictBounce.baseline_evidence`), `Revision` from `git rev-parse HEAD` in
+the apply target when no bindings exist, otherwise `Unknown` (amended
+2026-09-09, see Amendments: `AgentLaneRecord` carries no `base_revision`). A bounce
 raised by an operator through `BounceMergeConflict` with a reason has no
 apply failure behind it and therefore no content. Bound: 256 KiB with
 per-file `omitted`.
@@ -420,9 +424,11 @@ RuntimeCommand::QueryEvidence { command_id: String, query: EvidenceQuery }
 pub struct EvidenceQuery {
     /// Prefix scope match on the owner, as `AuditQuery.lane_id` does.
     pub owner: Option<RuntimeOwner>,
-    /// Empty means every kind.
+    /// Empty means every kind. Bounded at 32 entries; an over-limit filter
+    /// is refused, not narrowed (amended 2026-09-09, see Amendments).
     pub kinds: Vec<String>,
-    /// Clamped to 1..=200.
+    /// Clamped to 1..=200. A clamp, never a refusal: a client that asked for
+    /// too many rows still means something answerable.
     pub limit: u16,
     pub after: Option<String>,
 }
@@ -475,8 +481,8 @@ the workspace.
 ### Fixture `evidence-reads.json`
 
 Mirrors `audit-reads.json`: two pages, a kind filter, a text content read, a
-summary-only `Unavailable`, and an over-limit query answered by
-`CommandRejected`.
+summary-only `Unavailable`, and a query whose `kinds` filter is over the
+32-entry bound answered by `CommandRejected`.
 
 ### Clients
 
@@ -514,3 +520,116 @@ them before the batch that depends on it is dispatched.
 - Diff and conflict payload bounds: 64 KiB for workspace change facts,
   256 KiB default and 1 MiB maximum for diff reads, 256 KiB for conflict
   content and evidence text.
+
+## Amendments From Implementation (2026-09-09)
+
+The preamble says a batch may deviate from this design with the reason
+recorded in its report and, if the deviation survives review, in this
+document. This section is that record. Every item below was accepted in the
+batch's own approval record; the body above is corrected minimally where it
+contradicted one, and the history of the original wording is left intact
+rather than rewritten.
+
+### C1 `runtime.structured_diff`
+
+- **`base_sha256` is absent for a file Core could not read**, rather than the
+  SHA-256 of empty content. A hash of nothing is a value a reader can compare
+  against and be wrong about; absence says Core did not know.
+- **`base_sha256` is absent for a multi-file patch.** It names one file's
+  preimage, and the `MergeAgentPatch` case has many; a single hash there would
+  claim more than it covers.
+- **`render_diff` output is folded into one implicit whole-file hunk** so the
+  existing renderer's bytes are unchanged while the typed rows exist beside
+  them.
+- **`DiffFile.path` and `DiffFile.kind` are stamped from the tool input** for
+  an approval preview, because the proposed mutation names both and the
+  in-memory diff of a replacement does not carry a file header.
+- **`Both` scope answers with worktree rows plus a `staged` flag**, not two
+  rows per path. Two rows for one file would read as two changes.
+- **A direct-workspace Lane resolves to the workspace root.** A Lane with no
+  worktree of its own is not an error; its target is the workspace.
+
+### C2 `runtime.operator_git`
+
+- **The command carries `owner`**, checked for equality against the envelope
+  actor. An audited mutation must name who asked for it.
+- **`Completed` carries `truncated`** beside `output`, so a cut 8 KiB tail is
+  a stated fact rather than a short command.
+- **Two audit records per action**, not one: `authorized` before the effect
+  and `completed` or `failed` after it, correlated by `attempt`. A single
+  record written after the fact could not survive a crash mid-effect.
+- **`Push` without `set_upstream` runs a `NoUpstream` precheck** before the
+  effect, so an untracked branch is refused with the actionable class instead
+  of git's stderr.
+- **An unknown remote classifies as `RemoteUnreachable`.** It is the class
+  whose remedy — name a remote that exists — matches.
+- **The types live in `crates/types/src/source_control.rs`**, beside the
+  workspace source view they resample.
+
+### C3 `runtime.conflict_content`
+
+- **The Lane baseline is `git rev-parse HEAD` in the apply target.**
+  `AgentLaneRecord` has no `base_revision` field, so the design's phrasing
+  named a fact Core does not hold; the revision actually applied against is
+  the honest substitute.
+- **The merge path falls back to workspace `HEAD`** when the gate holds no
+  canonical bindings.
+- **The producer lives in `crates/tools/src/patch.rs`**, the single strict
+  apply, rather than in the runtime. Two producers would be two definitions of
+  a rejected hunk.
+- **`Binary` is never produced by the local apply**, which refuses a binary
+  patch before it reaches hunk matching. The variant stays for a later apply
+  path and is documented as unreached.
+- **`content` is `None` for write failures, postimage failures, and rename
+  refusals.** Those are not hunk collisions, and dressing them as one would
+  offer a reviewer lines that never conflicted.
+- **The fixture is `conflict-content.json`.** `merge-gate.json` carries no
+  bounce, so the new content had nowhere to attach there.
+
+### C4 `runtime.evidence_reads`
+
+- **`limit` clamps; `kinds` is bounded at 32 and refused above it.** This
+  resolves the design's own inconsistency, which said the limit was clamped in
+  one place and refused in another. A page size is a preference Core can
+  narrow; a filter list is not — narrowing it would answer a different
+  question than the one asked.
+- **The owner scope matcher is written for this capability.** `AuditQuery` has
+  no general matcher to reuse.
+- **`EvidenceCursor` is public and undated rows sort first.** A row Core never
+  dated has a real position in the order, and it is the beginning.
+- **The bounds are named constants** (`MAX_EVIDENCE_PAGE_SIZE`,
+  `DEFAULT_EVIDENCE_PAGE_SIZE`, `MAX_EVIDENCE_QUERY_KINDS`,
+  `MAX_EVIDENCE_CONTENT_BYTES`) rather than literals, so a client can assert
+  them.
+
+### Clients
+
+- **G1a (GUI DiffReview read side).** The entry point is the titlebar dirty
+  marker rather than the sync chip, plus a palette entry under Actions and
+  `⌘R`. The chip becomes the push/fetch control in G1b instead.
+- **G1b (GUI DiffReview action side).** "Commit and Push" is two commands, the
+  second sent only after the first reports `Completed`. Per-file stage and
+  unstage are glyph toggles. The apply row is conditional on the capability,
+  mirroring the GUI-CORE-012 precedent.
+- **G2a (GUI D12 conflict).** Ours and theirs render side by side rather than
+  stacked as the design markup drew them, because the collision reads as a
+  comparison. An operator-raised bounce is indistinguishable from an apply
+  bounce that produced no content — `ConflictBounce.reason` is not optional —
+  so both are covered by one honest sentence rather than a claimed cause. The
+  serde-encoding read of the conflict types is closed by F1's facade
+  re-export.
+- **G2b (GUI EvidenceView).** No D1 evidence chip or statusbar count exists,
+  so none was wired. `EvidenceVerificationState` and `EvidenceQualityStatus`
+  were not on the `viden-core` facade; F1 re-exports them and the detail rail
+  now states both verdicts.
+- **T1a (TUI parity).** Conflict detail is reachable for gate bounces only,
+  because that is where Core attaches content the TUI can reach. The pinned
+  approval panel keeps `input_preview`; the hunk rows are additive. Both
+  clients refuse an operator git action for a target with no Core-published
+  owner (`D1-OPERATOR-GIT-OWNER` in the GUI, a disabled-and-labelled picker
+  row in the TUI) and cite GUI-CORE-027.
+- **T1b (TUI evidence inspector).** `JumpIndex` and `CommandDefinition` gained
+  capability gating so the entry points disappear honestly rather than
+  failing on use. No live detail capture exists: the durable archive is empty
+  in an offline native session — see the open Core gap in
+  `docs/core-0.3-compatibility.md`.
