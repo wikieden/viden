@@ -1040,28 +1040,25 @@ fn activate_evidence_row<C: CoreClient>(
     };
     let needs_read = panel.should_read_content(&evidence_id);
     let cached = panel.content_for(&evidence_id).is_some();
-    state
-        .ui
-        .evidence
-        .as_mut()
-        .expect("panel checked above")
-        .open_detail(evidence_id.clone());
-    if cached {
+    if cached || !needs_read {
+        // Cached content re-renders from the overlay's own copy; a row whose
+        // read cannot start yet still opens, and the pane says the single slot
+        // is busy rather than claiming this row has no content.
+        let panel = state.ui.evidence.as_mut().expect("panel checked above");
+        panel.open_detail(evidence_id);
+        if !cached {
+            panel.refuse_second_read();
+        }
         return Ok(());
     }
-    if !needs_read {
-        state
-            .ui
-            .evidence
-            .as_mut()
-            .expect("panel checked above")
-            .refuse_second_read();
-        return Ok(());
-    }
-    let command_id = driver.send(RuntimeCommand::ReadEvidenceContent { evidence_id })?;
+    // Sent before the pane opens, so a transport failure leaves the list intact
+    // instead of opening a detail that would never be answered.
+    let command_id = driver.send(RuntimeCommand::ReadEvidenceContent {
+        evidence_id: evidence_id.clone(),
+    })?;
     let panel = state.ui.evidence.as_mut().expect("panel checked above");
-    let awaited = panel.detail().map(str::to_string).unwrap_or_default();
-    panel.begin_content(command_id, awaited);
+    panel.begin_content(command_id, evidence_id.clone());
+    panel.open_detail(evidence_id);
     Ok(())
 }
 
@@ -1698,7 +1695,7 @@ fn complete_overlay_selection<C: CoreClient>(
 }
 
 fn complete_global_jump_selection(state: &mut TuiState, overlay: OverlayState) {
-    let index = JumpIndex::from_state(&state);
+    let index = JumpIndex::from_state(state);
     let results = index.search(&overlay.filter);
     let Some(item) = results.get(overlay.selected).map(|item| (*item).clone()) else {
         state.ui.overlay = overlay.previous_overlay.map(|previous| *previous);

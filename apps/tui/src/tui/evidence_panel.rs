@@ -351,6 +351,17 @@ impl EvidencePanel {
         self.awaiting_content.is_some()
     }
 
+    /// Whether the in-flight content read is for *this* row.
+    ///
+    /// The detail pane asks per row rather than about the slot: with a read
+    /// outstanding for another row, saying "reading this content" would name a
+    /// read that was never sent for the row on screen.
+    pub(super) fn is_reading_content_for(&self, evidence_id: &str) -> bool {
+        self.awaiting_content
+            .as_ref()
+            .is_some_and(|pending| pending.evidence_id == evidence_id)
+    }
+
     pub(super) fn is_complete(&self) -> bool {
         self.complete
     }
@@ -472,7 +483,7 @@ pub(super) fn format_evidence_day(day: u64) -> String {
     } else {
         shifted - 146_096
     } / 146_097;
-    let day_of_era = (shifted - era * 146_097) as i64;
+    let day_of_era = shifted - era * 146_097;
     let year_of_era =
         (day_of_era - day_of_era / 1_460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
     let year = year_of_era + era * 400;
@@ -792,12 +803,17 @@ fn content_rows(
     width: usize,
 ) -> Vec<String> {
     let Some(content) = panel.content_for(&entry.id) else {
-        if panel.is_reading_content() {
+        if panel.is_reading_content_for(&entry.id) {
             return vec![super::i18n::translate(
                 state,
                 "evidence.detail.reading",
                 &[("glyph", Glyph::Wait.unicode())],
             )];
+        }
+        if panel.is_reading_content() {
+            // Another row's read owns the single slot. Saying so is the honest
+            // answer: this row was never asked for.
+            return vec![super::i18n::text(state, "evidence.busy")];
         }
         // Neither content nor a read in flight: Core refused the read, and the
         // list's error row carries its own sentence verbatim.
@@ -1129,6 +1145,46 @@ mod tests {
         );
         assert!(panel.content_for("e-1").is_some());
         assert!(!panel.is_reading_content());
+    }
+
+    /// The detail pane answers about the row on screen, not about the slot: a
+    /// read outstanding for a *different* row must not render as "reading this
+    /// content", because this row was never asked for.
+    #[test]
+    fn a_detail_pane_never_claims_another_rows_read_as_its_own() {
+        let mut panel = EvidencePanel::new(None);
+        panel.begin_page("tui-1");
+        panel.observe_event(&event(
+            1,
+            RuntimeEventKind::EvidencePageLoaded {
+                command_id: "tui-1".to_string(),
+                page: page(
+                    vec![
+                        entry("e-1", "patch", Some(10)),
+                        entry("e-2", "test_result", Some(20)),
+                    ],
+                    None,
+                ),
+            },
+        ));
+        panel.begin_content("tui-2", "e-1");
+        assert!(panel.is_reading_content_for("e-1"));
+        assert!(!panel.is_reading_content_for("e-2"));
+
+        let mut state = state_with_panel(panel);
+        state
+            .ui
+            .evidence
+            .as_mut()
+            .expect("panel")
+            .open_detail("e-2".to_string());
+
+        let rows = evidence_rows(&state, 72).join("\n");
+        assert!(
+            rows.contains("already in flight"),
+            "the busy slot is stated rather than borrowed: {rows}"
+        );
+        assert!(!rows.contains("Reading the canonical content"), "{rows}");
     }
 
     #[test]
