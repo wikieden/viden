@@ -1,0 +1,336 @@
+/*
+ * EvidenceView (`.evwrap > .evmain + .evdet`).
+ *
+ * The family itself comes from the design package: `D0` mirrored it into
+ * `gui-kit.css` ("D1 次级视图" tail block) precisely so a second consumer
+ * could link the kit instead of hand-copying D1's inline rules, and the
+ * registration says outright that a hand copy *is* drift. This file therefore
+ * imports the kit — as `d1_cockpit.css`, `diff_review.css`, `d11_intake.css`,
+ * and `d4_lane_create.css` already do — and adds only what a live view needs
+ * that a static mock does not.
+ *
+ * Everything below is an addition or a deliberate, stated override:
+ *
+ * - The kit's `.evscroll` is `overflow: hidden`, which is right for a
+ *   fixed-height mock and wrong for a real archive. It scrolls here, and so
+ *   does the detail rail, whose report/metadata/content sections are unbounded.
+ * - `.evbar .fchip` and `.evbar .search` are real controls: a `<button>` and
+ *   an `<input>`, so they need the control reset, a focus ring, and a disabled
+ *   state the mock's `<span>`s never needed. `.evrow2` is a `<button>` for the
+ *   same reason.
+ * - A Refresh control on the bar and a Close control on the detail header. The
+ *   mock never re-reads and never returns anywhere.
+ * - A paging foot the mock has no data for: Core's "Load older" or the
+ *   `complete` sentence.
+ * - State notes and a staleness banner carry facts the mock has no data for:
+ *   an absent capability, a pending read, Core's refusal, an empty scope, a
+ *   search that hid every loaded row, the content bound, the four unavailable
+ *   reasons, and evidence recorded since the pages were read.
+ * - `.evfoot`'s actions use `.d1-mpill`, the GUI's own name for the design's
+ *   cross-family `.mpill`. `.mpill` was **not** promoted with this family
+ *   (the kit's own comment says so), so the local `.ev-go` modifier reproduces
+ *   `.mpill.go`'s accent treatment rather than claiming a kit class that does
+ *   not exist.
+ *
+ * The design package itself is not modified.
+ */
+
+@import "../../../../docs/viden-design/Viden/GUI/gui-kit.css";
+
+/* An archive is not a fixed-height mock: both panes scroll. */
+.evwrap .evscroll,
+.evwrap .evdet {
+  overflow: auto;
+}
+
+/*
+ * The kit's `.evbar` is `nowrap` + `overflow: hidden`, which is right for a
+ * mock with three chips and wrong for a real archive: every kind Core returns
+ * gets a chip, and a chip that overflowed would be a kind silently hidden —
+ * exactly what the contract says a client must not do. The bar wraps instead,
+ * and the search box keeps a usable width rather than collapsing to nothing.
+ */
+.evwrap .evbar {
+  flex-wrap: wrap;
+  overflow: visible;
+  row-gap: 6px;
+}
+
+.evwrap .evbar .fchip,
+.evwrap .evbar .search {
+  font: inherit;
+  font-family: var(--mono);
+  font-size: 11px;
+  background: transparent;
+}
+
+.evwrap .evbar .fchip:disabled {
+  cursor: not-allowed;
+  color: var(--fg-faint);
+}
+
+.evwrap .evbar .fchip:focus-visible,
+.evwrap .evbar .search:focus-visible,
+.evwrap .evrow2:focus-visible,
+.evwrap .evidence-icon:focus-visible,
+.evwrap .evidence-older:focus-visible,
+.evwrap .evfoot button:focus-visible,
+.evwrap .evidence-banner-action:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/*
+ * Search and Refresh travel together. The box shrinks before the group wraps,
+ * so a locale whose chip labels run wider moves both controls to the next line
+ * rather than stranding Refresh on one of its own.
+ */
+.evwrap .evbar .evfind {
+  margin-inline-start: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 auto;
+  justify-content: flex-end;
+}
+
+.evwrap .evbar .search {
+  margin-inline-start: 0;
+  flex: 1 1 150px;
+  min-width: 110px;
+  max-width: 220px;
+  background: var(--bg-base);
+  color: var(--fg-secondary);
+}
+
+.evwrap .evbar .search:disabled {
+  cursor: not-allowed;
+  color: var(--fg-faint);
+}
+
+/* Refresh and Close: the two controls a live view owes that a mock does not. */
+.evwrap .evidence-icon {
+  flex: none;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-xs);
+  background: var(--bg-base);
+  color: var(--fg-muted);
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1;
+  padding: 5px 7px;
+  cursor: pointer;
+}
+
+.evwrap .evidence-icon:disabled {
+  cursor: not-allowed;
+  color: var(--fg-faint);
+}
+
+.evwrap .evidence-close {
+  margin-inline-start: auto;
+}
+
+/* `.evrow2` is a real button: the kit styles a `<div>`. */
+.evwrap .evrow2 {
+  width: 100%;
+  border: none;
+  background: none;
+  text-align: start;
+  font: inherit;
+  font-family: var(--mono);
+  color: inherit;
+}
+
+.evwrap .evday:first-child {
+  padding-block-start: var(--sp-2);
+}
+
+/* Paging: Core's cursor or Core's `complete`, never the absence of a button. */
+.evwrap .evidence-paging {
+  flex: none;
+  border-block-start: 1px solid var(--border-soft);
+  padding: 9px 15px;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.evwrap .evidence-older {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-sm);
+  background: var(--bg-base);
+  color: var(--fg-secondary);
+  padding: 5px 11px;
+  cursor: pointer;
+}
+
+.evwrap .evidence-older:disabled {
+  cursor: not-allowed;
+  color: var(--fg-faint);
+}
+
+.evwrap .evidence-paging-note {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--fg-faint);
+}
+
+/*
+ * States and notes. Each carries a fact the mock has no data for.
+ *
+ * `pre-wrap` because a refusal is Core's own text and Core folds the
+ * actionable hint onto its own line: collapsing that newline would reflow a
+ * sentence Core wrote to be read as two, which is the same class of edit as
+ * rewording it. The same rule the review action lines follow.
+ */
+.evwrap .evidence-state {
+  margin: 0;
+  padding: 11px 15px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--fg-muted);
+  white-space: pre-wrap;
+}
+
+.evwrap .evidence-state[data-evidence-state="rejected"],
+.evwrap .evidence-state[data-evidence-state="content-rejected"],
+.evwrap .evidence-state[data-evidence-state="unavailable-hash_mismatch"] {
+  color: var(--error);
+}
+
+.evwrap .evidence-state[data-evidence-state="content-truncated"],
+.evwrap .evidence-state[data-evidence-state="unavailable-missing_canonical_bytes"] {
+  color: var(--gold);
+}
+
+.evwrap .evsec .evidence-state {
+  padding-inline: 0;
+  padding-block-end: 0;
+}
+
+.evwrap .evidence-note {
+  margin: 6px 0 0;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--fg-faint);
+  overflow-wrap: anywhere;
+}
+
+.evwrap .evidence-banner {
+  margin: 0;
+  padding: 9px 15px;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--gold);
+  background: color-mix(in srgb, var(--gold) 10%, transparent);
+}
+
+.evwrap .evidence-banner-action {
+  margin-inline-start: auto;
+  font-family: var(--mono);
+  font-size: 11px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-xs);
+  background: var(--bg-base);
+  color: var(--fg-secondary);
+  padding: 3px 9px;
+  cursor: pointer;
+}
+
+.evwrap .evidence-banner-action:disabled {
+  cursor: not-allowed;
+  color: var(--fg-faint);
+}
+
+/* A key/value row may hold a 64-character hash: it wraps rather than vanishes. */
+.evwrap .evkv {
+  white-space: normal;
+}
+
+.evwrap .evkv .k {
+  flex: none;
+}
+
+.evwrap .evkv .v {
+  overflow-wrap: anywhere;
+  text-align: end;
+}
+
+/*
+ * The linked chips are facts, not navigation: the row names a canonical item,
+ * a path, and an owning task, and none of the three is a destination this
+ * client can open. The kit's `.evchip` is drawn for the D14 variant that *is*
+ * clickable, so the pointer cursor and the hover accent are dropped here
+ * rather than inviting a click that does nothing.
+ */
+.evwrap .evsec .evchip {
+  cursor: default;
+}
+
+.evwrap .evsec .evchip:hover {
+  border-color: var(--border-soft);
+  color: var(--fg-secondary);
+}
+
+/* Diff content reuses the shared row renderer, which brings its own family. */
+.evwrap [data-evidence-content="diff"] .diffbody {
+  padding-block: 0;
+}
+
+.evwrap [data-evidence-content="diff"] .diff-file-head {
+  margin: 6px 0 2px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--fg-muted);
+  overflow-wrap: anywhere;
+}
+
+/*
+ * The header is pinned for the same reason the footer is: the rail scrolls,
+ * and a reader who has scrolled to the content must still be able to see which
+ * row those bytes belong to. A content block whose row identity has scrolled
+ * away is exactly the misattribution this pane is built to avoid.
+ */
+.evwrap .evdethead {
+  position: sticky;
+  inset-block-start: 0;
+  z-index: 1;
+  background: var(--bg-panel);
+}
+
+/*
+ * The footer is pinned while the report, metadata, and content scroll.
+ *
+ * The kit's `margin-top: auto` pins it in a fixed-height column; a real rail
+ * scrolls, and a long report would push both actions below the fold. Sticky
+ * keeps the DOM the registration names — `.evdet > .evdethead + .evsec +
+ * .evfoot` — while keeping the actions reachable, the same rule the permission
+ * dock's pinned decision row follows.
+ */
+.evwrap .evfoot {
+  position: sticky;
+  inset-block-end: 0;
+  background: var(--bg-panel);
+  border-block-start: 1px solid var(--border-soft);
+}
+
+/* The design's `.mpill.go`, under the GUI's own name for that shared piece. */
+.evwrap .evfoot .d1-mpill {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+.evwrap .evfoot .ev-go:not(:disabled) {
+  color: var(--accent);
+  border-color: var(--accent-dim);
+}

@@ -1,5 +1,6 @@
 import { translate, type Locale, type MessageKey } from "../i18n/catalog";
 import { STRUCTURED_DIFF_CAPABILITY } from "../models/diff_review";
+import { EVIDENCE_READS_CAPABILITY } from "../models/evidence";
 import type { D1CockpitProjection } from "../models/workspace";
 import { createCanonicalGuiIcon, type CanonicalGuiIcon } from "./activity_rail";
 import "./command_palette.css";
@@ -172,6 +173,14 @@ export interface CommandPaletteModel {
    * the way the `~` file scope names GUI-CORE-022.
    */
   reviewAvailable: boolean;
+  /** False while no host is bound, which omits the evidence row entirely. */
+  evidenceBound: boolean;
+  /**
+   * Whether Core published `runtime.evidence_reads`. A bound host without the
+   * capability keeps the row visible and disabled naming it, the same honesty
+   * the review row and the `~` file scope ship.
+   */
+  evidenceAvailable: boolean;
   /**
    * Where focus goes on close when the palette was not opened from a focused
    * element (a shortcut fired with nothing focused). Re-resolved on close, so a
@@ -190,6 +199,8 @@ export interface CommandPaletteHandlers {
   onCancelTurn?: () => void;
   /** Opens the DiffReview view in the cockpit's centre pane. */
   onOpenReview?: () => void;
+  /** Opens the EvidenceView in the cockpit's centre pane. */
+  onOpenEvidence?: () => void;
   /** Keeps the operator's query in cockpit state across a forced remount. */
   onQueryChange?: (query: string) => void;
   onClose: () => void;
@@ -309,6 +320,38 @@ export function paletteItems(
             },
             translate(locale, "d1.review.entryUnavailable", {
               capability: STRUCTURED_DIFF_CAPABILITY,
+            }),
+          ),
+    );
+  }
+  if (model.evidenceBound && handlers.onOpenEvidence) {
+    const title = translate(locale, "d1.palette.action.openEvidence", {});
+    items.push(
+      model.evidenceAvailable
+        ? enabled({
+            kind: "command",
+            section: "actions",
+            id: "action:open-evidence",
+            title,
+            context: "",
+            keywords: "evidence archive patch test review artifact",
+            hint: "⌘E",
+            icon: "evidence",
+            activate: () => handlers.onOpenEvidence?.(),
+          })
+        : disabled(
+            {
+              kind: "command",
+              section: "actions",
+              id: "action:open-evidence",
+              title,
+              context: "",
+              keywords: "evidence archive patch test review artifact",
+              hint: null,
+              icon: "evidence",
+            },
+            translate(locale, "d1.evidence.entryUnavailable", {
+              capability: EVIDENCE_READS_CAPABILITY,
             }),
           ),
     );

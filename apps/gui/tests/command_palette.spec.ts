@@ -63,6 +63,8 @@ function model(overrides: Partial<CommandPaletteModel> = {}): CommandPaletteMode
     canCancelTurn: true,
     reviewBound: true,
     reviewAvailable: true,
+    evidenceBound: true,
+    evidenceAvailable: true,
     ...overrides,
   };
 }

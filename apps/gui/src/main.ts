@@ -305,6 +305,11 @@ export async function hydrateShellFromCore(
             loadPaletteFiles,
             workspaceDiff: workspaceDiffPort,
             operatorGit: operatorGitPort,
+            evidence: evidencePort,
+            // EvidenceView's footer opens the audit trail scoped to the
+            // evidence object, the same one-way `D-AUDIT` link D12's baseline
+            // chips use. The route is D14's own; nothing new is invented here.
+            onOpenAuditTrail: openAuditTrail,
             onNavigate: (route: string, arg?: string) => {
               // Every restored screen re-reads its own Core projection before
               // it renders; the caller only names the route and, when the
@@ -635,6 +640,48 @@ export async function hydrateShellFromCore(
         run: async (laneId: string | null, action: OperatorGitActionRequest) =>
           await core.runOperatorGitAction(`gui-git-${crypto.randomUUID()}`, laneId, action),
         poll: async (laneId: string | null) => await core.operatorGitPoll(laneId),
+      };
+
+      /**
+       * The Core-owned evidence archive port (GUI-CORE-025).
+       *
+       * `read` is the no-traffic projection read the entry points and the open
+       * view use for the capability and the staleness signal; `query` sends one
+       * `QueryEvidence` and drains until Core answers; `loadOlder` sends the
+       * next page through Core's own opaque cursor; `content` sends one
+       * `ReadEvidenceContent`. Core owns the archive, the order, the cursor,
+       * the bounds, and the hash verification — the shell only names the scope.
+       */
+      const evidencePort = {
+        read: async () => await core.evidenceArchive(),
+        query: async (laneId: string | null, kinds: string[]) => {
+          let result = await core.queryEvidence(
+            `gui-evidence-${crypto.randomUUID()}`,
+            laneId,
+            kinds,
+          );
+          for (let attempt = 0; attempt < 4 && result.outcome.state === "pending"; attempt += 1) {
+            result = await core.evidencePoll();
+          }
+          return result;
+        },
+        loadOlder: async () => {
+          let result = await core.evidenceLoadOlder(`gui-evidence-${crypto.randomUUID()}`);
+          for (let attempt = 0; attempt < 4 && result.outcome.state === "pending"; attempt += 1) {
+            result = await core.evidencePoll();
+          }
+          return result;
+        },
+        content: async (evidenceId: string) => {
+          let result = await core.readEvidenceContent(
+            `gui-evidence-content-${crypto.randomUUID()}`,
+            evidenceId,
+          );
+          for (let attempt = 0; attempt < 4 && result.outcome.state === "pending"; attempt += 1) {
+            result = await core.evidenceContentPoll();
+          }
+          return result;
+        },
       };
 
       const loadPaletteFiles = async () => {

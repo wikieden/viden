@@ -72,6 +72,13 @@ import {
 } from "../models/workspace";
 import { renderDiffReview } from "./diff_review";
 import type { WorkspaceDiffProjection } from "../models/diff_review";
+import { renderEvidenceView } from "./evidence_view";
+import {
+  ABSENT_EVIDENCE_CONTENT,
+  PENDING_EVIDENCE_ARCHIVE,
+  type EvidenceArchiveProjection,
+  type EvidenceContentProjection,
+} from "../models/evidence";
 import {
   IDLE_OPERATOR_GIT,
   type OperatorGitActionRequest,
@@ -234,6 +241,27 @@ export interface D1RenderOptions {
     ) => Promise<OperatorGitProjection>;
     poll: (laneId: string | null) => Promise<OperatorGitProjection>;
   };
+  /**
+   * The Core-owned evidence archive behind the EvidenceView (GUI-CORE-025).
+   *
+   * `read` is the no-traffic projection read: the cockpit calls it once to
+   * learn whether Core published `runtime.evidence_reads` at all, and again on
+   * each ordered wake while the view is open, to learn whether Core recorded
+   * evidence since the loaded pages were read. `query` sends one
+   * `QueryEvidence`; `loadOlder` sends the next page through Core's own opaque
+   * cursor; `content` sends one `ReadEvidenceContent`.
+   *
+   * Absent while no host is bound, which renders every evidence entry point
+   * disabled-and-labelled rather than opening a view that can never fill.
+   */
+  evidence?: {
+    read: () => Promise<EvidenceArchiveProjection>;
+    query: (laneId: string | null, kinds: string[]) => Promise<EvidenceArchiveProjection>;
+    loadOlder: () => Promise<EvidenceArchiveProjection>;
+    content: (evidenceId: string) => Promise<EvidenceContentProjection>;
+  };
+  /** Opens D14 scoped to one audit object, for EvidenceView's footer. */
+  onOpenAuditTrail?: (scope: { kind: string; id: string }) => void;
   /** Native folder chooser behind the picker's `Add directory…` row. */
   onPickProjectFolder?: () => Promise<string | null>;
   /**
@@ -533,7 +561,7 @@ export function renderD1Cockpit(
    * transcript without a navigation, so the operator never loses the
    * conversation they were reviewing for.
    */
-  let centerView: "transcript" | "review" = "transcript";
+  let centerView: "transcript" | "review" | "evidence" = "transcript";
   /** Core's last diff answer, or null before the first read. */
   let reviewProjection: WorkspaceDiffProjection | null = null;
   /** Selected file. Presentation state: an ordered refresh must not move it. */
@@ -556,6 +584,43 @@ export function renderD1Cockpit(
    * than promising a view that may not exist.
    */
   let reviewCapability: boolean | null = null;
+  /* ---- EvidenceView state (GUI-CORE-025) ---- */
+  /** Core's last archive answer, or null before the first read. */
+  let evidenceProjection: EvidenceArchiveProjection | null = null;
+  /** Selected row. Presentation state: an ordered refresh must not move it. */
+  let evidenceSelectedId: string | null = null;
+  /**
+   * The chip filter, sent to Core as `EvidenceQuery.kinds`.
+   *
+   * A filter change is a *new query*, not a local narrowing: Core applies the
+   * filter before it cuts the page, so a client narrowing what it holds could
+   * not tell whether a match sits on a page it never loaded.
+   */
+  let evidenceKinds: string[] = [];
+  /**
+   * The search box. Purely local, and the box says so: Core exposes no
+   * evidence search, so this narrows the loaded rows and nothing else.
+   */
+  let evidenceSearch = "";
+  /**
+   * Content answers keyed by the row Core echoed them for, for this view's
+   * lifetime only.
+   *
+   * The cache exists so re-selecting a row costs no second Core read; it is
+   * dropped when the view closes, because a cached body outliving the view
+   * could be shown against an archive that has since moved.
+   */
+  let evidenceContent = new Map<string, EvidenceContentProjection>();
+  /** True while a `QueryEvidence` is out, so a wake cannot stack reads. */
+  let evidenceReadInFlight = false;
+  /** True while a `ReadEvidenceContent` is out. One row's bytes at a time. */
+  let evidenceContentInFlight = false;
+  /**
+   * Whether Core published `runtime.evidence_reads`. Null until the first
+   * no-traffic read answers; the entry points stay disabled until then rather
+   * than promising a view that may not exist.
+   */
+  let evidenceCapability: boolean | null = null;
   /**
    * Core's last word on the operator action side.
    *
@@ -757,10 +822,64 @@ export function renderD1Cockpit(
     if (centerView === "review") closeReview();
     else openReview();
   };
+  /**
+   * `⌘E` / `⌃E` toggles EvidenceView, mirroring the review chord exactly.
+   *
+   * `⌘E` was unbound in this shell: the only cockpit chords are `⌘K` and `⌃P`
+   * for the palette, `⌘O` for the folder picker, and `⌘R` for DiffReview. The
+   * same guards apply — it stands down while a modal popover owns focus, and
+   * while no host is bound or Core published no evidence archive, which is the
+   * condition the visible entry points fail closed on.
+   *
+   * One near-collision is guarded explicitly: the permission dock binds a
+   * *bare* `e` to its Edit action and does not inspect modifiers, so a `⌘E`
+   * pressed with the dock focused would reach both handlers. Edit is disabled
+   * under `GUI-CORE-003` today, so nothing happens there yet — which is
+   * exactly why it is guarded now rather than when it starts firing twice. A
+   * decision the operator is being asked to make also outranks opening a
+   * read-only archive.
+   */
+  const handleEvidenceShortcut = (event: KeyboardEvent): void => {
+    if (event.repeat || composing) return;
+    if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return;
+    if (event.key.toLowerCase() !== "e") return;
+    const active = document.activeElement;
+    if (
+      active instanceof HTMLElement &&
+      active.closest(
+        "[data-settings-panel], [data-new-lane-popover], [data-control-popover], [data-command-palette], [data-permission-dock]",
+      )
+    ) {
+      return;
+    }
+    if (!evidenceAvailable()) return;
+    event.preventDefault();
+    if (centerView === "evidence") closeEvidence();
+    else openEvidence();
+  };
+  /**
+   * `⌘F` focuses the evidence search box while the view is open.
+   *
+   * The registered `.evbar .search` carries that chord in the design. It is
+   * bound only while EvidenceView owns the centre pane, so every other surface
+   * keeps the webview's own behaviour.
+   */
+  const handleEvidenceSearchShortcut = (event: KeyboardEvent): void => {
+    if (centerView !== "evidence" || composing) return;
+    if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return;
+    if (event.key.toLowerCase() !== "f") return;
+    const field = root.querySelector<HTMLInputElement>("[data-evidence-search]");
+    if (!field || field.disabled) return;
+    event.preventDefault();
+    field.focus();
+    field.select();
+  };
   window.addEventListener("keydown", handleCancelShortcut);
   window.addEventListener("keydown", handleWindowKeydown);
   window.addEventListener("keydown", handlePaletteShortcut);
   window.addEventListener("keydown", handleReviewShortcut);
+  window.addEventListener("keydown", handleEvidenceShortcut);
+  window.addEventListener("keydown", handleEvidenceSearchShortcut);
   const handleWindowResize = (): void => {
     const grid = root.querySelector<HTMLElement>("[data-cockpit-grid]");
     if (grid) grid.dataset.cockpitLayout = window.innerWidth <= 1100 ? "narrow" : "desktop";
@@ -936,8 +1055,13 @@ export function renderD1Cockpit(
       window.removeEventListener("keydown", handleCancelShortcut);
       window.removeEventListener("keydown", handlePaletteShortcut);
       window.removeEventListener("keydown", handleReviewShortcut);
+      window.removeEventListener("keydown", handleEvidenceShortcut);
+      window.removeEventListener("keydown", handleEvidenceSearchShortcut);
       if (reviewStaleTimer !== null) window.clearTimeout(reviewStaleTimer);
       reviewStaleTimer = null;
+      // The content cache is view-scoped on purpose: a body that outlived the
+      // view could be rendered against an archive that has since moved.
+      evidenceContent = new Map();
       workStatusStrip?.dispose();
       workStatusStrip = null;
       window.removeEventListener("resize", handleWindowResize);
@@ -983,6 +1107,7 @@ export function renderD1Cockpit(
         // both ride the same ordered Core wake the cockpit already listens on,
         // so neither needs a timer of its own.
         queueMicrotask(noteReviewStaleness);
+        queueMicrotask(noteEvidenceStaleness);
         queueMicrotask(noteOperatorGitPending);
       });
   };
@@ -1136,6 +1261,7 @@ export function renderD1Cockpit(
         // so the review re-reads through the same debounced staleness path a
         // Core-side write goes through. Nothing is patched into the rows here.
         queueMicrotask(noteReviewStaleness);
+        queueMicrotask(noteEvidenceStaleness);
         queueMicrotask(noteOperatorGitPending);
         render(false);
       });
@@ -1193,6 +1319,167 @@ export function renderD1Cockpit(
       });
   };
 
+  /* ---- evidence archive reads (GUI-CORE-025) ---- */
+
+  /// Learns whether Core publishes the evidence archive at all, without
+  /// sending a command. Entry points read the answer.
+  const ensureEvidenceCapability = (): void => {
+    if (evidenceCapability !== null || !options.evidence) return;
+    void options.evidence
+      .read()
+      .then((projection) => {
+        if (disposed) return;
+        const next = projection.capabilityAvailable;
+        if (next === evidenceCapability) return;
+        evidenceCapability = next;
+        render(false);
+      })
+      .catch(() => {
+        // A host that cannot answer is not a Core that lacks the capability.
+        // Leaving it unresolved keeps the entry disabled without claiming why.
+      });
+  };
+
+  /// Sends one `QueryEvidence` for the first page and redraws.
+  ///
+  /// The scope follows the cockpit's Lane selection: a selected Lane reads
+  /// that Lane's evidence, and no selection reads the whole archive. The
+  /// selected row and the loaded content are dropped, because a re-scoped list
+  /// is a different list.
+  const readEvidence = (): void => {
+    if (!options.evidence || evidenceReadInFlight) return;
+    evidenceReadInFlight = true;
+    const laneId = selectedLaneId;
+    const kinds = [...evidenceKinds];
+    void options.evidence
+      .query(laneId, kinds)
+      .then((projection) => {
+        if (disposed) return;
+        evidenceProjection = projection;
+        evidenceCapability = projection.capabilityAvailable;
+      })
+      .catch((error: unknown) => {
+        if (disposed) return;
+        // A transport failure is not Core's refusal, so it is reported as this
+        // client's own error rather than dressed up as a Core rejection.
+        evidenceProjection = {
+          ...PENDING_EVIDENCE_ARCHIVE,
+          outcome: { state: "rejected", reason: String(error) },
+          capabilityAvailable: evidenceCapability !== false,
+          scopeLaneId: laneId,
+          kinds,
+        };
+      })
+      .finally(() => {
+        evidenceReadInFlight = false;
+        if (!disposed && centerView === "evidence") render(false);
+      });
+  };
+
+  /// Sends one more `QueryEvidence` through Core's own opaque cursor.
+  const loadOlderEvidence = (): void => {
+    if (!options.evidence || evidenceReadInFlight) return;
+    evidenceReadInFlight = true;
+    void options.evidence
+      .loadOlder()
+      .then((projection) => {
+        if (disposed) return;
+        evidenceProjection = projection;
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        evidenceReadInFlight = false;
+        if (!disposed && centerView === "evidence") render(false);
+      });
+  };
+
+  /// Selects one row and reads its canonical bytes once per view lifetime.
+  const selectEvidence = (evidenceId: string): void => {
+    evidenceSelectedId = evidenceId;
+    const port = options.evidence;
+    if (!port || evidenceContent.has(evidenceId) || evidenceContentInFlight) {
+      render(false);
+      return;
+    }
+    evidenceContentInFlight = true;
+    render(false);
+    void port
+      .content(evidenceId)
+      .then((content) => {
+        if (disposed) return;
+        // Keyed by the id *Core echoed*, never by the id this client asked
+        // with, so an answer can never be filed under the wrong row.
+        if (content.evidenceId) evidenceContent.set(content.evidenceId, content);
+        else evidenceContent.set(evidenceId, content);
+      })
+      .catch((error: unknown) => {
+        if (disposed) return;
+        evidenceContent.set(evidenceId, {
+          ...ABSENT_EVIDENCE_CONTENT,
+          outcome: { state: "rejected", reason: String(error) },
+          evidenceId,
+        });
+      })
+      .finally(() => {
+        evidenceContentInFlight = false;
+        if (!disposed && centerView === "evidence") render(false);
+      });
+  };
+
+  /// The re-query *signal*, evaluated on every ordered Core wake.
+  ///
+  /// Unlike DiffReview this never re-reads on its own. A diff pane holds one
+  /// page of one tree; an evidence list holds several pages an operator paged
+  /// through by hand, and reloading it underneath them would discard that and
+  /// move the rows they were reading. The banner and Refresh are the whole
+  /// mechanism, and the rule is documented in `apps/gui/README.md`.
+  const noteEvidenceStaleness = (): void => {
+    if (centerView !== "evidence" || !options.evidence) return;
+    if (evidenceReadInFlight) return;
+    void options.evidence
+      .read()
+      .then((projection) => {
+        if (disposed || centerView !== "evidence" || !projection.stale) return;
+        if (evidenceProjection?.stale) return;
+        evidenceProjection = projection;
+        render(false);
+      })
+      .catch(() => undefined);
+  };
+
+  /**
+   * Redraws the list after a search keystroke without disturbing the caret.
+   *
+   * A full `render()` rebuilds the whole frame including the search input, so
+   * the focus and selection are restored around the redraw. The box is a local
+   * filter over loaded rows; it reaches no Core command.
+   */
+  const renderEvidenceListOnly = (): void => {
+    if (disposed || centerView !== "evidence") return;
+    const before = root.querySelector<HTMLInputElement>("[data-evidence-search]");
+    const caret = before?.selectionStart ?? null;
+    render(false);
+    const after = root.querySelector<HTMLInputElement>("[data-evidence-search]");
+    if (!after) return;
+    after.focus();
+    if (caret !== null) after.setSelectionRange(caret, caret);
+  };
+
+  const evidenceAvailable = (): boolean =>
+    !!options.evidence && evidenceCapability === true;
+
+  const openEvidence = (): void => {
+    if (!options.evidence) return;
+    centerView = "evidence";
+    render(false);
+    readEvidence();
+  };
+
+  const closeEvidence = (): void => {
+    centerView = "transcript";
+    render(true);
+  };
+
   const reviewAvailable = (): boolean =>
     !!options.workspaceDiff && reviewCapability === true;
 
@@ -1235,6 +1522,7 @@ export function renderD1Cockpit(
           queueMicrotask(maybeResumeLaneStart);
           queueMicrotask(advanceAgentDiscovery);
           queueMicrotask(noteReviewStaleness);
+          queueMicrotask(noteEvidenceStaleness);
           queueMicrotask(noteOperatorGitPending);
           schedulePoll();
         });
@@ -1758,6 +2046,8 @@ export function renderD1Cockpit(
         // ships, rather than a row that quietly disappears.
         reviewBound: Boolean(options.workspaceDiff),
         reviewAvailable: reviewAvailable(),
+        evidenceBound: Boolean(options.evidence),
+        evidenceAvailable: evidenceAvailable(),
         returnFocus: root.querySelector<HTMLElement>("[data-command-palette-toggle]"),
       },
       {
@@ -1774,6 +2064,7 @@ export function renderD1Cockpit(
         },
         onCancelTurn: () => cancelActiveTurn(),
         onOpenReview: () => openReview(),
+        onOpenEvidence: () => openEvidence(),
         onQueryChange: (next) => {
           paletteQuery = next;
         },
@@ -2315,6 +2606,61 @@ export function renderD1Cockpit(
               },
         },
       );
+    } else if (centerView === "evidence") {
+      // EvidenceView owns the whole centre pane, like DiffReview. The composer
+      // stays mounted below it: reading what a Lane produced and telling it
+      // what to do next are the same sitting.
+      renderEvidenceView(
+        workSurface,
+        evidenceProjection ?? {
+          // Before the first answer the view renders the pending state rather
+          // than an empty list, which would read as "no evidence".
+          ...PENDING_EVIDENCE_ARCHIVE,
+          capabilityAvailable: evidenceCapability !== false,
+          scopeLaneId: selectedLaneId,
+          kinds: [...evidenceKinds],
+        },
+        locale,
+        {
+          onRefresh: options.evidence ? () => readEvidence() : undefined,
+          onLoadOlder: options.evidence ? () => loadOlderEvidence() : undefined,
+          onClose: () => closeEvidence(),
+          onSelect: (evidenceId) => selectEvidence(evidenceId),
+          selectedId: evidenceSelectedId,
+          kinds: evidenceKinds,
+          onKindsChange: !options.evidence
+            ? undefined
+            : (next) => {
+                // A filter change is a new Core query, so the selection and
+                // the cursor go with it: the previous list's row may not be on
+                // the filtered archive at all.
+                evidenceKinds = next;
+                evidenceSelectedId = null;
+                readEvidence();
+                render(false);
+              },
+          search: evidenceSearch,
+          onSearchChange: (next) => {
+            // No re-render on the keystroke itself: the input already holds
+            // the text, and rebuilding the DOM under a caret would move it.
+            evidenceSearch = next;
+            renderEvidenceListOnly();
+          },
+          content:
+            evidenceSelectedId === null
+              ? ABSENT_EVIDENCE_CONTENT
+              : (evidenceContent.get(evidenceSelectedId) ?? {
+                  ...ABSENT_EVIDENCE_CONTENT,
+                  evidenceId: evidenceSelectedId,
+                  outcome: evidenceContentInFlight
+                    ? { state: "pending", reason: null }
+                    : { state: "idle", reason: null },
+                }),
+          onOpenReview: options.workspaceDiff ? () => openReview() : undefined,
+          reviewAvailable: reviewAvailable(),
+          onOpenAuditTrail: options.onOpenAuditTrail,
+        },
+      );
     } else {
       const transcriptRegion = document.createElement("section");
       transcriptRegion.className = "d1-transcript";
@@ -2718,6 +3064,10 @@ export function renderD1Cockpit(
   // publishes structured diff rows before anyone clicks one. It sends no Core
   // command, so it costs nothing on a Core that does not have the capability.
   ensureReviewCapability();
+  // The same at-mount, no-traffic read for the evidence archive, so the
+  // palette row and the `⌘E` chord know whether Core publishes one before
+  // anyone reaches for either.
+  ensureEvidenceCapability();
   // The same at-mount, no-traffic read for the action side, so the commit bar
   // and the titlebar sync chip know whether they may act before anyone presses
   // one of them.
