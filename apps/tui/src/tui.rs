@@ -11,6 +11,7 @@ mod composer_buffer;
 mod conflict_rows;
 mod decision;
 mod diff_rows;
+mod evidence_panel;
 mod geometry;
 mod glyphs;
 mod i18n;

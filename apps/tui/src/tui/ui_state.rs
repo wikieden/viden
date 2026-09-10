@@ -2,6 +2,7 @@ use super::{
     audit_panel::AuditPanel,
     composer_buffer::ComposerBuffer,
     decision::{SupervisionAction, SupervisionTarget},
+    evidence_panel::EvidencePanel,
     keymap::{InputMode, OverlayKind},
     preferences::{ColorDepth, SettingsPanel},
     workspace_files::WorkspaceFileIndex,
@@ -372,6 +373,11 @@ pub(super) struct TuiUiState {
     /// dropped on close, so a reopened timeline always re-queries Core instead
     /// of showing a page of unknown age.
     pub(super) audit: Option<AuditPanel>,
+    /// Present exactly while `overlay` is `OverlayKind::EvidenceInspector`. It
+    /// is dropped on close, so a reopened inspector always re-queries Core
+    /// instead of showing a page of unknown age, and the per-row content cache
+    /// lives exactly as long as the overlay that filled it.
+    pub(super) evidence: Option<EvidencePanel>,
     /// Client-local view of the Core workspace file inventory. It outlives one
     /// overlay so reopening the jump index does not re-read a tree Core
     /// already published, and it holds no authoritative record — see
@@ -421,6 +427,7 @@ impl Default for TuiUiState {
             supervision: None,
             conflict_detail: None,
             audit: None,
+            evidence: None,
             workspace_files: WorkspaceFileIndex::default(),
             idle_ctrl_c_armed: false,
             color_depth: ColorDepth::Auto,

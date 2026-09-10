@@ -100,6 +100,23 @@ fn short_sha(sha: &str) -> &str {
     sha.get(..8).unwrap_or(sha)
 }
 
+/// The hunk rows for one whole document, already width-fitted.
+///
+/// The evidence inspector renders a `patch` row's canonical bytes through this
+/// exact producer, so one evidence patch and one approval diff are the same
+/// rows rather than two renderings of the same facts. It is uncapped here: the
+/// evidence detail pane owns its own window and states what it did not show.
+pub(super) fn diff_document_rows(
+    state: &TuiState,
+    document: &DiffDocument,
+    width: usize,
+) -> Vec<String> {
+    document_rows(state, document, width)
+        .into_iter()
+        .map(|row| truncate_end(&row, width))
+        .collect()
+}
+
 fn document_rows(state: &TuiState, document: &DiffDocument, width: usize) -> Vec<String> {
     let mut rows = Vec::new();
     for file in &document.files {
