@@ -651,6 +651,51 @@ answers stay out of `RuntimeViewState`: reducing every page and every content
 event leaves `latest_evidence` empty, which is what keeps an archive page from
 overwriting the recent window.
 
+0.3.3 contract increment landed 2026-09-10 on `claude/int-0.3.3`. The four
+capabilities above — `runtime.structured_diff`, `runtime.operator_git`,
+`runtime.conflict_content`, and `runtime.evidence_reads` — moved the advertised
+extension set from 19 to 23 and added the four fixtures listed in the corpus
+table, with the nine frozen base fixtures byte-unchanged and the capability
+count gate in `scripts/tui-regression.sh` moved 19 -> 23. Both clients adopted
+all four (GUI batches G1a/G1b/G2a/G2b, TUI batches T1a/T1b). This makes Core a
+`0.3.6` **candidate** only. It is not an immutable checkpoint: the checkpoint
+declaration and the `component_version` bump in
+`crates/core/release-manifest.toml` belong to the `0.3.3` release step (E1),
+and nothing here is on `main` until the integration branch is merged.
+
+Open follow-ups recorded 2026-09-10. Each was confirmed during the `0.3.3`
+batches and deliberately left out of them, so none is rediscovered later as a
+new finding:
+
+1. **Strict apply silently drops binary files from a patch** (pre-existing,
+   found during C3). `crates/tools/src/patch.rs` refuses a binary file before
+   hunk matching and reports nothing for it, so a mixed patch applies its text
+   files and says nothing about the binary ones. That is also why
+   `ConflictHunkReason::Binary` is never produced by this apply path. The fix
+   is a stated per-file outcome, not a silent skip.
+2. **D10's `eventsUnavailable` copy conflates two states** (pre-existing, found
+   during H1). The string says Core publishes no audit timeline, but it must be
+   gated on the capability actually being absent rather than on a page that has
+   not been loaded yet. "Not read" and "not offered" are different facts and
+   the copy currently reads as the second for both.
+3. **A native built-in turn has no turn-liveness fact** (found during H1). The
+   built-in local provider publishes no Agent session and no task, so the TUI's
+   active-work predicate depends on `assistant_stream` residue for that path.
+   Closing it needs a Core turn-liveness fact, not a client-side guess. See the
+   deferred-follow-up item 2 above for the full reasoning.
+4. **The durable evidence archive is empty in an offline native session**
+   (found during T1b; under investigation, decision pending). Evidence rows
+   produced from engine output — kinds `system`, `command`, and the
+   `provider_*` family — reach `RuntimeViewState.latest_evidence` but are never
+   written to the durable archive `QueryEvidence` reads, native tool edits
+   record no `patch` evidence at all, and no client dispatches
+   `StartAgentTask`. The consequence is that `runtime.evidence_reads` answers
+   correctly and answers an empty archive for a session whose transcript is
+   full of evidence, which both clients then render honestly as "no evidence".
+   Whether the fix is to write those rows through to the archive, to narrow
+   what `latest_evidence` accepts, or to state the two projections' different
+   scopes in the contract is not yet decided; nothing was changed in `0.3.3`.
+
 The `context-budgets` fixture backs the frontend-neutral facade export of
 `ContextScope` and `ContextBudgetRecord`. A budget belongs to a Lane only
 through the typed task scope named by that Lane's exact bound runtime owner;

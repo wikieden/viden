@@ -9,6 +9,12 @@
 保持 `0.3.4+`。排期不等于关闭：每条只在其声明的条件于 `main` 上满足时才
 关闭。
 
+状态注记 2026-09-10：012、015、020、025 现已完全关闭 —— Core 发布了每项能力，
+且**两个**客户端都已采纳，这正是这些条目声明的条件。GUI-CORE-027（工作区级
+操作者身份）由本次整理开立，排入 `0.3.4`。当前开放的登记项为 009、013、018、
+019、021、023、026、027。这些条目记录在 `claude/int-0.3.3` 集成分支上；在该
+分支合并之前，此处内容尚未进入 `main`。
+
 ## GUI-CORE-008：所选 Lane 的上下文作用域 — 已关闭
 
 历史：Core `0.3.5` 已暴露 `RuntimeViewState.context_budgets`，但 frontend-neutral
@@ -108,7 +114,7 @@ Core 自身的 `reviewer_owner_from_requester` 形状——评审 owner 改指�
 而非本请求编码：已裁决为 `D2-REVIEW-SETTLED`，无法推导出可用评审方身份为
 `D2-NO-REVIEWER-ACTOR`。
 
-## GUI-CORE-012：审批的结构化决策上下文 — 已关闭（Core 侧，2026-09-09）
+## GUI-CORE-012：审批的结构化决策上下文 — 已关闭
 
 历史：`ApprovalRequestView` 只携带 `input_preview` 这一不透明展示字符串。D2 设计稿
 要求按行渲染待执行变更的 diff。D2 原样渲染该预览并声明 diff 不可用，而不是把展示
@@ -183,7 +189,7 @@ GUI 状态：已在 `claude/core-workspace-files` 接通。D10 的 ticker 是该
 回答、被拒绝、以及已回答但为空，四者保持四条不同的文案，因此空条不会被读成"从未发生过
 任何事"。`d10.events.noOrderedLog` 那条 unavailable 行已移除。
 
-## GUI-CORE-015：结构化合并冲突内容 — 已关闭（Core 侧，2026-09-09）
+## GUI-CORE-015：结构化合并冲突内容 — 已关闭
 
 历史：`MergeGateRecord` 与 `ConflictBounce` 给出闸、原 Lane 与理由，但不携带冲突内容，
 `LaneConflictView` 也只带一个 summary。D12 设计稿要求并排展示两条 Lane 的 hunk，因此
@@ -226,13 +232,14 @@ capability 缺失、Core 未为该记录发布内容（点明操作者退回的�
 `apps/gui/evidence/main-window-interactions/` 下的 `d12-conflict-content`、
 `d12-conflict-omitted` 与 `d12-conflict-none`。
 
-有一处遗留，属于工程学而非契约：`viden-core` 再导出了 `ConflictBounce` 与
-`LaneConflictView`，却没有再导出它们携带的 `ConflictContent`、`ConflictBaseline`、
-`ConflictFile`、`ConflictHunk` 与 `ConflictHunkReason`，而 GUI 不得持有第二个 `viden-*`
-依赖（`apps/gui/tests/architecture_boundary.rs`）。因此投影通过 Core 自己的规范 serde
-编码读取该值，而不是指名这些类型。没有任何猜测，也不存在第二个解析器，但客户端无法像契约
-设想的那样对 `ConflictHunkReason` 做穷尽匹配。把这五个名字加进 facade 的再导出列表即可
-关闭它。
+采纳时记录的那处遗留已于 2026-09-10（F1）关闭。`viden-core` 当时再导出了
+`ConflictBounce` 与 `LaneConflictView`，却没有再导出它们携带的 `ConflictContent`、
+`ConflictBaseline`、`ConflictFile`、`ConflictHunk` 与 `ConflictHunkReason`，而 GUI 不得
+持有第二个 `viden-*` 依赖（`apps/gui/tests/architecture_boundary.rs`），因此投影通过
+Core 自己的规范 serde 编码读取该值，而不是指名这些类型。现在这五个名字连同
+`MAX_CONFLICT_CONTENT_BYTES` 都已在 facade 上；D12 投影对每个类型做穷尽匹配，每个
+`#[non_exhaustive]` 枚举的通配分支取回 Core 自己的 tag，使未来未命名的种类仍以其本来
+面目抵达屏幕。TUI 的冲突行出于同一理由改为从 facade 导入。
 
 ## GUI-CORE-016：Agent 消息的流式分片 — 已关闭
 
@@ -314,7 +321,7 @@ fail-closed 的 `GUI-CORE-003` 占位，且 `PermissionChoice::Always` 与
 重新通过同一审批门禁的 Edit 决定，且规范 fixture 覆盖两者时，关闭此请求。届时 GUI
 将恢复设计规定的 `Shift+A` 绑定。
 
-## GUI-CORE-020：面向操作者的 git 动作 — 已关闭（Core 侧，2026-09-09）
+## GUI-CORE-020：面向操作者的 git 动作 — 已关闭
 
 历史：驾驶舱标题栏可以显示工作区源码管理的样子——分支、ahead/behind、dirty——但操作者
 无法对它做任何事。`RuntimeCommand` 没有建模 commit、push、fetch、stage 或 unstage；
@@ -373,7 +380,9 @@ owner 限定并带 `target.kind = "git"` 的 `ApprovalRequested` 抵达既有权
 没有可指名的执行身份：此时提交栏与芯片禁用并标注客户端本地编码
 `D1-OPERATOR-GIT-OWNER`，而不是发送 `RuntimeOwner::default()` —— 那会把一次已授权的
 变更记成「不属于任何人」。这不是重新打开一条 Core 请求 —— 该能力完全按规范工作 —— 但
-一个工作区级的操作者身份会消除这条限制，未来的请求也会是这个形状。
+一个工作区级的操作者身份会消除这条限制。它已登记为 GUI-CORE-027，排入 `0.3.4`。TUI
+得出同样结论并拒绝同样的情形（T1a，2026-09-09），因此在没有绑定 Lane 时，`/git` 与
+DiffReview 提交栏同样不可用。
 
 D1 的 `apply` 不可用行不再是无条件的：只有在 Core 构建确实没有发布
 `runtime.operator_git` 时它才保留，并且直接指名那项能力，而不是暗示本条目仍然开启。
@@ -532,7 +541,7 @@ schema-1 已知 event type 集合中，因此在任何序列化 snapshot/replay 
 剩余客户端后续项（不被 Core 阻塞）：基于新 `AuditQuery` 字段的 D14 actor 与时间范围过滤
 chip。目前没有客户端发送 actor 或时间过滤，因为还没有让操作者做出选择的控件。
 
-## GUI-CORE-025：证据读取 — 已关闭（Core 侧，2026-09-09）
+## GUI-CORE-025：证据读取 — 已关闭
 
 请求：已注册的 `EvidenceView` 界面是一份按天分组的归档，外加详情侧栏——键值报告、输出尾部、
 由 `metadata` 与 `canonical` 链出的 chip，以及 `patch` 行的"在评审中打开"。前端今天唯一能拿到的
@@ -583,10 +592,12 @@ GUI 状态：已于 2026-09-09 采纳（G2b）。EvidenceView 是 D1 中央区�
 也绝不与归档列表合并。证据：`apps/gui/evidence/main-window-interactions/` 下的 `evidence`、
 `evidence-text`、`evidence-unavailable`、`evidence-empty` 与 `evidence-rejected`。
 
-有一处遗留，属于工效而非契约：`viden-core` 重导出了 `EvidenceView`，但没有重导出
-`EvidenceVerificationState` 与 `EvidenceQualityStatus`，因此详情侧栏的报告能陈述该行的 canonical
-引用、生产者与哈希，却无法命名 Core 对它的校验状态或质量状态。它只陈述门面允许它陈述的内容，
-而不是另造一套词汇。把这两个名字加入重导出列表即可关闭它。
+采纳时记录的那处遗留已于 2026-09-10（F1）关闭。`viden-core` 当时重导出了
+`EvidenceView`，但没有重导出 `EvidenceVerificationState` 与 `EvidenceQualityStatus`，
+因此详情侧栏能陈述该行的 canonical 引用、生产者与哈希，却无法命名 Core 对这些字节的
+结论。两个枚举现已在 facade 上，报告以两种语言陈述这两项判定，未命名的 tag 按其本身
+陈述。`failed` 的校验状态与"没有 canonical 引用"保持区分：它指的是 Core 持有但不信任
+的字节。
 
 TUI 状态：已于 2026-09-10 采纳（T1b）。`0.3.2` 监督检查点上推迟的证据检视器现在通过
 `QueryEvidence` 分页读取归档，并通过 `ReadEvidenceContent` 读取规范内容，可从决策浮层的
@@ -611,6 +622,34 @@ TUI 状态：已于 2026-09-10 采纳（T1b）。`0.3.2` 监督检查点上推�
 `CredentialRequestId` 的暂存路径、报告其结果的事件，以及一个覆盖「暂存凭据成为
 `CredentialHandle`」与「暂存被拒绝」两种情形的规范 `frontend-contract-v1`
 fixture。
+
+## GUI-CORE-027：工作区级操作者身份
+
+`RunOperatorGitAction` 校验命令的 `owner` 与信封 actor 相等，且 Core 的校验器
+已经接受 `SourceTarget::Workspace` 目标携带 `lane_id: None`。缺的东西在这道
+检查的上游：**Core 从不铸造 `workspace_id` 或 `project_id`。** 两个客户端发送
+的每一条非 Lane 命令都携带 `RuntimeOwner::default()`，甚至
+`LaneRuntimeOwnerBound` 也只是回显客户端发来的空 id，因此 workspace 与
+project 字段在整个契约中语义上是惰性的 —— 这是本请求同时记录的既有弱点，不
+只是操作者 git 的问题。
+
+后果是具体的。针对工作区根目录的、需被审计的操作者动作没有可指名的执行身份。
+发送 `RuntimeOwner::default()` 会把一次已授权的变更记成「不属于任何人」，那
+比不提供该动作更糟，因此两个客户端改为在本地拒绝并援引本编号：GUI 以
+`D1-OPERATOR-GIT-OWNER` 禁用 DiffReview 提交栏与标题栏同步控件
+（`apps/gui/src-tauri/src/operator_git.rs`），TUI 禁用并标注 `/git` 选择行
+（`apps/tui/src/tui/operator_git.rs`）。在选中 Lane 且有精确 Core owner 绑定
+时，两者都按规范工作；没有绑定时，`runtime.operator_git` 只能经由 Lane 抵达。
+
+这是一条附加式契约请求，不是 `runtime.operator_git` 的缺陷。该能力对它能指名
+的目标完全按设计工作。
+
+当 Core 把工作区 owner 作为一个事实发布时关闭本请求 —— 调研得到的形状是
+`WorkspaceRuntimeOwnerBound`，对应 `LaneRuntimeOwnerBound`，携带由 Core 铸造
+的 `workspace_id` 与 `project_id` —— 并附一个规范 `frontend-contract-v1`
+fixture，其中一次 Workspace 目标的操作者动作在该 owner 下被授权并被审计。排入
+`0.3.4`；刻意不在 `0.3.3` 末期加入 —— 那会在计数门已经移动之后再添第 24 项
+能力，而 E1 的证据流程本身走的就是 Lane。
 
 ## 已退役的前登记编码
 

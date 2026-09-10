@@ -10,6 +10,14 @@ bundled with the creation flows. 009, 018, and 019 move to `0.3.4`; 021 and
 023 stay `0.3.4+`. A schedule is not a closure: each entry closes only when
 its stated condition is met on `main`.
 
+Status note 2026-09-10: 012, 015, 020, and 025 are now fully closed — Core
+published each capability and **both** clients adopted it, which is the
+condition those entries stated. GUI-CORE-027 (workspace-scoped operator
+identity) is opened by this pass and scheduled for `0.3.4`. The open register
+is 009, 013, 018, 019, 021, 023, 026, and 027. These entries are recorded
+against the `claude/int-0.3.3` integration branch; nothing here is on `main`
+until that branch is merged.
+
 ## GUI-CORE-008: Selected-Lane context scope — CLOSED
 
 History: Core `0.3.5` exposed `RuntimeViewState.context_budgets`, but the
@@ -130,7 +138,7 @@ disabled with a local reason instead of this code: `D2-REVIEW-SETTLED` for an
 already-decided review, `D2-NO-REVIEWER-ACTOR` when no acceptable reviewer
 identity is derivable.
 
-## GUI-CORE-012: Structured decision context for an approval — CLOSED (Core side, 2026-09-09)
+## GUI-CORE-012: Structured decision context for an approval — CLOSED
 
 History: `ApprovalRequestView` carried only `input_preview`, an opaque display
 string. The D2 design shows line-level diff rows for the pending mutation. D2
@@ -235,7 +243,7 @@ ambient, and the Decision Center still owns the actionable queue. An absent
 timeline stay four different lines, so an empty strip never reads as "nothing
 ever happened". The `d10.events.noOrderedLog` unavailable row is gone.
 
-## GUI-CORE-015: Structured merge-conflict content — CLOSED (Core side, 2026-09-09)
+## GUI-CORE-015: Structured merge-conflict content — CLOSED
 
 History: `MergeGateRecord` and `ConflictBounce` named the gate, the origin Lane,
 and the reason, but carried no conflict content, and `LaneConflictView` carried
@@ -295,16 +303,17 @@ absent. Evidence: `d12-conflict-content`, `d12-conflict-omitted`, and
 `d12-conflict-none` under
 `apps/gui/evidence/main-window-interactions/`.
 
-One residual, and it is ergonomic rather than contractual: `viden-core`
-re-exports `ConflictBounce` and `LaneConflictView` but not the
+The residual recorded at adoption is closed as of 2026-09-10 (F1).
+`viden-core` re-exported `ConflictBounce` and `LaneConflictView` but not the
 `ConflictContent`, `ConflictBaseline`, `ConflictFile`, `ConflictHunk`, and
 `ConflictHunkReason` types they carry, and the GUI may hold no second
-`viden-*` dependency (`apps/gui/tests/architecture_boundary.rs`). The
-projection therefore reads the value through Core's own canonical serde
-encoding rather than naming the types. Nothing is guessed and no second parser
-exists, but a client cannot exhaustively match `ConflictHunkReason` the way the
-contract intends. Adding those five names to the facade's re-export list would
-close it.
+`viden-*` dependency (`apps/gui/tests/architecture_boundary.rs`), so the
+projection read the value through Core's own canonical serde encoding rather
+than naming the types. Those five names plus `MAX_CONFLICT_CONTENT_BYTES` are
+now on the facade; the D12 projection matches each type exhaustively, with the
+wildcard arm of each `#[non_exhaustive]` enum recovering Core's own tag so an
+unnamed future kind still reaches the screen as itself. The TUI's conflict
+rows import from the facade for the same reason.
 
 ## GUI-CORE-016: Streaming Agent message chunks — CLOSED
 
@@ -410,7 +419,7 @@ carries the revised command back through the same approval gate, and the
 canonical fixture covers both. The GUI will then restore the design's
 `Shift+A` binding.
 
-## GUI-CORE-020: Operator-initiated git actions — CLOSED (Core side, 2026-09-09)
+## GUI-CORE-020: Operator-initiated git actions — CLOSED
 
 History: the cockpit titlebar could show what the workspace's source control
 looked like — branch, ahead/behind, dirty — but nothing let the operator act on
@@ -492,8 +501,10 @@ with no exactly-bound Lane has no actor to name: the bar and the chip are then
 disabled and labelled `D1-OPERATOR-GIT-OWNER`, a client-local code, rather than
 sending `RuntimeOwner::default()`, which would record an authorized mutation as
 belonging to nobody. This is not a re-opened Core request — the capability works
-as specified — but a workspace-scoped operator identity would remove the limit,
-and it is the shape a future request would take.
+as specified — but a workspace-scoped operator identity would remove the limit.
+It is registered as GUI-CORE-027 and scheduled for `0.3.4`. The TUI reaches the
+same conclusion and refuses the same cases (T1a, 2026-09-09), so `/git` and the
+DiffReview commit bar are both inert without a bound Lane.
 
 D1's `apply` unavailable row is no longer unconditional: it survives only for a
 Core build that genuinely publishes no `runtime.operator_git`, and then names
@@ -709,7 +720,7 @@ Remaining client-side follow-up, not blocked on Core: D14 actor and time-range
 filter chips over the new `AuditQuery` fields. No client sends an actor or time
 filter yet, because no operator control chooses one.
 
-## GUI-CORE-025: Evidence reads — CLOSED (Core side, 2026-09-09)
+## GUI-CORE-025: Evidence reads — CLOSED
 
 Request: the registered `EvidenceView` surface is a day-grouped archive with a
 detail rail — a key-value report, an output tail, chips linked from `metadata`
@@ -785,12 +796,13 @@ list. Evidence: `evidence`, `evidence-text`, `evidence-unavailable`,
 `evidence-empty`, and `evidence-rejected` under
 `apps/gui/evidence/main-window-interactions/`.
 
-One residual, ergonomic rather than contractual: `viden-core` re-exports
-`EvidenceView` but not `EvidenceVerificationState` or `EvidenceQualityStatus`,
-so the detail rail's report states the row's canonical reference, producer, and
-hash but cannot name Core's verification or quality state for it. It states
-what the facade lets it state rather than inventing a second vocabulary.
-Adding those two names to the re-export list would close it.
+The residual recorded at adoption is closed as of 2026-09-10 (F1).
+`viden-core` re-exported `EvidenceView` but not `EvidenceVerificationState` or
+`EvidenceQualityStatus`, so the detail rail could name the row's canonical
+reference, producer, and hash but not what Core concluded about the bytes.
+Both enums are now on the facade and the report states both verdicts, in both
+languages, with an unnamed tag stated as itself. A `failed` verification stays
+distinct from an absent reference: it names bytes Core holds and distrusts.
 
 TUI status: adopted 2026-09-10 (T1b). The evidence inspector deferred at the
 `0.3.2` supervision checkpoint now pages the archive through `QueryEvidence`
@@ -818,6 +830,40 @@ Close this request when Core publishes a staging path that returns a
 event that reports its outcome, and a canonical `frontend-contract-v1` fixture
 covering a staged credential that becomes a `CredentialHandle` and one that is
 refused.
+
+## GUI-CORE-027: Workspace-scoped operator identity
+
+`RunOperatorGitAction` validates that the command's `owner` equals the
+envelope actor, and Core's validator already accepts `lane_id: None` for a
+`SourceTarget::Workspace` target. What is missing is upstream of that check:
+**Core never mints a `workspace_id` or a `project_id`.** Every non-Lane
+command both clients send carries `RuntimeOwner::default()`, and even
+`LaneRuntimeOwnerBound` echoes the empty ids the client sent, so the workspace
+and project fields are semantically inert across the whole contract — a
+pre-existing weakness this request also records, not only an operator-git one.
+
+The consequence is concrete. An audited operator action against the workspace
+root has no actor to name. Sending `RuntimeOwner::default()` would record an
+authorized mutation as belonging to nobody, which is worse than not offering
+the action, so both clients refuse locally instead and cite this number: the
+GUI disables the DiffReview commit bar and the titlebar sync control with
+`D1-OPERATOR-GIT-OWNER` (`apps/gui/src-tauri/src/operator_git.rs`), and the
+TUI disables and labels the `/git` picker rows
+(`apps/tui/src/tui/operator_git.rs`). With a Lane selected and an exact Core
+owner bound, both work as specified; without one, `runtime.operator_git` is
+reachable only through a Lane.
+
+This is an additive contract request, not a defect in `runtime.operator_git`.
+The capability behaves as designed for the target it can name.
+
+Close this request when Core publishes a workspace owner as a fact — the
+shape investigated is `WorkspaceRuntimeOwnerBound`, mirroring
+`LaneRuntimeOwnerBound`, carrying a Core-minted `workspace_id` and
+`project_id` — together with a canonical `frontend-contract-v1` fixture in
+which a Workspace-target operator action is authorized and audited under that
+owner. Scheduled for `0.3.4`; deliberately not added late in `0.3.3`, where it
+would have been a twenty-fourth capability after the count gate moved, and
+where the E1 evidence flow runs through a Lane.
 
 ## Retired pre-register codes
 

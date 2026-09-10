@@ -194,3 +194,46 @@ status (021), and multi-workspace supervision (023).
   and must not be labelled as one.
 - **Stretch creep.** S1 is a stretch; if C1 to C4 slip, S1 rolls to `0.3.4`
   without renegotiating the exit criteria.
+
+## Status
+
+Dated 2026-09-10. All work below is on the local integration branch
+`claude/int-0.3.3`, not on `main`. A batch listed as landed is approved and
+cherry-picked onto that branch; none of it is pushed, merged, or released.
+
+| Batch | State | Approved |
+| --- | --- | --- |
+| C1 `runtime.structured_diff` | landed | 2026-09-09 |
+| C2 `runtime.operator_git` | landed | 2026-09-09 |
+| C3 `runtime.conflict_content` | landed | 2026-09-09 |
+| C4 `runtime.evidence_reads` | landed | 2026-09-09 |
+| D0 gui-kit promotion | landed as D0 (`9fc61225`) + D0b/D0c mirror (`36b416bc`) | D0 2026-09-09; the mirror round carries no separate approval record |
+| H1 hygiene | landed | 2026-09-09 |
+| G1a DiffReview read side | landed | 2026-09-09 |
+| G1b DiffReview action side | landed | 2026-09-09 |
+| G2a D12 conflict content | landed | 2026-09-09 |
+| G2b EvidenceView | landed | 2026-09-10 |
+| T1a TUI parity (approvals, `/git`, conflict detail) | landed | 2026-09-09 |
+| T1b TUI evidence inspector | landed | 2026-09-10 |
+| F1 facade re-exports and docs write-back | landed | 2026-09-10 |
+
+G1 and G2 were each split in two once C2 and C4 landed, and T1 likewise; the
+split is recorded here because the batch table above still names the
+undivided units. D0 needed two follow-on rounds after the first proved the
+promotion as briefed would have changed pixels.
+
+S1 (GUI-CORE-013 plus the supervision creation flows) has not started. The
+plan makes it conditional on everything before it being on `main`, which has
+not happened, so it rolls to `0.3.4` unless the integration branch merges
+first.
+
+E1 (release evidence: one real task from intake to a committed change) is
+pending and is the remaining gate for the exit criteria. It also owns the
+Core `0.3.6` immutable-checkpoint declaration and the `component_version` bump
+in `crates/core/release-manifest.toml`, neither of which any batch so far was
+authorized to make.
+
+Two contract facts changed since the baseline above: GUI-CORE-012, 015, 020,
+and 025 are fully closed (Core published, both clients adopted), and
+GUI-CORE-027 (workspace-scoped operator identity) is opened and scheduled for
+`0.3.4`. The open register is 009, 013, 018, 019, 021, 023, 026, and 027.

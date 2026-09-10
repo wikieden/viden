@@ -485,6 +485,42 @@ fixture 的全部理由。被切断的一页在 cursor 之后还有行，并且�
 因为空 page 与空归档无法区分。回放断言同时证明两个回答都停在 `RuntimeViewState` 之外：归约每一个
 page 与每一个内容事件之后 `latest_evidence` 仍为空，这正是归档 page 不会覆盖近期窗口的保证。
 
+0.3.3 契约增量已于 2026-09-10 落到 `claude/int-0.3.3`。上文的四项能力 ——
+`runtime.structured_diff`、`runtime.operator_git`、`runtime.conflict_content`
+与 `runtime.evidence_reads` —— 把对外通告的扩展集合从 19 项推到 23 项，并新增
+语料表中列出的四个 fixture；九个冻结基线 fixture 的字节未变，
+`scripts/tui-regression.sh` 中的能力计数门由 19 移到 23。两个客户端都已采纳
+全部四项（GUI 批次 G1a/G1b/G2a/G2b，TUI 批次 T1a/T1b）。这只使 Core 成为
+`0.3.6` **候选**。它不是不可变 checkpoint：checkpoint 的声明与
+`crates/core/release-manifest.toml` 中 `component_version` 的提升属于 `0.3.3`
+的发布步骤（E1），且在集成分支合并之前，此处内容尚未进入 `main`。
+
+2026-09-10 记录的未决跟进项。每一条都是在 `0.3.3` 各批次中确认、并被刻意留在
+批次之外的，因此它们不会日后被当作新发现重新提出：
+
+1. **严格 apply 会静默丢弃补丁中的二进制文件**（既有问题，C3 期间发现）。
+   `crates/tools/src/patch.rs` 在 hunk 匹配之前就拒绝二进制文件，并且不为其
+   报告任何内容，因此混合补丁会应用其中的文本文件，而对二进制文件只字不提。
+   这也是本 apply 路径从不产生 `ConflictHunkReason::Binary` 的原因。修复方式
+   是给出按文件的明示结果，而不是静默跳过。
+2. **D10 的 `eventsUnavailable` 文案混淆了两种状态**（既有问题，H1 期间发现）。
+   该字串说 Core 未发布审计时间线，但它必须以「能力确实缺失」为条件，而不是
+   以「页面尚未加载」为条件。「未读取」与「未提供」是两种不同的事实，而当前
+   文案对两者都读作后者。
+3. **原生内建轮次没有轮次存活事实**（H1 期间发现）。内建本地 provider 不发布
+   Agent session 也不发布任务，因此 TUI 的活动判定在该路径上依赖
+   `assistant_stream` 的残留。关闭它需要 Core 提供轮次存活事实，而不是客户端
+   的猜测。完整推理见上文延后跟进项的第 2 条。
+4. **离线原生会话中的持久证据归档为空**（T1b 期间发现；调查中，尚未决策）。
+   由引擎输出产生的证据行 —— 种类 `system`、`command` 与 `provider_*` 家族 ——
+   会进入 `RuntimeViewState.latest_evidence`，却从不写入 `QueryEvidence` 读取
+   的持久归档；原生工具编辑完全不记录 `patch` 证据；也没有任何客户端派发
+   `StartAgentTask`。后果是：对于一个记录里满是证据的会话，
+   `runtime.evidence_reads` 会正确地回答一个空归档，而两个客户端随后如实地把
+   它渲染为"无证据"。修复究竟是把这些行写通到归档、收窄 `latest_evidence` 的
+   接收范围，还是在契约中写明两个投影各自不同的作用域，尚未决定；`0.3.3` 中
+   未作任何改动。
+
 `context-budgets` fixture 为 `ContextScope` 与 `ContextBudgetRecord` 的 frontend-neutral
 facade 导出提供依据。Budget 只能通过该 Lane 精确绑定的 runtime owner 所指名的 typed task
 scope 归属到 Lane；"取最近一条 budget" 永远不是有效归属，fixture 中两个 scope 刻意互不相交。
