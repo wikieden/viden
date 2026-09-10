@@ -1,6 +1,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use sha2::{Digest, Sha256};
+
 const FORBIDDEN_RUNTIME_TYPES: [&str; 2] = ["SessionEngine", "RuntimeSupervisor"];
 const PRESENTATION_MODULES: [&str; 4] = [
     "presentation/preferences.rs",
@@ -41,7 +43,7 @@ fn production_crate_has_an_explicit_version_and_only_core_as_a_viden_dependency(
         .parse()
         .expect("parse production GUI manifest");
 
-    assert_eq!(manifest["package"]["version"].as_str(), Some("0.1.0-rc.3"));
+    assert_eq!(manifest["package"]["version"].as_str(), Some("0.1.0-rc.4"));
     let mut internal = Vec::new();
     for section in ["dependencies", "dev-dependencies", "build-dependencies"] {
         if let Some(table) = manifest.get(section).and_then(toml::Value::as_table) {
@@ -74,8 +76,8 @@ fn rust_web_and_tauri_packages_share_the_explicit_rc_version() {
     )
     .expect("parse Tauri configuration");
 
-    assert_eq!(package["version"].as_str(), Some("0.1.0-rc.3"));
-    assert_eq!(tauri["version"].as_str(), Some("0.1.0-rc.3"));
+    assert_eq!(package["version"].as_str(), Some("0.1.0-rc.4"));
+    assert_eq!(tauri["version"].as_str(), Some("0.1.0-rc.4"));
 }
 
 #[test]
@@ -138,7 +140,7 @@ fn root_workspace_contains_only_the_selected_tauri_production_crate() {
 fn rc_release_manifest_is_an_immutable_byte_equivalent_snapshot() {
     let gui_root = gui_root();
     let active_path = gui_root.join("release-manifest.toml");
-    let snapshot_path = gui_root.join("manifests/0.1.0-rc.3.toml");
+    let snapshot_path = gui_root.join("manifests/0.1.0-rc.4.toml");
     let active = fs::read(&active_path).expect("read active GUI release manifest");
     let snapshot = fs::read(&snapshot_path).expect("read immutable beta release manifest");
 
@@ -150,11 +152,11 @@ fn rc_release_manifest_is_an_immutable_byte_equivalent_snapshot() {
         .expect("release manifest must be UTF-8")
         .parse()
         .expect("parse GUI release manifest");
-    assert_eq!(manifest["component_version"].as_str(), Some("0.1.0-rc.3"));
+    assert_eq!(manifest["component_version"].as_str(), Some("0.1.0-rc.4"));
     assert_eq!(manifest["release_channel"].as_str(), Some("rc"));
     assert_eq!(
         manifest["status"].as_str(),
-        Some("canonical-d1-cockpit-candidate")
+        Some("trusted-delivery-beta-candidate")
     );
     assert_eq!(manifest["selected_framework"].as_str(), Some("tauri"));
     assert_eq!(manifest["core"]["minimum_version"].as_str(), Some("0.3.5"));
@@ -162,9 +164,24 @@ fn rc_release_manifest_is_an_immutable_byte_equivalent_snapshot() {
         manifest["core"]["base_checkpoint"].as_str(),
         Some("f7fe1b31dfb237e4062209767a7051c2b2c68b93")
     );
+    // Derived, not a literal: this digest describes the exact bytes of the
+    // canonical fixture the manifest itself names. The literal it replaces was
+    // last true before `d1-main-cockpit.json` was edited, and nothing noticed,
+    // because a hand-maintained pin proves only that someone typed it once.
+    let repository_root = gui_root
+        .parent()
+        .and_then(Path::parent)
+        .expect("repository root");
+    let canonical_fixture = repository_root.join(
+        manifest["core"]["canonical_d1_fixture"]
+            .as_str()
+            .expect("canonical D1 fixture path"),
+    );
+    let canonical_bytes =
+        fs::read(&canonical_fixture).expect("read the canonical D1 fixture the manifest names");
     assert_eq!(
         manifest["core"]["extension_fixture_sha256"].as_str(),
-        Some("f96ba30cc6e80aa52cb15a2fd1f03c082487a3cd4779c25f61e42ee1548e1e3b")
+        Some(format!("{:x}", Sha256::digest(&canonical_bytes)).as_str())
     );
     let required = manifest["core"]["required_capabilities"]
         .as_array()
@@ -239,6 +256,30 @@ fn rc_release_manifest_is_an_immutable_byte_equivalent_snapshot() {
         .filter_map(toml::Value::as_str)
         .collect::<Vec<_>>();
     assert!(required_ids.contains(&"d1-main-cockpit"));
+    // The four `0.3.3` contract fixtures the GUI replays in its own suites
+    // (workspace_diff, operator_git, d12_integration_gate, evidence_reads).
+    for id in [
+        "structured-diff",
+        "operator-git",
+        "conflict-content",
+        "evidence-reads",
+    ] {
+        assert!(required_ids.contains(&id), "missing required fixture {id}");
+    }
+    // Every id the manifest requires must name a fixture that exists, so a
+    // renamed or dropped fixture fails the release record rather than the
+    // suite that happens to read it.
+    let corpus = repository_root.join(
+        manifest["fixtures"]["corpus"]
+            .as_str()
+            .expect("fixture corpus path"),
+    );
+    for id in &required_ids {
+        assert!(
+            corpus.join(format!("{id}.json")).exists(),
+            "required fixture {id} is not in the corpus"
+        );
+    }
 }
 
 #[test]

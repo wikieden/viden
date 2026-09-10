@@ -41,27 +41,36 @@ runtime.typed_tasks
 ui.preferences
 ```
 
-Core `0.3.4` 保持 schema `1`，并单独公布以下按字典序排列、独立版本化的 extension
-capability。只具备 base 的 client 仍可连接；每项功能自行检查 extension，缺失时必须明确
-显示 unavailable，且 command transport 零发送。
+Core `0.3.6` 保持 schema `1`，并单独公布以下 23 项按字典序排列、独立版本化的
+extension capability。只具备 base 的 client 仍可连接；每项功能自行检查 extension，
+缺失时必须明确显示 unavailable，且 command transport 零发送。下面这份清单就是
+`crates/core/release-manifest.toml` 在 `0.3.6` checkpoint 记录的集合；`0.3.3`
+契约增量加入 `runtime.structured_diff`、`runtime.operator_git`、
+`runtime.conflict_content`、`runtime.evidence_reads` 之后，它从 19 项增长到 23 项。
 
 ```text
 core.workspace_host
 runtime.agent_adapters
+runtime.agent_conversation
 runtime.agent_permission_bridge
 runtime.agent_session_input
 runtime.agent_sessions
 runtime.audit
+runtime.cockpit_context_v1
+runtime.conflict_content
 runtime.credential_handles
 runtime.credential_staging
+runtime.evidence_reads
 runtime.lane_lifecycle
 runtime.lane_owner_projection
+runtime.operator_git
 runtime.project_onboarding
 runtime.recent_work
 runtime.starter_lane_preview
 runtime.structured_diff
 runtime.trust_loop
 runtime.workspace_eligibility
+runtime.workspace_files
 ui.preference_persistence
 ```
 

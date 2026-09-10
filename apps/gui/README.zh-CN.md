@@ -52,22 +52,25 @@ Agent 可用性探测与后续 ACP spawn 使用同一命令路径；整个过程
 
 | 字段 | 值 |
 | --- | --- |
-| GUI 组件版本 | `0.1.0-rc.3` |
+| GUI 组件版本 | `0.1.0-rc.4` |
 | 最低 Core 版本 | `0.3.5` |
 | 支持 frontend schema | `[1]` |
 | 共同分支基线 | `3a7740ea72e58f4a22248a80f9e7324c49bb0f73` |
 | Core 最终 checkpoint | `f7fe1b31dfb237e4062209767a7051c2b2c68b93` |
-| Core code checkpoint | `17fa2071398d5eaf30045257163d57d22d99177b` |
+| Core code checkpoint | `1cec82185bbe860d6b8536a63741bc01f1edf2f6` |
 | 合同 payload | `5bd2b80b0953f4194d082940a7b9164c7231ca2d` |
-| 规范 D1 fixture | `d1-main-cockpit.json`，SHA-256 `f96ba30cc6e80aa52cb15a2fd1f03c082487a3cd4779c25f61e42ee1548e1e3b` |
+| 规范 D1 fixture | `d1-main-cockpit.json`，SHA-256 `05ac25909beaa84942a0468d2ae2d8058e7348bd0bd2b7bc86d6fd344fe69439` |
 | 必需 Core capabilities | 15 项冻结能力加 additive extension capabilities，包括 `runtime.cockpit_context_v1` |
 | 内置 locale | `en`、`zh-CN` |
 | 外观系统 | 5 套 skin、8 组有效 skin/mode、3 档 density、3 种 motion |
 
 当前机器可读 manifest 是 [release-manifest.toml](release-manifest.toml)。
-不可变 rc.3 快照是
-[manifests/0.1.0-rc.3.toml](manifests/0.1.0-rc.3.toml)；此版本 checkpoint
-下两者必须逐字节一致。更早的 alpha、beta 与 rc.2 快照继续作为历史证据保留，不会被重写。
+不可变 rc.4 快照是
+[manifests/0.1.0-rc.4.toml](manifests/0.1.0-rc.4.toml)；此版本 checkpoint
+下两者必须逐字节一致。更早的 alpha、beta、rc.2 与 rc.3 快照继续作为历史证据保留，
+不会被重写。`rc.4` 新增 DiffReview 与 EvidenceView 两个界面以及 `0.3.3` 的四项
+Core capability；它的 `[evidence].root` 有意仍指向 rc.3 目录，因为本次 checkpoint
+没有产出 `0.1.0-rc.4` 验收目录，指名一个不存在的目录比指名一个真实存在的更糟。
 
 ## 设计真源顺序
 
@@ -784,7 +787,8 @@ immutable rc.3 snapshot 记录相同证据路径并保持逐字节一致。macOS
 画廊模块本身已在 `claude/hygiene-h1` 上删除：从来没有任何地方 import 它，没有任何
 qa state 或脚本渲染它，它的样式表也从未进入过 bundle，因此它既没有产出 capture，也
 不可能发生回归。于是 `release-manifest.toml` 以及 `0.1.0-rc.2`/`0.1.0-rc.3` 快照中的
-`[evidence] component_gallery` 键指向了一个不再存在的路径。这些文件被
+`[evidence] component_gallery` 键曾指向一个不再存在的路径。rc.2 与 rc.3 两份快照被
 `rc_release_manifest_is_an_immutable_byte_equivalent_snapshot` 逐字节冻结，无法就地
-修正；该键将在编写 `0.1.0-rc.4` manifest 时移除，模块本身可从 Git 历史中恢复，作为
-rc.3 的记录。
+修正；该键已在本次 release 步骤编写的 active manifest 及其 `0.1.0-rc.4` 快照中移除，
+被冻结的 rc.2 与 rc.3 快照保留它作为那两个版本自身声明的记录，模块本身仍可从 Git
+历史中恢复。

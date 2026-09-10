@@ -62,23 +62,27 @@ login shell or embedding a machine-specific absolute path.
 
 | Field | Value |
 | --- | --- |
-| GUI component version | `0.1.0-rc.3` |
+| GUI component version | `0.1.0-rc.4` |
 | Minimum Core version | `0.3.5` |
 | Supported frontend schemas | `[1]` |
 | Common branch base | `3a7740ea72e58f4a22248a80f9e7324c49bb0f73` |
 | Core final checkpoint | `f7fe1b31dfb237e4062209767a7051c2b2c68b93` |
-| Core code checkpoint | `17fa2071398d5eaf30045257163d57d22d99177b` |
+| Core code checkpoint | `1cec82185bbe860d6b8536a63741bc01f1edf2f6` |
 | Contract payload | `5bd2b80b0953f4194d082940a7b9164c7231ca2d` |
-| Canonical D1 fixture | `d1-main-cockpit.json`, SHA-256 `f96ba30cc6e80aa52cb15a2fd1f03c082487a3cd4779c25f61e42ee1548e1e3b` |
+| Canonical D1 fixture | `d1-main-cockpit.json`, SHA-256 `05ac25909beaa84942a0468d2ae2d8058e7348bd0bd2b7bc86d6fd344fe69439` |
 | Required Core capabilities | 15 frozen values plus additive extension capabilities, including `runtime.cockpit_context_v1` |
 | Built-in locales | `en`, `zh-CN` |
 | Appearance | 5 skins, 8 valid skin/mode pairs, 3 densities, 3 motion policies |
 
 The active machine-readable manifest is
-[release-manifest.toml](release-manifest.toml). Its immutable rc.3 snapshot is
-[manifests/0.1.0-rc.3.toml](manifests/0.1.0-rc.3.toml); both files must
-remain byte-equivalent for this release checkpoint. Earlier alpha, beta, and
-rc.2 snapshots remain historical evidence and are not rewritten.
+[release-manifest.toml](release-manifest.toml). Its immutable rc.4 snapshot is
+[manifests/0.1.0-rc.4.toml](manifests/0.1.0-rc.4.toml); both files must
+remain byte-equivalent for this release checkpoint. Earlier alpha, beta, rc.2,
+and rc.3 snapshots remain historical evidence and are not rewritten. `rc.4`
+adds the DiffReview and EvidenceView surfaces and the four `0.3.3` Core
+capabilities; its `[evidence].root` deliberately still names the rc.3 tree,
+because no `0.1.0-rc.4` acceptance tree was produced and naming one that does
+not exist would be worse than naming the one that does.
 
 ## Design source order
 
@@ -1023,9 +1027,10 @@ The gallery module itself was deleted on `claude/hygiene-h1`: nothing ever
 imported it, no qa state or script rendered it, and its stylesheet never
 reached a bundle, so it produced no capture and could not regress. The
 `[evidence] component_gallery` key in `release-manifest.toml` and in the
-`0.1.0-rc.2`/`0.1.0-rc.3` snapshots therefore names a path that no longer
-exists. Those files are byte-frozen by
+`0.1.0-rc.2`/`0.1.0-rc.3` snapshots therefore named a path that no longer
+exists. Those two snapshots are byte-frozen by
 `rc_release_manifest_is_an_immutable_byte_equivalent_snapshot`, so the key
-cannot be corrected in place; it is dropped when the `0.1.0-rc.4` manifest is
-authored, and the module stays recoverable from Git history as the rc.3
-record.
+could not be corrected in place. It is dropped from the active manifest and its
+`0.1.0-rc.4` snapshot, authored for this release step; the frozen rc.2 and rc.3
+snapshots keep it as the record of what those versions claimed, and the module
+stays recoverable from Git history.

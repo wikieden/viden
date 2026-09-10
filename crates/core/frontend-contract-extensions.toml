@@ -1,14 +1,14 @@
 schema_version = 1
 base_component_version = "0.3.0"
-candidate_component_version = "0.3.5"
+candidate_component_version = "0.3.6"
 base_contract_checkpoint = "5bd2b80b0953f4194d082940a7b9164c7231ca2d"
 compatibility = "additive_capability_gated"
 capabilities = ["core.workspace_host", "runtime.agent_adapters", "runtime.agent_conversation", "runtime.agent_permission_bridge", "runtime.agent_session_input", "runtime.agent_sessions", "runtime.audit", "runtime.cockpit_context_v1", "runtime.conflict_content", "runtime.credential_handles", "runtime.credential_staging", "runtime.evidence_reads", "runtime.lane_lifecycle", "runtime.lane_owner_projection", "runtime.operator_git", "runtime.project_onboarding", "runtime.recent_work", "runtime.starter_lane_preview", "runtime.structured_diff", "runtime.trust_loop", "runtime.workspace_eligibility", "runtime.workspace_files", "ui.preference_persistence"]
 extension_fixture = "frontend-host-services.json"
 extension_fixture_sha256 = "96dd5fde9f1241eb50f9d8978cf478d0ac5d3327448dc6ccde9d0e5018ce1580"
 interaction_fixture = "interaction-closed-loop.json"
-interaction_fixture_sha256 = "78e8993fa455149d05744d15e70bc4c2072f3d4726bf76026203826f500204a5"
-interaction_view_sha256 = "46db05abaaae36cf37cb7ffa0493a4ef8c158a2d5b4ffeef08d01dbf8e284ed0"
+interaction_fixture_sha256 = "a6f1c436a15f7c77a5410c3563d8c3f67c5a5a3864692de61db61623f93ed891"
+interaction_view_sha256 = "c43d9fe304c28a50349e441c643837a9899cccab79566f9c193838248df2da1d"
 review_decision_fixture = "review-decision.json"
 review_decision_fixture_sha256 = "b8e0b5389c3f21be4b4f28cfeba8d902917a304c6b9252cf9911dcccb6146a2b"
 review_decision_view_sha256 = "38f81bbc1966fbf5742b0087bdd9e871eb11d58cdee747628ed3f4ca1323713c"

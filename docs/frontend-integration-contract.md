@@ -42,28 +42,38 @@ runtime.typed_tasks
 ui.preferences
 ```
 
-Core `0.3.4` keeps schema `1` and advertises the following separately versioned,
-lexically sorted extension capabilities. Base-only clients still connect; each
-feature checks its own extension and remains visibly unavailable with zero
-command transport when that extension is absent.
+Core `0.3.6` keeps schema `1` and advertises the following twenty-three
+separately versioned, lexically sorted extension capabilities. Base-only clients
+still connect; each feature checks its own extension and remains visibly
+unavailable with zero command transport when that extension is absent. The list
+below is the set recorded in `crates/core/release-manifest.toml` at the `0.3.6`
+checkpoint; it grew from nineteen when the `0.3.3` contract increment added
+`runtime.structured_diff`, `runtime.operator_git`, `runtime.conflict_content`,
+and `runtime.evidence_reads`.
 
 ```text
 core.workspace_host
 runtime.agent_adapters
+runtime.agent_conversation
 runtime.agent_permission_bridge
 runtime.agent_session_input
 runtime.agent_sessions
 runtime.audit
+runtime.cockpit_context_v1
+runtime.conflict_content
 runtime.credential_handles
 runtime.credential_staging
+runtime.evidence_reads
 runtime.lane_lifecycle
 runtime.lane_owner_projection
+runtime.operator_git
 runtime.project_onboarding
 runtime.recent_work
 runtime.starter_lane_preview
 runtime.structured_diff
 runtime.trust_loop
 runtime.workspace_eligibility
+runtime.workspace_files
 ui.preference_persistence
 ```
 

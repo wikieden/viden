@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-OUT_DIR="${1:-"$ROOT/target/tui-previews/0.3.3"}"
+OUT_DIR="${1:-"$ROOT/target/tui-previews/0.3.4"}"
 THEME="${VIDEN_TUI_PREVIEW_THEME:-aurora}"
 THEMES="${VIDEN_TUI_PREVIEW_THEMES:-aurora aurora-light ice ice-light mono mono-light amber phosphor}"
 PROVIDER="${VIDEN_TUI_PREVIEW_PROVIDER:-openai}"

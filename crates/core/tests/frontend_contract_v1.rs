@@ -146,15 +146,15 @@ fn frontend_contract_v1_capability_source_is_frozen_and_sorted() {
     assert!(advertised.contains(&CapabilityId("runtime.credential_handles".to_string())));
     let extension_manifest = include_str!("../frontend-contract-extensions.toml");
     assert!(extension_manifest.contains("base_component_version = \"0.3.0\""));
-    assert!(extension_manifest.contains("candidate_component_version = \"0.3.5\""));
+    assert!(extension_manifest.contains("candidate_component_version = \"0.3.6\""));
     assert!(extension_manifest.contains("compatibility = \"additive_capability_gated\""));
     assert!(extension_manifest.contains("[runtime_trust_loop]\ncommand_count = 8"));
-    assert_eq!(CORE_CLIENT_VERSION, "0.3.5");
-    assert_eq!(local_core_handshake().core_version, "0.3.5");
+    assert_eq!(CORE_CLIENT_VERSION, "0.3.6");
+    assert_eq!(local_core_handshake().core_version, "0.3.6");
 }
 
 #[test]
-fn frontend_host_capabilities_are_schema_one_core_0_3_5_and_additive() {
+fn frontend_host_capabilities_are_schema_one_core_0_3_6_and_additive() {
     let frozen_base = [
         "runtime.agent_dag",
         "runtime.approvals",
@@ -213,7 +213,7 @@ fn frontend_host_capabilities_are_schema_one_core_0_3_5_and_additive() {
     ];
 
     assert_eq!(FRONTEND_SCHEMA_V1, SchemaVersion(1));
-    assert_eq!(CORE_CLIENT_VERSION, "0.3.5");
+    assert_eq!(CORE_CLIENT_VERSION, "0.3.6");
     assert_eq!(CORE_CLIENT_CAPABILITIES, frozen_base);
     assert_eq!(CORE_EXTENSION_CAPABILITIES, extensions);
     assert!(
@@ -242,7 +242,7 @@ fn frontend_host_capabilities_are_schema_one_core_0_3_5_and_additive() {
         .expect("missing optional extensions must not block a frozen-base client");
 
     let extension_manifest = include_str!("../frontend-contract-extensions.toml");
-    assert!(extension_manifest.contains("candidate_component_version = \"0.3.5\""));
+    assert!(extension_manifest.contains("candidate_component_version = \"0.3.6\""));
     assert!(extension_manifest.contains("schema_version = 1"));
     assert!(extension_manifest.contains("runtime.cockpit_context_v1"));
     assert!(!extension_manifest.contains("runtime.workspace_facts"));
@@ -251,7 +251,7 @@ fn frontend_host_capabilities_are_schema_one_core_0_3_5_and_additive() {
         "extension_fixture_sha256 = \"96dd5fde9f1241eb50f9d8978cf478d0ac5d3327448dc6ccde9d0e5018ce1580\""
     ));
     assert!(extension_manifest.contains(
-        "interaction_fixture_sha256 = \"78e8993fa455149d05744d15e70bc4c2072f3d4726bf76026203826f500204a5\""
+        "interaction_fixture_sha256 = \"a6f1c436a15f7c77a5410c3563d8c3f67c5a5a3864692de61db61623f93ed891\""
     ));
 }
 
@@ -456,18 +456,58 @@ fn interaction_closed_loop_fixture_replays_identically_after_a_gap() {
     assert_eq!(full_view.lane_recoveries.len(), 1);
 
     let release_manifest = include_str!("../release-manifest.toml");
-    assert!(release_manifest.contains("component_version = \"0.3.5\""));
+    assert!(release_manifest.contains("component_version = \"0.3.6\""));
     assert!(release_manifest.contains("runtime.cockpit_context_v1"));
     assert!(!release_manifest.contains("runtime.workspace_facts"));
     assert!(release_manifest.contains(
-        "contract_implementation_checkpoint = \"17fa2071398d5eaf30045257163d57d22d99177b\""
+        "contract_implementation_checkpoint = \"1cec82185bbe860d6b8536a63741bc01f1edf2f6\""
     ));
-    assert!(release_manifest.contains(
-        "payload_sha256 = \"78e8993fa455149d05744d15e70bc4c2072f3d4726bf76026203826f500204a5\""
-    ));
-    assert!(release_manifest.contains(
-        "view_sha256 = \"46db05abaaae36cf37cb7ffa0493a4ef8c158a2d5b4ffeef08d01dbf8e284ed0\""
-    ));
+
+    // The manifest's fixture digests are pinned by *recomputation*, not by a
+    // literal. A literal pin only has to be edited by hand once — or missed
+    // once, which is what happened between `0.3.5` and this checkpoint, where
+    // the interaction fixture was edited twice after its digest was recorded
+    // and no gate noticed — for the pin to stop describing the shipped bytes.
+    // Deriving both halves here means a moved fixture fails the checkpoint.
+    assert!(
+        release_manifest.contains(&format!(
+            "payload_sha256 = \"{:x}\"",
+            Sha256::digest(&fixture_bytes)
+        )),
+        "the release manifest must pin the interaction fixture's exact bytes"
+    );
+    assert!(
+        release_manifest.contains(&format!("view_sha256 = \"{full_digest}\"")),
+        "the release manifest must pin the interaction fixture's replayed view digest"
+    );
+
+    // The 0.3.3 contract increment's four extension fixtures are recorded in
+    // the same checkpoint that advertises their capabilities, and by the same
+    // derivation.
+    let root = fixture_root();
+    for name in [
+        "structured-diff.json",
+        "operator-git.json",
+        "conflict-content.json",
+        "evidence-reads.json",
+    ] {
+        let bytes = fs::read(root.join(name)).expect("read 0.3.3 extension fixture bytes");
+        let payload = format!("{:x}", Sha256::digest(&bytes));
+        let fixture = read_fixture(&root, name);
+        let (_, cursor, digest) = replay_fixture(&fixture);
+        assert!(
+            release_manifest.contains(&format!("payload_sha256 = \"{payload}\"")),
+            "{name} payload digest is not pinned in the Core release manifest"
+        );
+        assert!(
+            release_manifest.contains(&format!("view_sha256 = \"{digest}\"")),
+            "{name} view digest is not pinned in the Core release manifest"
+        );
+        assert!(
+            release_manifest.contains(&format!("final_cursor = {}", cursor.sequence)),
+            "{name} final cursor is not pinned in the Core release manifest"
+        );
+    }
 }
 
 /// GUI-CORE-011: canonical proof that a review verdict is readable as a
