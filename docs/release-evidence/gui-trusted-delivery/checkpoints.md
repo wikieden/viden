@@ -51,7 +51,7 @@ worktree, offline.
 | `cargo test -p viden-core` | PASS, 53 across 6 suites, 15 ignored |
 | `cargo test -p viden-core --test frontend_contract_v1` | PASS, 19 passed, 15 ignored |
 | `cargo test -p viden-tui` | PASS, 410 (409 + 1) |
-| `cargo test -p viden-gui` | PASS, all suites green |
+| `cargo test -p viden-gui` | PASS, 274, 1 ignored |
 | `cargo test -p viden-gui --test architecture_boundary` | PASS, 7 |
 | `cargo test -p viden-gui --test capture_projections -- --ignored` | PASS, 1 |
 | `cargo test --workspace --quiet` | PASS, **1942 passed, 0 failed**, 78 result lines, first run, no flake reruns needed |
@@ -62,6 +62,10 @@ worktree, offline.
 | `cargo clippy --workspace --all-targets` | PASS, exit 0, warnings only (2 in `viden-runtime`, 4 in `viden-gui`), all pre-existing and outside this batch's diff |
 | `scripts/check-dependency-boundaries.sh` | PASS, exit 0 |
 | `scripts/tui-regression.sh` | PASS, exit 0; evidence at `target/tui-regression/0.3.4/` |
+| `scripts/tui-previews.sh` | PASS (run inside `tui-regression.sh`) |
+| `scripts/native-acp-fixture-parity.sh` | PASS, exit 0 |
+| `scripts/tui-turn-controller-smoke.sh` | PASS, exit 0 |
+| `scripts/rc-tui-stability-smoke.sh` | PASS, exit 0 |
 | `scripts/check-doc-pairs.sh` (every changed Markdown pair) | PASS |
 | `scripts/check-doc-links.sh` (every changed Markdown pair) | PASS |
 | `git diff --check` | PASS |

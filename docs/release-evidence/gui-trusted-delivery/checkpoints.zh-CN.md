@@ -47,7 +47,7 @@ Core 推进是因为 `0.3.3` 契约增量新增了四项能力；两个客户端
 | `cargo test -p viden-core` | PASS，6 个 suite 共 53，15 个 ignored |
 | `cargo test -p viden-core --test frontend_contract_v1` | PASS，19 通过，15 ignored |
 | `cargo test -p viden-tui` | PASS，410（409 + 1） |
-| `cargo test -p viden-gui` | PASS，全部 suite 通过 |
+| `cargo test -p viden-gui` | PASS，274，1 个 ignored |
 | `cargo test -p viden-gui --test architecture_boundary` | PASS，7 |
 | `cargo test -p viden-gui --test capture_projections -- --ignored` | PASS，1 |
 | `cargo test --workspace --quiet` | PASS，**1942 通过，0 失败**，78 条结果行，首次运行即通过，无需重跑任何抖动测试 |
@@ -58,6 +58,10 @@ Core 推进是因为 `0.3.3` 契约增量新增了四项能力；两个客户端
 | `cargo clippy --workspace --all-targets` | PASS，退出码 0，只有 warning（`viden-runtime` 2 条、`viden-gui` 4 条），全部是既有问题且不在本批次 diff 内 |
 | `scripts/check-dependency-boundaries.sh` | PASS，退出码 0 |
 | `scripts/tui-regression.sh` | PASS，退出码 0；证据在 `target/tui-regression/0.3.4/` |
+| `scripts/tui-previews.sh` | PASS（在 `tui-regression.sh` 内部运行） |
+| `scripts/native-acp-fixture-parity.sh` | PASS，退出码 0 |
+| `scripts/tui-turn-controller-smoke.sh` | PASS，退出码 0 |
+| `scripts/rc-tui-stability-smoke.sh` | PASS，退出码 0 |
 | `scripts/check-doc-pairs.sh`（每一对改动的 Markdown） | PASS |
 | `scripts/check-doc-links.sh`（每一对改动的 Markdown） | PASS |
 | `git diff --check` | PASS |
