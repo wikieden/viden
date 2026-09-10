@@ -487,6 +487,18 @@ explicit future gates.
 See `docs/release-gui-0.1.0-rc.3-status.md` and
 `docs/release-evidence/gui-d1-cockpit/checkpoints.md`.
 
+### 0.3.3 Trusted Delivery Candidate
+
+Amendment 2026-09-10. The section above records the `0.3.2`-era candidate and is
+kept as its history. The current local candidate is the integration branch
+`claude/int-0.3.3`, based on `origin/main` at
+`7473a73eeec6336c2ed9059780d3ed97082b0c5e`, combining Core `0.3.6`
+(implementation checkpoint `1cec82185bbe860d6b8536a63741bc01f1edf2f6`, schema
+`1`, 23 extension capabilities), TUI `0.3.4`, and GUI `0.1.0-rc.4`. It is not on
+`main`, not pushed, and not released. The record, the deterministic gate
+results, and the honest limits of its one real task are in
+`docs/release-evidence/gui-trusted-delivery/checkpoints.md`.
+
 ## Explicit Non-Goals
 
 - Do not create implementation branches from the current dirty, stale local `main`.

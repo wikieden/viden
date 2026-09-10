@@ -1,0 +1,46 @@
+ VIDEN / DECISIONS  fallback  test-local  ready
+ /tmp/viden-e1-fixtureXXXXXXXXXXX  lane -  session -  approvals 1
+
+┌ DECISIONS ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ APPROVAL approval_1789015368805060000 · Appro┌ APPROVAL ────────────────────────── Esc close · arrows move · Enter open ┐                                              │
+│ COMMAND tui-2 · pending Core fact            │ Approve edit_file · Medium                                               │                                              │
+│                                              │ Approve edit_file?                                                       │                                              │
+│                                              │ TARGET    new: Edited  old: Fixture  path: README.md                   │                                                │
+│                                              │ README.md  Modified  +1 -1                                               │                                              │
+│                                              │   @@ -1,5 +1,5 @@                                                        │                                              │
+│                                              │     1       - # E1 Fixture                                               │                                              │
+│                                              │           1 + # E1 Edited                                                │                                              │
+│                                              │     2     2                                                              │                                              │
+│                                              │     3     3   Status: Fixture                                            │                                              │
+│                                              │     4     4                                                              │                                              │
+│                                              │     5     5   This repository exists only as the E1 release-evidence fi… │                                              │
+│                                              │ computed against 65f130d7                                                │                                              │
+│                                              │ 1 Allow once                                                             │                                              │
+│                                              │ 2 Allow for session · unavailable                                        │                                              │
+│                                              │ 3 Add repo allowlist                                                     │                                              │
+│                                              │ 4 Deny                                                                   │                                              │
+│                                              │ auto-deny @1789015668 · default Deny                                     │                                              │
+│                                              │ AUDIT   audit_1789015368805063000                                        │                                              │
+│                                              │                                                                          │                                              │
+│                                              │                                                                          │                                              │
+│                                              └──────────────────────────────────────────────────────────────────────────┘                                              │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+└────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+ P:fixture2 L:- M:Build OVERLAY · ACTIVE · EVENTS 0 · TOKENS 0 · PROVIDER ready
+ PERM:Ask A:1 ⏸ 0 E:0 · CTX:unavailable · COST:unavailable · CMD:pending Core fact · Ctrl-K commands · Ctrl-C cancel · Esc back

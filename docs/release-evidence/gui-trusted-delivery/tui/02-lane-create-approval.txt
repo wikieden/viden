@@ -1,0 +1,46 @@
+ VIDEN / DECISIONS  fallback  test-local  ready
+ /tmp/viden-e1-fixtureXXXXXXXXXXX  lane -  session -  approvals 1
+
+┌ DECISIONS ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ APPROVAL lane-approval_1789014851872528000 · ┌ APPROVAL ────────────────────────── Esc close · arrows move · Enter open ┐                                              │
+│ COMMAND tui-3 · pending Core fact            │ Approve lane_create · Medium                                             │                                              │
+│                                              │ Approve `lane_create` for lane `lane_1789014851546378000`                │                                              │
+│                                              │ TARGET  /tmp/viden-e1-fixtureXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX         │                                              │
+│                                              │ INPUT   branch: viden/lane_1789014851546378000path: /private/tm         │                                               │
+│                                              │ 1 Allow once                                                             │                                              │
+│                                              │ 2 Allow for session · unavailable                                        │                                              │
+│                                              │ 3 Add repo allowlist                                                     │                                              │
+│                                              │ 4 Deny                                                                   │                                              │
+│                                              │ auto-deny @1789015151 · default Deny                                     │                                              │
+│                                              │ AUDIT   audit_1789014851872529000                                        │                                              │
+│                                              │                                                                          │                                              │
+│                                              │                                                                          │                                              │
+│                                              └──────────────────────────────────────────────────────────────────────────┘                                              │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+└────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+ P:fixture-repo L:- M:Build OVERLAY · ACTIVE · EVENTS 1 · TOKENS 0 · PROVIDER ready
+ PERM:Ask A:1 ⏸ 0 E:0 · CTX:unavailable · COST:unavailable · CMD:pending Core fact · Ctrl-K commands · Ctrl-C cancel · Esc back

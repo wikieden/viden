@@ -1,0 +1,44 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                               /\
+                                                                          ____/  \____
+                                                                         / __  /\  __ \
+                                                                        /_/  |/__\|  \_\
+                                                                        |  []  /\  []  |
+                                                                        |_____/  \_____|
+                                                                            /_VIDEN_\
+
+
+                                ▌  Ask anything... "Fix broken tests"
+                                ▌
+                                ▌ Viden - Operator · test-local fallback
+
+                                                                                         tab agents   ctrl+p commands   /connect
+
+
+
+
+
+
+
+
+
+
+
+
+/tmp/viden-e1-fixtureXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX◎ 0 lanes  /status                                                               v0.3.4
+

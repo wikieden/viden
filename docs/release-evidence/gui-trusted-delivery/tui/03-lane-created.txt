@@ -1,0 +1,46 @@
+ VIDEN / LANES  fallback  test-local  healthy
+ /tmp/viden-e1-fixtureXXXXXXXXXXX  lane lane_1789014851546378000  session -  approvals 0
+
+┌ LANE BOARD ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ lane_1789014550909840000 · coder · Cancelled ┌ LANE DETAIL ─────────────────────────────────── lane_1789014851546378000 ┐                                              │
+│ lane_1789014851546378000 · coder · Draft · SE│ lane_1789014851546378000 coder                                           │                                              │
+│                                              │ ROUTE main→side-1                                                        │                                              │
+│                                              │ STATE  Draft                                                             │                                              │
+│                                              │ CONTROL [stop] [tmux] [pty] [send] [inspect]                             │                                              │
+│                                              │                                                                          │                                              │
+│                                              │                                                                          │                                              │
+│                                              │                                                                          │                                              │
+│                                              │                                                                          │                                              │
+│                                              └──────────────────────────────────────────────────────────────────────────┘                                              │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+└────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+ P:fixture-repo L:lane_178901485 M:Build NORMAL · ACTIVE · EVENTS 3 · TOKENS 0 · PROVIDER healthy
+ PERM:Ask A:0 ⏸ 0 E:0 · CTX:nominal · COST:blind · CMD:pending Core fact · Ctrl-K commands · Ctrl-C cancel · Esc back

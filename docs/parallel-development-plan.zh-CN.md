@@ -427,6 +427,16 @@ authentication 仍是明确的后续门禁。
 详见 `docs/release-gui-0.1.0-rc.3-status.zh-CN.md` 和
 `docs/release-evidence/gui-d1-cockpit/checkpoints.md`。
 
+### 0.3.3 可信交付候选
+
+2026-09-10 修订。上一节记录的是 `0.3.2` 时期的候选，作为历史保留。当前的本地候选
+是集成分支 `claude/int-0.3.3`，基于 `origin/main` 的
+`7473a73eeec6336c2ed9059780d3ed97082b0c5e`，组合 Core `0.3.6`（实现 checkpoint
+`1cec82185bbe860d6b8536a63741bc01f1edf2f6`，schema `1`，23 项 extension
+capability）、TUI `0.3.4` 与 GUI `0.1.0-rc.4`。它不在 `main` 上，没有推送，也没有
+发布。记录、确定性 gate 结果，以及它那次真实任务的诚实边界，见
+`docs/release-evidence/gui-trusted-delivery/checkpoints.zh-CN.md`。
+
 ## 明确不做
 
 - 不从当前 dirty、落后的本地 `main` 直接创建三个实现分支。

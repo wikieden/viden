@@ -216,6 +216,7 @@ cherry-picked onto that branch; none of it is pushed, merged, or released.
 | T1a TUI parity (approvals, `/git`, conflict detail) | landed | 2026-09-09 |
 | T1b TUI evidence inspector | landed | 2026-09-10 |
 | F1 facade re-exports and docs write-back | landed | 2026-09-10 |
+| E1 release evidence | landed, with the goal-4 caveat below | 2026-09-10 |
 
 G1 and G2 were each split in two once C2 and C4 landed, and T1 likewise; the
 split is recorded here because the batch table above still names the
@@ -227,13 +228,31 @@ plan makes it conditional on everything before it being on `main`, which has
 not happened, so it rolls to `0.3.4` unless the integration branch merges
 first.
 
-E1 (release evidence: one real task from intake to a committed change) is
-pending and is the remaining gate for the exit criteria. It also owns the
-Core `0.3.6` immutable-checkpoint declaration and the `component_version` bump
-in `crates/core/release-manifest.toml`, neither of which any batch so far was
-authorized to make.
+E1 landed on 2026-09-10. It recorded the Core `0.3.6` immutable checkpoint, the
+TUI `0.3.4` and GUI `0.1.0-rc.4` candidate versions, and the bilingual evidence
+document
+[release-evidence/gui-trusted-delivery/checkpoints.md](release-evidence/gui-trusted-delivery/checkpoints.md).
+
+**Goal 4 is partly met, and this is the exact statement.** One real task was
+driven through a client against a real temporary Git repository: a workspace was
+opened, a Lane was created through a Core approval, and an `edit_file` was
+approved against a rendered decision-context diff carrying its `base_sha256` and
+then applied to the file. That is met **for transcript facts and for the
+approval's own decision context**. It is **not** met for archived evidence —
+nothing the supervisor drives writes the durable archive, which is the deferred
+GUI-CORE-028 — and it is **not** met for a durable audit record of that
+mutation, because the audit timeline is appended only by trust-loop and operator
+git actions, so an approved native tool edit leaves no audit row. The commit and
+push half did not run at all: `runtime.operator_git` needs a Core-published
+owner, the workspace target has none (GUI-CORE-027), and the TUI cannot hold a
+Lane selected while reaching the composer where `/git` is typed. The native GUI
+window could not be driven in this environment because the host Mac's screen was
+locked. All of it is recorded, with what was tried, in the evidence document and
+in `docs/core-0.3-compatibility.md`.
 
 Two contract facts changed since the baseline above: GUI-CORE-012, 015, 020,
 and 025 are fully closed (Core published, both clients adopted), and
 GUI-CORE-027 (workspace-scoped operator identity) is opened and scheduled for
-`0.3.4`. The open register is 009, 013, 018, 019, 021, 023, 026, and 027.
+`0.3.4`. E1 then opened GUI-CORE-028 (durable evidence for supervisor-driven
+work), also scheduled for `0.3.4`. The open register is 009, 013, 018, 019, 021,
+023, 026, 027, and 028.

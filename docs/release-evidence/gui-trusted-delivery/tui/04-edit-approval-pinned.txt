@@ -1,0 +1,46 @@
+ VIDEN / COCKPIT  fallback  test-local  ready
+ /tmp/viden-e1-fixtureXXXXXXXXXXX  lane -  session -  approvals 1
+
+┌ TRANSCRIPT ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ SYSTEM                                       ┌ APPROVAL ───────────────────────────────────── audit_1789015368805063000 ┐                                              │
+│   provider=fallback model=test-local api_base│ Approve edit_file · Medium                                               │l=test-local plugin_dirs=<default>            │
+│   permission_mode=default session_home=<defau│ Approve edit_file?                                                       │den/config.toml,                              │
+│   /tmp/viden-e1-fixtureXXXXXXXXXXXXXXXXXXXXXX│ TARGET    new: Edited  old: Fixture  path: README.md                   │viden/config.toml                               │
+│                                              │ INPUT     new: Edited  old: Fixture  path: README.md                   │                                                │
+│ USER                                         │ PINNED · Ctrl-G Decisions · Enter select to focus                        │                                              │
+│   tool edit_file path=README.md old=Fixture n│                                                                          │                                              │
+│                                              └──────────────────────────────────────────────────────────────────────────┘                                              │
+│      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄                                                                       │
+│      ┊  ✦ session idle ∙                                                                                                                                               │
+│      ┊    └ tool edit_file path=README.md old=Fixture new=Edited                                                                                                       │
+│      ┊      signal latest transcript event                                                                                                                             │
+│      ┊  SUPERVISION · Core facts                                                                                                                                       │
+│      ┊  APPROVAL approval_1789015368805060000 · Active · AUDIT audit_1789015368805063000                                                                               │
+│      ┊  COMMAND tui-2 · pending Core fact                                                                                                                              │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+└────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+┌ Viden >_ ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                                                                                                                                                         │              │
+│ › Type next prompt while Viden works...                                                                                                                 │ MODE Build ▾ │
+│                                                                                                                                                         │              │
+│ MODE [Build]  PERM [Ask]                                                                                       ACTIONS: [^J Queue] [^C Cancel] [PgUp History] [? Help] │
+└────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+ P:fixture2 L:- M:Build INSERT · ACTIVE · EVENTS 0 · TOKENS 0 · PROVIDER ready
+ PERM:Ask A:1 ⏸ 0 E:0 · CTX:unavailable · COST:unavailable · CMD:pending Core fact · Ctrl-K commands · Ctrl-C cancel · Esc back

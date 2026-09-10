@@ -1,0 +1,46 @@
+ VIDEN / DECISIONS  fallback  test-local  healthy
+ /tmp/viden-e1-fixtureXXXXXXXXXXX  lane -  session -  approvals 0
+
+┌ DECISIONS ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ COMMAND tui-4 · pending Core fact            ┌ AUDIT TIMELINE ──────────── Esc close · arrows select · Enter load older ┐                                              │
+│                                              │ SCOPE project timeline · newest first                                    │                                              │
+│                                              │ Core published no audit record for this scope.                           │                                              │
+│                                              │ LOADED 0 · nothing older matches                                         │                                              │
+│                                              │                                                                          │                                              │
+│                                              │                                                                          │                                              │
+│                                              │                                                                          │                                              │
+│                                              │                                                                          │                                              │
+│                                              │                                                                          │                                              │
+│                                              │                                                                          │                                              │
+│                                              │                                                                          │                                              │
+│                                              │                                                                          │                                              │
+│                                              │                                                                          │                                              │
+│                                              └──────────────────────────────────────────────────────────────────────────┘                                              │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+│                                                                                                                                                                        │
+└────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+ P:fixture2 L:- M:Build OVERLAY · ACTIVE · EVENTS 2 · TOKENS 0 · PROVIDER healthy
+ PERM:Ask A:0 ⏸ 0 E:0 · CTX:nominal · COST:blind · CMD:pending Core fact · Ctrl-K commands · Ctrl-C cancel · Esc back

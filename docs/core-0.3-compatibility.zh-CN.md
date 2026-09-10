@@ -398,7 +398,7 @@ Fixture 文件位于 `crates/types/tests/fixtures/frontend-contract-v1/`。下�
 | Fixture id | 扩展场景 | 最终 view SHA-256 | Canonical fixture bytes SHA-256 |
 | --- | --- | --- | --- |
 | `frontend-host-services` | UI 偏好持久化、安全 recent work、reviewed starter-Lane preview/create/invalidation、精确 live Lane owner，以及一个可容忍的未来 optional event | `b118534bb0a568a6a1e781171cecf0512c7d987736c06e4f84d51b5835022a0e` | `96dd5fde9f1241eb50f9d8978cf478d0ac5d3327448dc6ccde9d0e5018ce1580` |
-| `interaction-closed-loop` | 文件夹绑定但不隐式配置、reviewed Lane 创建、built-in 与 ACP adapter/session、共享审批、evidence/gate、apply conflict、typed recovery、重连 replay 与完成态 | `31b71bf154d42c8c7923fe9c64763a5245f785a2cd953913124f30a981589b51` | `596e82efa03d21b1f9645f40cf500ca8c4c1b86b2aa78be85a6bea0184822bff` |
+| `interaction-closed-loop` | 文件夹绑定但不隐式配置、reviewed Lane 创建、built-in 与 ACP adapter/session、共享审批、evidence/gate、apply conflict、typed recovery、重连 replay 与完成态 | `c43d9fe304c28a50349e441c643837a9899cccab79566f9c193838248df2da1d` | `a6f1c436a15f7c77a5410c3563d8c3f67c5a5a3864692de61db61623f93ed891` |
 | `review-decision` | 独立评审结论：`ReviewRequestStatus` 由 `Pending` 迁移到 `Accepted`，携带 reviewer feedback 与被打戳的 gate validator，同时 gate 决定仍然独立 | `38f81bbc1966fbf5742b0087bdd9e871eb11d58cdee747628ed3f4ca1323713c` | `b8e0b5389c3f21be4b4f28cfeba8d902917a304c6b9252cf9911dcccb6146a2b` |
 | `context-budgets` | 两条并发 Lane 各自携带精确绑定的 owner 与互不相同的 task-scoped budget，一条处于软压力、一条越过硬上限 | `1b251b312b05ef950cdfc8190347e848a38d92bdaf26fe7d196e1ba053fc667b` | `7fcbde9edc5aa1a40a5cd41b0a8442403c6424903cc754cbe64d45980389029f` |
 | `streamed-turn` | 同一 session 与 message id 下的有序 `AssistantDelta` chunk 恰好重建最终回复，作为终止标记的完成事实不会重复追加 | `2567d9709e6ec96d621fa281acc205ba5a8fe0b8a08f5868b70ca386f70e3a7d` | `3b1129fb57860aa337c571a9f70be2eacca432c4419bfbb1f4c2943dd371b8e2` |
@@ -511,15 +511,64 @@ page 与每一个内容事件之后 `latest_evidence` 仍为空，这正是归�
    Agent session 也不发布任务，因此 TUI 的活动判定在该路径上依赖
    `assistant_stream` 的残留。关闭它需要 Core 提供轮次存活事实，而不是客户端
    的猜测。完整推理见上文延后跟进项的第 2 条。
-4. **离线原生会话中的持久证据归档为空**（T1b 期间发现；调查中，尚未决策）。
-   由引擎输出产生的证据行 —— 种类 `system`、`command` 与 `provider_*` 家族 ——
-   会进入 `RuntimeViewState.latest_evidence`，却从不写入 `QueryEvidence` 读取
-   的持久归档；原生工具编辑完全不记录 `patch` 证据；也没有任何客户端派发
-   `StartAgentTask`。后果是：对于一个记录里满是证据的会话，
-   `runtime.evidence_reads` 会正确地回答一个空归档，而两个客户端随后如实地把
-   它渲染为"无证据"。修复究竟是把这些行写通到归档、收窄 `latest_evidence` 的
-   接收范围，还是在契约中写明两个投影各自不同的作用域，尚未决定；`0.3.3` 中
-   未作任何改动。
+4. **离线原生会话中的持久证据归档为空**（T1b 期间发现）。**已于 2026-09-10
+   决策，作为 GUI-CORE-028 推迟到 `0.3.4`**；E1 发布证据回合在真实仓库上复现了
+   它。任何经 `RuntimeSupervisor` 驱动的工作 —— 原生 Lane 回合、ACP 会话 ——
+   都到不了 engine 归约中的 `EvidenceRecorded` 分支
+   （`crates/runtime/src/session_lifecycle.rs:860`），而那是该归档唯一的写入点；
+   因此一次原生工具变更只记录转录事实、一条实时 `WorkspaceChangeUpdated` 和一条
+   瞬态 `tool_result` 行，完全没有归档的 `patch` 证据。于是对于一个记录里满是
+   证据的会话，`runtime.evidence_reads` 会正确地回答一个空归档，两个客户端也
+   如实渲染。决策是：这是 Core 的持久化缺口，而不是契约措辞或 `latest_evidence`
+   作用域问题；跨 `runtime_loop` / `runtime_supervisor` / `session_lifecycle` 的
+   接线超出 `0.3.3` 的风险预算。完整陈述、逐个生产者的引用与关闭条件见
+   `apps/gui/contract-requests.zh-CN.md` 的 GUI-CORE-028。`0.3.3` 中未作任何
+   改动。
+
+2026-09-10 由 E1 发布证据回合新增的开放后续项。该回合在一个临时 Git 仓库上、
+使用 `fallback` provider，通过 TUI 跑了一次真实任务。每一条都是复现出来的，不是
+推断出来的；E1 中一条也没有修复。
+
+5. **会话级排队的后续输入永远不会被执行**（Core，阻断级）。
+   `RuntimeCommand::QueueFollowUp` 把内容压入
+   `SessionEngine::queued_runtime_inputs`（`crates/runtime/src/runtime_contract.rs:643`）
+   并重放进视图（`:1762`）。没有任何地方移除它，也没有任何地方执行它：
+   `InputDequeued` 的唯一生产者是 Lane worker 自己的队列
+   （`crates/lanes/src/lane_worker.rs:979`）。因此对内置路径而言，
+   `RuntimeViewState.queued_inputs` 只增不减，排队的提示是 Core 发布出来却从不
+   处理的事实。
+6. **TUI 的输入框在一次会话余下的时间里不再提交**（TUI，阻断级，是第 5 条与上文
+   第 3 条的后果）。`command_for_composer`（`apps/tui/src/tui/app.rs:2601`）在
+   `state::runtime_has_active_work`（`apps/tui/src/tui/state.rs:261`）为真时一律
+   路由到 `QueueFollowUp`；而该判定在以下情况为真：`assistant_stream` 仍残留着
+   一次已完成的内置回合的文本、任何 Lane 处于 `Draft`
+   （`LaneStatus::is_active`，`crates/types/src/agent.rs:403`，而 Core 正是把
+   starter Lane 留在这个状态）、或 `queued_inputs` 非空——按第 5 条，一旦有东西
+   入队它就永远非空。实测：一次 fallback 回合完成之后，或创建一条 starter Lane
+   之后，后续每条提示都入队且都不执行。GUI 不受这一半影响：它的输入框 `busy`
+   以 owner 为作用域、基于 `turn_id` 与 Agent session 状态，并刻意排除 Lane
+   生命周期状态（`apps/gui/src-tauri/src/projection.rs:1281`），这才是正确的
+   判定。两个客户端对「忙」的定义不一致，而其中只有一个读的是关于回合的事实。
+7. **TUI 的 `/git` 选择器只可能看到工作区目标**（TUI）。`runtime.operator_git`
+   需要 Core 发布的 Lane owner，而 TUI 的 Lane 选中态绑定在 lane 详情浮层的焦点
+   上：为了到达输入框（`/git` 是在那里键入的）而关闭该浮层，选中态就被清空
+   （状态栏上表现为 `L:-`）。因此从输入框打开的 `/git` 一律以工作区为目标，四行
+   全部禁用并标注 `no workspace owner · GUI-CORE-027`——对该目标而言这是正确的，
+   也意味着该能力在 TUI 上实际不可达。关闭 GUI-CORE-027 能消除症状；让 Lane 的
+   选中态在离开详情浮层后仍然保持，才能消除成因。
+8. **审批上的 audit id 不是一条持久审计记录**（Core）。`edit_file` 权限提示的
+   固定审批面板会显示 `AUDIT audit_<id>`，但 `QueryAudit` 读取的持久时间线只由
+   trust loop 与 operator git 动作追加
+   （`crates/runtime/src/trust_loop.rs:1328`、
+   `crates/runtime/src/operator_git.rs:122` 与 `:257`）。在一次被批准并已应用的
+   原生工具变更之后，审计时间线正确地回答「Core 未为此作用域发布任何审计记录」，
+   而屏幕上的 id 是一个实时关联 id，并不承诺有任何东西被写下。这与
+   GUI-CORE-028 是同一种形状，只是高了一层：实时事实存在，持久事实不存在。
+9. **EvidenceView 的报告可能在内容答案为 `HashMismatch` 的同时显示「已校验」**
+   （GUI，表述问题但会误导）。F1 新增的两行携带的是 Core 对**证据记录**记下的
+   判定；下方内容区携带的是**内容读取**自身对 `source_hash` 的哈希校验。这是
+   两个不同的事实，而界面没有说明两者的关系。可见于
+   `apps/gui/evidence/main-window-interactions/evidence-unavailable-1440x900-dark-en.png`。
 
 `context-budgets` fixture 为 `ContextScope` 与 `ContextBudgetRecord` 的 frontend-neutral
 facade 导出提供依据。Budget 只能通过该 Lane 精确绑定的 runtime owner 所指名的 typed task

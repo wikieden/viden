@@ -529,7 +529,7 @@ registered schema-1 extension fixtures are:
 | Fixture id | Extension scenario | Expected final view SHA-256 | Canonical fixture bytes SHA-256 |
 | --- | --- | --- | --- |
 | `frontend-host-services` | UI preference persistence, safe recent work, reviewed starter-Lane preview/create/invalidation, exact live Lane owner, and one tolerated future optional event | `b118534bb0a568a6a1e781171cecf0512c7d987736c06e4f84d51b5835022a0e` | `96dd5fde9f1241eb50f9d8978cf478d0ac5d3327448dc6ccde9d0e5018ce1580` |
-| `interaction-closed-loop` | Folder binding without implicit setup, reviewed Lane creation, built-in and ACP adapters/sessions, shared approval, evidence/gate, apply conflict, typed recovery, reconnect replay, and completion | `31b71bf154d42c8c7923fe9c64763a5245f785a2cd953913124f30a981589b51` | `596e82efa03d21b1f9645f40cf500ca8c4c1b86b2aa78be85a6bea0184822bff` |
+| `interaction-closed-loop` | Folder binding without implicit setup, reviewed Lane creation, built-in and ACP adapters/sessions, shared approval, evidence/gate, apply conflict, typed recovery, reconnect replay, and completion | `c43d9fe304c28a50349e441c643837a9899cccab79566f9c193838248df2da1d` | `a6f1c436a15f7c77a5410c3563d8c3f67c5a5a3864692de61db61623f93ed891` |
 | `review-decision` | Independent review verdict: `ReviewRequestStatus` `Pending -> Accepted` with reviewer feedback and the stamped gate validator, while the gate decision stays separate | `38f81bbc1966fbf5742b0087bdd9e871eb11d58cdee747628ed3f4ca1323713c` | `b8e0b5389c3f21be4b4f28cfeba8d902917a304c6b9252cf9911dcccb6146a2b` |
 | `context-budgets` | Two concurrent Lanes with their exact bound owners and distinct task-scoped budgets, one under soft pressure and one over its hard limit | `1b251b312b05ef950cdfc8190347e848a38d92bdaf26fe7d196e1ba053fc667b` | `7fcbde9edc5aa1a40a5cd41b0a8442403c6424903cc754cbe64d45980389029f` |
 | `streamed-turn` | Ordered `AssistantDelta` chunks under one session and message id reconstruct exactly the final reply, and the terminal completion fact does not duplicate it | `2567d9709e6ec96d621fa281acc205ba5a8fe0b8a08f5868b70ca386f70e3a7d` | `3b1129fb57860aa337c571a9f70be2eacca432c4419bfbb1f4c2943dd371b8e2` |
@@ -684,17 +684,78 @@ new finding:
    Closing it needs a Core turn-liveness fact, not a client-side guess. See the
    deferred-follow-up item 2 above for the full reasoning.
 4. **The durable evidence archive is empty in an offline native session**
-   (found during T1b; under investigation, decision pending). Evidence rows
-   produced from engine output — kinds `system`, `command`, and the
-   `provider_*` family — reach `RuntimeViewState.latest_evidence` but are never
-   written to the durable archive `QueryEvidence` reads, native tool edits
-   record no `patch` evidence at all, and no client dispatches
-   `StartAgentTask`. The consequence is that `runtime.evidence_reads` answers
-   correctly and answers an empty archive for a session whose transcript is
-   full of evidence, which both clients then render honestly as "no evidence".
-   Whether the fix is to write those rows through to the archive, to narrow
-   what `latest_evidence` accepts, or to state the two projections' different
-   scopes in the contract is not yet decided; nothing was changed in `0.3.3`.
+   (found during T1b). **Decided 2026-09-10 and deferred to `0.3.4` as
+   GUI-CORE-028**; the E1 release-evidence run reproduced it against a real
+   repository. Nothing driven through `RuntimeSupervisor` — a native Lane turn,
+   an ACP session — reaches the `EvidenceRecorded` arm of the engine reduction
+   (`crates/runtime/src/session_lifecycle.rs:860`) that is the archive's only
+   writer, so a native tool mutation records transcript facts, a live
+   `WorkspaceChangeUpdated`, and a transient `tool_result` row, and no archived
+   `patch` evidence at all. `runtime.evidence_reads` therefore answers correctly
+   and answers an empty archive for a session whose transcript is full of
+   evidence, and both clients render that honestly. The decision is that this is
+   a Core persistence gap rather than a contract-wording or `latest_evidence`
+   scoping problem, and that the wiring across `runtime_loop` /
+   `runtime_supervisor` / `session_lifecycle` is outside the `0.3.3` risk
+   budget. The full statement, the per-producer citations, and the close
+   condition are `apps/gui/contract-requests.md`, GUI-CORE-028. Nothing was
+   changed in `0.3.3`.
+
+Open follow-ups added 2026-09-10 by the E1 release-evidence run, which drove one
+real task through the TUI against a temporary Git repository with the `fallback`
+provider. Each was reproduced, not inferred; none was fixed in E1.
+
+5. **A session-level queued follow-up is never executed** (Core, blocking).
+   `RuntimeCommand::QueueFollowUp` pushes onto
+   `SessionEngine::queued_runtime_inputs` (`crates/runtime/src/runtime_contract.rs:643`)
+   and replays it into the view (`:1762`). Nothing removes it and nothing runs
+   it: the only producer of `InputDequeued` is the Lane worker's own queue
+   (`crates/lanes/src/lane_worker.rs:979`). So `RuntimeViewState.queued_inputs`
+   grows monotonically for the built-in path, and a queued prompt is a fact Core
+   publishes and never acts on.
+6. **The TUI composer stops submitting for the rest of a session** (TUI,
+   blocking, and a consequence of 5 and of item 3 above).
+   `command_for_composer` (`apps/tui/src/tui/app.rs:2601`) routes to
+   `QueueFollowUp` whenever `state::runtime_has_active_work`
+   (`apps/tui/src/tui/state.rs:261`) is true, and that predicate is true when
+   `assistant_stream` still holds a completed built-in turn's text, when any
+   Lane is in `Draft` (`LaneStatus::is_active`, `crates/types/src/agent.rs:403`,
+   which is where Core leaves a starter Lane), or when `queued_inputs` is
+   non-empty — which, by 5, it stays forever once anything is queued. Observed:
+   after one completed fallback turn, or after creating one starter Lane, every
+   later prompt queued and none ran. The GUI is not affected by this half: its
+   composer `busy` is owner-scoped on `turn_id` and Agent-session status and
+   deliberately excludes Lane lifecycle state
+   (`apps/gui/src-tauri/src/projection.rs:1281`), which is the right predicate.
+   The two clients disagree about what "busy" means, and only one of them is
+   reading a fact about the turn.
+7. **The TUI `/git` picker can only ever see the workspace target** (TUI).
+   `runtime.operator_git` needs a Core-published Lane owner, and the TUI's Lane
+   selection is bound to the lane-detail overlay focus: closing that overlay to
+   reach the composer, which is where `/git` is typed, clears the selection
+   (observed as `L:-` in the status bar). Every `/git` opened from the composer
+   therefore targets the workspace and renders all four rows disabled with
+   `no workspace owner · GUI-CORE-027`, which is correct for that target and
+   means the capability is unreachable from the TUI in practice. Closing
+   GUI-CORE-027 removes the symptom; a selectable Lane that survives leaving the
+   detail overlay removes the cause.
+8. **An approval's audit id is not a durable audit record** (Core). The pinned
+   approval panel shows `AUDIT audit_<id>` for an `edit_file` permission prompt,
+   but the durable timeline `QueryAudit` reads is appended only by the trust
+   loop and by operator git actions (`crates/runtime/src/trust_loop.rs:1328`,
+   `crates/runtime/src/operator_git.rs:122` and `:257`). After an approved and
+   applied native tool mutation the audit timeline correctly answers "Core
+   published no audit record for this scope", and the id on screen is a live
+   correlation id rather than a promise that something was written. This is the
+   same shape as GUI-CORE-028, one layer over: the live fact exists and the
+   durable one does not.
+9. **The EvidenceView report can state `verified` beside a content answer of
+   `HashMismatch`** (GUI, cosmetic but misleading). F1's two report rows carry
+   Core's recorded verdicts on the *evidence record*; the content block carries
+   the *content read's* own hash check against `source_hash`. They are different
+   facts and the screen states neither relationship. Visible in
+   `apps/gui/evidence/main-window-interactions/evidence-unavailable-1440x900-dark-en.png`.
+
 
 The `context-budgets` fixture backs the frontend-neutral facade export of
 `ContextScope` and `ContextBudgetRecord`. A budget belongs to a Lane only
