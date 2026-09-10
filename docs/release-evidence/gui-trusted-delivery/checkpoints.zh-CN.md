@@ -15,7 +15,7 @@ English version: [checkpoints.md](checkpoints.md)
 | 基线 `origin/main` | `7473a73eeec6336c2ed9059780d3ed97082b0c5e` |
 | 集成分支 | `claude/int-0.3.3`，位于 `13795abce263bd60f0e4785e4af0f3f852cb3009` |
 | E1 分支 / worktree | `claude/e1-release-evidence`，在 `.worktrees/e1-release-evidence` |
-| 本文证据回合时的 E1 HEAD | `727b87b5e6454e21e30449af24b4fa8836413103` |
+| 运行代码类 gate 时的 E1 HEAD | `727b87b5e6454e21e30449af24b4fa8836413103`（Part A 的提交）。其后的提交只改动 Markdown 与截取文件，因此没有任何代码类 gate 过期。按 D1 的先例，本文不指名自己的提交；分支 tip 在 handoff 中报告。 |
 | Core `0.3.6` 实现 checkpoint | `1cec82185bbe860d6b8536a63741bc01f1edf2f6`（集成分支上最后一个触及 `crates/**` 的提交） |
 | Core `0.3.6` 基线契约 checkpoint | `5bd2b80b0953f4194d082940a7b9164c7231ca2d`（自 `0.3.0` 以来未变） |
 | TUI 候选 | `0.3.4`，`min_core_version` 保持 `0.3.4` |

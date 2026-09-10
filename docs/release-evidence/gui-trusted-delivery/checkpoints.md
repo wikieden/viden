@@ -16,7 +16,7 @@ gate that requires a network, a credential, or a packaging step was run.
 | Base `origin/main` | `7473a73eeec6336c2ed9059780d3ed97082b0c5e` |
 | Integration branch | `claude/int-0.3.3` at `13795abce263bd60f0e4785e4af0f3f852cb3009` |
 | E1 branch / worktree | `claude/e1-release-evidence` in `.worktrees/e1-release-evidence` |
-| E1 HEAD at this document's evidence run | `727b87b5e6454e21e30449af24b4fa8836413103` |
+| E1 HEAD when the code gates ran | `727b87b5e6454e21e30449af24b4fa8836413103` (the Part A commit). The commits after it change only Markdown and capture files, so no code gate is stale. Following the D1 precedent, this document does not name its own commit; report the branch tip in the handoff. |
 | Core `0.3.6` implementation checkpoint | `1cec82185bbe860d6b8536a63741bc01f1edf2f6` (last commit touching `crates/**` on the integration branch) |
 | Core `0.3.6` base contract checkpoint | `5bd2b80b0953f4194d082940a7b9164c7231ca2d` (unchanged since `0.3.0`) |
 | TUI candidate | `0.3.4`, `min_core_version` unchanged at `0.3.4` |
