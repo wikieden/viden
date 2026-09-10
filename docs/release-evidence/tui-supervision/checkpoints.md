@@ -228,8 +228,12 @@ the added audit keys and both locales keep exact key and parameter parity.
   deferred to 0.3.3 / T2; they are not in the plan's TUI P1 rows. Their intent
   builders exist in `apps/tui/src/tui/supervision.rs` and remain undispatched
   behind a local `#[allow(dead_code)]`.
-- A dedicated evidence inspector. The decision overlay shows evidence counts and
-  identifiers, not evidence contents.
+- ~~A dedicated evidence inspector. The decision overlay shows evidence counts
+  and identifiers, not evidence contents.~~ **Delivered 2026-09-10 (T1b)** on
+  `runtime.evidence_reads` (GUI-CORE-025): the decisions overlay gained an
+  "Evidence…" read row scoped to the record's own Core-published owner, and
+  `/evidence` opens the same paged archive scoped to the focused Lane. See
+  [TUI 0.3.4 source-control and conflict parity](../../release-tui-0.3.4-source-control-parity.md).
 - Multi-select or batch supervision decisions. Exactly one supervision command
   may be in flight, by design.
 - GUI consumption of the audit contract. The TUI is the only client so far.

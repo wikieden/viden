@@ -86,6 +86,105 @@ TUI 针对 `0.3.3` 三项源代码管理能力的最小对等实现：
 - Lane 冲突在其记录条目上给出同样的摘要，并从 `LaneConflictView.content` 渲染同样的
   弹窗内容。
 
+## 证据检视器
+
+`runtime.evidence_reads`（GUI-CORE-025）。契约见
+[前端集成契约](frontend-integration-contract.md) 的 "Evidence archive reads" 章节；
+它关闭了 `0.3.2` 监督检查点上推迟的专用证据检视器
+（[检查点](release-evidence/tui-supervision/checkpoints.zh-CN.md)）。
+
+- 两个入口。监督决策浮层新增 **查看证据…** 读取行，作用域是记录自身的 `owner`，
+  逐字复制自 Core——合并门或评审请求的 owner。新的 `/evidence` 系统命令打开同一个
+  检视器，作用域是聚焦 Lane，只设置 Core 发布的那个 lane id，其余 owner 字段全部
+  留空，让 Core 的前缀匹配把它们当作通配符；没有聚焦 Lane 时读取整个归档。两行都是
+  读取：它们排在所有 Core 决策之后，因此不会改变任何决策的编号，也既不会被在途的
+  监督命令阻塞，也不会结算它。
+- 行绝不来自 `RuntimeViewState.latest_evidence`。那是一个没有排序规则、没有游标、
+  没有内容的近期窗口投影；把它当作归档展示等于宣称 Core 从未声明过的完整性。决策
+  浮层仍按原样使用该窗口给出的证据计数。
+- 列表按 Core 的顺序分组：**UNDATED** 组在最前——没有时间的行是 Core 能诚实给出的
+  最早说法——随后是按 UTC 天升序。每行是 `HH:MM:SS`、种类标签、摘要，以及 owner 指明
+  的 Lane；没有时间的行渲染 `--:--:--`，而不是虚构的零点。
+- 页脚给出 `LOADED n · more` 或 `LOADED n · archive complete`。加载下一页把
+  `next_after` **逐字**回传为 `after`；游标从不被解析、构造或比较。翻页绝不会扩大
+  操作者打开时的作用域。
+- `f` 在"全部"与 Core 实际返回过的种类之间循环，并从第一页重新查询，而不是过滤
+  手上已有的行：Core 是先过滤再切页，因此本地过滤的一页无法说明匹配的行是否位于
+  客户端从未加载过的页上。分组只是分组，从不隐藏：Core 交付的每一行都有一行。
+- 在某行上按 `Enter` 会发出 `ReadEvidenceContent` 并打开详情面板：头部给出种类与
+  摘要，随后是 id 与时间、owner，然后是 `source`、`path`、存在时的规范 item/bundle
+  与 `source_hash` 前缀，以及 metadata 的**键**——metadata 的值是自由格式 JSON，
+  绝不作为类型化事实渲染。同一时刻只有一个内容读取在途；第二个在本地被拒绝且不发送
+  任何命令，Core 已发布的内容从浮层自身的缓存重新渲染而不再读取。
+- 内容形态：`Text` 渲染有界可滚动的行，并给出 Core 校验它们所用的 `sha256`，当字节
+  上限截断时附带 `truncated` 提示；`Diff` 通过审批浮层使用的同一个差异块生产者渲染，
+  因此一份证据补丁与一份工作区差异是同样的行；`Unavailable` 渲染类型化原因。
+  `CommandRejected` 逐字渲染 Core 的原因——拒绝绝不是空归档。
+- 检视器打开期间到达的 `EvidenceRecorded` 会用一行横幅把已加载的页标记为**过期**；
+  按 `r` 从第一页重新加载。不会在操作者背后重新读取，因为后台重查会把他们正在看的
+  行移走。
+- `Esc` 先收起详情面板，再关闭浮层。关闭会丢弃面板、页与内容缓存，因此重新打开的
+  检视器总是重新查询，而不是展示一页年龄不明的数据。
+- 缺少 `runtime.evidence_reads` 时不发送任何命令。跳转索引里的 `/evidence` 行仍然
+  列出，但呈现为不可用并标注能力名；监督浮层的"查看证据…"行以本地拒绝陈述同一缺口；
+  在输入框敲 `/evidence` 则以类型化系统条目陈述它。
+
+### 不可用原因到操作者文案
+
+| `EvidenceUnavailableReason` | 渲染语句 |
+| --- | --- |
+| `SummaryOnly` | 没有规范字节：这是仅供展示的证据，永远不作为合并证据。 |
+| `MissingCanonicalBytes` | 没有规范字节：存储中已不再保存该行所指向的内容。 |
+| `HashMismatch` | 规范字节校验失败 — 不予展示 |
+| `Binary` | 规范字节校验通过但不是 UTF-8：没有可发布的文本或 diff 形态。 |
+| 未识别的变体 | Core 给出的原因本构建无法命名。 |
+
+`HashMismatch` 刻意不做柔化。那正是评审者绝不能被当作规范内容看到的字节，Core 也
+从不提供它们，因此该行说的是校验失败，而不是内容缺失。未识别的变体保留自己的语句，
+而不是借用某个它并不属于的原因的措辞。
+
+### 证据离线实机检查
+
+在草稿工作区中对 `.viden` 去掉 `cache/` 的副本运行，绝不使用线上目录，tmux 中以
+`--provider fallback --model test-local` 启动。
+
+没有聚焦 Lane 时 `/evidence` 读取整个归档，空结果被当作一个答案陈述出来：
+
+```
+┌ EVIDENCE INSPECTOR ───────── Esc back · Enter open · f filter · r reload ┐
+│ SCOPE whole archive · oldest first                                       │
+│ FILTER every kind Core returns                                           │
+│ No evidence in this scope.                                               │
+│ LOADED 0 · archive complete                                              │
+└──────────────────────────────────────────────────────────────────────────┘
+```
+
+在真实的休眠合并门上，"查看证据…"行把读取作用域限定到该记录自身由 Core 发布的
+owner。作用域行只显示 Core 实际设置的字段，未设置的字段被省略而不是打印为空：
+
+```
+┌ SUPERVISION DECISION ─── Esc back · arrows/number select · Enter confirm ┐
+│ ⏸ GATE gate-acp-session-019fb6ec-9f2e-72b1-a563-af76fc5561ca · Proposed  │
+│ EVIDENCE 0 · VALIDATOR - · CONFLICT -                                    │
+│ > 1 Accept merge gate                                                    │
+│   2 Reject merge gate                                                    │
+│   3 Evidence…                                                            │
+│   4 Audit trail                                                          │
+└──────────────────────────────────────────────────────────────────────────┘
+
+┌ EVIDENCE INSPECTOR ───────── Esc back · Enter open · f filter · r reload ┐
+│ SCOPE session=agent-session_1785480383543782000 task=acp-session-019fb6… │
+│ FILTER every kind Core returns                                           │
+│ No evidence in this scope.                                               │
+│ LOADED 0 · archive complete                                              │
+└──────────────────────────────────────────────────────────────────────────┘
+```
+
+详情面板没有实测截图。该工作区中 Core 在打开时重建的归档是空的，而 TUI 能发出的
+命令都不会填充它：唯一把 `task_summary` 写入归档的路径是
+`RuntimeCommand::StartAgentTask`，TUI 从不发送它。详情渲染改由
+`evidence-reads.json` 回放与 `main-evidence-detail` 预览覆盖；参见已知缺口。
+
 ## 离线实机检查
 
 在暂存目录中对 `.viden` 的副本运行（绝不使用线上目录），命令为
@@ -129,13 +228,18 @@ SYSTEM
 | `structured-diff.json` | `tui::modal::tests::structured_diff_fixture_replays_into_approval_hunk_rows` |
 | `operator-git.json` | `tui::app::tests::operator_git_fixture_replays_into_typed_outcome_entries` |
 | `conflict-content.json` | `tui::modal::tests::conflict_content_fixture_replays_into_summary_rows_and_a_three_sided_detail` |
+| `evidence-reads.json` | `tui::evidence_panel::tests::evidence_reads_fixture_replays_into_rows_pages_content_and_a_refusal` |
 
 由 `scripts/tui-previews.sh` 生成、`scripts/tui-regression.sh` 导出的确定性预览状态：
 
 - `main-approval-hunks`：带决策上下文差异块、被省略文件与基线提示的审批浮层；
 - `main-git-picker`：带目标与源状态行的 `/git` 面板；
 - `main-git-outcome`：一条 `Completed` 与一条 `Failed` 结果条目；
-- `main-conflict-detail`：带三侧内容、被省略文件与截断提示的冲突弹窗。
+- `main-conflict-detail`：带三侧内容、被省略文件与截断提示的冲突弹窗；
+- `main-evidence-list`：UNDATED 组在最前、两个 UTC 天分组、加载下一页行与
+  `LOADED 3 · more` 页脚的分页归档；
+- `main-evidence-detail`：一条 `patch` 行的规范字节渲染成差异块行，并给出 Core
+  校验它们所用的 sha256。
 
 ## 已知缺口
 
@@ -144,7 +248,17 @@ SYSTEM
   一同推迟。
 - 常驻的审批固定面板仍保留 `input_preview` 行。差异块行位于审批浮层中——审批是在
   那里做出的；固定面板是定高摘要，增高会把固定操作挤出较矮的终端。
-- `runtime.evidence_reads` 的证据检视面板属于独立批次。
+- 证据检视器的详情面板没有实测截图。草稿工作区中 Core 在打开时重建的归档是空的，
+  而 TUI 发出的命令都不会填充它：把 `task_summary` 写入归档的唯一路径是
+  `RuntimeCommand::StartAgentTask`，TUI 从不发送它。同一会话中 `latest_evidence`
+  达到 1，而 `QueryEvidence` 返回的是空且完整的归档——近期窗口与归档是两个不同的
+  投影，这正是本客户端绝不从窗口推导归档行的原因。Core 是否也应把那条已记录的
+  事实并入归档，是 Core 侧的问题，而不是客户端改动。
+- 检视器一次只提供一个种类过滤。Core 的 `kinds` 是 OR 列表，但浮层只有一个循环
+  控件，发送多个就等于宣称操作者做过并不存在的选择。所开作用域之下的 owner 过滤
+  与时间范围同样没有控件。
+- 检视器内没有逐行动作：没有进入差异界面的"在评审中打开"，没有复制证据 id，也没有
+  跳转到需要它的合并门。该浮层只负责浏览与读取，不做任何决策。
 - `QueryWorkspaceDiff` / `WorkspaceDiffLoaded` 尚无 TUI 读取方：TUI 渲染 Core 附加在
   审批上的差异，而不是操作者差异面板。
 - Core 尚未发布工作区范围的操作者身份（GUI-CORE-027），因此 `/git` 行项只有在 Core

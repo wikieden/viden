@@ -214,6 +214,10 @@ tui::app::tests::a_pending_supervision_decision_neither_blocks_nor_is_settled_by
 - handoff、contract、dependency 的创建流程——明确推迟到 0.3.3 / T2；它们不在计划的 TUI P1
   行内。其 intent 构造器已存在于 `apps/tui/src/tui/supervision.rs`，尚未被分发，暂由局部
   `#[allow(dead_code)]` 标注。
-- 专用的证据检视器。决策覆盖层展示证据数量与标识，不展示证据内容。
+- ~~专用的证据检视器。决策覆盖层展示证据数量与标识，不展示证据内容。~~
+  **已于 2026-09-10 交付（T1b）**，基于 `runtime.evidence_reads`（GUI-CORE-025）：
+  决策覆盖层新增"查看证据…"读取行，作用域为记录自身由 Core 发布的 owner；`/evidence`
+  以聚焦 Lane 为作用域打开同一份分页归档。参见
+  [TUI 0.3.4 源码控制与冲突对等](../../release-tui-0.3.4-source-control-parity.zh-CN.md)。
 - 多选或批量监督决策。按设计，同一时刻只允许一条监督命令在途。
 - GUI 对审计契约的消费。目前 TUI 是唯一的客户端。

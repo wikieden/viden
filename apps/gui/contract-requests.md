@@ -792,8 +792,11 @@ hash but cannot name Core's verification or quality state for it. It states
 what the facade lets it state rather than inventing a second vocabulary.
 Adding those two names to the re-export list would close it.
 
-TUI status: the evidence inspector deferred at the `0.3.2`
-supervision checkpoint, opened from the decisions overlay, lands with T1.
+TUI status: adopted 2026-09-10 (T1b). The evidence inspector deferred at the
+`0.3.2` supervision checkpoint now pages the archive through `QueryEvidence`
+and reads canonical content through `ReadEvidenceContent`, opened from the
+decisions overlay's "Evidence…" row and from a `/evidence` system command. See
+`docs/release-tui-0.3.4-source-control-parity.md`.
 
 ## GUI-CORE-026: Platform credential intake
 
