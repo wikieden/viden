@@ -342,7 +342,7 @@ fn reconcile_ui_state_with_runtime(state: &mut TuiState) {
 
     match focused_lane {
         None if had_core_selection => {
-            state.ui.focused_lane = None;
+            state.ui.clear_lane_focus();
             state.ui.session_id.clear();
             state.ui.focused_conversation = None;
             if state.ui.lens == Lens::Session {
@@ -355,7 +355,14 @@ fn reconcile_ui_state_with_runtime(state: &mut TuiState) {
                     || !lane.active_session_ids.contains(&state.ui.session_id)) =>
         {
             state.ui.session_id.clear();
-            if state.ui.lens == Lens::Session {
+            // The Lane is still selected but has no session to show, so the
+            // board is the honest view — *while the operator is looking at the
+            // Lane*. Once they close its detail panel the selection is only a
+            // command target, and the board lens renders no composer
+            // (`render::render_frame`), so keeping it here would leave `/git`
+            // and every prompt to be typed into a surface that is not on
+            // screen. That is the same defect this branch closes, one layer up.
+            if state.ui.lens == Lens::Session && state.ui.lane_detail_open {
                 state.ui.lens = Lens::Board;
             }
         }
@@ -1632,7 +1639,7 @@ fn complete_overlay_selection<C: CoreClient>(
                 .nth(overlay.selected)
                 .map(|lane| (lane.id.clone(), lane.active_session_ids.clone()));
             if let Some((lane_id, session_ids)) = selected {
-                state.ui.focused_lane = Some(lane_id);
+                state.ui.focus_lane(lane_id);
                 match session_ids.as_slice() {
                     [] => {
                         state.ui.session_id.clear();
@@ -1717,7 +1724,10 @@ fn complete_global_jump_selection(state: &mut TuiState, overlay: OverlayState) {
     match item.kind {
         JumpKind::Lane => select_jump_lane(state, &item),
         JumpKind::Session => {
-            state.ui.focused_lane = item.parent_id;
+            match item.parent_id {
+                Some(lane_id) => state.ui.focus_lane(lane_id),
+                None => state.ui.clear_lane_focus(),
+            }
             state.ui.session_id = item.id;
             state.ui.lens = Lens::Session;
         }
@@ -1745,7 +1755,7 @@ fn select_jump_lane(state: &mut TuiState, item: &JumpItem) {
         .find(|lane| lane.id == item.id)
         .map(|lane| lane.active_session_ids.clone())
         .unwrap_or_default();
-    state.ui.focused_lane = Some(item.id.clone());
+    state.ui.focus_lane(item.id.clone());
     match sessions.as_slice() {
         [session] => {
             state.ui.session_id = session.clone();
@@ -2066,7 +2076,7 @@ fn interaction_selected(state: &TuiState) -> usize {
 
 fn cycle_agent_focus(state: &mut TuiState) {
     if state.runtime.lanes.is_empty() {
-        state.ui.focused_lane = None;
+        state.ui.clear_lane_focus();
         return;
     }
     let next = state
@@ -2082,7 +2092,7 @@ fn cycle_agent_focus(state: &mut TuiState) {
         })
         .map(|index| (index + 1) % state.runtime.lanes.len())
         .unwrap_or(0);
-    state.ui.focused_lane = Some(state.runtime.lanes[next].id.clone());
+    state.ui.focus_lane(state.runtime.lanes[next].id.clone());
 }
 
 fn set_interaction_panel_selected(state: &mut TuiState, index: usize) {
@@ -2200,12 +2210,16 @@ fn apply_interaction_panel_selection<C: CoreClient>(
                 };
                 match row.kind {
                     AcpPickerRowKind::Session { session_id } => {
-                        state.ui.focused_lane = state
+                        match state
                             .runtime
                             .agent_sessions
                             .iter()
                             .find(|session| session.session_id == session_id)
-                            .map(|session| session.lane_id.clone());
+                            .map(|session| session.lane_id.clone())
+                        {
+                            Some(lane_id) => state.ui.focus_lane(lane_id),
+                            None => state.ui.clear_lane_focus(),
+                        }
                         state.ui.session_id = session_id.clone();
                         state.ui.focused_conversation =
                             Some(FocusedConversation::AcpSession(session_id));
@@ -2512,7 +2526,7 @@ fn observe_driver_events<C: CoreClient>(
                 pending.lane_id == session.lane_id && pending.agent_id == session.agent_id
             })
         {
-            state.ui.focused_lane = Some(session.lane_id.clone());
+            state.ui.focus_lane(session.lane_id.clone());
             state.ui.session_id = session.session_id.clone();
             state.ui.focused_conversation =
                 Some(FocusedConversation::AcpSession(session.session_id.clone()));
@@ -2557,7 +2571,7 @@ fn observe_driver_events<C: CoreClient>(
                         content: task.clone(),
                     },
                 )?;
-                state.ui.focused_lane = Some(receipt.lane.id.clone());
+                state.ui.focus_lane(receipt.lane.id.clone());
                 state.ui.focused_conversation =
                     Some(FocusedConversation::NativeLane(receipt.lane.id.clone()));
                 state.ui.lens = Lens::Session;
@@ -2922,7 +2936,7 @@ mod tests {
         let sent = Arc::clone(&client.sent);
         let driver = TuiClientDriver::connect(client).expect("connect");
         let mut state = TuiState::new(driver.view().clone());
-        state.ui.focused_lane = Some("L-start".to_string());
+        state.ui.focus_lane("L-start".to_string());
         (driver, state, sent, owner)
     }
 
@@ -3198,7 +3212,7 @@ mod tests {
         let sent = Arc::clone(&client.sent);
         let mut driver = TuiClientDriver::connect(client).expect("connect");
         let mut state = TuiState::default();
-        state.ui.focused_lane = Some("lane-1".to_string());
+        state.ui.focus_lane("lane-1".to_string());
         state.ui.input = "/acp".into();
 
         submit_composer(&mut driver, &mut state).expect("open ACP picker");
@@ -3373,7 +3387,7 @@ mod tests {
             lane_id: lane_id.clone(),
             owner: owner.clone(),
         }];
-        state.ui.focused_lane = Some(lane_id.clone());
+        state.ui.focus_lane(lane_id.clone());
         (lane_id, owner)
     }
 
@@ -3399,7 +3413,7 @@ mod tests {
         ))
         .expect("typed lanes");
         let lane_id = state.runtime.lanes[0].id.clone();
-        state.ui.focused_lane = Some(lane_id.clone());
+        state.ui.focus_lane(lane_id.clone());
         // Core published no binding for this Lane, which is the whole point:
         // the client must not manufacture the missing identity.
         assert!(state.runtime.lane_runtime_owners.is_empty());
@@ -3711,7 +3725,7 @@ mod tests {
                 diagnostic: None,
                 output: None,
             });
-        state.ui.focused_lane = Some("lane-1".to_string());
+        state.ui.focus_lane("lane-1".to_string());
         state.ui.session_id = "acp-1".to_string();
         state.ui.focused_conversation = Some(FocusedConversation::AcpSession("acp-1".to_string()));
         state.ui.input = "continue".into();
@@ -3769,7 +3783,7 @@ mod tests {
         };
         let mut driver = TuiClientDriver::connect(client).expect("connect");
         let mut state = TuiState::default();
-        state.ui.focused_lane = Some("lane-loop-coder".to_string());
+        state.ui.focus_lane("lane-loop-coder".to_string());
         state.ui.pending_acp_start = Some(PendingAcpStart {
             lane_id: "lane-loop-coder".to_string(),
             agent_id: "viden-built-in".to_string(),
@@ -3941,7 +3955,7 @@ mod tests {
             session_id: Some("acp-failed".to_string()),
             ..RuntimeOwner::default()
         };
-        state.ui.focused_lane = Some("lane-1".to_string());
+        state.ui.focus_lane("lane-1".to_string());
         state
             .runtime
             .agent_sessions
@@ -4247,7 +4261,7 @@ mod tests {
         .expect("typed lanes");
         lanes.truncate(1);
         lanes[0].active_session_ids = vec!["session-from-lane".to_string()];
-        state.ui.focused_lane = Some(lanes[0].id.clone());
+        state.ui.focus_lane(lanes[0].id.clone());
         state.runtime.lanes = lanes;
         state.ui.session_id = "session-from-lane".to_string();
         let view = state.runtime.clone();
@@ -4275,7 +4289,7 @@ mod tests {
         let lane_id = lanes[0].id.clone();
         let mut state = TuiState::default();
         state.runtime.lanes = lanes.clone();
-        state.ui.focused_lane = Some(lane_id.clone());
+        state.ui.focus_lane(lane_id.clone());
         state.ui.session_id = "session-core".to_string();
         state.ui.lens = Lens::Session;
         state.ui.input_mode = InputMode::Insert;
@@ -4313,6 +4327,69 @@ mod tests {
         assert!(state.ui.session_id.is_empty());
         assert_eq!(state.ui.lens, Lens::Board);
         assert_eq!(state.ui.input, "preserve draft");
+    }
+
+    /// The lens half of the `/git` target fix.
+    ///
+    /// A selected Lane with no session pulls the operator to the board, which
+    /// renders no composer. That is right while its detail panel is open and
+    /// wrong once they have closed it to type a command: the selection is then
+    /// only a target, and `/git` is typed in the composer. The Lane stays
+    /// selected either way.
+    #[test]
+    fn a_lane_target_without_its_detail_panel_keeps_the_composer_on_screen() {
+        let mut lanes: Vec<AgentLaneRecord> = serde_json::from_str(include_str!(
+            "../../../../crates/types/tests/fixtures/frontend-contract-v1/typed-lanes.json"
+        ))
+        .expect("typed lanes");
+        lanes.truncate(1);
+        lanes[0].active_session_ids.clear();
+        let lane_id = lanes[0].id.clone();
+        let view = {
+            let mut view = TuiState::default().runtime;
+            view.lanes = lanes;
+            view
+        };
+
+        let mut looking_at_the_lane = TuiState::default();
+        looking_at_the_lane.ui.focus_lane(lane_id.clone());
+        looking_at_the_lane.ui.lens = Lens::Session;
+        project_runtime_view(
+            &mut looking_at_the_lane,
+            &view,
+            &EventCursor {
+                stream_id: "fixture".to_string(),
+                sequence: 1,
+            },
+        );
+        assert_eq!(looking_at_the_lane.ui.lens, Lens::Board);
+
+        let mut typing_a_command = TuiState::default();
+        typing_a_command.ui.focus_lane(lane_id.clone());
+        typing_a_command.ui.lane_detail_open = false;
+        typing_a_command.ui.lens = Lens::Session;
+        project_runtime_view(
+            &mut typing_a_command,
+            &view,
+            &EventCursor {
+                stream_id: "fixture".to_string(),
+                sequence: 1,
+            },
+        );
+
+        assert_eq!(
+            typing_a_command.ui.lens,
+            Lens::Session,
+            "the composer must stay on screen for the command the Lane target is for"
+        );
+        assert_eq!(
+            typing_a_command.ui.focused_lane.as_deref(),
+            Some(lane_id.as_str())
+        );
+        assert_eq!(
+            super::super::modal::git_target(&typing_a_command),
+            viden_core::SourceTarget::Lane { lane_id }
+        );
     }
 
     #[test]
@@ -7381,7 +7458,7 @@ mod tests {
         let sent = Arc::clone(&client.sent);
         let mut driver = TuiClientDriver::connect(client).expect("connect");
         let mut state = TuiState::new(driver.view().clone());
-        state.ui.focused_lane = Some("L-start".to_string());
+        state.ui.focus_lane("L-start".to_string());
         handle_ui_event(
             &mut driver,
             &mut state,
@@ -7406,7 +7483,20 @@ mod tests {
             Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
             (120, 40),
         )
-        .expect("escape clears selected lane first");
+        .expect("escape closes the lane detail first");
+        assert!(sent.lock().expect("sent commands").is_empty());
+        assert!(!state.ui.lane_detail_open);
+
+        // Moved baseline: the Lane target is its own rung now, so unwinding to
+        // "no selection" takes one more `Esc` than it used to. Nothing is sent
+        // on either rung.
+        handle_ui_event(
+            &mut driver,
+            &mut state,
+            Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
+            (120, 40),
+        )
+        .expect("escape clears the Lane target");
         assert!(sent.lock().expect("sent commands").is_empty());
         assert!(state.ui.focused_lane.is_none());
 
@@ -7629,15 +7719,20 @@ mod tests {
         assert!(state.ui.overlay.is_none());
     }
 
+    /// Moved baseline: the chain gained a rung. It used to be overlay ->
+    /// selection -> insert, which dropped the Lane the moment the operator put
+    /// its panel away — and `/git` is typed after that, in the composer. It is
+    /// now overlay -> lane detail -> Lane target -> insert. The draft still
+    /// survives every rung.
     #[test]
-    fn escape_closes_overlay_then_selection_then_insert_and_preserves_draft() {
+    fn escape_closes_overlay_then_lane_detail_then_target_then_insert_and_preserves_draft() {
         let mut driver =
             TuiClientDriver::connect(StatefulCoreClient::new(FakeCoreTransport::default()))
                 .expect("connect");
         let mut state = TuiState::default();
         state.ui.input_mode = InputMode::Insert;
         state.ui.input = "keep this draft".into();
-        state.ui.focused_lane = Some("lane-selected".to_string());
+        state.ui.focus_lane("lane-selected".to_string());
         state.ui.overlay = Some(OverlayState::new(OverlayKind::ContextHelp));
         let escape = Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
 
@@ -7647,7 +7742,17 @@ mod tests {
         assert_eq!(state.ui.input_mode, InputMode::Insert);
 
         handle_ui_event(&mut driver, &mut state, escape.clone(), (120, 40))
-            .expect("clear selection");
+            .expect("close the lane detail");
+        assert!(!state.ui.lane_detail_open);
+        assert_eq!(
+            state.ui.focused_lane.as_deref(),
+            Some("lane-selected"),
+            "the Lane stays the target for a command typed in the composer"
+        );
+        assert_eq!(state.ui.input_mode, InputMode::Insert);
+
+        handle_ui_event(&mut driver, &mut state, escape.clone(), (120, 40))
+            .expect("clear the Lane target");
         assert!(state.ui.focused_lane.is_none());
         assert_eq!(state.ui.input_mode, InputMode::Insert);
 
@@ -7664,7 +7769,7 @@ mod tests {
         let mut state = TuiState::default();
         state.ui.input_mode = InputMode::Insert;
         state.ui.input = "keep this draft".into();
-        state.ui.focused_lane = Some("lane-before-jump".to_string());
+        state.ui.focus_lane("lane-before-jump".to_string());
         state.ui.session_id = "session-before-jump".to_string();
         let mut approval = OverlayState::new(OverlayKind::Approval);
         approval.selected = 2;
@@ -8280,7 +8385,7 @@ mod tests {
         ));
 
         let mut agent_state = state.clone();
-        agent_state.ui.focused_lane = None;
+        agent_state.ui.clear_lane_focus();
         agent_state.ui.overlay = None;
         handle_ui_event(
             &mut driver,

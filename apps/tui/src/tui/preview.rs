@@ -494,7 +494,7 @@ fn structured_preview_lanes() -> Vec<AgentLaneRecord> {
 
 fn focused_lane_preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState {
     let mut state = preview_state(provider, model, theme_name);
-    state.ui.focused_lane = Some("L1".to_string());
+    state.ui.focus_lane("L1".to_string());
     state
         .ui
         .entries
@@ -630,6 +630,13 @@ fn live_turn_preview_state(provider: &str, model: &str, theme_name: &str) -> Tui
     state.runtime.assistant_stream = "Working on the config loader...".to_string();
     state.runtime.lanes.clear();
     state.ui.input = "Add a note about the validation result".into();
+    // A built-in-provider turn *in flight*, which is what this preview is for.
+    // Core publishes no turn-liveness fact for that path and never settles the
+    // unscoped stream, so streamed text alone cannot distinguish a running turn
+    // from a finished one — the client's own dispatched command id is what
+    // says the turn is live. Without this the preview modelled residue and
+    // rendered an idle composer.
+    state.native_turn.begin("tui-preview-live-turn");
     state
 }
 
@@ -1072,7 +1079,7 @@ fn render_task6_lens_preview(lens: Lens, width: u16) -> String {
     };
     state.ui.lens = lens;
     if lens == Lens::Session {
-        state.ui.focused_lane = Some("L1".to_string());
+        state.ui.focus_lane("L1".to_string());
         state.ui.session_id = "session-preview-L1".to_string();
         if let Some(lane) = state.runtime.lanes.iter_mut().find(|lane| lane.id == "L1") {
             lane.active_session_ids = vec![state.ui.session_id.clone()];

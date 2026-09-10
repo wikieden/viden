@@ -1079,7 +1079,7 @@ mod structured_runtime_tests {
         assert!(board_rendered.contains("session-core"));
 
         board.ui.lens = Lens::Session;
-        board.ui.focused_lane = Some(lane_id.clone());
+        board.ui.focus_lane(lane_id.clone());
         board.ui.session_id = "session-core".to_string();
         board.ui.input = "composer stays editable".into();
         let cockpit = render_frame(&board, 112, 40);
@@ -1136,7 +1136,7 @@ mod structured_runtime_tests {
         runtime.assistant_stream = "streaming".to_string();
         let mut state = TuiState::new(runtime);
         state.ui.lens = Lens::Session;
-        state.ui.focused_lane = Some("lane_d1_core".to_string());
+        state.ui.focus_lane("lane_d1_core".to_string());
         state.ui.session_id = "session_lane_d1_core".to_string();
         state.ui.input = "edit me".into();
 

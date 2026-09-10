@@ -7,6 +7,7 @@ use super::modal::{
     move_approval_focus, set_approval_focus_for_action,
 };
 use super::state::{TuiEntry, TuiState};
+use super::ui_state::Lens;
 use viden_core::{ApprovalDecision, ApprovalResponse, ApprovalScope};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -44,14 +45,45 @@ fn active_overlay_kind(state: &TuiState) -> Option<OverlayKind> {
     }
 }
 
+/// The Lane rungs of the `Esc` unwind chain: overlay, then lane detail, then
+/// the Lane target, then insert mode.
+///
+/// The detail panel and the target are separate rungs because they answer
+/// different questions. The panel is what is on screen; the target is which
+/// Lane the next command names — and `/git`, the command that needs it most, is
+/// typed in the composer, which is where the operator goes *after* putting the
+/// panel away. Collapsing the two meant every `/git` opened from the composer
+/// targeted the workspace, which GUI-CORE-027 then refuses, so
+/// `runtime.operator_git` was unreachable from this client
+/// (`docs/core-0.3-compatibility.md`, open follow-up 7).
+///
+/// Each rung states what it did, so the second `Esc` is discoverable rather
+/// than a hidden gesture: the first says the Lane is still the target, the
+/// second says it was cleared.
 pub(super) fn close_focus_on_escape(key: KeyEvent, state: &mut TuiState) -> bool {
     if key.code != KeyCode::Esc || state.ui.focused_lane.is_none() {
         return false;
     }
-    state.ui.focused_lane = None;
+    let body = if state.ui.lane_detail_open {
+        state.ui.lane_detail_open = false;
+        // The board is where a focused Lane with no session belongs while its
+        // detail panel is up (`app::reconcile_ui_state_with_runtime`), and the
+        // board renders no composer (`render::render_frame`). This rung is the
+        // inverse move: the operator put the panel away to go and type, so the
+        // surface they are typing into comes back with it. Only the board is
+        // unwound — a `Setup`, `Decisions` or `Gallery` lens was asked for by
+        // name and is left alone.
+        if state.ui.lens == Lens::Board {
+            state.ui.lens = Lens::Session;
+        }
+        super::i18n::text(state, "lane.detail.closed")
+    } else {
+        let lane_id = state.ui.focused_lane.take().unwrap_or_default();
+        super::i18n::translate(state, "lane.target.cleared", &[("lane", &lane_id)])
+    };
     state.ui.entries.push(TuiEntry {
         label: "system".to_string(),
-        body: "Closed lane detail focus.".to_string(),
+        body,
     });
     true
 }
@@ -165,7 +197,7 @@ mod tests {
         state.ui.session_id = "session_123".to_string();
         state.ui.provider_catalog = crate::tui::state::ProviderOption::fixture();
         state.ui.theme_name = "aurora-cyan".to_string();
-        state.ui.focused_lane = Some("L1".to_string());
+        state.ui.focus_lane("L1".to_string());
         state
     }
 
@@ -208,18 +240,74 @@ mod tests {
         state
     }
 
+    /// Moved baseline: one `Esc` used to close the panel and drop the Lane in
+    /// the same stroke. It now walks two rungs, and each states what it did so
+    /// the second is discoverable rather than a hidden gesture.
     #[test]
-    fn escape_closes_focus_before_exit() {
+    fn escape_closes_the_lane_detail_then_the_lane_target_before_exit() {
         let mut state = state_with_focus();
+        state.ui.lane_detail_open = true;
+
+        state.ui.lens = Lens::Gallery;
+        assert!(close_focus_on_escape(key(KeyCode::Esc), &mut state));
+        assert_eq!(state.ui.focused_lane.as_deref(), Some("L1"));
+        assert!(!state.ui.lane_detail_open);
+        assert_eq!(
+            state.ui.lens,
+            Lens::Gallery,
+            "a lens the operator asked for by name is not unwound by this rung"
+        );
+        assert!(state.ui.entries[0].body.contains("Closed the lane detail"));
+        assert!(state.ui.entries[0].body.contains("Esc again"));
 
         assert!(close_focus_on_escape(key(KeyCode::Esc), &mut state));
-
         assert_eq!(state.ui.focused_lane, None);
-        assert!(
-            state.ui.entries[0]
-                .body
-                .contains("Closed lane detail focus")
+        assert!(state.ui.entries[1].body.contains("Cleared the Lane target"));
+        assert!(state.ui.entries[1].body.contains("L1"));
+    }
+
+    /// E1's third defect, reproduced.
+    ///
+    /// `/git` is typed in the composer, and the only gesture the footer offers
+    /// for leaving the lane detail is `Esc`. Dropping the Lane with the panel
+    /// made every `/git` opened from the composer a workspace action, which
+    /// GUI-CORE-027 then refuses — so `runtime.operator_git` was unreachable
+    /// from this client in practice. The unwind chain gains a rung instead:
+    /// the panel closes first, the target second.
+    #[test]
+    fn leaving_the_lane_detail_keeps_the_lane_as_the_git_target() {
+        let mut state = state_with_focus();
+        state.runtime.lanes = serde_json::from_str(include_str!(
+            "../../../../crates/types/tests/fixtures/frontend-contract-v1/typed-lanes.json"
+        ))
+        .expect("typed lanes");
+        state.runtime.lanes.truncate(1);
+        let lane_id = state.runtime.lanes[0].id.clone();
+        state.ui.focus_lane(lane_id.clone());
+        let lane_target = viden_core::SourceTarget::Lane {
+            lane_id: lane_id.clone(),
+        };
+        assert_eq!(super::super::modal::git_target(&state), lane_target);
+
+        // First Esc closes the detail panel and keeps the target. The board
+        // lens goes with the panel: `/git` is typed in the composer, and the
+        // board renders none.
+        state.ui.lens = Lens::Board;
+        assert!(close_focus_on_escape(key(KeyCode::Esc), &mut state));
+        assert_eq!(
+            super::super::modal::git_target(&state),
+            lane_target,
+            "the Lane must survive leaving its detail panel"
         );
+        assert_eq!(state.ui.lens, Lens::Session);
+
+        // Second Esc clears the target: the documented way to drop it.
+        assert!(close_focus_on_escape(key(KeyCode::Esc), &mut state));
+        assert_eq!(
+            super::super::modal::git_target(&state),
+            viden_core::SourceTarget::Workspace
+        );
+        assert!(!close_focus_on_escape(key(KeyCode::Esc), &mut state));
     }
 
     #[test]
@@ -287,7 +375,7 @@ mod tests {
     #[test]
     fn escape_without_focus_leaves_selection_handler_idle() {
         let mut state = state_with_focus();
-        state.ui.focused_lane = None;
+        state.ui.clear_lane_focus();
 
         assert!(!close_focus_on_escape(key(KeyCode::Esc), &mut state));
     }

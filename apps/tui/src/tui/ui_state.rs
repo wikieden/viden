@@ -344,6 +344,28 @@ impl OverlayState {
     }
 }
 
+impl TuiUiState {
+    /// Selects one Lane and opens its detail panel.
+    ///
+    /// Both facts move together on the way in — an operator who picks a Lane
+    /// wants to see it — and unwind separately on the way out, so the Lane
+    /// stays the target for a command typed in the composer after the panel is
+    /// put away. See [`Self::focused_lane`].
+    pub(super) fn focus_lane(&mut self, lane_id: impl Into<String>) {
+        self.focused_lane = Some(lane_id.into());
+        self.lane_detail_open = true;
+    }
+
+    /// Drops the Lane selection and its panel together.
+    ///
+    /// Used where the Lane itself is gone — a Core view that no longer carries
+    /// it — rather than for the `Esc` unwind, which walks the two rungs.
+    pub(super) fn clear_lane_focus(&mut self) {
+        self.focused_lane = None;
+        self.lane_detail_open = false;
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct TuiUiState {
     pub(super) session_id: String,
@@ -358,7 +380,22 @@ pub(super) struct TuiUiState {
     pub(super) approval_apply_all: bool,
     pub(super) transcript_scroll: usize,
     pub(super) entries: Vec<TuiEntry>,
+    /// The Lane this client's Lane-scoped commands address — the `/git`
+    /// target, the evidence scope, the ACP picker's Lane — shown as `L:<lane>`
+    /// on the status row.
+    ///
+    /// It is *selection*, not panel visibility: `/git` is typed in the composer,
+    /// so a selection that died with the lane-detail panel could never reach it
+    /// (open follow-up 7 in `docs/core-0.3-compatibility.md`). `Esc` still
+    /// unwinds it, one rung later than the panel; see
+    /// [`super::input::close_focus_on_escape`].
     pub(super) focused_lane: Option<String>,
+    /// Whether the lane-detail panel for [`Self::focused_lane`] is on screen.
+    ///
+    /// Separate from the selection so the first `Esc` can put the panel away
+    /// and keep the target. It is meaningless without a focused Lane and is
+    /// cleared with it.
+    pub(super) lane_detail_open: bool,
     pub(super) focused_conversation: Option<FocusedConversation>,
     pub(super) pending_native_lane: Option<PendingNativeLane>,
     pub(super) pending_acp_start: Option<PendingAcpStart>,
@@ -418,6 +455,7 @@ impl Default for TuiUiState {
             transcript_scroll: 0,
             entries: Vec::new(),
             focused_lane: None,
+            lane_detail_open: false,
             focused_conversation: None,
             pending_native_lane: None,
             pending_acp_start: None,

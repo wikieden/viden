@@ -178,27 +178,11 @@ pub(super) fn render_overlays(frame: &mut Frame, state: &TuiState, _right_rail_w
             frame.width.saturating_sub(frame.width.min(76)) / 2,
             &block,
         );
-    } else if let Some(lane) = state
-        .ui
-        .focused_lane
-        .as_ref()
-        .and_then(|lane_id| state.runtime.lanes.iter().find(|lane| &lane.id == lane_id))
-    {
-        let mut rows = vec![
-            format!("{} {}", lane.id, lane.role),
-            "ROUTE main→side-1".to_string(),
-            format!("STATE  {:?}", lane.status),
-        ];
-        rows.extend(blind_cost_rows(state, lane));
-        rows.extend(lane.evidence.iter().cloned());
-        rows.push("CONTROL [stop] [tmux] [pty] [send] [inspect]".to_string());
-        let title = super::i18n::text(state, "overlay.title.lane_detail");
-        let block = panel(&title, rows, frame.width.min(76), 10, Some(&lane.id));
-        frame.write_block(
-            4,
-            frame.width.saturating_sub(frame.width.min(76)) / 2,
-            &block,
-        );
+    // The interaction panel is checked before the lane detail on purpose: it is
+    // a selector the operator just opened, and the lane detail is ambient. When
+    // the ambient panel won, `/git` typed with a Lane selected rendered a lane
+    // inspector instead of its own rows, which is the other half of open
+    // follow-up 7 in `docs/core-0.3-compatibility.md`.
     } else if state.ui.interaction_panel.is_some() {
         let title_key = match state.ui.interaction_panel.as_ref() {
             Some(InteractionPanel::Settings(_)) => "interaction.settings",
@@ -236,6 +220,28 @@ pub(super) fn render_overlays(frame: &mut Frame, state: &TuiState, _right_rail_w
         frame.write_block(
             4,
             frame.width.saturating_sub(frame.width.min(72)) / 2,
+            &block,
+        );
+    } else if let Some(lane) = state
+        .ui
+        .focused_lane
+        .as_ref()
+        .filter(|_| state.ui.lane_detail_open)
+        .and_then(|lane_id| state.runtime.lanes.iter().find(|lane| &lane.id == lane_id))
+    {
+        let mut rows = vec![
+            format!("{} {}", lane.id, lane.role),
+            "ROUTE main→side-1".to_string(),
+            format!("STATE  {:?}", lane.status),
+        ];
+        rows.extend(blind_cost_rows(state, lane));
+        rows.extend(lane.evidence.iter().cloned());
+        rows.push("CONTROL [stop] [tmux] [pty] [send] [inspect]".to_string());
+        let title = super::i18n::text(state, "overlay.title.lane_detail");
+        let block = panel(&title, rows, frame.width.min(76), 10, Some(&lane.id));
+        frame.write_block(
+            4,
+            frame.width.saturating_sub(frame.width.min(76)) / 2,
             &block,
         );
     } else {
@@ -1065,12 +1071,25 @@ pub(super) fn git_target(state: &TuiState) -> viden_core::SourceTarget {
 /// The source facts are the ones Core published; nothing here is sampled or
 /// derived locally, and an unpublished source renders as unknown rather than as
 /// a clean tree.
+///
+/// `RuntimeViewState::workspace_source` is a single workspace-scoped view — it
+/// carries no target, and Core publishes nothing per Lane — so a Lane target's
+/// branch, ahead/behind and dirty state are facts this client does not have.
+/// The row names the Lane and says the source is unknown rather than printing
+/// the workspace's numbers beside a Lane's name, which would attribute one
+/// tree's state to another. A per-Lane source view is a Core fact this surface
+/// would use if it existed.
 fn git_target_row(state: &TuiState) -> String {
-    let target = match git_target(state) {
-        viden_core::SourceTarget::Lane { lane_id } => lane_id,
-        _ => super::i18n::text(state, "git.target.workspace"),
+    let (target, lane_scoped) = match git_target(state) {
+        viden_core::SourceTarget::Lane { lane_id } => (lane_id, true),
+        _ => (super::i18n::text(state, "git.target.workspace"), false),
     };
-    let Some(source) = state.runtime.workspace_source.as_ref() else {
+    let source = state
+        .runtime
+        .workspace_source
+        .as_ref()
+        .filter(|_| !lane_scoped);
+    let Some(source) = source else {
         return super::i18n::translate(state, "git.source.unknown", &[("target", &target)]);
     };
     super::i18n::translate(
@@ -1737,10 +1756,76 @@ mod tests {
         assert!(!has_pending_approval(&state));
     }
 
+    /// The other half of E1's third defect: even with the Lane still selected,
+    /// the ambient lane-detail panel out-rendered the picker the operator had
+    /// just opened, so `/git` showed a lane inspector instead of its rows. An
+    /// explicitly opened selector always wins over an ambient panel.
+    #[test]
+    fn the_git_picker_renders_over_the_lane_detail_panel_and_names_the_lane() {
+        let mut state = TuiState::default();
+        state.runtime.lanes = serde_json::from_str(include_str!(
+            "../../../../crates/types/tests/fixtures/frontend-contract-v1/typed-lanes.json"
+        ))
+        .expect("typed lanes");
+        state.runtime.lanes.truncate(1);
+        let lane_id = state.runtime.lanes[0].id.clone();
+        state.ui.focus_lane(lane_id.clone());
+        state.ui.interaction_panel = Some(InteractionPanel::GitPicker {
+            selected: 0,
+            phase: GitPickerPhase::Browse,
+        });
+
+        let mut frame = Frame::new(112, 40);
+        render_overlays(&mut frame, &state, 0);
+        let rendered = frame.to_string();
+
+        assert!(
+            !rendered.contains("LANE DETAIL"),
+            "the opened picker must not be hidden by the lane inspector:\n{rendered}"
+        );
+        assert!(rendered.contains("Stage all changes"), "{rendered}");
+        assert!(
+            rendered.contains(&lane_id),
+            "the TARGET row must name the Lane:\n{rendered}"
+        );
+    }
+
+    /// Core publishes one workspace-scoped `WorkspaceSourceView` and nothing
+    /// per Lane, so a Lane target's branch, ahead/behind and dirty facts are
+    /// unknown. Naming the Lane beside the workspace's own numbers would
+    /// attribute one tree's state to another.
+    #[test]
+    fn a_lane_target_row_does_not_borrow_the_workspace_source_facts() {
+        let mut state = TuiState::default();
+        state.runtime.lanes = serde_json::from_str(include_str!(
+            "../../../../crates/types/tests/fixtures/frontend-contract-v1/typed-lanes.json"
+        ))
+        .expect("typed lanes");
+        state.runtime.lanes.truncate(1);
+        let lane_id = state.runtime.lanes[0].id.clone();
+        state.ui.focus_lane(lane_id.clone());
+        state.runtime.workspace_source = Some(viden_core::WorkspaceSourceView {
+            status: viden_core::WorkspaceSourceStatus::Ready,
+            branch: Some("main".to_string()),
+            worktree: Some("workspace".to_string()),
+            ahead: 4,
+            behind: 1,
+            added: 0,
+            deleted: 0,
+            dirty: true,
+        });
+
+        let row = git_target_row(&state);
+
+        assert!(row.contains(&lane_id), "{row}");
+        assert!(!row.contains("main"), "{row}");
+        assert!(!row.contains('4'), "{row}");
+    }
+
     #[test]
     fn acp_picker_lists_lane_sessions_before_truthful_adapter_rows() {
         let mut state = TuiState::default();
-        state.ui.focused_lane = Some("lane-1".to_string());
+        state.ui.focus_lane("lane-1".to_string());
         state
             .runtime
             .agent_sessions
@@ -2434,7 +2519,7 @@ mod tests {
         .expect("typed lanes");
         state.runtime.lanes.truncate(1);
         let lane_id = state.runtime.lanes[0].id.clone();
-        state.ui.focused_lane = Some(lane_id);
+        state.ui.focus_lane(lane_id);
 
         // A metered route keeps its existing surface: no blind marker, no run facts.
         state.runtime.lanes[0].route = viden_core::AgentRoute::BuiltIn;

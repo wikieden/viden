@@ -99,7 +99,7 @@ mod tests {
         state.runtime.snapshot.provider_family = "fallback".to_string();
         state.runtime.snapshot.model_label = "test-local".to_string();
         state.ui.lens = Lens::Session;
-        state.ui.focused_lane = Some("lane-7".to_string());
+        state.ui.focus_lane("lane-7".to_string());
         state.ui.session_id = "session-9".to_string();
         let mut frame = Frame::new(112, 24);
 
