@@ -719,3 +719,34 @@ itself rather than borrowing a known one:
 | `hash_mismatch` | canonical bytes failed verification — not shown |
 | `binary` | the canonical bytes verify and are not text, so there is no body to show |
 | anything else | Core named a reason this build does not model (`<reason>`) |
+
+### Recapture 2026-09-10 (E1)
+
+All seven images above were retaken on 2026-09-10 with the identical procedure
+(`--headless --disable-gpu --hide-scrollbars --window-size=1440,900
+--virtual-time-budget=6000` against the vite dev server on port 4173) and
+visually reviewed again. Cause: batch F1 re-exported `EvidenceVerificationState`
+and `EvidenceQualityStatus` on the `viden-core` facade and the detail rail's
+report gained two rows for them, so the captures taken before F1 were one
+revision behind the surface they document.
+
+Four of the seven moved and three did not, which is itself the fact worth
+recording:
+
+| File | Moved | Why |
+| --- | --- | --- |
+| `evidence-1440x900-dark-en.png` | yes | the selected `patch` row carries both verdicts, so `verification` and `canonical quality` are now in its report |
+| `evidence-text-1440x900-dark-en.png` | yes | same, on the selected `test_result` row |
+| `evidence-unavailable-1440x900-dark-en.png` | yes | same row as `evidence`, with the content answer replaced |
+| `evidence-1440x900-light-zh-CN.png` | yes | the two row labels translate, so the locale proof had to move with them |
+| `evidence-summary-only-1440x900-dark-en.png` | no | the `task_summary` row carries neither verdict, so no row was added; its report is unchanged byte for byte |
+| `evidence-empty-1440x900-dark-en.png` | no | no row is selected, so there is no report to add to |
+| `evidence-rejected-1440x900-dark-en.png` | no | the query was refused, so nothing is loaded and nothing is selected |
+
+One thing the `evidence-unavailable` capture makes visible and does not yet
+explain in words: the report can read `verification verified` / `canonical
+quality pass` while the content block below it reads "canonical bytes failed
+verification — not shown". Those are two different facts — Core's recorded
+verdicts on the *evidence record*, and the *content read's* own hash check
+against `source_hash` — and the screen currently states neither relationship.
+Recorded as a follow-up in `docs/core-0.3-compatibility.md`, not fixed here.

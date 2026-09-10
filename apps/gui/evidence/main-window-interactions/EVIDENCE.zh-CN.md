@@ -625,3 +625,29 @@ Core 没有本地化名称的原始 `task_summary` 类型，以及 `YYYY-MM-DD` 
 | `hash_mismatch` | 规范字节校验失败——不予展示 |
 | `binary` | 规范字节校验通过但不是文本，因此没有可展示的正文 |
 | 其他 | Core 给出了本版本未建模的原因（`<reason>`） |
+
+### 2026-09-10 重新采集（E1）
+
+上述七张图在 2026-09-10 以完全相同的流程重新采集（`--headless --disable-gpu
+--hide-scrollbars --window-size=1440,900 --virtual-time-budget=6000`，对着
+4173 端口上的 vite 开发服务器），并再次逐张目视复核。原因：F1 批次在 `viden-core`
+门面上重新导出了 `EvidenceVerificationState` 与 `EvidenceQualityStatus`，详情侧栏
+的报告因此新增两行，于是 F1 之前采集的截图比它们所记录的界面落后一个修订。
+
+七张中四张变化、三张未变，这件事本身值得记录：
+
+| 文件 | 是否变化 | 原因 |
+| --- | --- | --- |
+| `evidence-1440x900-dark-en.png` | 是 | 选中的 `patch` 行同时带有两个判定，报告中因此出现 `verification` 与 `canonical quality` 两行 |
+| `evidence-text-1440x900-dark-en.png` | 是 | 同上，发生在选中的 `test_result` 行 |
+| `evidence-unavailable-1440x900-dark-en.png` | 是 | 与 `evidence` 是同一行，只是内容答案不同 |
+| `evidence-1440x900-light-zh-CN.png` | 是 | 这两行标签会翻译，因此语言证明必须跟着更新 |
+| `evidence-summary-only-1440x900-dark-en.png` | 否 | `task_summary` 行两个判定都没有，因此没有新增行，报告逐字节未变 |
+| `evidence-empty-1440x900-dark-en.png` | 否 | 没有选中任何行，也就没有报告可加 |
+| `evidence-rejected-1440x900-dark-en.png` | 否 | 查询被拒绝，什么都没加载，也没有选中项 |
+
+`evidence-unavailable` 这张图让一件事变得可见，但界面上还没有用文字解释：报告可以显示
+`校验状态 已校验` / `规范字节质量 通过`，而下方内容区却写着"规范字节校验失败——不予展示"。
+这是两个不同的事实——Core 对**证据记录**记下的判定，与**内容读取**自身对 `source_hash`
+的哈希校验——而屏幕目前没有说明两者的关系。已作为后续项记入
+`docs/core-0.3-compatibility.md`，本批次不做修复。
