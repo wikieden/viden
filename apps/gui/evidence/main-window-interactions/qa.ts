@@ -45,6 +45,13 @@ import type { Locale } from "../../src/i18n/catalog";
 import type { ComposerControlIntent } from "../../src/models/composer";
 import type { WorkspaceDiffProjection } from "../../src/models/diff_review";
 import {
+  ABSENT_EVIDENCE_CONTENT,
+  PENDING_EVIDENCE_ARCHIVE,
+  type EvidenceArchiveProjection,
+  type EvidenceContentProjection,
+  type EvidenceRowProjection,
+} from "../../src/models/evidence";
+import {
   IDLE_OPERATOR_GIT,
   type OperatorGitProjection,
 } from "../../src/models/operator_git";
@@ -400,6 +407,14 @@ interface CockpitOptions {
    * in their unbound-host shape, which is a different capture.
    */
   operatorGit?: OperatorGitProjection;
+  /** The `EvidencePageLoaded` archive the EvidenceView entry points resolve to. */
+  evidence?: EvidenceArchiveProjection;
+  /**
+   * The `EvidenceContentLoaded` answers, keyed by the row Core echoes them
+   * for. Keyed rather than fixed so one capture can hold rows whose content
+   * answers differ, which is the whole point of the unavailable state.
+   */
+  evidenceContent?: Record<string, EvidenceContentProjection>;
 }
 
 function mountCockpit(options: CockpitOptions): void {
@@ -445,6 +460,18 @@ function mountCockpit(options: CockpitOptions): void {
             poll: async () => options.operatorGit!,
           }
         : undefined,
+      // The same quartet the shell injects. Every call resolves to one fixed
+      // answer, so the capture cannot move after it settles.
+      evidence: options.evidence
+        ? {
+            read: async () => options.evidence!,
+            query: async () => options.evidence!,
+            loadOlder: async () => options.evidence!,
+            content: async (evidenceId) =>
+              options.evidenceContent?.[evidenceId] ?? ABSENT_EVIDENCE_CONTENT,
+          }
+        : undefined,
+      onOpenAuditTrail: () => undefined,
       loadRecentWork: options.projectPicker ? async () => RECENT_WORK : undefined,
       // The chooser never resolves, so `Add directory…` cannot advance the
       // capture past the columns it is framing.
@@ -1159,6 +1186,282 @@ const OPERATOR_GIT_REJECTED: OperatorGitProjection = {
   },
 };
 
+/* ------------------------------------------------------------------ */
+/* EvidenceView (runtime.evidence_reads, GUI-CORE-025)                 */
+/* ------------------------------------------------------------------ */
+
+/// The canonical `evidence-reads.json` fixture's own second: 2023-11-14
+/// 22:15:00 UTC. The archive rows below are that fixture's three entries plus
+/// one row a day later and one row Core never dated, so the capture can show
+/// the undated group, two day groups, and Core's own ordering at once.
+const EVIDENCE_DAY_ONE = 1_700_000_100;
+const EVIDENCE_DAY_TWO = EVIDENCE_DAY_ONE + 86_400;
+
+function evidenceRow(
+  overrides: Partial<EvidenceRowProjection> & Pick<EvidenceRowProjection, "id" | "kind">,
+): EvidenceRowProjection {
+  return {
+    summary: "",
+    path: null,
+    source: "lane_evidence_reads",
+    timestamp: EVIDENCE_DAY_ONE,
+    ownerLaneId: "L1",
+    ownerTaskId: "task_evidence_reads",
+    canonical: {
+      itemId: `item_${overrides.id}`,
+      bundleId: "bundle_evidence_reads",
+      sourceHash: "a".repeat(64),
+      producerIdentity: "lane_evidence_reads",
+      producerRole: "coder",
+      producerTaskId: "task_evidence_reads",
+    },
+    metadata: [],
+    ...overrides,
+  };
+}
+
+/// One archive page, exactly as the host would project a confirmed
+/// `EvidencePageLoaded`: Core's own ascending `(timestamp, id)` order, with the
+/// undated row first because that is where Core puts it — undated is the oldest
+/// thing Core can say about a row. Nothing is sorted on this side; these rows
+/// are listed in the order Core would have delivered them.
+const EVIDENCE_ARCHIVE: EvidenceArchiveProjection = {
+  ...PENDING_EVIDENCE_ARCHIVE,
+  outcome: { state: "confirmed", reason: null },
+  loaded: true,
+  complete: false,
+  // Core's cursor for the last row on this page. Opaque to the client, which
+  // passes it back verbatim and never reads it; it is well-formed here only so
+  // the capture is not framing a string Core could not have issued.
+  nextAfter: `t:${EVIDENCE_DAY_TWO}:evidence_delta_docs`,
+  scopeLaneId: null,
+  rows: [
+    evidenceRow({
+      id: "evidence_zulu_release",
+      kind: "release_artifact",
+      summary: "viden-gui 0.1.0-rc.4 bundle recorded before the run was dated",
+      timestamp: null,
+      path: "target/release/bundle/viden-gui.app",
+      metadata: [{ key: "channel", value: "internal" }],
+    }),
+    evidenceRow({
+      id: "evidence_alpha_patch",
+      kind: "patch",
+      summary: "canonical patch for the evidence reads module",
+      path: "crates/types/src/evidence_reads.rs",
+      metadata: [{ key: "files", value: "1" }],
+    }),
+    evidenceRow({
+      id: "evidence_bravo_tests",
+      kind: "test_result",
+      summary: "workspace suite passed",
+      timestamp: EVIDENCE_DAY_ONE + 120,
+      path: null,
+      metadata: [
+        { key: "command", value: "cargo test --workspace --quiet" },
+        { key: "exit", value: "0" },
+      ],
+    }),
+    evidenceRow({
+      id: "evidence_charlie_summary",
+      kind: "task_summary",
+      summary: "the model's own account of the turn",
+      timestamp: EVIDENCE_DAY_TWO,
+      // Display-only evidence names no canonical reference at all, which is
+      // exactly the row Core answers with `Unavailable { SummaryOnly }`.
+      canonical: null,
+      path: null,
+    }),
+    evidenceRow({
+      id: "evidence_delta_docs",
+      kind: "doc_update",
+      summary: "frontend contract gained the evidence archive section",
+      timestamp: EVIDENCE_DAY_TWO,
+      path: "docs/frontend-integration-contract.md",
+      metadata: [{ key: "sections", value: "1" }],
+    }),
+  ],
+};
+
+/// The fixture's own parsed patch: Core answered `Diff`, so the rows come
+/// through the shared renderer rather than as text.
+const EVIDENCE_PATCH_CONTENT: EvidenceContentProjection = {
+  ...ABSENT_EVIDENCE_CONTENT,
+  outcome: { state: "confirmed", reason: null },
+  evidenceId: "evidence_alpha_patch",
+  kind: "diff",
+  sha256: "a".repeat(64),
+  document: {
+    truncated: false,
+    byteLimit: 262_144,
+    files: [
+      {
+        path: "crates/types/src/evidence_reads.rs",
+        oldPath: null,
+        kind: "modified",
+        binary: false,
+        omitted: false,
+        additions: 1,
+        deletions: 1,
+        hunks: [
+          {
+            oldStart: 12,
+            oldLines: 3,
+            newStart: 12,
+            newLines: 3,
+            header: "impl EvidenceQuery",
+            lines: [
+              {
+                kind: "context",
+                content: "    pub fn clamped_limit(&self) -> usize {",
+                oldLine: 12,
+                newLine: 12,
+              },
+              {
+                kind: "removed",
+                content: "        self.limit as usize",
+                oldLine: 13,
+                newLine: null,
+              },
+              {
+                kind: "added",
+                content: "        self.limit.clamp(1, 200) as usize",
+                oldLine: null,
+                newLine: 13,
+              },
+              { kind: "context", content: "    }", oldLine: 14, newLine: 14 },
+            ],
+          },
+        ],
+      },
+    ],
+  },
+  reason: null,
+  text: null,
+  truncated: false,
+  pendingCommandId: null,
+};
+
+/// The fixture's own text read, with Core's bound flag set so the capture
+/// frames "the content is cut" beside real bytes.
+const EVIDENCE_TEXT_CONTENT: EvidenceContentProjection = {
+  ...ABSENT_EVIDENCE_CONTENT,
+  outcome: { state: "confirmed", reason: null },
+  evidenceId: "evidence_bravo_tests",
+  kind: "text",
+  text: [
+    "running 412 tests",
+    "test evidence_reads::cursor_round_trips ... ok",
+    "test evidence_reads::undated_sorts_first ... ok",
+    "test evidence_reads::hash_mismatch_is_never_served ... ok",
+    "test result: ok. 412 passed; 0 failed; 0 ignored",
+  ].join("\n"),
+  truncated: true,
+  sha256: "b".repeat(64),
+};
+
+/// The two opposite absences, keyed per row so one capture holds both: a row
+/// with no canonical reference at all, and a row whose bytes are present and
+/// fail their own hash — which Core never serves.
+const EVIDENCE_UNAVAILABLE_CONTENT: Record<string, EvidenceContentProjection> = {
+  evidence_charlie_summary: {
+    ...ABSENT_EVIDENCE_CONTENT,
+    outcome: { state: "confirmed", reason: null },
+    evidenceId: "evidence_charlie_summary",
+    kind: "unavailable",
+    reason: "summary_only",
+  },
+  evidence_alpha_patch: {
+    ...ABSENT_EVIDENCE_CONTENT,
+    outcome: { state: "confirmed", reason: null },
+    evidenceId: "evidence_alpha_patch",
+    kind: "unavailable",
+    reason: "hash_mismatch",
+  },
+};
+
+/// Core answered with zero entries for this scope — the one state that may say
+/// "no evidence".
+const EVIDENCE_EMPTY: EvidenceArchiveProjection = {
+  ...EVIDENCE_ARCHIVE,
+  rows: [],
+  complete: true,
+  nextAfter: null,
+};
+
+/// The fixture's own over-limit `kinds` refusal: a pre-page `CommandRejected`,
+/// carried verbatim. Nothing loaded, so this is never an empty archive.
+const EVIDENCE_REJECTED: EvidenceArchiveProjection = {
+  ...PENDING_EVIDENCE_ARCHIVE,
+  outcome: {
+    state: "rejected",
+    reason:
+      "evidence query kinds exceed the 32 entry bound: 33 requested\nhint: ask for fewer kinds, or drop the filter and page the archive",
+  },
+  loaded: false,
+};
+
+/// Opens EvidenceView through the command palette, the way an operator does,
+/// rather than by mounting the view directly.
+async function openEvidence(
+  archive: EvidenceArchiveProjection,
+  content: Record<string, EvidenceContentProjection> = {},
+  selectRow?: string,
+  /**
+   * Scrolls the detail rail so the named section is in frame.
+   *
+   * Framing only. The rail is one scrolling column — report, metadata,
+   * content, linked — and the composer keeps the centre pane short, so a long
+   * report can push the content note below the fold. Nothing is hidden or
+   * re-rendered; the capture is simply taken at the scroll position an
+   * operator reaches with one wheel turn.
+   */
+  frameSection?: string,
+): Promise<void> {
+  mountCockpit({
+    projection: d1Base(),
+    preferencesAvailable: true,
+    evidence: archive,
+    evidenceContent: content,
+    // A Core that publishes both capabilities, which is the state the footer's
+    // "Open in review" is drawn for. Without the diff port the button would be
+    // disabled, which is a different capture.
+    workspaceDiff: REVIEW_PAGE,
+  });
+  // The capability read is a no-traffic projection read that resolves after
+  // the first paint, so the palette is opened only once the row can actually
+  // be enabled — opening earlier would frame, and click, the disabled row.
+  for (let settle = 0; settle < 8; settle += 1) await tick();
+  click("[data-command-palette-toggle]");
+  await waitFor(
+    "[data-palette-row][data-palette-item-id='action:open-evidence']:not([aria-disabled='true'])",
+  );
+  click("[data-palette-row][data-palette-item-id='action:open-evidence']");
+  await waitFor("[data-evidence-view]");
+  if (selectRow) {
+    await waitFor(`[data-evidence-row='${selectRow}']`);
+    click(`[data-evidence-row='${selectRow}']`);
+    await waitFor("[data-evidence-section='content'] > *:nth-child(2)");
+  } else {
+    await waitFor("[data-evidence-detail]");
+  }
+  if (frameSection) {
+    // After the content answer settles the cockpit redraws once more, which
+    // rebuilds the rail and resets its scroll. Framing has to happen after
+    // that last redraw, so the ticks come first.
+    for (let settle = 0; settle < 6; settle += 1) await tick();
+    const rail = document.querySelector<HTMLElement>("[data-evidence-detail]");
+    const section = document.querySelector<HTMLElement>(
+      `[data-evidence-section='${frameSection}']`,
+    );
+    if (rail && section) {
+      rail.scrollTop +=
+        section.getBoundingClientRect().top - rail.getBoundingClientRect().top;
+    }
+    await tick();
+  }
+}
+
 /// Types the commit message through the production input listener, the way an
 /// operator does, so the capture frames the bar's real enabled state.
 async function typeCommitMessage(message: string): Promise<void> {
@@ -1423,6 +1726,72 @@ async function renderState(): Promise<void> {
       // beside `review-push-no-upstream`: the two must never read alike.
       await openReview(REVIEW_PAGE, OPERATOR_GIT_REJECTED);
       await waitFor("[data-review-action-state='rejected']");
+      return;
+    }
+
+    case "evidence": {
+      // The registered EvidenceView family over one Core page: the kind chips,
+      // the undated group first, two day groups below it, and the selected
+      // `patch` row's canonical bytes as parsed diff rows.
+      await openEvidence(
+        EVIDENCE_ARCHIVE,
+        { evidence_alpha_patch: EVIDENCE_PATCH_CONTENT },
+        "evidence_alpha_patch",
+      );
+      return;
+    }
+
+    case "evidence-text": {
+      // A `test_result` row whose canonical bytes are text Core's bound cut,
+      // with the truncation sentence and the hash it verified them against
+      // framed below the body.
+      await openEvidence(
+        EVIDENCE_ARCHIVE,
+        { evidence_bravo_tests: EVIDENCE_TEXT_CONTENT },
+        "evidence_bravo_tests",
+        "content",
+      );
+      return;
+    }
+
+    case "evidence-summary-only": {
+      // The opposite absence from `evidence-unavailable`: a display-only
+      // `task_summary` row that names no canonical bytes at all, so the report
+      // says so and Core answers `Unavailable { SummaryOnly }`.
+      await openEvidence(
+        EVIDENCE_ARCHIVE,
+        EVIDENCE_UNAVAILABLE_CONTENT,
+        "evidence_charlie_summary",
+      );
+      return;
+    }
+
+    case "evidence-unavailable": {
+      // The row Core will not serve: bytes that are present and fail their own
+      // hash. The display-only `task_summary` row is two rows further down the
+      // same list, and its own answer is the opposite absence — one row names
+      // no canonical bytes at all, the other names bytes Core has and refuses.
+      await openEvidence(
+        EVIDENCE_ARCHIVE,
+        EVIDENCE_UNAVAILABLE_CONTENT,
+        "evidence_alpha_patch",
+      );
+      return;
+    }
+
+    case "evidence-empty": {
+      // The only state that may say "no evidence": Core answered, with zero
+      // entries for this scope.
+      await openEvidence(EVIDENCE_EMPTY);
+      await waitFor("[data-evidence-state='empty']");
+      return;
+    }
+
+    case "evidence-rejected": {
+      // Core's refusal, rendered verbatim in a `role=alert`. Never an empty
+      // list, which would read as an archive with nothing in it.
+      await openEvidence(EVIDENCE_REJECTED);
+      await waitFor("[data-evidence-state='rejected']");
       return;
     }
 

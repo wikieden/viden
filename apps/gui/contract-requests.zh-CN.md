@@ -572,8 +572,22 @@ Core 状态：已交付为 `runtime.evidence_reads`。`QueryEvidence` -> `Eviden
 回答且完全不发布 page。这四种情形在朴素客户端里渲染出来完全一样——都是"没有证据"——这正是它们
 共用一个 fixture 的理由。
 
-GUI 状态：尚未采纳。EvidenceView 仍渲染 `latest_evidence` 给它的内容；按天分组的归档、详情侧栏、
-链出的 chip，以及进入 DiffReview 的"在评审中打开"，将随 EvidenceView 批次（G2）落地。
+GUI 状态：已于 2026-09-09 采纳（G2b）。EvidenceView 是 D1 中央区的一个视图
+（`apps/gui/src/screens/evidence_view.ts`），从命令面板的 `Open evidence` 行或 `⌘E`/`⌃E` 打开；
+当 Core 不发布该能力时，两个入口都保持可见但禁用并点名 `runtime.evidence_reads`。首页是一次
+`QueryEvidence`，limit 为 50，作用域取自 Core 为所选 Lane 发布的 owner；类型 chip 作为 `kinds`
+发送，由 Core 在切页之前过滤；"加载更早"把 `next_after` 原样传回。选中一行发送一次
+`ReadEvidenceContent`——同一时间只有一个读取在途，并在视图生命周期内按 id 缓存——随后渲染
+`Text`、经共享 diff 行渲染的 `Diff`，或类型化的不可用原因。视图打开期间到达的 `EvidenceRecorded`
+只把列表标记为陈旧并给出横幅与"刷新"，绝不在操作者眼皮底下自行重载。`latest_evidence` 未被触碰，
+也绝不与归档列表合并。证据：`apps/gui/evidence/main-window-interactions/` 下的 `evidence`、
+`evidence-text`、`evidence-unavailable`、`evidence-empty` 与 `evidence-rejected`。
+
+有一处遗留，属于工效而非契约：`viden-core` 重导出了 `EvidenceView`，但没有重导出
+`EvidenceVerificationState` 与 `EvidenceQualityStatus`，因此详情侧栏的报告能陈述该行的 canonical
+引用、生产者与哈希，却无法命名 Core 对它的校验状态或质量状态。它只陈述门面允许它陈述的内容，
+而不是另造一套词汇。把这两个名字加入重导出列表即可关闭它。
+
 TUI 状态：`0.3.2` 监督检查点上推迟的证据检视器，从决策浮层打开，随 T1 落地。
 
 ## GUI-CORE-026：平台凭据录入

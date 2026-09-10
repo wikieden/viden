@@ -769,10 +769,30 @@ an over-limit `kinds` query answered by `CommandRejected` with no page at all.
 Those four render identically in a naive client — as "no evidence" — which is
 why they share one fixture.
 
-GUI status: not yet adopted. EvidenceView still renders whatever
-`latest_evidence` gives it; the day-grouped archive, the detail rail, the
-linked chips, and "Open in review" into DiffReview land with the EvidenceView
-batch (G2). TUI status: the evidence inspector deferred at the `0.3.2`
+GUI status: adopted 2026-09-09 (G2b). EvidenceView is a centre-pane view in D1
+(`apps/gui/src/screens/evidence_view.ts`), opened from the command palette's
+`Open evidence` row or `⌘E`/`⌃E`, with both entry points disabled and naming
+`runtime.evidence_reads` when Core does not publish it. The first page is one
+`QueryEvidence` at limit 50 scoped to the selected Lane's Core-published owner,
+the kind chips are sent as `kinds` so Core filters before it cuts the page, and
+"Load older" hands `next_after` back verbatim. Selecting a row sends one
+`ReadEvidenceContent` — one read in flight, cached per id for the view's
+lifetime — and renders `Text`, `Diff` through the shared diff rows, or the
+typed unavailable reason. An `EvidenceRecorded` while the view is open marks
+the list stale with a banner and a Refresh and never reloads it underneath the
+operator. `latest_evidence` is untouched and never merged into the archive
+list. Evidence: `evidence`, `evidence-text`, `evidence-unavailable`,
+`evidence-empty`, and `evidence-rejected` under
+`apps/gui/evidence/main-window-interactions/`.
+
+One residual, ergonomic rather than contractual: `viden-core` re-exports
+`EvidenceView` but not `EvidenceVerificationState` or `EvidenceQualityStatus`,
+so the detail rail's report states the row's canonical reference, producer, and
+hash but cannot name Core's verification or quality state for it. It states
+what the facade lets it state rather than inventing a second vocabulary.
+Adding those two names to the re-export list would close it.
+
+TUI status: the evidence inspector deferred at the `0.3.2`
 supervision checkpoint, opened from the decisions overlay, lands with T1.
 
 ## GUI-CORE-026: Platform credential intake

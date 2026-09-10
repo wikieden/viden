@@ -189,6 +189,12 @@ All URLs share the prefix
 | `d14-audit` | `…/qa.html?state=d14-audit` | the mode toggle with `Audit trail` pressed beside `Raw event replay (diagnostic)`; three audit rows newest-first, each showing Core's raw dotted `action` key, the actor (with `codex-acp` on the agent row), the outcome (`denied` visibly distinct from `success`), the linked object chips, the bounded argument chips, and a readable `YYYY-MM-DD HH:MM:SS UTC` time with the zone spelled out; the load-older control, because Core's page is incomplete |
 | `d14-audit-scoped` | `…/qa.html?state=d14-audit-scoped` | the same trail as D12's revert row opens it: the removable `Scoped to revert · revert-1` chip in the header, which re-queries unscoped when removed |
 | `d14-raw-fallback` | `…/qa.html?state=d14-raw-fallback` | a Core without `runtime.audit`: raw mode pressed, the audit button disabled, the note naming the capability, and the replay rows below with the undecodable row kept and highlighted |
+| `evidence` | `…/qa.html?state=evidence` | EvidenceView opened from the palette's `Open evidence` row: the kind chips with `task_summary` grouped last rather than hidden, the scope-stating search box, the `Undated` group **first** and two local-day groups after it in Core's own ascending order, and the selected `patch` row's canonical bytes rendered through the shared diff rows (`GUI-CORE-025`) |
+| `evidence-text` | `…/qa.html?state=evidence-text` | the same list with a `test_result` row selected and the detail rail scrolled to its content: the bounded text, the sentence saying Core's 256 KiB bound cut it and that this does not mean the evidence was short, the `Verified against <sha256>` line, the linked chips, and `Open in review` disabled because the row is not a `patch` |
+| `evidence-summary-only` | `…/qa.html?state=evidence-summary-only` | the display-only `task_summary` row: a report with no canonical fields and the note saying the entry names no canonical bytes, and `Unavailable { SummaryOnly }` rendered as "display-only evidence — Core holds no canonical bytes for it" |
+| `evidence-unavailable` | `…/qa.html?state=evidence-unavailable` | the opposite absence on the `patch` row: `Unavailable { HashMismatch }` as "canonical bytes failed verification — not shown", in the error colour, with no body anywhere on the screen |
+| `evidence-empty` | `…/qa.html?state=evidence-empty` | "No evidence in this scope." — the only state drawn that way, over a page Core actually answered — with `complete` stated as "Archive complete" rather than left to the absence of a `Load older` button |
+| `evidence-rejected` | `…/qa.html?state=evidence-rejected` | Core's over-limit `kinds` refusal verbatim in a `role=alert`, its `hint:` line kept on its own line, with nothing loaded, no paging foot, and no empty-archive sentence |
 
 `mode=dark|light` and `locale=en|zh-CN` are accepted on every state and resolve
 through the shared `resolveTheme` path, so the harness never ships a second
@@ -649,3 +655,67 @@ instead of borrowing a known one:
 | `file_deleted` | File would survive deletion | the deletion's preimage does not cover the whole file, so it would be left behind — a file-level decision |
 | `binary` | Binary | Core reported non-text content, so there are no lines to match |
 | anything else | `Reason <tag>` | shown exactly as Core published it |
+
+## EvidenceView archive captures
+
+Captured 2026-09-10 with the same headless Chrome procedure
+(`--headless --window-size=1440,900 --virtual-time-budget=6000`) against the
+vite dev server on port 4173, then visually reviewed. These are the first
+images of `runtime.evidence_reads` (GUI-CORE-025) in the client.
+
+The rows and content answers are inline fixtures in `qa.ts` rather than a
+generated projection: this capability's projections are query answers, not
+runtime facts, so `RuntimeProjection` never holds one and
+`tests/capture_projections.rs` has nothing to emit for it. The rows are written
+in Core's own ascending `(timestamp, id)` order with the undated row first,
+which is the order Core would have delivered them in; nothing in the client
+sorts.
+
+| File | State | Viewport | Mode | Locale |
+| --- | --- | --- | --- | --- |
+| [evidence-1440x900-dark-en.png](evidence-1440x900-dark-en.png) | evidence | 1440x900 | dark | en |
+| [evidence-text-1440x900-dark-en.png](evidence-text-1440x900-dark-en.png) | evidence-text | 1440x900 | dark | en |
+| [evidence-summary-only-1440x900-dark-en.png](evidence-summary-only-1440x900-dark-en.png) | evidence-summary-only | 1440x900 | dark | en |
+| [evidence-unavailable-1440x900-dark-en.png](evidence-unavailable-1440x900-dark-en.png) | evidence-unavailable | 1440x900 | dark | en |
+| [evidence-empty-1440x900-dark-en.png](evidence-empty-1440x900-dark-en.png) | evidence-empty | 1440x900 | dark | en |
+| [evidence-rejected-1440x900-dark-en.png](evidence-rejected-1440x900-dark-en.png) | evidence-rejected | 1440x900 | dark | en |
+| [evidence-1440x900-light-zh-CN.png](evidence-1440x900-light-zh-CN.png) | evidence | 1440x900 | light | zh-CN |
+
+Each image exists to make one honesty rule falsifiable:
+
+| Image | The rule it proves |
+| --- | --- |
+| `evidence` | this is the **archive**, not `latest_evidence`. The `Undated` group leads because that is where Core's ordering puts it, the two dated groups follow ascending, and the `task_summary` chip sits after the five first-class kinds instead of being dropped — a chip bar that hid a kind would hide rows the archive holds. `Load older` is offered because Core's page is incomplete, and the search box's own label says it filters the loaded rows because Core publishes no evidence search |
+| `evidence-text` | a bound is stated, never implied: the truncation sentence spells out that Core's 256 KiB bound cut the content and that this does **not** mean the evidence was short, and the `Verified against <sha256>` line lets a reader join what is on screen to the row's canonical reference. `Open in review` is visible and disabled on a non-`patch` row rather than hidden |
+| `evidence-summary-only` | "no canonical reference" is its own fact. The report carries no canonical item, bundle, hash, or producer and says the entry names no canonical bytes, and the content block renders `Unavailable { SummaryOnly }` as a sentence rather than an empty body |
+| `evidence-unavailable` | `HashMismatch` is the **opposite** fact from `SummaryOnly`, and the pair of captures proves the two are not folded together. Here Core has the bytes and refuses to serve them, so the pane says verification failed and shows no body at all — the one thing a reviewer must never be shown is content that failed its own hash |
+| `evidence-empty` | four absences stay four sentences. This is the only one drawn as "no evidence in this scope", and it is drawn over a page Core actually answered; `complete` is stated in words rather than left to a missing button |
+| `evidence-rejected` | a refusal is never an empty page. Core's own reason is rendered unedited in a `role=alert`, its `hint:` line preserved on its own line, and the list stays unloaded — no rows, no paging foot, and no empty-archive sentence |
+
+The light/`zh-CN` capture is the locale proof for the added copy. The kind
+chips, the `Undated` label, the report field names, the metadata note, the
+content sentences, and both footer actions translate; the evidence ids, the
+Core-published summaries, the paths, the source hash, the producer, the raw
+`task_summary` kind Core has no localized name for, and the `YYYY-MM-DD` day
+keys stay exactly as Core published them.
+
+One determinism caveat specific to this family: day grouping and the row time
+are **local**, by design — an operator reads an archive in the day they are in,
+unlike an audit record, which is fixed to UTC because it is compared across
+machines. `Date.now` is frozen for these captures but the zone is not, so the
+day headings and times in the images are the capture host's zone. The fixture's
+two seconds are `2023-11-14 22:15:00 UTC` and 24 hours later; a capture taken
+in another zone will show different day keys for the same rows, and that is the
+grouping rule working rather than drift.
+
+The unavailable vocabulary is Core's `EvidenceUnavailableReason`, switched on
+by discriminant so a reason this build does not model reaches the screen as
+itself rather than borrowing a known one:
+
+| `EvidenceUnavailableReason` | What the detail rail says |
+| --- | --- |
+| `summary_only` | display-only evidence — Core holds no canonical bytes for it |
+| `missing_canonical_bytes` | Core names canonical bytes the store no longer holds |
+| `hash_mismatch` | canonical bytes failed verification — not shown |
+| `binary` | the canonical bytes verify and are not text, so there is no body to show |
+| anything else | Core named a reason this build does not model (`<reason>`) |

@@ -826,6 +826,134 @@ they carry, and the GUI may hold no second `viden-*` dependency, so
 encoding rather than a second parser. A Core-side re-export would remove that
 hop; it is recorded against GUI-CORE-015.
 
+## EvidenceView
+
+`⌘E` (`⌃E` off macOS) and the palette's `Open evidence` open the registered
+`.evwrap > .evmain(.evbar + .evscroll) + .evdet` family in D1's centre pane.
+Like DiffReview it is a **view inside the cockpit, not a route**: `D-RAILNAV`
+keeps the activity rail a router to the standalone D-screens and registers the
+secondary surfaces as views over the transcript, so closing returns to the
+transcript rather than navigating. The CSS comes from `GUI/gui-kit.css`, where
+the `D0` promotion mirrored the family for a second consumer.
+
+`E` and `⌘F` were both unbound in this shell — the cockpit's only chords are
+`⌘K`/`⌃P`, `⌘O`, and `⌘R` — so `⌘E` toggles the view and `⌘F` focuses the
+search box while it owns the centre pane. The D1 Live Work strip is *not* an
+entry point: it is one merged `role=status` line over tasks, tools, approvals,
+queued input, and `latest_evidence`, and turning the recent-window projection
+into a door to the archive is exactly the conflation this view exists to end.
+
+**This is the archive, not `latest_evidence`.** `RuntimeViewState.latest_evidence`
+is a recent-window projection — an upsert-by-id list of whatever the current
+stream published, with no ordering rule, no cursor, and no content. The two are
+never merged and never render in the same list. Everything below comes from
+`runtime.evidence_reads` (Core `0.3.6`, GUI-CORE-025).
+
+**Data path.** One `QueryEvidence` -> `EvidencePageLoaded` through the
+CoreClient seam, correlated as `QueryWorkspaceDiff` is: one read in flight, the
+exact `command_id` on both the page and a `CommandRejected`, and no
+acceptance-gated fallback because the page's id is a required field. The first
+page is `limit: 50`; the `owner` scope is the exact `RuntimeOwner` Core bound to
+the selected Lane, narrowed to workspace/project/Lane and deliberately *not*
+carrying Core's turn binding, which would answer "this turn's evidence" for a
+question about the Lane. With a Lane selected and no exact Core owner the host
+refuses locally under `D1-EVIDENCE-NO-OWNER` rather than reading unscoped,
+because an unscoped answer under a Lane's name would show every Lane's evidence
+as that Lane's. No selection reads the whole archive. The gate posture is
+`QueryAudit`'s, not `QueryWorkspaceFiles`': bounded and owner-scoped, never
+tool-gated, so both reads stay answerable in Plan mode.
+
+**Paging.** "Load older" sends one more `QueryEvidence` carrying Core's own
+`next_after` verbatim as `after`. The client never parses, constructs, or
+compares a cursor, and the control is disabled when Core published none rather
+than letting the client build one. `complete` is stated — "archive complete" —
+instead of being left to the absence of a button, and because Core filters
+before it cuts the page, `complete` describes the *filtered* archive.
+
+**Filter and search are different things, and the view says so.** The kind
+chips are `EvidenceQuery.kinds`, so a chip change is a new Core query: a client
+narrowing the page it already holds could not tell whether a match sits on a
+page it never loaded. The chip vocabulary is the five first-class kinds
+(`patch`, `test_result`, `review`, `doc_update`, `release_artifact`) followed by
+every other kind the loaded rows actually carry — grouped last, never hidden.
+The search box is the opposite: Core exposes no evidence search, so it is a
+case-insensitive substring over the rows already loaded, and its tooltip and
+`aria-label` name that scope with the loaded row count. A search that hides
+every row gets its own sentence, distinct from "no evidence".
+
+**Grouping.** Rows arrive ascending on `(timestamp, id)` and are appended in
+arrival order; nothing is sorted client-side. Day grouping is presentation over
+Core's order — consecutive rows sharing a local day form one group — so the
+undated group leads, which is where Core's ordering already puts it. An undated
+row's time column is a dash, never a fabricated clock.
+
+**Re-query rule: mark stale, never reload.** The adapter counts
+`EvidenceRecorded` inside its single receive funnel, so a recording drained by
+an unrelated screen's poll still reaches an open view; the count is compared
+against the revision the loaded pages were read at. A stale list keeps its rows
+and gains a banner with a Refresh. Unlike DiffReview it never re-reads on its
+own: a diff pane holds one page of one tree, but an evidence list holds however
+many pages the operator paged through by hand, and reloading would discard that
+and move the rows they were reading.
+
+**Content.** Selecting a row sends one `ReadEvidenceContent` — one in flight,
+and the answer is cached per id for the view's lifetime, so re-selecting a row
+costs no second read. The cache is dropped when the view closes, because a body
+that outlived the view could be rendered against an archive that has since
+moved. Answers are filed under the `evidence_id` **Core echoed**, never the id
+the client asked with, and while the selected row is not the row an answer
+belongs to the block says "reading" rather than showing another row's bytes.
+Core reads only the canonical ContextStore bytes the row's own reference names
+and verifies them against its `source_hash` first, so the client opens no store
+and renders no unverified bytes.
+
+**Content honesty rules**, each with its own sentence and its own test:
+
+| Core fact | What the detail rail renders |
+| --- | --- |
+| `Text { truncated: true }` | the body plus "over Core's 256 KiB bound: the content is cut", explicitly not "the evidence was short" |
+| `Text` / `Diff` `sha256` | "Verified against \<hash\>", so the reader can join what is on screen to the row's canonical reference |
+| `Diff` | the shared `diff_rows` renderer DiffReview and the approval surfaces use, because Core parsed the patch with the same producer |
+| `Unavailable { SummaryOnly }` | "display-only evidence — Core holds no canonical bytes for it" |
+| `Unavailable { MissingCanonicalBytes }` | "Core names canonical bytes the store no longer holds" |
+| `Unavailable { HashMismatch }` | "canonical bytes failed verification — not shown" |
+| `Unavailable { Binary }` | "the canonical bytes verify and are not text, so there is no body to show" |
+| an unmodelled reason or content shape | stated as unnamed, never folded into a known one — both enums are `#[non_exhaustive]` |
+| `CommandRejected` | Core's refusal text verbatim in a `role=alert` |
+
+**List honesty rules.** A read with no answer yet says "reading"; a loaded page
+with zero entries is the only state drawn as "no evidence in this scope"; a
+refusal renders Core's words and loads nothing; and an absent
+`runtime.evidence_reads` names the capability, states that this is not an empty
+archive, and keeps both entry points visible, disabled, and labelled with it —
+never silently hidden. The palette row and the `⌘E` chord read one no-traffic
+projection at mount for that answer and send no command.
+
+**Detail rail.** The header carries the kind glyph, the localized kind, Core's
+summary, the owning Lane, the timestamp, and the evidence id. The report states
+`source`, `path`, `owner lane`, and — when the row names one — the canonical
+item, bundle, `source hash`, and producer; a field Core did not record says so
+rather than showing a blank. `metadata` is flattened one level and rendered as
+facts under a note saying nothing is interpreted: Core's keys are free-form
+JSON, and a client that decided what a key *meant* would be inventing a
+vocabulary. Nothing infers a row's content, outcome, or verification from its
+`summary`. Linked chips name the Core objects the row carries — the canonical
+item, the path, the owning task — and are facts rather than navigation.
+
+**Footer.** "Open in review" is offered for a `patch` row and switches the
+centre pane to DiffReview through the same `centerView` switch `⌘R` uses; it
+states that DiffReview reads the *current working tree* rather than this
+recorded patch, and it is disabled with its own sentence for a non-`patch` row,
+an unbound host, and a Core without `runtime.structured_diff`. "Open audit
+trail" opens D14 scoped to the `evidence` audit object, because `D-AUDIT`'s
+link runs one way — audit rows link evidence, not the reverse — so the row is
+never given an audit id it does not have.
+
+One implementation note. `viden-core` re-exports `EvidenceView` but not
+`EvidenceVerificationState` or `EvidenceQualityStatus`, so the report states the
+row's canonical reference, producer, and hash and does not name Core's
+verification or quality state for it. It is recorded against GUI-CORE-025.
+
 ## Production bootstrap
 
 `src-tauri` is the only GUI member of the root Rust workspace and declares its

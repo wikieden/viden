@@ -630,6 +630,103 @@ bounce 指名的原 Lane）记录的 Lane 应用冲突单独列出，因为那�
 因此 `RuntimeProjection` 通过 Core 自己的规范 serde 编码读取该值，而不是引入第二个
 解析器。Core 侧的再导出可以去掉这一跳；此事记在 GUI-CORE-015 下。
 
+## EvidenceView 证据档案
+
+`⌘E`（macOS 之外为 `⌃E`）与命令面板的 `Open evidence` 在 D1 中央区打开已登记的
+`.evwrap > .evmain(.evbar + .evscroll) + .evdet` 族。与 DiffReview 一样，它是
+**驾驶舱内的一个视图，而不是一条路由**：按 `D-RAILNAV`，活动侧栏仍是通往独立
+D 屏的路由器，次级界面登记为覆盖在会话之上的视图，因此关闭它是回到会话而不是导航。
+CSS 来自 `GUI/gui-kit.css`——`D0` 的提升正是为了这第二个消费者而镜像了该族。
+
+`E` 与 `⌘F` 在本外壳中此前都未被占用（驾驶舱仅有 `⌘K`/`⌃P`、`⌘O` 与 `⌘R`），
+因此 `⌘E` 切换视图，`⌘F` 在该视图占据中央区时聚焦搜索框。D1 的 Live Work 条**不是**
+入口：它是把任务、工具、审批、排队输入与 `latest_evidence` 合并成的一条 `role=status`
+行，而把这个近窗投影变成通往档案的门，恰恰是本视图要终结的混淆。
+
+**这是档案，不是 `latest_evidence`。** `RuntimeViewState.latest_evidence` 是近窗投影
+——当前事件流发布过什么就按 id 覆盖成一张列表，没有排序规则、没有 cursor、也没有内容。
+两者从不合并，也从不出现在同一张列表里。以下全部来自 `runtime.evidence_reads`
+（Core `0.3.6`，GUI-CORE-025）。
+
+**数据通路。** 经 CoreClient 缝隙的一次 `QueryEvidence` -> `EvidencePageLoaded`，
+关联方式与 `QueryWorkspaceDiff` 相同：同时只有一个读取在途，page 与 `CommandRejected`
+上都带确切的 `command_id`，且没有以接受为条件的回退——因为 page 的 id 是必填字段。
+首页 `limit: 50`；`owner` 作用域是 Core 为所选 Lane 绑定的确切 `RuntimeOwner`，
+收窄到 workspace/project/Lane，并刻意**不**携带 Core 的 turn 绑定——那会把"该 Lane 的
+证据"这个问题答成"该轮次的证据"。若选中了 Lane 而 Core 没有确切 owner，宿主在
+`D1-EVIDENCE-NO-OWNER` 下本地拒绝，而不是改为无作用域读取：以某个 Lane 的名义给出
+无作用域的答案，等于把每条 Lane 的证据都说成那条 Lane 的。未选中 Lane 则读取整个档案。
+门禁姿态取自 `QueryAudit` 而非 `QueryWorkspaceFiles`：有界、带 owner 作用域、绝不由
+工具门禁把关，因此两个读取在 Plan mode 下均可回答。
+
+**翻页。** "加载更早"再发一次 `QueryEvidence`，把 Core 自己的 `next_after` 原样作为
+`after` 带回。客户端从不解析、构造或比较 cursor；Core 没有发布 cursor 时该控件禁用，
+而不是让客户端自行拼一个。`complete` 会被明说——"档案已完整"——而不是靠按钮的缺席来
+表示；又因为 Core 在切页之前过滤，`complete` 描述的是**过滤后**的档案。
+
+**过滤与搜索是两回事，视图把这点说出来。** 类型 chip 就是 `EvidenceQuery.kinds`，
+因此改动 chip 是一次新的 Core 查询：客户端若只收窄手头这一页，无法知道匹配项是否落在
+它从未加载的页上。chip 词汇是五个一等类型（`patch`、`test_result`、`review`、
+`doc_update`、`release_artifact`），其后跟上已加载行实际携带的其他每一种类型——排在最后，
+但绝不隐藏。搜索框正相反：Core 未提供证据搜索，因此它只是对已加载行的大小写不敏感子串
+匹配，其 tooltip 与 `aria-label` 会点明这个范围与已加载行数。把所有行都过滤掉的搜索
+有自己的句子，与"没有证据"区分开。
+
+**分组。** 行按 `(timestamp, id)` 升序到达，并按到达顺序追加；客户端不做任何排序。
+按天分组是覆盖在 Core 顺序之上的呈现——同一本地日期上连续的行归为一组——因此无日期组
+排在最前，这正是 Core 的排序已经把它放的位置。无日期行的时间列是一个短横，绝不虚构时钟。
+
+**重查规则：标记陈旧，绝不重载。** 适配器在其唯一的接收漏斗里计数 `EvidenceRecorded`，
+因此由无关屏幕的轮询排空的一条记录也能到达打开着的视图；该计数与已加载页读取时的修订号
+比较。陈旧的列表保留其行并出现带"刷新"的横幅。与 DiffReview 不同，它绝不自行重读：
+diff 面板只持有一棵树的一页，而证据列表持有操作者一页页手动翻出来的若干页，重载会把它
+丢弃，并挪动他们正在读的行。
+
+**内容。** 选中一行发送一次 `ReadEvidenceContent`——同时只有一个在途，答案在视图生命期内
+按 id 缓存，因此重新选中同一行不再产生第二次读取。视图关闭时缓存被丢弃：活得比视图更久的
+正文，可能会被渲染在一份此后已经变化的档案之上。答案按 **Core 回显的** `evidence_id` 归档，
+而不是客户端发问时用的 id；当选中的行不是某个答案所属的行时，该区块显示"正在读取"，
+而不是显示另一行的字节。Core 只读取该行自身引用指名的 canonical ContextStore 字节，
+并先按其 `source_hash` 校验，因此客户端不打开存储，也不渲染未经校验的字节。
+
+**内容诚实规则**，每条都有自己的句子和自己的测试：
+
+| Core 事实 | 详情侧栏渲染什么 |
+| --- | --- |
+| `Text { truncated: true }` | 正文加上"超过 Core 的 256 KiB 上限：内容被截断"，并明说这不表示证据本身很短 |
+| `Text` / `Diff` 的 `sha256` | "已按 \<hash\> 校验"，读者可据此把屏幕上的内容与该行的 canonical 引用对上 |
+| `Diff` | DiffReview 与审批界面所用的同一套共享 `diff_rows` 渲染器，因为 Core 用同一个生产者解析了该补丁 |
+| `Unavailable { SummaryOnly }` | "仅供展示的证据——Core 未持有其规范字节" |
+| `Unavailable { MissingCanonicalBytes }` | "Core 指向的规范字节已不在存储中" |
+| `Unavailable { HashMismatch }` | "规范字节校验失败——不予展示" |
+| `Unavailable { Binary }` | "规范字节校验通过但不是文本，因此没有可展示的正文" |
+| 未建模的原因或内容形态 | 明说本版本无法命名，绝不折叠进某个已知项——两个枚举都是 `#[non_exhaustive]` |
+| `CommandRejected` | Core 的拒绝原文原样放进 `role=alert` |
+
+**列表诚实规则。** 尚无答案的读取显示"正在读取"；Core 已答复但零条目，是唯一可以画成
+"此范围内没有证据"的状态；拒绝渲染 Core 的原话且不加载任何东西；缺失
+`runtime.evidence_reads` 时点名该能力、声明这不等于空档案，并让两个入口保持可见、禁用、
+并被贴上该能力的标签——绝不静默隐藏。命令面板行与 `⌘E` 快捷键在挂载时读取一次无流量投影
+来得到这个答案，不发送任何命令。
+
+**详情侧栏。** 头部携带类型字形、本地化的类型名、Core 的摘要、归属 Lane、时间戳与证据 id。
+报告陈述 `source`、`path`、`归属 lane`，以及在该行指名时的 canonical 条目、捆绑包、
+`来源哈希` 与生产者；Core 未记录的字段会明说，而不是留白。`metadata` 只摊平一层并渲染成
+事实，其上有一条说明"此处不做任何解读"：Core 的键是自由形态 JSON，客户端若替某个键决定
+它**意味着**什么，就是在自造一套词汇。任何东西都不会从 `summary` 推断该行的内容、结果或
+校验状态。关联 chip 指名该行携带的 Core 对象——canonical 条目、路径、归属任务——它们是事实
+而不是导航。
+
+**页脚。** "在评审中打开"只对 `patch` 行提供，通过 `⌘R` 所用的同一个 `centerView` 开关把
+中央区切到 DiffReview；它会说明 DiffReview 读的是**当前工作区**而不是这条已记录的补丁，
+并对非 `patch` 行、未绑定宿主、以及不发布 `runtime.structured_diff` 的 Core 各以自己的句子
+禁用。"打开审计轨迹"打开限定到 `evidence` 审计对象的 D14——因为 `D-AUDIT` 的链接是单向的，
+审计行链接证据而非反向，所以绝不给该行安上一个它并不具备的审计 id。
+
+一条实现说明。`viden-core` 重导出了 `EvidenceView`，但没有重导出
+`EvidenceVerificationState` 与 `EvidenceQualityStatus`，因此报告陈述该行的 canonical 引用、
+生产者与哈希，而不命名 Core 对它的校验状态或质量状态。这一点记在 GUI-CORE-025 名下。
+
 ## Production bootstrap
 
 `src-tauri` 是 root Rust workspace 中唯一 GUI member，并显式声明独立

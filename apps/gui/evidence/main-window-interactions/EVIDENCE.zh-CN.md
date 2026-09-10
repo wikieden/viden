@@ -157,6 +157,12 @@ URL 与尺寸，不在该运行时之外调用浏览器自动化。
 | `d14-audit` | `…/qa.html?state=d14-audit` | 模式切换里「审计轨迹」按下，旁边是「原始事件回放（诊断）」；三条 newest-first 审计行，每行显示 Core 原始的点分 `action` key、actor（agent 行带 `codex-acp`）、outcome（`denied` 与 `success` 明显区分）、关联对象 chip、有界参数 chip，以及明确标出时区的可读时间 `YYYY-MM-DD HH:MM:SS UTC`；Core 页面未完，因此显示加载更早控件 |
 | `d14-audit-scoped` | `…/qa.html?state=d14-audit-scoped` | D12 回滚行打开的同一条轨迹：头部带可移除的 `Scoped to revert · revert-1` chip，移除后重新发起无范围查询 |
 | `d14-raw-fallback` | `…/qa.html?state=d14-raw-fallback` | 缺少 `runtime.audit` 的 Core：原始模式按下、审计按钮禁用、说明点名该 capability，下方是回放行，其中无法解码的行被保留并高亮 |
+| `evidence` | `…/qa.html?state=evidence` | 从命令面板的 `Open evidence` 行打开的 EvidenceView：类型 chip 中 `task_summary` 排在最后而非被隐藏，搜索框自陈其范围，`无日期` 组排在**最前**、其后是按 Core 自身升序排列的两个本地日期组，选中的 `patch` 行的规范字节经共享 diff 行渲染（`GUI-CORE-025`） |
+| `evidence-text` | `…/qa.html?state=evidence-text` | 同一列表中选中一条 `test_result` 行，详情侧栏滚动到其内容：有界文本、说明 Core 的 256 KiB 上限把它截断且这并不表示证据很短的句子、`已按 <sha256> 校验` 一行、关联 chip，以及因该行不是 `patch` 而禁用的「在评审中打开」 |
+| `evidence-summary-only` | `…/qa.html?state=evidence-summary-only` | 仅供展示的 `task_summary` 行：报告没有任何 canonical 字段并说明该条目未指向规范字节，`Unavailable { SummaryOnly }` 渲染为「仅供展示的证据——Core 未持有其规范字节」 |
+| `evidence-unavailable` | `…/qa.html?state=evidence-unavailable` | `patch` 行上的相反缺席：`Unavailable { HashMismatch }` 渲染为「规范字节校验失败——不予展示」，使用错误色，整屏没有任何正文 |
+| `evidence-empty` | `…/qa.html?state=evidence-empty` | 「此范围内没有证据。」——唯一可以这样画的状态，且画在 Core 确实答复过的一页之上——并把 `complete` 明说为「档案已完整」，而不是靠 `加载更早` 按钮的缺席来表示 |
+| `evidence-rejected` | `…/qa.html?state=evidence-rejected` | Core 对越界 `kinds` 的拒绝原文放进 `role=alert`，其 `hint:` 行保持独立成行，什么都未加载，没有翻页脚，也没有空档案的句子 |
 | `palette` | `…/qa.html?state=palette` | 从标题栏按钮打开、覆盖在驾驶舱之上的 ⌘K 命令面板，四个分区全部可见——动作、跳转到（跨 Lane 的闸与询问，加上本 Lane）、设置，以及列出 Core 已发布工作区清单的「文件」分区 |
 | `palette-files` | `…/qa.html?state=palette-files` | 同一个面板但预先限定到 `~`，单独框出 Core 发布的清单：六条路径按 Core 的字典序排列，每条带 Core 报告的条目类型，没有任何一条是客户端自行发现的（`GUI-CORE-022`） |
 | `d10-ticker` | `…/qa.html?state=d10-ticker` | Lane 卡片下方的 D10 事件走马灯：Core 审计时间线的一页有界 newest-first 记录，两个项目交错出现，因此该条展示的是跨项目的同一个顺序而不是按项目分组的列表；每行携带 Core 的稳定 id、原样的点分 action key、owner 与时间戳（`GUI-CORE-014`） |
@@ -565,3 +571,57 @@ Core 自己的 Lane 与闸 id 完全不变。翻译源码行会破坏冲突面�
 | `file_deleted` | 删除后文件仍会残留 | 删除的原像未覆盖整个文件，文件会被留下 —— 这是文件级决定 |
 | `binary` | 二进制 | Core 报告为非文本内容，没有可匹配的行 |
 | 其他 | `原因 <tag>` | 按 Core 发布的原样展示 |
+
+## EvidenceView 证据档案截图
+
+2026-09-10 以同一套无头 Chrome 流程
+（`--headless --window-size=1440,900 --virtual-time-budget=6000`）对着 4173 端口上的
+vite 开发服务器采集，随后逐张目视复核。这是 `runtime.evidence_reads`（GUI-CORE-025）
+在客户端中的首批图像。
+
+行与内容答案是 `qa.ts` 中的内联 fixture，而不是生成的 projection：该能力的投影是查询答案
+而不是运行时事实，因此 `RuntimeProjection` 从不持有它，`tests/capture_projections.rs`
+也没有可为其发出的东西。这些行按 Core 自身的 `(timestamp, id)` 升序书写、无日期行在最前，
+也就是 Core 本来会交付它们的顺序；客户端不做任何排序。
+
+| 文件 | 状态 | 视口 | 模式 | 语言 |
+| --- | --- | --- | --- | --- |
+| [evidence-1440x900-dark-en.png](evidence-1440x900-dark-en.png) | evidence | 1440x900 | dark | en |
+| [evidence-text-1440x900-dark-en.png](evidence-text-1440x900-dark-en.png) | evidence-text | 1440x900 | dark | en |
+| [evidence-summary-only-1440x900-dark-en.png](evidence-summary-only-1440x900-dark-en.png) | evidence-summary-only | 1440x900 | dark | en |
+| [evidence-unavailable-1440x900-dark-en.png](evidence-unavailable-1440x900-dark-en.png) | evidence-unavailable | 1440x900 | dark | en |
+| [evidence-empty-1440x900-dark-en.png](evidence-empty-1440x900-dark-en.png) | evidence-empty | 1440x900 | dark | en |
+| [evidence-rejected-1440x900-dark-en.png](evidence-rejected-1440x900-dark-en.png) | evidence-rejected | 1440x900 | dark | en |
+| [evidence-1440x900-light-zh-CN.png](evidence-1440x900-light-zh-CN.png) | evidence | 1440x900 | light | zh-CN |
+
+每张图都为了让某一条诚实规则可被证伪：
+
+| 图像 | 它证明的规则 |
+| --- | --- |
+| `evidence` | 这是**归档**，不是 `latest_evidence`。`无日期` 组领先，因为 Core 的排序就是把它放在那里；两个日期组按升序跟随；`task_summary` chip 排在五个一等类型之后而不是被丢弃——隐藏一种类型的 chip 条就是在隐藏归档里确实存在的行。因为 Core 的这一页并不完整，所以提供「加载更早」；搜索框自身的标签写明它只过滤已加载的行，因为 Core 不发布证据搜索 |
+| `evidence-text` | 上限被明说，而不是被暗示：截断句写清是 Core 的 256 KiB 上限截断了内容，且这**不**表示证据本身很短；`已按 <sha256> 校验` 一行让读者把屏幕上的内容与该行的 canonical 引用对上。非 `patch` 行上的「在评审中打开」是可见且禁用，而不是隐藏 |
+| `evidence-summary-only` | 「没有 canonical 引用」本身就是一条事实。报告不含 canonical 条目、捆绑包、哈希与生产者，并说明该条目未指向规范字节；内容区把 `Unavailable { SummaryOnly }` 渲染成一句话而不是空正文 |
+| `evidence-unavailable` | `HashMismatch` 与 `SummaryOnly` 是**相反**的事实，这一对截图证明二者没有被折叠成一个。此处 Core 持有字节却拒绝提供，于是面板说校验失败并且完全不显示正文——评审者绝不该被展示的，恰恰是未通过自身哈希的内容 |
+| `evidence-empty` | 四种缺席保持四句话。这是唯一可以画成「此范围内没有证据」的一种，而且画在 Core 确实答复过的一页之上；`complete` 用文字明说，而不是留给一个缺席的按钮 |
+| `evidence-rejected` | 拒绝绝不是空页。Core 自己的理由原样放进 `role=alert`，其 `hint:` 行保持独立成行，列表保持未加载——没有行、没有翻页脚，也没有空档案的句子 |
+
+light/`zh-CN` 截图是新增文案的语言证明。类型 chip、`无日期` 标签、报告字段名、元数据说明、
+内容句子与页脚两个动作都会翻译；证据 id、Core 发布的摘要、路径、来源哈希、生产者、
+Core 没有本地化名称的原始 `task_summary` 类型，以及 `YYYY-MM-DD` 日期键，都保持 Core 发布的原样。
+
+本族有一条特有的确定性说明：按天分组与行时间是**本地**的，这是设计使然——操作者是在自己所处的
+那一天读档案，这与审计记录不同，后者固定为 UTC，因为它要跨机器比对。这些截图冻结了 `Date.now`
+但没有冻结时区，因此图中的日期标题与时间是采集主机所在时区的结果。fixture 的两个时间点是
+`2023-11-14 22:15:00 UTC` 以及其后 24 小时；在另一个时区采集会为同样的行显示不同的日期键，
+那是分组规则在正常工作，而不是漂移。
+
+不可用词表来自 Core 的 `EvidenceUnavailableReason`，按判别式分支，因此本构建未建模的原因
+会原样到达屏幕，而不会借用一个已知原因：
+
+| `EvidenceUnavailableReason` | 详情侧栏说什么 |
+| --- | --- |
+| `summary_only` | 仅供展示的证据——Core 未持有其规范字节 |
+| `missing_canonical_bytes` | Core 指向的规范字节已不在存储中 |
+| `hash_mismatch` | 规范字节校验失败——不予展示 |
+| `binary` | 规范字节校验通过但不是文本，因此没有可展示的正文 |
+| 其他 | Core 给出了本版本未建模的原因（`<reason>`） |
