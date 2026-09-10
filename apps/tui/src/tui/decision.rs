@@ -85,6 +85,11 @@ pub(super) enum SupervisionAction {
     /// decision: it mutates nothing, needs no permission, and stays available
     /// in Plan mode and while another supervision command is in flight.
     AuditTrail,
+    /// Opens the read-only evidence inspector scoped to this record's own
+    /// Core-published owner. Like the audit row it is a read, not a decision:
+    /// it mutates nothing, needs no permission, stays available in Plan mode
+    /// and while another supervision command is in flight.
+    EvidenceRead,
     /// Opens the read-only conflict content for this record's pending bounce.
     /// Offered only when Core published content, because an operator bounce
     /// carries a reason and no apply failure behind it. Like the audit row it
@@ -104,6 +109,7 @@ impl SupervisionAction {
             Self::Bounce => "supervision.action.bounce",
             Self::Dismiss => "supervision.action.dismiss",
             Self::AuditTrail => "supervision.action.audit_trail",
+            Self::EvidenceRead => "supervision.action.evidence",
             Self::ConflictDetail => "supervision.action.conflict_detail",
         }
     }
@@ -120,6 +126,7 @@ impl SupervisionAction {
             | Self::Revalidate
             | Self::Dismiss
             | Self::AuditTrail
+            | Self::EvidenceRead
             | Self::ConflictDetail => TextRequirement::None,
         }
     }
@@ -275,14 +282,38 @@ pub(super) fn audit_scope(target: &SupervisionTarget) -> AuditObjectRef {
     }
 }
 
-/// The full row list of the supervision overlay: the Core decisions this
-/// record's status can accept, plus the read-only audit row.
+/// The evidence archive scope one supervision target reads.
 ///
-/// The audit row is appended last and is always present, including for a record
-/// whose status accepts no decision at all: the timeline of a settled gate is
-/// exactly what an operator wants to read then. It is kept out of
-/// [`available_actions`] so "no decision applies" stays a true statement about
-/// decisions.
+/// It is the record's *own* `owner`, copied verbatim from Core, never an owner
+/// composed here field by field. Core's scope match is a prefix match that
+/// fails closed on both sides, so replaying the record's owner asks exactly
+/// "the evidence Core attributed to this record's scope" — and evidence Core
+/// could not attribute never answers it.
+///
+/// `None` when the record has left the view: a scope built from a remembered
+/// row would name an owner this frame cannot confirm.
+pub(super) fn evidence_scope(
+    view: &RuntimeViewState,
+    target: &SupervisionTarget,
+) -> Option<RuntimeOwner> {
+    match target {
+        SupervisionTarget::Gate { gate_id } | SupervisionTarget::Bounce { gate_id } => {
+            find_gate(view, gate_id).map(|gate| gate.owner.clone())
+        }
+        SupervisionTarget::Review { review_id } => {
+            find_review(view, review_id).map(|review| review.owner.clone())
+        }
+    }
+}
+
+/// The full row list of the supervision overlay: the Core decisions this
+/// record's status can accept, plus the read-only evidence and audit rows.
+///
+/// Both read rows are appended last and are always present, including for a
+/// record whose status accepts no decision at all: the evidence and the
+/// timeline of a settled gate are exactly what an operator wants to read then.
+/// They are kept out of [`available_actions`] so "no decision applies" stays a
+/// true statement about decisions.
 pub(super) fn overlay_actions(
     view: &RuntimeViewState,
     target: &SupervisionTarget,
@@ -295,6 +326,7 @@ pub(super) fn overlay_actions(
     if conflict_content_target(view, target).is_some() {
         actions.push(SupervisionAction::ConflictDetail);
     }
+    actions.push(SupervisionAction::EvidenceRead);
     actions.push(SupervisionAction::AuditTrail);
     actions
 }
@@ -421,6 +453,7 @@ pub(super) fn build_dispatch(
         // and the audit row opens a read-only overlay.
         SupervisionAction::Dismiss
         | SupervisionAction::AuditTrail
+        | SupervisionAction::EvidenceRead
         | SupervisionAction::ConflictDetail => Err("supervision.error.not_dispatchable"),
         SupervisionAction::AcceptGate => {
             let gate = require_gate(view, target)?;
@@ -1311,9 +1344,10 @@ mod tests {
         let actions = overlay_actions(&view, &target, false);
         assert!(actions.contains(&SupervisionAction::ConflictDetail));
         assert_eq!(
-            actions.iter().rev().take(2).collect::<Vec<_>>(),
+            actions.iter().rev().take(3).collect::<Vec<_>>(),
             vec![
                 &SupervisionAction::AuditTrail,
+                &SupervisionAction::EvidenceRead,
                 &SupervisionAction::ConflictDetail
             ],
             "reads are appended after every decision"
@@ -1339,8 +1373,11 @@ mod tests {
         );
         assert_eq!(
             overlay_actions(&view, &gate_target, false),
-            vec![SupervisionAction::AuditTrail],
-            "its history is still readable"
+            vec![
+                SupervisionAction::EvidenceRead,
+                SupervisionAction::AuditTrail
+            ],
+            "its evidence and its history are still readable"
         );
 
         view.merge_gates[0].status = MergeGateStatus::CollectingEvidence;
@@ -1350,15 +1387,61 @@ mod tests {
                 SupervisionAction::AcceptGate,
                 SupervisionAction::RejectGate,
                 SupervisionAction::Dismiss,
+                SupervisionAction::EvidenceRead,
                 SupervisionAction::AuditTrail,
             ],
-            "the audit row is last, so it never shifts a decision's number"
+            "both read rows are last, so neither shifts a decision's number"
         );
 
         // The audit row dispatches nothing: it is refused as a Core command and
         // is routed to the read-only overlay instead.
         assert_eq!(
             build_dispatch(&view, &gate_target, SupervisionAction::AuditTrail, ""),
+            Err("supervision.error.not_dispatchable")
+        );
+    }
+
+    /// The scope is the record's own owner, byte for byte. Composing one here
+    /// would let the client answer a *different* question than "what evidence
+    /// did Core attribute to this record".
+    #[test]
+    fn the_evidence_scope_replays_the_records_own_core_published_owner() {
+        let mut view = view();
+        let mut record = gate(MergeGateStatus::CollectingEvidence);
+        record.owner = RuntimeOwner {
+            workspace_id: "workspace-1".to_string(),
+            project_id: "project-1".to_string(),
+            lane_id: Some("lane-1".to_string()),
+            ..RuntimeOwner::default()
+        };
+        view.merge_gates.push(record.clone());
+        let target = SupervisionTarget::Gate {
+            gate_id: "gate-1".to_string(),
+        };
+
+        assert_eq!(evidence_scope(&view, &target), Some(record.owner.clone()));
+        assert_eq!(
+            evidence_scope(
+                &view,
+                &SupervisionTarget::Bounce {
+                    gate_id: "gate-1".to_string()
+                }
+            ),
+            Some(record.owner)
+        );
+        assert_eq!(
+            evidence_scope(
+                &view,
+                &SupervisionTarget::Gate {
+                    gate_id: "gate-missing".to_string()
+                }
+            ),
+            None,
+            "a record this frame cannot confirm names no scope"
+        );
+        // Like the other reads it dispatches no Core command.
+        assert_eq!(
+            build_dispatch(&view, &target, SupervisionAction::EvidenceRead, ""),
             Err("supervision.error.not_dispatchable")
         );
     }

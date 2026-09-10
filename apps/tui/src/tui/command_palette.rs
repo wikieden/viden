@@ -12,6 +12,12 @@ pub(super) struct CommandDefinition {
     pub(super) command: &'static str,
     pub(super) summary: &'static str,
     pub(super) keywords: &'static str,
+    /// The Core extension capability this command needs, when it needs one.
+    ///
+    /// A command whose capability Core does not publish stays listed and is
+    /// rendered disabled with the capability named — grouping, never hiding, so
+    /// an operator can see the surface exists and why it is inert.
+    pub(super) capability: Option<&'static str>,
 }
 
 const COMMANDS: &[CommandDefinition] = &[
@@ -19,76 +25,97 @@ const COMMANDS: &[CommandDefinition] = &[
         command: "/help",
         summary: "Show commands",
         keywords: "help shortcuts",
+        capability: None,
     },
     CommandDefinition {
         command: "/setup",
         summary: "Open first-run setup",
         keywords: "setup onboarding",
+        capability: None,
     },
     CommandDefinition {
         command: "/lanes",
         summary: "Open the Core lane board",
         keywords: "lane board",
+        capability: None,
     },
     CommandDefinition {
         command: "/acp",
         summary: "Choose an ACP agent or session",
         keywords: "agent codex claude kiro session",
+        capability: None,
     },
     CommandDefinition {
         command: "/git",
         summary: "Run a Core operator source-control action",
         keywords: "git source control stage commit push fetch",
+        capability: None,
     },
     CommandDefinition {
         command: "/decisions",
         summary: "Open approvals and gates",
         keywords: "approval gate ask",
+        capability: None,
+    },
+    CommandDefinition {
+        command: "/evidence",
+        summary: "Page the Core evidence archive",
+        keywords: "evidence archive canonical patch test result inspector",
+        capability: Some(super::evidence_panel::EVIDENCE_READS_CAPABILITY),
     },
     CommandDefinition {
         command: "/gallery",
         summary: "Open Core evidence gallery",
         keywords: "evidence gallery",
+        capability: None,
     },
     CommandDefinition {
         command: "/connect",
         summary: "Configure a Core provider",
         keywords: "provider connect",
+        capability: None,
     },
     CommandDefinition {
         command: "/models",
         summary: "Select an available Core model",
         keywords: "model",
+        capability: None,
     },
     CommandDefinition {
         command: "/settings",
         summary: "Open stable UI preferences",
         keywords: "settings locale appearance density motion color",
+        capability: None,
     },
     CommandDefinition {
         command: "/mode plan",
         summary: "Request Plan work mode",
         keywords: "plan",
+        capability: None,
     },
     CommandDefinition {
         command: "/mode build",
         summary: "Request Build work mode",
         keywords: "build",
+        capability: None,
     },
     CommandDefinition {
         command: "/permissions ask",
         summary: "Request ask permission level",
         keywords: "permission approval",
+        capability: None,
     },
     CommandDefinition {
         command: "/permissions read-only",
         summary: "Request read-only permission level",
         keywords: "permission readonly",
+        capability: None,
     },
     CommandDefinition {
         command: "/status",
         summary: "Inspect structured runtime status",
         keywords: "status runtime",
+        capability: None,
     },
 ];
 
@@ -191,6 +218,7 @@ fn is_exact_command(state: &TuiState) -> bool {
             | "/status"
             | "/acp"
             | "/git"
+            | "/evidence"
     ) || state
         .runtime
         .lanes

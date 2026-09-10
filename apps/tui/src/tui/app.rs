@@ -16,8 +16,9 @@ use super::command_palette::{
 use super::composer::composer_content_width;
 use super::decision::{
     DecisionPick, SupervisionAction, SupervisionTarget, TextRequirement, audit_scope,
-    build_dispatch, decision_picks, overlay_actions,
+    build_dispatch, decision_picks, evidence_scope, overlay_actions,
 };
+use super::evidence_panel::{EVIDENCE_READS_CAPABILITY, EvidencePanel};
 use super::geometry::effective_layout_width;
 use super::input::{
     ApprovalKeyEffect, apply_approval_key, close_focus_on_escape, effective_input_mode, input_focus,
@@ -544,6 +545,9 @@ fn apply_input_intent<C: CoreClient>(
     if let Some(outcome) = apply_audit_timeline_intent(driver, state, &intent)? {
         return Ok(outcome);
     }
+    if let Some(outcome) = apply_evidence_inspector_intent(driver, state, &intent)? {
+        return Ok(outcome);
+    }
     if let Some(outcome) = apply_conflict_detail_intent(state, &intent) {
         return Ok(outcome);
     }
@@ -555,6 +559,7 @@ fn apply_input_intent<C: CoreClient>(
             let previous_overlay = state.ui.overlay.take();
             state.ui.supervision = None;
             state.ui.audit = None;
+            state.ui.evidence = None;
             state.ui.conflict_detail = None;
             state.ui.overlay = Some(if kind == OverlayKind::GlobalJump {
                 OverlayState::global_jump(previous_overlay)
@@ -645,14 +650,16 @@ fn apply_input_intent<C: CoreClient>(
         }
         InputIntent::Submit => submit_composer(driver, state)?,
         InputIntent::MoveSelection(delta) => {
+            // The jump index reads the whole client state, so its row count is
+            // resolved before the overlay is borrowed mutably to move within it.
+            let jump_rows = state
+                .ui
+                .overlay
+                .as_ref()
+                .filter(|overlay| overlay.kind == OverlayKind::GlobalJump)
+                .map(|overlay| JumpIndex::from_state(state).search(&overlay.filter).len());
             if let Some(overlay) = state.ui.overlay.as_mut() {
-                let item_count = if overlay.kind == OverlayKind::GlobalJump {
-                    JumpIndex::from_view(&state.runtime, &state.ui.workspace_files)
-                        .search(&overlay.filter)
-                        .len()
-                } else {
-                    usize::MAX
-                };
+                let item_count = jump_rows.unwrap_or(usize::MAX);
                 overlay.selected = if delta < 0 {
                     overlay.selected.saturating_sub(1)
                 } else {
@@ -840,8 +847,241 @@ fn open_audit_timeline<C: CoreClient>(
     })?;
     panel.begin(command_id);
     state.ui.supervision = None;
+    state.ui.evidence = None;
     state.ui.audit = Some(panel);
     state.ui.overlay = Some(OverlayState::new(OverlayKind::AuditTimeline));
+    Ok(())
+}
+
+/// Opens the read-only evidence inspector and dispatches its first page.
+///
+/// The command is sent *before* any state changes, so a transport failure
+/// leaves the previous surface intact instead of opening an overlay that would
+/// never be answered. `QueryEvidence` mutates nothing and prompts for no
+/// permission — its gate posture is `QueryAudit`'s, not a workspace read's —
+/// so it is dispatched directly rather than through the supervision
+/// correlation slot, and it stays available in Plan mode.
+///
+/// Without the capability nothing is sent at all: the caller states the gap
+/// instead, because a command Core never published can never be answered.
+fn open_evidence_inspector<C: CoreClient>(
+    driver: &mut TuiClientDriver<C>,
+    state: &mut TuiState,
+    scope: Option<RuntimeOwner>,
+) -> Result<(), TuiClientError> {
+    let mut panel = EvidencePanel::new(scope);
+    let command_id = driver.send(RuntimeCommand::QueryEvidence {
+        query: panel.next_query(),
+    })?;
+    panel.begin_page(command_id);
+    state.ui.supervision = None;
+    state.ui.audit = None;
+    state.ui.conflict_detail = None;
+    state.ui.evidence = Some(panel);
+    state.ui.overlay = Some(OverlayState::new(OverlayKind::EvidenceInspector));
+    Ok(())
+}
+
+/// The evidence scope of the surface the operator is looking at.
+///
+/// A focused Lane narrows the read to that Lane by the id Core published, with
+/// every other owner field left unset so Core's prefix match treats them as
+/// wildcards. Nothing else is filled in: a workspace or project id this client
+/// invented would silently answer a different question than the one asked.
+fn focused_lane_evidence_scope(state: &TuiState) -> Option<RuntimeOwner> {
+    let lane_id = state.ui.focused_lane.as_deref()?;
+    state
+        .runtime
+        .lanes
+        .iter()
+        .any(|lane| lane.id == lane_id)
+        .then(|| RuntimeOwner {
+            lane_id: Some(lane_id.to_string()),
+            ..RuntimeOwner::default()
+        })
+}
+
+/// States the missing evidence capability as a typed transcript fact.
+///
+/// Nothing is sent and no overlay opens: the surface stays visible and
+/// labelled in the jump index and on the supervision overlay, which is what
+/// keeps "this exists but Core does not publish it" distinguishable from "this
+/// does not exist".
+fn refuse_evidence_read(state: &mut TuiState) {
+    state.ui.entries.push(TuiEntry {
+        label: "system".to_string(),
+        body: super::i18n::text(state, "supervision.evidence.unavailable"),
+    });
+}
+
+/// Closes the evidence inspector and drops its page and content cache.
+///
+/// Dropping the panel also drops both correlations, so an answer that arrives
+/// afterwards is ignored rather than applied to a surface nobody is looking at.
+fn close_evidence_inspector(state: &mut TuiState) {
+    state.ui.evidence = None;
+    state.ui.overlay = None;
+}
+
+/// Owns every key while the evidence inspector overlay is focused.
+///
+/// The overlay is read-only. `Esc` unwinds the detail pane before the overlay
+/// itself, arrows move the selection or scroll the open content, `Enter` opens
+/// a row or asks for the next page, `f` cycles the kind filter, `r` reloads
+/// from the first page, and every other printable character keeps editing the
+/// composer so a streaming turn stays answerable while evidence is open.
+fn apply_evidence_inspector_intent<C: CoreClient>(
+    driver: &mut TuiClientDriver<C>,
+    state: &mut TuiState,
+    intent: &InputIntent,
+) -> Result<Option<UiEventOutcome>, TuiError> {
+    if !state
+        .ui
+        .overlay
+        .as_ref()
+        .is_some_and(|overlay| overlay.kind == OverlayKind::EvidenceInspector)
+        || state.ui.evidence.is_none()
+    {
+        return Ok(None);
+    }
+    match intent {
+        InputIntent::CloseOverlay => {
+            if !state
+                .ui
+                .evidence
+                .as_mut()
+                .expect("panel checked above")
+                .close_detail()
+            {
+                close_evidence_inspector(state);
+            }
+            Ok(Some(UiEventOutcome::Redraw))
+        }
+        InputIntent::MoveSelection(delta) => {
+            let panel = state.ui.evidence.as_mut().expect("panel checked above");
+            if panel.detail().is_some() {
+                panel.scroll_detail(*delta);
+            } else {
+                panel.move_selection(*delta);
+            }
+            Ok(Some(UiEventOutcome::Redraw))
+        }
+        InputIntent::CompleteSelection | InputIntent::CompleteOrSubmit => {
+            activate_evidence_row(driver, state)?;
+            Ok(Some(UiEventOutcome::Redraw))
+        }
+        // `f` and `r` are the overlay's own two keys, named in its hint. Both
+        // re-read from Core rather than reshaping rows already held.
+        InputIntent::InsertChar('f') => {
+            if state
+                .ui
+                .evidence
+                .as_mut()
+                .expect("panel checked above")
+                .cycle_filter()
+            {
+                dispatch_evidence_page(driver, state)?;
+            }
+            Ok(Some(UiEventOutcome::Redraw))
+        }
+        InputIntent::InsertChar('r') => {
+            state
+                .ui
+                .evidence
+                .as_mut()
+                .expect("panel checked above")
+                .refresh();
+            dispatch_evidence_page(driver, state)?;
+            Ok(Some(UiEventOutcome::Redraw))
+        }
+        InputIntent::InsertChar(value) => {
+            push_composer_char(state, *value);
+            Ok(Some(UiEventOutcome::Redraw))
+        }
+        InputIntent::Backspace => {
+            state.ui.input.backspace();
+            reset_for_input_change(state);
+            Ok(Some(UiEventOutcome::Redraw))
+        }
+        _ => Ok(None),
+    }
+}
+
+/// Confirms the selected row: the next page, or one row's canonical content.
+///
+/// A second read of either kind while one is in flight is refused locally and
+/// nothing is sent — two answers racing one correlation slot could not be
+/// attributed honestly — and content Core already published is re-rendered from
+/// the overlay's own cache rather than asked for again.
+fn activate_evidence_row<C: CoreClient>(
+    driver: &mut TuiClientDriver<C>,
+    state: &mut TuiState,
+) -> Result<(), TuiClientError> {
+    let Some(panel) = state.ui.evidence.as_ref() else {
+        return Ok(());
+    };
+    if panel.detail().is_some() {
+        return Ok(());
+    }
+    if panel.selected_is_load_more() {
+        if !panel.can_load_more() {
+            state
+                .ui
+                .evidence
+                .as_mut()
+                .expect("panel checked above")
+                .refuse_second_read();
+            return Ok(());
+        }
+        return dispatch_evidence_page(driver, state);
+    }
+    let Some(evidence_id) = panel.selected_entry().map(|entry| entry.id.clone()) else {
+        return Ok(());
+    };
+    let needs_read = panel.should_read_content(&evidence_id);
+    let cached = panel.content_for(&evidence_id).is_some();
+    state
+        .ui
+        .evidence
+        .as_mut()
+        .expect("panel checked above")
+        .open_detail(evidence_id.clone());
+    if cached {
+        return Ok(());
+    }
+    if !needs_read {
+        state
+            .ui
+            .evidence
+            .as_mut()
+            .expect("panel checked above")
+            .refuse_second_read();
+        return Ok(());
+    }
+    let command_id = driver.send(RuntimeCommand::ReadEvidenceContent { evidence_id })?;
+    let panel = state.ui.evidence.as_mut().expect("panel checked above");
+    let awaited = panel.detail().map(str::to_string).unwrap_or_default();
+    panel.begin_content(command_id, awaited);
+    Ok(())
+}
+
+/// Sends the panel's own next query, whatever page it names.
+fn dispatch_evidence_page<C: CoreClient>(
+    driver: &mut TuiClientDriver<C>,
+    state: &mut TuiState,
+) -> Result<(), TuiClientError> {
+    let Some(panel) = state.ui.evidence.as_ref() else {
+        return Ok(());
+    };
+    let command_id = driver.send(RuntimeCommand::QueryEvidence {
+        query: panel.next_query(),
+    })?;
+    state
+        .ui
+        .evidence
+        .as_mut()
+        .expect("panel checked above")
+        .begin_page(command_id);
     Ok(())
 }
 
@@ -877,6 +1117,7 @@ fn request_workspace_files<C: CoreClient>(
 fn open_conflict_detail(state: &mut TuiState, target: ConflictDetailTarget) {
     state.ui.supervision = None;
     state.ui.audit = None;
+    state.ui.evidence = None;
     state.ui.conflict_detail = Some(target);
     state.ui.overlay = Some(OverlayState::new(OverlayKind::ConflictContent));
 }
@@ -1173,6 +1414,21 @@ fn confirm_supervision_action<C: CoreClient>(
         );
         return Ok(());
     }
+    if action == SupervisionAction::EvidenceRead {
+        // A read, not a decision: it opens the inspector scoped to this
+        // record's own Core-published owner and leaves any in-flight
+        // supervision command exactly as it was.
+        if !driver.has_capability(EVIDENCE_READS_CAPABILITY) {
+            set_supervision_panel(state, None, Some("supervision.evidence.unavailable"));
+            return Ok(());
+        }
+        let Some(scope) = evidence_scope(&state.runtime, &target) else {
+            set_supervision_panel(state, None, Some("supervision.error.record_missing"));
+            return Ok(());
+        };
+        open_evidence_inspector(driver, state, Some(scope))?;
+        return Ok(());
+    }
     if action == SupervisionAction::AuditTrail {
         // A read, not a decision: it opens the timeline scoped to this record
         // and leaves any in-flight supervision command exactly as it was.
@@ -1429,6 +1685,7 @@ fn complete_overlay_selection<C: CoreClient>(
         OverlayKind::Approval
         | OverlayKind::SupervisionDecision
         | OverlayKind::AuditTimeline
+        | OverlayKind::EvidenceInspector
         | OverlayKind::ConflictContent => {}
         OverlayKind::CommandPalette
         | OverlayKind::NewSession
@@ -1441,7 +1698,7 @@ fn complete_overlay_selection<C: CoreClient>(
 }
 
 fn complete_global_jump_selection(state: &mut TuiState, overlay: OverlayState) {
-    let index = JumpIndex::from_view(&state.runtime, &state.ui.workspace_files);
+    let index = JumpIndex::from_state(&state);
     let results = index.search(&overlay.filter);
     let Some(item) = results.get(overlay.selected).map(|item| (*item).clone()) else {
         state.ui.overlay = overlay.previous_overlay.map(|previous| *previous);
@@ -1530,6 +1787,21 @@ fn open_local_picker_command<C: CoreClient>(
             selected: 0,
             phase: GitPickerPhase::Browse,
         }),
+        // `/evidence` is not a picker: it is the read itself, scoped to the
+        // focused Lane when there is one. Without the capability nothing is
+        // sent and the gap is stated, because an inspector that can never be
+        // answered is worse than a named absence.
+        "/evidence" => {
+            if driver.has_capability(EVIDENCE_READS_CAPABILITY) {
+                let scope = focused_lane_evidence_scope(state);
+                open_evidence_inspector(driver, state, scope)?;
+            } else {
+                refuse_evidence_read(state);
+            }
+            state.ui.input.clear();
+            reset_for_input_change(state);
+            return Ok(true);
+        }
         _ => return Ok(false),
     };
     state.ui.input.clear();
@@ -2177,6 +2449,13 @@ fn observe_driver_events<C: CoreClient>(
         // decision. With no overlay open there is no panel and the page is
         // ignored entirely.
         if let Some(panel) = state.ui.audit.as_mut() {
+            panel.observe_event(event);
+        }
+        // Both evidence reads correlate on their own required command ids, so
+        // a page or a content answer for another reader is ignored, and neither
+        // can settle the other. With no overlay open there is no panel and the
+        // answer is dropped entirely.
+        if let Some(panel) = state.ui.evidence.as_mut() {
             panel.observe_event(event);
         }
         // The inventory read correlates on the exact required command id, so a
@@ -5411,7 +5690,7 @@ mod tests {
         handle_ui_event(&mut driver, &mut state, open, (120, 40)).expect("reopen jump");
         assert_eq!(queries(), 1, "a loaded inventory is not re-read");
 
-        let index = JumpIndex::from_view(&state.runtime, &state.ui.workspace_files);
+        let index = JumpIndex::from_state(&state);
         let files = index
             .items()
             .iter()
@@ -5457,7 +5736,7 @@ mod tests {
                 )),
             "a missing capability must send no command at all"
         );
-        let index = JumpIndex::from_view(&state.runtime, &state.ui.workspace_files);
+        let index = JumpIndex::from_state(&state);
         let row = index
             .items()
             .iter()
@@ -5563,9 +5842,9 @@ mod tests {
             rows.contains("Audit trail"),
             "the audit row is offered on the decision overlay: {rows}"
         );
-        // Accept / Reject / Audit trail: the read is appended last, so it never
-        // renumbers a decision.
-        press(&mut driver, &mut state, KeyCode::Char('3'));
+        // Accept / Reject / Evidence… / Audit trail: both reads are appended
+        // last, so neither renumbers a decision.
+        press(&mut driver, &mut state, KeyCode::Char('4'));
         press(&mut driver, &mut state, KeyCode::Enter);
 
         assert_eq!(
@@ -5600,7 +5879,7 @@ mod tests {
                 review_id: "review-1".to_string(),
             },
         );
-        press(&mut driver, &mut state, KeyCode::Char('3'));
+        press(&mut driver, &mut state, KeyCode::Char('4'));
         press(&mut driver, &mut state, KeyCode::Enter);
         assert_eq!(
             audit_query_of(&sent.lock().expect("sent")[1]).object,
@@ -5949,6 +6228,401 @@ mod tests {
         assert_eq!(state.ui.input, "你");
     }
 
+    // ---- evidence inspector -------------------------------------------------
+
+    fn evidence_view(id: &str, kind: &str, timestamp: Option<u64>) -> viden_core::EvidenceView {
+        viden_core::EvidenceView {
+            id: id.to_string(),
+            kind: kind.to_string(),
+            summary: format!("{kind} recorded as {id}"),
+            path: None,
+            source: Some("lane-a".to_string()),
+            canonical: None,
+            metadata: None,
+            timestamp,
+            owner: Some(supervision_owner("lane-a")),
+        }
+    }
+
+    fn evidence_page_event(
+        sequence: u64,
+        command_id: &str,
+        entries: Vec<viden_core::EvidenceView>,
+        next_after: Option<&str>,
+    ) -> RuntimeEventEnvelope {
+        event(
+            sequence,
+            RuntimeEventKind::EvidencePageLoaded {
+                command_id: command_id.to_string(),
+                page: viden_core::EvidencePage {
+                    complete: next_after.is_none(),
+                    entries,
+                    next_after: next_after.map(str::to_string),
+                },
+            },
+        )
+    }
+
+    fn evidence_query_of(envelope: &RuntimeCommandEnvelope) -> &viden_core::EvidenceQuery {
+        match &envelope.command {
+            RuntimeCommand::QueryEvidence { query } => query,
+            other => panic!("expected QueryEvidence, got {other:?}"),
+        }
+    }
+
+    fn evidence_rows_of(state: &TuiState) -> String {
+        crate::tui::modal::overlay_rows_for_test(state, OverlayKind::EvidenceInspector).join("\n")
+    }
+
+    /// The overlay reads the archive Core owns: the scope is the record's own
+    /// published owner, the second page is asked for with Core's own cursor
+    /// verbatim, and the in-flight supervision decision is neither blocked by
+    /// the read nor settled by its answer.
+    #[test]
+    fn the_evidence_inspector_scopes_to_the_record_and_pages_with_cores_own_cursor() {
+        let mut view = RuntimeViewState::new(supervision_snapshot());
+        view.merge_gates.push(supervision_gate(
+            viden_types::MergeGateStatus::CollectingEvidence,
+        ));
+        let (mut driver, mut state, sent) = supervision_driver(
+            view,
+            vec![
+                evidence_page_event(
+                    1,
+                    "tui-1",
+                    vec![
+                        evidence_view("ev-undated", "patch", None),
+                        evidence_view("ev-dated", "test_result", Some(1_700_000_100)),
+                    ],
+                    Some("t:1700000100:ev-dated"),
+                ),
+                evidence_page_event(
+                    2,
+                    "tui-2",
+                    vec![evidence_view("ev-newer", "patch", Some(1_700_100_000))],
+                    None,
+                ),
+            ],
+        );
+        state.capabilities = driver.capabilities();
+
+        open_supervision_decision(
+            &mut state,
+            SupervisionTarget::Gate {
+                gate_id: "gate-1".to_string(),
+            },
+        );
+        let rows =
+            crate::tui::modal::overlay_rows_for_test(&state, OverlayKind::SupervisionDecision)
+                .join("\n");
+        assert!(
+            rows.contains("Evidence…"),
+            "the evidence row is offered on the decision overlay: {rows}"
+        );
+
+        // Accept / Reject / Evidence… : the reads are appended after every
+        // decision, so opening one never renumbers a decision.
+        press(&mut driver, &mut state, KeyCode::Char('3'));
+        press(&mut driver, &mut state, KeyCode::Enter);
+
+        assert_eq!(
+            state.ui.overlay.as_ref().map(|overlay| overlay.kind),
+            Some(OverlayKind::EvidenceInspector)
+        );
+        let envelopes = sent.lock().expect("sent").clone();
+        assert_eq!(envelopes.len(), 1);
+        assert_eq!(
+            evidence_query_of(&envelopes[0]),
+            &viden_core::EvidenceQuery {
+                owner: Some(supervision_owner("lane-a")),
+                kinds: Vec::new(),
+                limit: viden_core::DEFAULT_EVIDENCE_PAGE_SIZE,
+                after: None,
+            },
+            "the scope is the gate's own Core-published owner"
+        );
+
+        driver.pump().expect("first page");
+        observe_driver_events(&mut state, &mut driver).expect("observe first page");
+        let rendered = evidence_rows_of(&state);
+        assert!(rendered.contains("UNDATED"), "{rendered}");
+        assert!(rendered.contains("2023-11-14"), "{rendered}");
+        assert!(rendered.contains("Load the next page"), "{rendered}");
+        assert!(rendered.contains("· more"), "{rendered}");
+
+        // Selecting the load-more row asks Core for the page after its cursor,
+        // passed back exactly as Core issued it.
+        for _ in 0..2 {
+            press(&mut driver, &mut state, KeyCode::Down);
+        }
+        press(&mut driver, &mut state, KeyCode::Enter);
+        let envelopes = sent.lock().expect("sent").clone();
+        assert_eq!(envelopes.len(), 2);
+        assert_eq!(
+            evidence_query_of(&envelopes[1]).after.as_deref(),
+            Some("t:1700000100:ev-dated")
+        );
+        assert_eq!(
+            evidence_query_of(&envelopes[1]).owner,
+            Some(supervision_owner("lane-a")),
+            "paging must not widen the scope the operator opened"
+        );
+
+        driver.pump().expect("second page");
+        observe_driver_events(&mut state, &mut driver).expect("observe second page");
+        let rendered = evidence_rows_of(&state);
+        assert!(rendered.contains("LOADED 3"), "{rendered}");
+        assert!(rendered.contains("archive complete"), "{rendered}");
+    }
+
+    /// `/evidence` narrows to the focused Lane by the id Core published and
+    /// nothing else, and `Enter` on a row reads that row's canonical bytes.
+    #[test]
+    fn the_evidence_command_scopes_to_the_focused_lane_and_reads_one_rows_content() {
+        let client = FakeCoreClient {
+            transport: FakeCoreTransport {
+                events: VecDeque::from(vec![
+                    evidence_page_event(
+                        1,
+                        "tui-1",
+                        vec![evidence_view(
+                            "ev-tests",
+                            "test_result",
+                            Some(1_700_000_100),
+                        )],
+                        None,
+                    ),
+                    event(
+                        2,
+                        RuntimeEventKind::EvidenceContentLoaded {
+                            command_id: "tui-2".to_string(),
+                            evidence_id: "ev-tests".to_string(),
+                            content: viden_core::EvidenceContent::Text {
+                                text: "test result: ok. 3 passed; 0 failed".to_string(),
+                                truncated: false,
+                                sha256: "bbbbbbbbcccccccc".to_string(),
+                            },
+                        },
+                    ),
+                ]),
+                ..FakeCoreTransport::default()
+            },
+            ..FakeCoreClient::default()
+        };
+        let sent = Arc::clone(&client.sent);
+        let mut driver = TuiClientDriver::connect(client).expect("connect");
+        let mut state = TuiState {
+            capabilities: driver.capabilities(),
+            ..TuiState::default()
+        };
+        let (lane_id, _) = focus_lane_with_published_owner(&mut state);
+        state.ui.input = "/evidence".into();
+
+        submit_composer(&mut driver, &mut state).expect("open the evidence inspector");
+
+        assert_eq!(
+            state.ui.overlay.as_ref().map(|overlay| overlay.kind),
+            Some(OverlayKind::EvidenceInspector)
+        );
+        assert_eq!(
+            evidence_query_of(&sent.lock().expect("sent")[0]).owner,
+            Some(RuntimeOwner {
+                lane_id: Some(lane_id),
+                ..RuntimeOwner::default()
+            }),
+            "only the Lane id Core published is set; every other field stays a wildcard"
+        );
+
+        driver.pump().expect("page");
+        observe_driver_events(&mut state, &mut driver).expect("observe page");
+        press(&mut driver, &mut state, KeyCode::Enter);
+
+        let commands = sent.lock().expect("sent").clone();
+        assert_eq!(commands.len(), 2);
+        assert!(matches!(
+            &commands[1].command,
+            RuntimeCommand::ReadEvidenceContent { evidence_id } if evidence_id == "ev-tests"
+        ));
+        let reading = evidence_rows_of(&state);
+        assert!(
+            reading.contains("Reading the canonical content"),
+            "{reading}"
+        );
+
+        driver.pump().expect("content");
+        observe_driver_events(&mut state, &mut driver).expect("observe content");
+        let detail = evidence_rows_of(&state);
+        assert!(detail.contains("test result: ok. 3 passed"), "{detail}");
+        assert!(detail.contains("bbbbbbbb"), "{detail}");
+
+        // A second Enter on the same row re-renders the cached bytes instead of
+        // asking Core again.
+        press(&mut driver, &mut state, KeyCode::Esc);
+        press(&mut driver, &mut state, KeyCode::Enter);
+        assert_eq!(
+            sent.lock().expect("sent").len(),
+            2,
+            "content is cached for this overlay's lifetime"
+        );
+        // Esc unwinds the detail pane first, then the overlay.
+        press(&mut driver, &mut state, KeyCode::Esc);
+        assert_eq!(
+            state.ui.overlay.as_ref().map(|overlay| overlay.kind),
+            Some(OverlayKind::EvidenceInspector)
+        );
+        press(&mut driver, &mut state, KeyCode::Esc);
+        assert!(state.ui.overlay.is_none());
+        assert!(
+            state.ui.evidence.is_none(),
+            "closing drops the page and the content cache, so reopening re-reads"
+        );
+    }
+
+    /// Recorded evidence is a fact about the recent window, not a page of the
+    /// archive. The overlay says the page it holds is now behind and reloads
+    /// only when the operator asks.
+    #[test]
+    fn recorded_evidence_marks_the_open_inspector_stale_and_r_reloads_page_one() {
+        let client = FakeCoreClient {
+            transport: FakeCoreTransport {
+                events: VecDeque::from(vec![
+                    evidence_page_event(
+                        1,
+                        "tui-1",
+                        vec![evidence_view("ev-1", "patch", Some(1_700_000_100))],
+                        None,
+                    ),
+                    event(
+                        2,
+                        RuntimeEventKind::EvidenceRecorded {
+                            evidence: evidence_view("ev-2", "patch", Some(1_700_000_200)),
+                        },
+                    ),
+                ]),
+                ..FakeCoreTransport::default()
+            },
+            ..FakeCoreClient::default()
+        };
+        let sent = Arc::clone(&client.sent);
+        let mut driver = TuiClientDriver::connect(client).expect("connect");
+        let mut state = TuiState {
+            capabilities: driver.capabilities(),
+            ..TuiState::default()
+        };
+        state.ui.input = "/evidence".into();
+        submit_composer(&mut driver, &mut state).expect("open the evidence inspector");
+        driver.pump().expect("page");
+        observe_driver_events(&mut state, &mut driver).expect("observe page");
+        driver.pump().expect("recorded");
+        observe_driver_events(&mut state, &mut driver).expect("observe recorded");
+
+        let stale = evidence_rows_of(&state);
+        assert!(stale.contains("press r to reload"), "{stale}");
+        assert!(
+            !stale.contains("ev-2"),
+            "the recent-window fact is never folded into the archive rows: {stale}"
+        );
+
+        press(&mut driver, &mut state, KeyCode::Char('r'));
+        let commands = sent.lock().expect("sent").clone();
+        assert_eq!(commands.len(), 2);
+        assert_eq!(
+            evidence_query_of(&commands[1]).after,
+            None,
+            "a reload restarts at the first page"
+        );
+        assert!(!evidence_rows_of(&state).contains("press r to reload"));
+    }
+
+    /// The kind filter is Core's, not a local narrowing: cycling it re-queries
+    /// from the first page with the kind Core actually returned.
+    #[test]
+    fn the_kind_filter_cycles_through_kinds_core_returned_and_re_queries() {
+        let client = FakeCoreClient {
+            transport: FakeCoreTransport {
+                events: VecDeque::from(vec![evidence_page_event(
+                    1,
+                    "tui-1",
+                    vec![
+                        evidence_view("ev-1", "patch", Some(1_700_000_100)),
+                        evidence_view("ev-2", "test_result", Some(1_700_000_200)),
+                    ],
+                    None,
+                )]),
+                ..FakeCoreTransport::default()
+            },
+            ..FakeCoreClient::default()
+        };
+        let sent = Arc::clone(&client.sent);
+        let mut driver = TuiClientDriver::connect(client).expect("connect");
+        let mut state = TuiState {
+            capabilities: driver.capabilities(),
+            ..TuiState::default()
+        };
+        state.ui.input = "/evidence".into();
+        submit_composer(&mut driver, &mut state).expect("open the evidence inspector");
+        driver.pump().expect("page");
+        observe_driver_events(&mut state, &mut driver).expect("observe page");
+
+        press(&mut driver, &mut state, KeyCode::Char('f'));
+
+        let commands = sent.lock().expect("sent").clone();
+        assert_eq!(commands.len(), 2);
+        assert_eq!(evidence_query_of(&commands[1]).kinds, vec!["patch"]);
+        assert_eq!(evidence_query_of(&commands[1]).after, None);
+        let rows = evidence_rows_of(&state);
+        assert!(rows.contains("FILTER kind patch"), "{rows}");
+        // The composer is untouched: `f` belongs to the overlay, and every
+        // other printable character keeps editing the turn.
+        assert!(state.ui.input.as_str().is_empty());
+        press(&mut driver, &mut state, KeyCode::Char('x'));
+        assert_eq!(state.ui.input.as_str(), "x");
+    }
+
+    /// Without the capability nothing is sent and no overlay opens: the gap is
+    /// stated, and the `/evidence` row stays listed and labelled in the jump
+    /// index rather than disappearing.
+    #[test]
+    fn without_the_capability_the_evidence_read_sends_nothing_and_names_it() {
+        let mut capabilities = viden_core::frontend_capabilities();
+        capabilities.remove(&CapabilityId(EVIDENCE_READS_CAPABILITY.to_string()));
+        let client = FakeCoreClient {
+            transport: FakeCoreTransport {
+                capabilities: Some(capabilities),
+                ..FakeCoreTransport::default()
+            },
+            ..FakeCoreClient::default()
+        };
+        let sent = Arc::clone(&client.sent);
+        let mut driver = TuiClientDriver::connect(client).expect("connect");
+        let mut state = TuiState {
+            capabilities: driver.capabilities(),
+            ..TuiState::default()
+        };
+        state.ui.input = "/evidence".into();
+
+        submit_composer(&mut driver, &mut state).expect("refuse the evidence read");
+
+        assert!(state.ui.overlay.is_none());
+        assert!(state.ui.evidence.is_none());
+        assert!(sent.lock().expect("sent").is_empty());
+        let entry = state.ui.entries.last().expect("a stated refusal");
+        assert!(entry.body.contains(EVIDENCE_READS_CAPABILITY), "{entry:?}");
+
+        let row = JumpIndex::from_state(&state)
+            .items()
+            .iter()
+            .find(|item| item.id == "/evidence")
+            .expect("the row stays listed")
+            .clone();
+        assert!(!row.enabled);
+        assert!(
+            row.disabled_reason
+                .as_deref()
+                .is_some_and(|reason| reason.contains(EVIDENCE_READS_CAPABILITY))
+        );
+    }
+
     #[test]
     fn a_pending_supervision_decision_neither_blocks_nor_is_settled_by_an_audit_read() {
         let mut view = RuntimeViewState::new(supervision_snapshot());
@@ -5978,14 +6652,15 @@ mod tests {
         press(&mut driver, &mut state, KeyCode::Enter);
         assert!(state.supervision.pending().is_some());
 
-        // Accept / Reject / Dismiss / Audit trail while a decision is pending.
+        // Accept / Reject / Dismiss / Evidence… / Audit trail while a decision
+        // is pending.
         open_supervision_decision(
             &mut state,
             SupervisionTarget::Gate {
                 gate_id: "gate-1".to_string(),
             },
         );
-        press(&mut driver, &mut state, KeyCode::Char('4'));
+        press(&mut driver, &mut state, KeyCode::Char('5'));
         press(&mut driver, &mut state, KeyCode::Enter);
         assert_eq!(
             state.ui.overlay.as_ref().map(|overlay| overlay.kind),

@@ -1,6 +1,11 @@
-use viden_core::RuntimeViewState;
+use std::collections::BTreeSet;
 
-use super::workspace_files::{WorkspaceFileIndex, file_row_context};
+use viden_core::{CapabilityId, RuntimeViewState};
+
+use super::{
+    state::TuiState,
+    workspace_files::{WorkspaceFileIndex, file_row_context},
+};
 
 /// Stable selector groups. The index only projects typed Core facts; it never
 /// discovers lanes, sessions, gates, or files from the local workspace.
@@ -133,11 +138,28 @@ pub(super) struct JumpIndex {
 }
 
 impl JumpIndex {
+    /// The index for one client state, with its negotiated capabilities.
+    ///
+    /// Capabilities are snapshot-scoped facts, so a command whose extension
+    /// disappears takes its affordance with it on the next projection instead
+    /// of staying pickable and failing afterwards.
+    pub(super) fn from_state(state: &TuiState) -> Self {
+        Self::from_view(
+            &state.runtime,
+            &state.ui.workspace_files,
+            &state.capabilities,
+        )
+    }
+
     /// Projects typed Core facts plus the Core-published workspace inventory.
     ///
     /// `files` is client-local presentation state over pages Core sent; the
     /// index never discovers a path any other way.
-    pub(super) fn from_view(view: &RuntimeViewState, files: &WorkspaceFileIndex) -> Self {
+    pub(super) fn from_view(
+        view: &RuntimeViewState,
+        files: &WorkspaceFileIndex,
+        capabilities: &BTreeSet<CapabilityId>,
+    ) -> Self {
         let mut items = Vec::new();
         // Gates are listed active-first. A dormant gate — one still awaiting a
         // decision whose Agent session already finished — is tagged and ordered
@@ -219,16 +241,26 @@ impl JumpIndex {
         items.extend(
             super::command_palette::command_registry()
                 .iter()
-                .map(|command| JumpItem {
-                    kind: JumpKind::Command,
-                    id: command.command.to_string(),
-                    title: command.command.to_string(),
-                    context: command.summary.to_string(),
-                    keywords: command.keywords.to_string(),
-                    parent_id: None,
-                    enabled: true,
-                    disabled_reason: None,
-                    tail_distinctive: false,
+                .map(|command| {
+                    // A command whose capability Core does not publish stays
+                    // listed and is labelled with the capability name. Hiding it
+                    // would tell an operator the surface does not exist, which
+                    // is a different fact from "this Core does not publish it".
+                    let missing = command.capability.filter(|capability| {
+                        !capabilities.contains(&CapabilityId((*capability).to_string()))
+                    });
+                    JumpItem {
+                        kind: JumpKind::Command,
+                        id: command.command.to_string(),
+                        title: command.command.to_string(),
+                        context: command.summary.to_string(),
+                        keywords: command.keywords.to_string(),
+                        parent_id: None,
+                        enabled: missing.is_none(),
+                        disabled_reason: missing
+                            .map(|capability| format!("Core does not publish {capability}.")),
+                        tail_distinctive: false,
+                    }
                 }),
         );
         items.extend(workspace_file_items(files));
@@ -440,7 +472,11 @@ mod tests {
             .merge_gates
             .push(gate("gate-active", "session-live"));
 
-        let index = JumpIndex::from_view(&state.runtime, &WorkspaceFileIndex::default());
+        let index = JumpIndex::from_view(
+            &state.runtime,
+            &WorkspaceFileIndex::default(),
+            &viden_core::frontend_capabilities(),
+        );
         let gates = index
             .items()
             .iter()
@@ -477,7 +513,8 @@ mod tests {
             ("src", WorkspaceFileKind::Dir),
             ("src/main.rs", WorkspaceFileKind::File),
         ]);
-        let index = JumpIndex::from_view(&state.runtime, &files);
+        let index =
+            JumpIndex::from_view(&state.runtime, &files, &viden_core::frontend_capabilities());
         let rows = index
             .items()
             .iter()
@@ -518,7 +555,8 @@ mod tests {
         assert!(!applied, "another reader's page must not be applied");
         assert!(!files.is_loaded());
         let state = TuiState::default();
-        let index = JumpIndex::from_view(&state.runtime, &files);
+        let index =
+            JumpIndex::from_view(&state.runtime, &files, &viden_core::frontend_capabilities());
         let rows = index
             .items()
             .iter()
@@ -569,7 +607,8 @@ mod tests {
 
         // The row still says "reading", never "unavailable".
         let state = TuiState::default();
-        let index = JumpIndex::from_view(&state.runtime, &files);
+        let index =
+            JumpIndex::from_view(&state.runtime, &files, &viden_core::frontend_capabilities());
         let row = index
             .items()
             .iter()
@@ -589,7 +628,8 @@ mod tests {
         files.mark_available(true);
         files.begin("files-1");
         let state = TuiState::default();
-        let index = JumpIndex::from_view(&state.runtime, &files);
+        let index =
+            JumpIndex::from_view(&state.runtime, &files, &viden_core::frontend_capabilities());
         let row = index
             .items()
             .iter()
@@ -608,7 +648,8 @@ mod tests {
     fn an_empty_inventory_is_stated_as_empty_not_as_unavailable() {
         let files = loaded_files(&[]);
         let state = TuiState::default();
-        let index = JumpIndex::from_view(&state.runtime, &files);
+        let index =
+            JumpIndex::from_view(&state.runtime, &files, &viden_core::frontend_capabilities());
         let row = index
             .items()
             .iter()
@@ -641,7 +682,8 @@ mod tests {
             },
         )));
         let state = TuiState::default();
-        let index = JumpIndex::from_view(&state.runtime, &files);
+        let index =
+            JumpIndex::from_view(&state.runtime, &files, &viden_core::frontend_capabilities());
         let row = index
             .items()
             .iter()
@@ -657,7 +699,11 @@ mod tests {
     #[test]
     fn index_groups_typed_runtime_facts_in_stable_order_and_keeps_file_unavailable() {
         let state = TuiState::default();
-        let index = JumpIndex::from_view(&state.runtime, &WorkspaceFileIndex::default());
+        let index = JumpIndex::from_view(
+            &state.runtime,
+            &WorkspaceFileIndex::default(),
+            &viden_core::frontend_capabilities(),
+        );
 
         assert_eq!(
             index
@@ -666,8 +712,9 @@ mod tests {
                 .map(|item| item.kind)
                 .collect::<Vec<_>>(),
             vec![
-                // Fifteen registered commands since `/git` joined the registry
-                // (`runtime.operator_git`, GUI-CORE-020).
+                // Sixteen registered commands since `/evidence` joined the
+                // registry (`runtime.evidence_reads`, GUI-CORE-025).
+                JumpKind::Command,
                 JumpKind::Command,
                 JumpKind::Command,
                 JumpKind::Command,
@@ -695,6 +742,43 @@ mod tests {
         assert_eq!(
             file.disabled_reason.as_deref(),
             Some("Core file inventory is unavailable."),
+        );
+    }
+
+    /// A command whose extension Core does not publish is grouped, never
+    /// hidden: the row stays in the index, is rendered inert, and names the
+    /// capability, so "this Core does not publish it" stays distinguishable
+    /// from "this surface does not exist".
+    #[test]
+    fn a_command_whose_capability_is_absent_stays_listed_and_labelled() {
+        let state = TuiState::default();
+        let without = JumpIndex::from_view(
+            &state.runtime,
+            &WorkspaceFileIndex::default(),
+            &BTreeSet::new(),
+        );
+        let row = without
+            .items()
+            .iter()
+            .find(|item| item.id == "/evidence")
+            .expect("the evidence row stays listed");
+        assert!(!row.enabled);
+        assert_eq!(
+            row.disabled_reason.as_deref(),
+            Some("Core does not publish runtime.evidence_reads.")
+        );
+
+        let with = JumpIndex::from_view(
+            &state.runtime,
+            &WorkspaceFileIndex::default(),
+            &viden_core::frontend_capabilities(),
+        );
+        assert!(
+            with.items()
+                .iter()
+                .find(|item| item.id == "/evidence")
+                .expect("the evidence row")
+                .enabled
         );
     }
 

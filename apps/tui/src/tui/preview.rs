@@ -967,8 +967,12 @@ mod tests {
         assert!(idle.contains("ctrl+p commands"));
         assert!(!idle.contains("TRANSCRIPT"));
         assert!(command_palette.contains("COMMANDS"));
-        assert!(command_palette.contains("/connect"));
-        assert!(command_palette.contains("Configure a Core provider"));
+        // The palette shows the first eight registered commands, so this
+        // preview's visible window ends at `/evidence`
+        // (`runtime.evidence_reads`, GUI-CORE-025). `/connect` is still
+        // registered; `palette_exposes_task6_lens_routes` covers it.
+        assert!(command_palette.contains("/evidence"));
+        assert!(command_palette.contains("Page the Core evidence archive"));
         assert!(setup_wizard.contains("SETUP SELECTOR"));
         assert!(setup_wizard.contains("DRAFT viden.toml"));
         assert!(setup_wizard.contains("pack = \"robot-pack\""));

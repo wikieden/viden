@@ -39,6 +39,11 @@ pub(super) enum OverlayKind {
     /// row or the Decision Center footer pick, so it has no global chord of its
     /// own; it browses and never decides.
     AuditTimeline,
+    /// Read-only evidence archive inspector
+    /// (`runtime.evidence_reads`, GUI-CORE-025). Reached from the supervision
+    /// overlay's evidence row or the `/evidence` system command, so it has no
+    /// global chord of its own; it browses and reads and decides nothing.
+    EvidenceInspector,
     ContextHelp,
     ExitConfirm,
     Approval,

@@ -12,6 +12,7 @@ use super::{
         MAX_APPROVAL_DIFF_ROWS, STRUCTURED_DIFF_CAPABILITY, decision_context_rows,
         has_renderable_diff,
     },
+    evidence_panel::{EVIDENCE_ROW_WIDTH, evidence_rows},
     glyphs::Glyph,
     jump::JumpIndex,
     keymap::OverlayKind,
@@ -104,6 +105,7 @@ pub(super) fn render_overlays(frame: &mut Frame, state: &TuiState, _right_rail_w
             OverlayKind::Decisions => "overlay.title.decisions",
             OverlayKind::SupervisionDecision => "overlay.title.supervision",
             OverlayKind::AuditTimeline => "overlay.title.audit",
+            OverlayKind::EvidenceInspector => "overlay.title.evidence",
             OverlayKind::ConflictContent => "overlay.title.conflict",
             OverlayKind::ContextHelp => "overlay.title.context_help",
             OverlayKind::ExitConfirm => "overlay.title.exit",
@@ -120,6 +122,10 @@ pub(super) fn render_overlays(frame: &mut Frame, state: &TuiState, _right_rail_w
             OverlayKind::Decisions
             | OverlayKind::SupervisionDecision
             | OverlayKind::AuditTimeline => 14,
+            // The inspector carries a scope row, a filter row, day headers, and
+            // a content window, so it needs the conflict modal's height rather
+            // than a decision list's.
+            OverlayKind::EvidenceInspector => 22,
             // Three labelled sides per rejected hunk need a taller panel than
             // a decision list does.
             OverlayKind::ConflictContent => 22,
@@ -129,6 +135,7 @@ pub(super) fn render_overlays(frame: &mut Frame, state: &TuiState, _right_rail_w
             OverlayKind::GlobalJump => super::i18n::text(state, "overlay.global_hint"),
             OverlayKind::SupervisionDecision => super::i18n::text(state, "supervision.hint"),
             OverlayKind::AuditTimeline => super::i18n::text(state, "audit.hint"),
+            OverlayKind::EvidenceInspector => super::i18n::text(state, "evidence.hint"),
             OverlayKind::ConflictContent => super::i18n::text(state, "conflict.hint"),
             _ => super::i18n::text(state, "overlay.close_hint"),
         };
@@ -312,6 +319,12 @@ fn global_overlay_rows(state: &TuiState, kind: OverlayKind, filter: &str) -> Vec
         // The audit overlay is a browsing surface with no text filter: rows are
         // Core records, and printable characters keep editing the composer.
         OverlayKind::AuditTimeline => return audit_timeline_rows(state),
+        // The inspector owns its keys the same way: `f` and `r` act on the
+        // read, and every other printable character keeps editing the
+        // composer, so it has no text filter to apply here.
+        OverlayKind::EvidenceInspector => {
+            return evidence_rows(state, EVIDENCE_ROW_WIDTH);
+        }
         OverlayKind::ConflictContent => return conflict_content_rows(state),
         OverlayKind::Lane => state
             .runtime
@@ -815,7 +828,7 @@ fn audit_timeline_rows(state: &TuiState) -> Vec<String> {
 }
 
 fn global_jump_rows(state: &TuiState, filter: &str) -> Vec<String> {
-    let index = JumpIndex::from_view(&state.runtime, &state.ui.workspace_files);
+    let index = JumpIndex::from_state(state);
     let mut rows = Vec::new();
     let mut previous_kind = None;
     for (position, item) in index.search(filter).into_iter().enumerate() {
@@ -1810,8 +1823,8 @@ mod tests {
     fn global_jump_windows_rows_to_keep_selected_item_visible() {
         let mut state = TuiState::default();
         let mut overlay = OverlayState::global_jump(None);
-        // One row further down since `/git` joined the command registry.
-        overlay.selected = 13;
+        // One row further down since `/evidence` joined the command registry.
+        overlay.selected = 14;
         state.ui.overlay = Some(overlay);
         let mut frame = Frame::new(120, 40);
 
@@ -2032,9 +2045,9 @@ mod tests {
     fn global_jump_window_keeps_default_disabled_tail_selected() {
         let mut state = TuiState::default();
         let mut overlay = OverlayState::global_jump(None);
-        // The disabled FILES tail, one row further down since `/git` joined
-        // the command registry.
-        overlay.selected = 15;
+        // The disabled FILES tail, one row further down since `/evidence`
+        // joined the command registry.
+        overlay.selected = 16;
         state.ui.overlay = Some(overlay);
 
         let rows = global_jump_rows(&state, "");
