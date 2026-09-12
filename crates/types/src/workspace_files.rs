@@ -1,4 +1,11 @@
-//! Read-only workspace file inventory contract (GUI-CORE-022).
+//! Read-only workspace file contracts: the inventory (GUI-CORE-022) and the
+//! single-file read beside it (`runtime.workspace_file_reads`, C9).
+//!
+//! The two are a pair. The inventory says a path exists; the read says what is
+//! in it. They live in one module because they share one rule — a client never
+//! touches the operator's filesystem — and because a client that paged the
+//! first must be able to reach the second without learning a second vocabulary
+//! for what a workspace path is.
 //!
 //! A frontend needs the list of files in the open workspace to offer a file
 //! jump target, but it must not produce that list itself: walking the
@@ -20,6 +27,9 @@
 //!    first byte the type ever shipped. GUI-CORE-024 established what an
 //!    optional correlation id costs; this contract is new, so it has no legacy
 //!    `None` case to accommodate and never gains one.
+//!
+//! The read below inherits all three and adds a fourth: **a path is refused,
+//! never repaired.** See [`WorkspaceFileReadQuery::validate`].
 
 use serde::{Deserialize, Serialize};
 

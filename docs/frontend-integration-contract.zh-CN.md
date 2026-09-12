@@ -316,6 +316,7 @@ flowchart LR
 | 执行操作者源码控制动作 | `RunOperatorGitAction { owner, target, action }` | 动作校验、从 Core 自有 Lane 记录解析目标、在任何进程启动之前过映射后的 `git_*` 权限门禁、效果之前的审计记录、工具执行、失败分类，以及重新采样的源码事实 |
 | 分页读取证据归档 | `QueryEvidence { command_id, query }` | 从 workflow agent 日志重建的持久归档、稳定的 `(timestamp, id)` 排序、不透明 cursor、在切页之前应用的 owner 作用域与 kind 过滤、边界，以及类型化 page |
 | 读取单条证据背后的字节 | `ReadEvidenceContent { command_id, evidence_id }` | canonical ContextStore 查找、在提供任何内容之前先做 `source_hash` 校验、类型化的内容或不可用原因，以及 256 KiB 边界 |
+| 打开某个工作区文件 | `ReadWorkspaceFile { command_id, query }` | 由 Core 自有 Lane 记录解析目标、拒绝而非修补的路径校验、读取任何字节之前的真实 `read_file` 权限闸门、相对已解析根的符号链接包含性检查、binary/text 判定、按字符边界的切分，以及覆盖整个文件的 `size` 与 `sha256` |
 | 创建 starter Lane | `PreviewStarterLane`，审阅结果后携带未变化 request/id/hash 发送 `CreateStarterLane` | preset 解析、workspace/isolation 校验、permission gate、执行前复检、补偿和 typed receipt |
 | 安排驾驶舱布局 | `SetUiLayoutPreferences { patch }`、`ResetUiLayoutPreferences` | 用户配置中的 `[ui.layout]` 持久化、隐藏段列表的边界、带 `persisted` 与诊断的已发布记录，以及快照前缀的副本 |
 
@@ -864,6 +865,47 @@ active job，因此 `CancelActiveTurn` 能停下它；它经由同一条路径�
 
 尚未交付。`runtime.durable_work_evidence` 的设计见
 `docs/release-0.3.4-contract-design.md` 第 4 节，将在 C7 批次落地；届时再写本节。
+
+### 工作区文件读取（`runtime.workspace_file_reads`）
+
+需要 `runtime.workspace_file_reads` 扩展。没有它的客户端只用
+`QueryWorkspaceFiles` 渲染文件树，并声明文件内容不可用；它不得自己读取操作者的
+文件，也不得退回到 shell 命令。
+
+`ReadWorkspaceFile { command_id, query }` -> `WorkspaceFileLoaded { command_id,
+file }` 与旁边的清单读取成对：`runtime.workspace_files` 说某条路径是否存在，本能力
+说里面是什么。`WorkspaceFileReadQuery` 携带 `target`、目标相对的 `path`，以及可选的
+`byte_limit`。
+
+前端必须遵守的规则：
+
+- **给目标，不给路径。** `SourceTarget` 指名工作区或某个 Lane；客户端从不传文件系统
+  路径。Core 从自有记录解析 Lane 的 worktree；未知、已归档或已取消的 Lane 是拒绝，
+  而不是悄悄读工作区根 —— 那会用一棵树的身份提供另一棵树的文件。
+- **拒绝与缺席是两种不同的答案。** 不合法的路径、无法解析的 Lane、权限决定是
+  `CommandRejected { command_id, reason }`，可执行的提示已折入其中。路径不存在、路径
+  是目录、文件不可读，则是已发布 `WorkspaceFileLoaded` 上的
+  `WorkspaceFileBody::Unavailable { reason }`。二者必须渲染得不同：前者是关于操作者的
+  决定，后者是关于其文件树的事实。尤其是，离开目标的路径永远不会以 `not_found` 作答
+  —— Core 并未检查过，那样等于断言树里没有一个可能确实存在的文件。
+- **`Binary` 不带载荷，这是刻意的。** 渲染文件的 `size` 与 `sha256`，不提供编辑器。
+  不要用更大的上界再问一次：这个判定关乎字节，与上界无关。前 8 KiB 含 NUL、或所发布
+  的前缀不是合法 UTF-8 时，Core 发布 `Binary`。
+- **`truncated`表示上界切了这个文件，绝不表示文件很短。** 文本在字符边界上切分，因此
+  永不以替换字符或半个序列结尾。上界恰等于文件长度时不算截断。要读更多，用更大的
+  `byte_limit` 重新请求，最多 1 MiB；`byte_limit` 是钳制而非拒绝，默认 256 KiB。
+- **`size` 与 `sha256` 描述整个文件**，而不是所发布的 body。这正是客户端能把某个版本
+  的截断视图与另一个版本的完整视图区分开、并能察觉打开的标签页底下文件已经变化的
+  依据。`Unavailable` 的 body 两者都不带：是缺席而不是 `0` 与 `""`，后者会渲染成一个
+  带真实摘要的真实空文件。
+- **闸门就是 agent 自己的 `read_file`。** 同一套 `viden.toml` 的 allow/ask/deny 规则
+  既管操作者打开文件，也管 agent 读取同样的字节。deny 与未解决的 ask 都在不弹出审批
+  的情况下拒绝，因为这次读取回答的是一次按键；Plan 模式仍然作答，因为 `read_file`
+  不做任何修改。解析到目标根之外的符号链接得到 `Unavailable { Unreadable }` 而不是
+  被跟随。
+- **该答案不是 view state。** 它永不归约进 `RuntimeViewState`，因此发布一次不会移动
+  任何快照摘要。文件被重新打开时重新请求，而不要把 body 缓存在一棵随时会变的树之上。
+  `command_id` 是必填的，因此同时打开两个文件的客户端永远不必按到达顺序归属答案。
 
 ## Approval 和 Permission UI 契约
 

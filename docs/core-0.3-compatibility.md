@@ -96,6 +96,7 @@ runtime.structured_diff
 runtime.trust_loop
 runtime.turn_lifecycle
 runtime.workspace_eligibility
+runtime.workspace_file_reads
 runtime.workspace_files
 runtime.workspace_owner
 ui.layout_preferences
@@ -548,6 +549,7 @@ registered schema-1 extension fixtures are:
 | `workspace-owner` | A minted workspace identity published as the first fact after the snapshot, a Lane created afterwards whose binding carries the same two ids, a workspace-target `Commit` settled and audited under that owner, and a Lane-target `Stage` answered with the Lane's own source row while the workspace chip keeps describing the workspace | `0866370b2f4a9c85b1a577688e7cce42f51243b711440c7f3a033a5e75515a87` | `b8ac58db0fc8d3780d514e75531b21d98d7592e7e44b8aebd7bab69094777286` |
 | `ui-layout-preferences` | The snapshot prefix's copy with no command id, a stored record Core applied but could not write (pinned, the non-default mode, so a stored choice is distinguishable from an absent one), an over-bound hidden-segment list refused by command id before anything was written, and a reset landing back on the floating default (`D-SIDEBAR`) — with an unrecognized segment name kept verbatim | `9b5f05de93a51ba44a96b969a23868e0ae70e2237c6314fb0c0f6762cbd2316d` | `d5a0c1c647107ecb9e6b05fa5aafa828fc889a981415337e9d81d1db31cb000b` |
 | `turn-lifecycle` | Five turns over one session-scoped owner, each opened once and closed once: a typed turn whose streamed reply is settled by its own end rather than left as residue, a second typed turn that two prompts are queued behind and which drains both on completing — announced oldest first, each drained turn naming the queue entry it came from — and a turn the operator cancels, which leaves the prompt queued behind it exactly where it is | `946f68640b6a299b35c00c9bef105ea3b64ee7b642e47d26ac003078b48f4603` | `fb40f5de446bce9c0bf81e2e6b56a75e6e7b59ac7c787570bebab971fdb9b9db` |
+| `workspace-file-reads` | Seven single-file reads over one session-scoped owner: two outstanding at once and answered out of order, one whole text, one cut on a character boundary with the whole file's length and digest beside it, one binary with no payload under a Lane target, one path that is not there, one directory, plus a path that leaves the target and a `read_file` deny rule answered by `CommandRejected` with no body at all | `1b5ffcffebfeabecf9c79967ca7d84b912d510e7c9f2003012a1e48d0184304e` | `98bd938eb1f2fe6cffe106b1e5d5bbeaa1106663592b1aa5e0dfbd069654255f` |
 
 Semantics fix 2026-09-07 (review finding 4): `RuntimeViewState.assistant_stream`
 had no lifecycle — it was append-only for the life of the view, so startup
@@ -795,6 +797,62 @@ frozen base fixtures byte-unchanged and the capability count gate in
 `scripts/tui-regression.sh` moved 25 -> 26. Neither client has adopted it yet:
 the GUI composer's `active_turns` predicate and queue copy are G7, and the TUI's
 `native_turn` residue window is replaced in T2.
+
+`runtime.workspace_file_reads` completes the pair the file inventory started.
+`runtime.workspace_files` says a path exists; `ReadWorkspaceFile { query }` ->
+`WorkspaceFileLoaded { command_id, file }` says what is in it, so the cockpit's
+Files and Code tabs and the palette's file rows render Core facts instead of the
+client opening the operator's files itself.
+
+The path is refused rather than repaired. Empty, absolute, drive-prefixed,
+backslashed, `..`-bearing, control-character-bearing, and file-less paths are
+all `CommandRejected`, because normalizing `../../etc/passwd` into `etc/passwd`
+would serve a different file than the one asked for under the asked-for name,
+and answering `Unavailable { NotFound }` would claim the operator's own tree
+lacks a file that may well exist. `byte_limit` is clamped instead — 256 KiB by
+default, 1 MiB at most — because a caller asking for too many bytes still means
+something answerable.
+
+The validated relative path and the resolved target root are the entire scope:
+`read_file`'s own `resolve_path` scopes nothing and will join an absolute path
+as given. Core canonicalizes the root and the target independently and compares
+them before a byte is read, so a symlink at the leaf or at any parent that
+resolves outside the root is `Unavailable { Unreadable }` rather than followed,
+while a link that stays inside resolves normally. The gate is the real
+`read_file` `ToolSpec` taken from the live registry, with the resolved absolute
+path as the input `path`, so one `viden.toml` rule set governs an operator
+opening a file and an agent reading the same bytes. A deny and an unresolved ask
+are both `CommandRejected` naming `read_file` with the grant hint folded into
+the reason; the approver is never consulted, because this read answers a
+keystroke rather than an interactive turn. Plan mode still answers.
+
+`WorkspaceFileBody` is `Binary` when the leading 8 KiB hold a NUL or the
+published prefix does not decode as UTF-8 — replacement characters on the wire
+are content a client cannot tell from content the file holds — and `Binary`
+carries no payload at all. `Text` is cut at the clamped bound on a character
+boundary, so a prefix the bound split mid-character falls back to the last
+complete character. `truncated` says the bound cut the file, never that the file
+was short. `size` is the file's real length and `sha256` is over the whole file
+rather than the published prefix, which is what lets a client tell a truncated
+view of one revision from a full view of another.
+
+A missing path, a directory, and an unreadable file are typed `Unavailable`
+answers on a published event rather than refusals: they are facts about the tree
+a client renders rather than retries, and their `size` and `sha256` are absent
+rather than `0` and `""`, which would render as a real empty file with a real
+digest. Only a malformed request, an unresolvable Lane, and a permission
+decision are `CommandRejected`. The answer is a query result and is never folded
+into `RuntimeViewState`, so publishing one moves no snapshot digest.
+
+0.3.4 contract increment, batch C9, landed 2026-09-12 on
+`claude/core-workspace-file-reads`. `runtime.workspace_file_reads` moves the
+advertised extension set from 26 to 27 and adds the `workspace-file-reads`
+fixture listed in the corpus table, with the nine frozen base fixtures
+byte-unchanged and the capability count gate in `scripts/tui-regression.sh`
+moved 26 -> 27; batch C7 adds `runtime.durable_work_evidence` on a concurrent
+branch, so the integrator reconciles the count to 28. No client has adopted it
+yet: the GUI Files tab content, palette file rows, and Code tab are G7, and the
+TUI has no parity minimum here because it registers no file viewer.
 
 Open follow-ups recorded 2026-09-10. Each was confirmed during the `0.3.3`
 batches and deliberately left out of them, so none is rediscovered later as a

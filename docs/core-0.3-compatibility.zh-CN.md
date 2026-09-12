@@ -88,6 +88,7 @@ runtime.structured_diff
 runtime.trust_loop
 runtime.turn_lifecycle
 runtime.workspace_eligibility
+runtime.workspace_file_reads
 runtime.workspace_files
 runtime.workspace_owner
 ui.layout_preferences
@@ -417,6 +418,7 @@ Fixture 文件位于 `crates/types/tests/fixtures/frontend-contract-v1/`。下�
 | `workspace-owner` | 铸造出的工作区身份作为快照之后的第一条事实发布；随后创建的 Lane，其绑定携带同样的两个 id；一次 Workspace 目标的 `Commit` 在该 owner 下结算并被审计；一次 Lane 目标的 `Stage` 以该 Lane 自己的 source 行作答，而工作区芯片仍描述工作区 | `0866370b2f4a9c85b1a577688e7cce42f51243b711440c7f3a033a5e75515a87` | `b8ac58db0fc8d3780d514e75531b21d98d7592e7e44b8aebd7bab69094777286` |
 | `ui-layout-preferences` | 快照前缀的副本不带 command id；一条 Core 已应用但写入失败的记录（pinned，即非默认模式，因此已存选择与记录缺席可以区分）；一次越界的隐藏段列表在写入任何内容之前按 command id 被拒；一次 reset 落回 floating 默认值（`D-SIDEBAR`） —— 其中一个无法识别的段名被原样保留 | `9b5f05de93a51ba44a96b969a23868e0ae70e2237c6314fb0c0f6762cbd2316d` | `d5a0c1c647107ecb9e6b05fa5aafa828fc889a981415337e9d81d1db31cb000b` |
 | `turn-lifecycle` | 同一个会话作用域 owner 下的五次回合，每一次都只开启一次、只关闭一次：一次键入的回合，其流式回复由回合自身的结束来结算，而不是留作残留；第二次键入的回合背后排了两条提示，它完成时把两条都排空 —— 按最旧优先宣告，每一次被排空的回合都指名它来自哪一条队列条目 —— 以及一次被操作者取消的回合，它背后排队的提示原样留在队列里 | `946f68640b6a299b35c00c9bef105ea3b64ee7b642e47d26ac003078b48f4603` | `fb40f5de446bce9c0bf81e2e6b56a75e6e7b59ac7c787570bebab971fdb9b9db` |
+| `workspace-file-reads` | 同一个会话作用域 owner 下的七次单文件读取：两次同时在途且乱序作答；一次完整文本；一次在字符边界上被截断，旁边仍带着整个文件的长度与摘要；一次 Lane 目标下的二进制、不带任何载荷；一次路径并不存在；一次是目录；另有一次离开目标的路径与一条 `read_file` deny 规则，以 `CommandRejected` 作答且完全不发布 body | `1b5ffcffebfeabecf9c79967ca7d84b912d510e7c9f2003012a1e48d0184304e` | `98bd938eb1f2fe6cffe106b1e5d5bbeaa1106663592b1aa5e0dfbd069654255f` |
 
 2026-09-07 语义修正（评审发现 4）：`RuntimeViewState.assistant_stream` 此前没有生命
 周期——它在整个 view 生命期内只追加，因此启动重放会把每个历史会话的回复串接成一整块
@@ -599,6 +601,49 @@ Core 在凭空造活。owner 不指名任何 Lane 的 `TurnFinished` 会清空�
 `scripts/tui-regression.sh` 中的能力计数门由 25 移到 26。两个客户端都尚未采纳：
 GUI 输入框的 `active_turns` 判定与队列文案属于 G7，TUI 的 `native_turn` 残留窗口
 在 T2 中被替换。
+
+`runtime.workspace_file_reads` 补全了文件清单开的那一对。
+`runtime.workspace_files` 说的是某条路径是否存在；`ReadWorkspaceFile { query }`
+-> `WorkspaceFileLoaded { command_id, file }` 说的是里面是什么，于是驾驶舱的
+Files 与 Code 页签以及命令面板的文件行渲染的是 Core 事实，而不是由客户端自己去打开
+操作者的文件。
+
+路径是被拒绝，而不是被修补。空路径、绝对路径、带盘符前缀、带反斜杠、含 `..`、含
+控制字符，以及根本没有指名文件的路径，一律以 `CommandRejected` 作答：把
+`../../etc/passwd` 规范化成 `etc/passwd`，等于用被请求的名字提供另一个文件；而以
+`Unavailable { NotFound }` 作答，等于断言操作者自己的树里没有一个可能确实存在的
+文件。`byte_limit` 则是钳制而非拒绝 —— 默认 256 KiB，最大 1 MiB —— 因为请求了过多
+字节的调用方，其意图仍然是可以回答的。
+
+已校验的相对路径加上已解析的目标根，就是全部作用域：`read_file` 自己的
+`resolve_path` 不做任何作用域限制，给它绝对路径它就照单拼接。Core 在读取任何字节
+之前分别规范化根与目标并作比较，因此叶节点或任一父节点上指向根之外的符号链接会得到
+`Unavailable { Unreadable }` 而不是被跟随，而留在根内的链接正常解析。闸门是从活动
+注册表取出的真实 `read_file` `ToolSpec`，输入 `path` 为已解析的绝对路径，因此同一套
+`viden.toml` 规则既管操作者打开文件，也管 agent 读取同样的字节。deny 与未解决的 ask
+都是 `CommandRejected`，指名 `read_file` 并把可执行的授权提示折进 reason；审批器从不
+被触及，因为这次读取回答的是一次按键，而不是一次交互回合。Plan 模式仍然作答。
+
+`WorkspaceFileBody` 在前 8 KiB 含 NUL、或所发布的前缀不是合法 UTF-8 时为 `Binary`
+—— 线上的替换字符是客户端无法与文件真实内容区分的内容 —— 且 `Binary` 完全不带载荷。
+否则为 `Text`，在钳制后的上界处按字符边界切分，因此被上界从多字节字符中间切开的前缀
+会回退到最后一个完整字符。`truncated` 说的是上界切了这个文件，从不表示文件本身很短。
+`size` 是文件的真实长度，`sha256` 覆盖整个文件而非所发布的前缀，这正是客户端能把某个
+版本的截断视图与另一个版本的完整视图区分开的依据。
+
+路径不存在、路径是目录、文件不可读，都是发布在事件上的 typed `Unavailable` 答案而
+不是拒绝：它们是关于这棵树的事实，客户端渲染它们而不是重试；它们的 `size` 与
+`sha256` 是缺席而不是 `0` 与 `""`，后者会渲染成一个带真实摘要的真实空文件。只有请求
+本身不合法、Lane 无法解析、以及权限决定才是 `CommandRejected`。该答案是查询结果，
+永不归约进 `RuntimeViewState`，因此发布一次不会移动任何快照摘要。
+
+0.3.4 契约增量的 C9 批次已于 2026-09-12 落到 `claude/core-workspace-file-reads`。
+`runtime.workspace_file_reads` 把对外通告的扩展集合从 26 项推到 27 项，并新增语料表中
+列出的 `workspace-file-reads` fixture；九个冻结基线 fixture 的字节未变，
+`scripts/tui-regression.sh` 中的能力计数门由 26 移到 27；C7 批次在并行分支上新增
+`runtime.durable_work_evidence`，因此该计数由集成者调和为 28。尚无客户端采纳：GUI 的
+Files 页签内容、命令面板文件行与 Code 页签属于 G7；TUI 在此没有对等下限，因为它没有
+注册任何文件查看器。
 
 2026-09-10 记录的未决跟进项。每一条都是在 `0.3.3` 各批次中确认、并被刻意留在
 批次之外的，因此它们不会日后被当作新发现重新提出：

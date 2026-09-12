@@ -17,6 +17,14 @@ durable work evidence, transcript rows, workspace file reads). 013, 018,
 019, 021, 023, and 026 move to `0.3.5`; D5 gallery review will be opened as
 GUI-CORE-029 for `0.3.5` when that contract design is written.
 
+Status note 2026-09-12 (C9): the workspace file-read fact landed on the Core
+side — `runtime.workspace_file_reads` is published with its
+`workspace-file-reads` fixture, so `ReadWorkspaceFile` answers one file's bytes
+behind the `read_file` permission gate. No register entry closes on it: it was
+scheduled as contract content for the Files tab, the Code tab, and the palette's
+file rows rather than as a numbered request, and the GUI adopts it in G7. The
+open register is unchanged at 009, 013, 018, 019, 021, 023, 026, and 028.
+
 Status note 2026-09-10: 012, 015, 020, and 025 are now fully closed — Core
 published each capability and **both** clients adopted it, which is the
 condition those entries stated. GUI-CORE-027 (workspace-scoped operator

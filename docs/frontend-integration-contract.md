@@ -362,6 +362,7 @@ a contract change, not a refactor.
 | Run an operator source-control action | `RunOperatorGitAction { owner, target, action }` | action validation, target resolution from Core-owned Lane records, the mapped `git_*` permission gate before any process spawns, the audit record before the effect, tool execution, failure classification, and the resampled source |
 | Page the evidence archive | `QueryEvidence { command_id, query }` | the durable archive rebuilt from the workflow agent log, stable `(timestamp, id)` ordering, the opaque cursor, owner-scope and kind filtering applied before the page is cut, bounds, and the typed page |
 | Read the bytes behind one evidence row | `ReadEvidenceContent { command_id, evidence_id }` | canonical ContextStore lookup, `source_hash` verification before anything is served, the typed content or unavailable reason, and the 256 KiB bound |
+| Open one workspace file | `ReadWorkspaceFile { command_id, query }` | target resolution from Core-owned Lane records, path validation that refuses rather than repairs, the real `read_file` permission gate before any byte is read, symlink containment against the resolved root, the binary/text decision, the character-boundary cut, and the whole-file `size` and `sha256` |
 | Create a starter Lane | `PreviewStarterLane`, review the result, then `CreateStarterLane` with the unchanged request/id/hash | preset resolution, workspace/isolation checks, permission gate, execution-time recheck, compensation, typed receipt |
 | Arrange the cockpit layout | `SetUiLayoutPreferences { patch }`, `ResetUiLayoutPreferences` | `[ui.layout]` persistence in the user config, bounds on the hidden-segment list, the published record with `persisted` and its diagnostics, and the snapshot-prefix copy |
 
@@ -1050,6 +1051,60 @@ the turns Core is running now, and a queue it can inspect.
 Not delivered. `runtime.durable_work_evidence` is designed in
 `docs/release-0.3.4-contract-design.md` section 4 and lands in batch C7; this
 section is written when it does.
+
+### Workspace file reads (`runtime.workspace_file_reads`)
+
+Requires the `runtime.workspace_file_reads` extension. A client without it
+renders the file tree from `QueryWorkspaceFiles` alone and states that file
+content is unavailable; it must not read the operator's files itself, and it
+must not fall back to a shell command.
+
+`ReadWorkspaceFile { command_id, query }` -> `WorkspaceFileLoaded { command_id,
+file }` is the pair to the inventory read beside it: `runtime.workspace_files`
+says a path exists, this says what is in it. `WorkspaceFileReadQuery` carries
+`target`, a target-relative `path`, and an optional `byte_limit`.
+
+Rules a frontend must honor:
+
+- **Target, not path.** `SourceTarget` names the workspace or one Lane; a
+  client never passes a filesystem path. Core resolves a Lane's worktree from
+  its own records, and an unknown, archived, or cancelled Lane is a rejection
+  rather than a silent read of the workspace root, which would serve one tree's
+  file under another tree's identity.
+- **A refusal and an absence are different answers.** A malformed path, an
+  unresolvable Lane, and a permission decision are `CommandRejected { command_id,
+  reason }` with the actionable hint folded in. A missing path, a directory, and
+  an unreadable file are `WorkspaceFileBody::Unavailable { reason }` on a
+  published `WorkspaceFileLoaded`. Render them differently: the first is a
+  decision about the operator, the second a fact about their tree. In
+  particular, a path that leaves the target is never answered as `not_found` —
+  Core has not checked, and would be claiming the tree lacks a file that may
+  well exist.
+- **`Binary` has no payload, and that is deliberate.** Render the file's `size`
+  and `sha256` and offer no editor. Do not ask again with a larger bound: the
+  decision is about the bytes, not about the bound. Core publishes `Binary` when
+  the leading 8 KiB hold a NUL or the published prefix does not decode as UTF-8.
+- **`truncated` means the bound cut the file, never that the file is short.**
+  The text is cut on a character boundary, so it never ends in a replacement
+  character or a split sequence. A bound equal to the file's length is not
+  truncated. To read further, re-ask with a larger `byte_limit`, up to 1 MiB;
+  `byte_limit` is clamped rather than refused, with a 256 KiB default.
+- **`size` and `sha256` describe the whole file.** Not the published body. That
+  is what lets a client tell a truncated view of one revision from a full view
+  of another, and what lets it detect that the file moved under an open tab. A
+  body that is `Unavailable` carries neither: they are absent rather than `0`
+  and `""`, which would render as a real empty file with a real digest.
+- **The gate is the agent's own `read_file`.** One `viden.toml` allow/ask/deny
+  rule set governs an operator opening a file and an agent reading the same
+  bytes. A deny and an unresolved ask both refuse without an approval prompt,
+  because this read answers a keystroke; plan mode still answers, because
+  `read_file` mutates nothing. A symlink that resolves outside the target root
+  is `Unavailable { Unreadable }` rather than followed.
+- **The answer is not view state.** It is never folded into `RuntimeViewState`,
+  so publishing one moves no snapshot digest. Re-ask when a file is reopened
+  rather than caching a body across a tree that can change underneath it.
+  `command_id` is required, so a client with two files open never attributes an
+  answer by arrival order.
 
 ## Approval And Permission UI Contract
 
