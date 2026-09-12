@@ -24,18 +24,20 @@ use viden_types::{
     EvidenceContent, EvidenceCursor, EvidencePage, EvidenceProducer, EvidenceQualityFacts,
     EvidenceQualityStatus, EvidenceQuery, EvidenceUnavailableReason, EvidenceVerificationState,
     EvidenceView, ExecutionTarget, FRONTEND_SCHEMA_V1, GateStrength, LaneBudget,
-    LaneRuntimeOwnerBinding, LaneStatus, MergeGateDecision, MergeGateDecisionOutcome,
-    MergeGatePolicySnapshot, MergeGateRecord, MergeGateStatus, MergeGateType, MergeGateValidator,
-    MutationPolicy, OperatorGitAction, OperatorGitFailureClass, OperatorGitOutcome,
-    PermissionLevel, PermissionMode, ProjectConfigState, ProjectProbe, QueuedInputView,
-    RecentProjectSummary, RecentSessionSummary, ResolvedUiPreferences, ReviewRequestStatus,
-    RuntimeCommand, RuntimeErrorView, RuntimeEvent, RuntimeEventEnvelope, RuntimeEventKind,
-    RuntimeOwner, RuntimeSnapshot, RuntimeViewState, RuntimeWireEvent, SchemaVersion, SourceTarget,
+    LaneRuntimeOwnerBinding, LaneSidebarMode, LaneStatus, MAX_HIDDEN_STATUSBAR_SEGMENTS,
+    MergeGateDecision, MergeGateDecisionOutcome, MergeGatePolicySnapshot, MergeGateRecord,
+    MergeGateStatus, MergeGateType, MergeGateValidator, MutationPolicy, OperatorGitAction,
+    OperatorGitFailureClass, OperatorGitOutcome, PermissionLevel, PermissionMode,
+    ProjectConfigState, ProjectIdOrigin, ProjectProbe, QueuedInputView, RecentProjectSummary,
+    RecentSessionSummary, ResolvedUiPreferences, ReviewRequestStatus, RuntimeCommand,
+    RuntimeErrorView, RuntimeEvent, RuntimeEventEnvelope, RuntimeEventKind, RuntimeOwner,
+    RuntimeSnapshot, RuntimeViewState, RuntimeWireEvent, SchemaVersion, SourceTarget,
     StarterLanePreview, StarterLanePreviewInvalidationReason, StarterLaneReceipt, TokenCostView,
-    TokenUsage, UiColorMode, UiDensity, UiMotion, UiPreferences, UiSkin, WorkMode,
-    WorkspaceChangeKind, WorkspaceDiffEntry, WorkspaceDiffPage, WorkspaceDiffQuery,
-    WorkspaceDiffScope, WorkspaceEligibility, WorkspaceFileEntry, WorkspaceFileKind,
-    WorkspaceFilePage, WorkspaceFilesQuery,
+    TokenUsage, UiColorMode, UiDensity, UiLayoutPreferencePatch, UiLayoutPreferences, UiMotion,
+    UiPreferenceDiagnostic, UiPreferences, UiSkin, WorkMode, WorkspaceChangeKind,
+    WorkspaceDiffEntry, WorkspaceDiffPage, WorkspaceDiffQuery, WorkspaceDiffScope,
+    WorkspaceEligibility, WorkspaceFileEntry, WorkspaceFileKind, WorkspaceFilePage,
+    WorkspaceFilesQuery, WorkspaceRuntimeOwnerBinding,
 };
 
 const FIXTURE_DIR: &str = "tests/fixtures/frontend-contract-v1";
@@ -6097,4 +6099,613 @@ fn typed_lanes_fixture() -> Vec<AgentLaneRecord> {
     parse_legacy_lanes_tsv(include_str!(
         "../../types/tests/fixtures/frontend-contract-v1/legacy-lanes.tsv"
     ))
+}
+
+/// GUI-CORE-027: the workspace has an operator identity, and everything scoped
+/// by it carries the same two ids.
+///
+/// The failure this guards against is the one the `0.3.3` real task hit: a
+/// commit made with no Lane selected had no actor, so it was refused. Here the
+/// binding arrives first, a Lane created afterwards carries the same workspace
+/// and project ids, a workspace-target commit settles under that owner with an
+/// audit id, and the Lane's own source arrives as its own row rather than as
+/// the workspace source.
+#[test]
+fn workspace_owner_fixture_scopes_every_fact_to_one_published_identity() {
+    let name = "workspace-owner.json";
+    let root = fixture_root();
+    let fixture_bytes = fs::read(root.join(name)).expect("read workspace owner fixture bytes");
+    let fixture_sha256 = format!("{:x}", Sha256::digest(&fixture_bytes));
+    let extension_manifest = include_str!("../frontend-contract-extensions.toml");
+    assert!(
+        extension_manifest.contains(&format!(
+            "workspace_owner_fixture_sha256 = \"{fixture_sha256}\""
+        )),
+        "the extension manifest must register the exact workspace owner fixture bytes"
+    );
+    assert!(extension_manifest.contains("workspace_owner_fixture = \"workspace-owner.json\""));
+
+    let fixture = read_fixture(&root, name);
+    assert_fixture_identity(name, &fixture);
+    assert_capabilities_are_sorted_unique_and_advertised(name, &fixture);
+    assert_cursors_are_contiguous(name, &fixture);
+
+    let (view, first_cursor, first_digest) = replay_fixture(&fixture);
+    let (second_view, second_cursor, second_digest) = replay_fixture(&fixture);
+    assert_eq!(view, second_view);
+    assert_eq!(first_cursor, second_cursor);
+    assert_eq!(first_digest, second_digest);
+    assert_eq!(first_cursor, fixture.expected_final_cursor);
+    assert_eq!(first_digest, fixture.expected_view_sha256);
+    assert!(
+        extension_manifest.contains(&format!("workspace_owner_view_sha256 = \"{first_digest}\"")),
+        "the extension manifest must register the replayed view digest"
+    );
+
+    // The published identity is the workspace scope: two ids and nothing else.
+    let owner = view
+        .workspace_owner
+        .clone()
+        .expect("the fixture publishes a workspace owner");
+    assert!(!owner.workspace_id.is_empty());
+    assert!(!owner.project_id.is_empty());
+    assert_eq!(owner.lane_id, None);
+    assert_eq!(owner.session_id, None);
+    assert_eq!(owner.task_id, None);
+    assert_eq!(owner.turn_id, None);
+
+    // The binding says the project id was minted on this open, which is a
+    // different fact from "this project already had one".
+    let binding = fixture
+        .events
+        .iter()
+        .find_map(|envelope| match &envelope.event {
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::WorkspaceRuntimeOwnerBound { binding },
+                ..
+            }) => Some(binding.clone()),
+            _ => None,
+        })
+        .expect("the fixture carries the binding");
+    assert_eq!(binding.project_id_origin, ProjectIdOrigin::Minted);
+    binding.validate().expect("the binding describes a scope");
+
+    // A Lane created after the binding inherits both ids, so the Lane owner
+    // and the workspace owner agree about which workspace they are in.
+    let lane_binding = view
+        .lane_runtime_owners
+        .first()
+        .expect("the fixture creates one Lane");
+    assert_eq!(lane_binding.owner.workspace_id, owner.workspace_id);
+    assert_eq!(lane_binding.owner.project_id, owner.project_id);
+    assert_eq!(
+        lane_binding.owner.lane_id.as_deref(),
+        Some(lane_binding.lane_id.as_str())
+    );
+
+    // The workspace-target commit settled under the workspace owner, and the
+    // audit row that authorized it names that same owner rather than nobody.
+    let (audit_id, commit_owner) = fixture
+        .events
+        .iter()
+        .find_map(|envelope| match &envelope.event {
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind:
+                    RuntimeEventKind::OperatorGitActionFinished {
+                        target: SourceTarget::Workspace,
+                        audit_id,
+                        ..
+                    },
+                ..
+            }) => Some((audit_id.clone(), envelope.owner.clone())),
+            _ => None,
+        })
+        .expect("the fixture settles a workspace-target action");
+    assert_eq!(commit_owner, owner);
+    let audited = fixture
+        .events
+        .iter()
+        .find_map(|envelope| match &envelope.event {
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::AuditPageLoaded { page, .. },
+                ..
+            }) => page
+                .records
+                .iter()
+                .find(|record| record.audit_id == audit_id)
+                .cloned(),
+            _ => None,
+        })
+        .expect("the authorization record is readable");
+    assert_eq!(audited.owner, owner);
+    assert_eq!(audited.action, "source.commit");
+
+    // The Lane's own source is a Lane row. The workspace chip still describes
+    // the workspace, which is the whole reason the row exists.
+    let lane_source = view
+        .lane_sources
+        .get(&lane_binding.lane_id)
+        .expect("the Lane has its own source row");
+    assert_eq!(lane_source.branch.as_deref(), Some("codex/lane-workspace"));
+    assert_ne!(
+        view.workspace_source
+            .as_ref()
+            .and_then(|source| source.branch.as_deref()),
+        lane_source.branch.as_deref(),
+        "the workspace chip must not carry the Lane worktree's branch"
+    );
+}
+
+#[test]
+#[ignore = "manual workspace owner fixture refresh; normal tests validate committed JSON only"]
+fn refresh_workspace_owner_extension_fixture() {
+    let root = fixture_root();
+    fs::create_dir_all(&root).unwrap();
+    let fixture = workspace_owner_fixture();
+    fs::write(
+        root.join("workspace-owner.json"),
+        serde_json::to_string_pretty(&fixture).unwrap() + "\n",
+    )
+    .unwrap();
+}
+
+/// The cockpit layout record is stored, reset, and republished without ever
+/// touching the appearance profile every frozen base fixture serializes.
+///
+/// Four facts a naive client would render identically and which are not the
+/// same: a stored record, a record Core applied but could not write, a record
+/// reset to the defaults, and a patch refused before anything was written.
+#[test]
+fn ui_layout_preferences_fixture_separates_stored_unpersisted_reset_and_refused() {
+    let name = "ui-layout-preferences.json";
+    let root = fixture_root();
+    let fixture_bytes = fs::read(root.join(name)).expect("read layout preference fixture bytes");
+    let fixture_sha256 = format!("{:x}", Sha256::digest(&fixture_bytes));
+    let extension_manifest = include_str!("../frontend-contract-extensions.toml");
+    assert!(
+        extension_manifest.contains(&format!(
+            "ui_layout_preferences_fixture_sha256 = \"{fixture_sha256}\""
+        )),
+        "the extension manifest must register the exact layout preference fixture bytes"
+    );
+    assert!(
+        extension_manifest
+            .contains("ui_layout_preferences_fixture = \"ui-layout-preferences.json\"")
+    );
+
+    let fixture = read_fixture(&root, name);
+    assert_fixture_identity(name, &fixture);
+    assert_capabilities_are_sorted_unique_and_advertised(name, &fixture);
+    assert_cursors_are_contiguous(name, &fixture);
+
+    let (view, first_cursor, first_digest) = replay_fixture(&fixture);
+    let (second_view, second_cursor, second_digest) = replay_fixture(&fixture);
+    assert_eq!(view, second_view);
+    assert_eq!(first_cursor, second_cursor);
+    assert_eq!(first_digest, second_digest);
+    assert_eq!(first_cursor, fixture.expected_final_cursor);
+    assert_eq!(first_digest, fixture.expected_view_sha256);
+    assert!(
+        extension_manifest.contains(&format!(
+            "ui_layout_preferences_view_sha256 = \"{first_digest}\""
+        )),
+        "the extension manifest must register the replayed view digest"
+    );
+
+    // The reset is the last record, so the view ends on the defaults.
+    assert_eq!(
+        view.layout_preferences,
+        Some(UiLayoutPreferences::default())
+    );
+    // The separate record is the entire point: the resolved appearance profile
+    // is exactly what the snapshot started with.
+    assert_eq!(view.ui_preferences, fixture.initial_snapshot.ui_preferences);
+    assert_eq!(
+        view.snapshot.ui_preferences,
+        fixture.initial_snapshot.ui_preferences
+    );
+
+    let records = fixture
+        .events
+        .iter()
+        .filter_map(|envelope| match &envelope.event {
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind:
+                    RuntimeEventKind::UiLayoutPreferencesUpdated {
+                        command_id,
+                        preferences,
+                        persisted,
+                        ..
+                    },
+                ..
+            }) => Some((command_id.clone(), preferences.clone(), *persisted)),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(records.len(), 3);
+
+    // The snapshot prefix's copy carries no command id, because nobody asked.
+    assert_eq!(records[0].0, None);
+    assert_eq!(records[0].1, UiLayoutPreferences::default());
+
+    // A stored record: floating, with an unknown segment kept verbatim. Core
+    // does not own the client's statusbar vocabulary, so a name it cannot
+    // recognize is still the operator's choice.
+    assert_eq!(records[1].0.as_deref(), Some("layout_set_floating"));
+    assert_eq!(records[1].1.lane_sidebar_mode, LaneSidebarMode::Floating);
+    assert_eq!(
+        records[1].1.hidden_statusbar_segments,
+        vec!["cost".to_string(), "a-future-client-segment".to_string()]
+    );
+    assert!(!records[1].2, "this record did not reach the config file");
+
+    // The reset lands on pinned and *is* persisted, which is a different fact
+    // from the unpersisted record above.
+    assert_eq!(records[2].0.as_deref(), Some("layout_reset"));
+    assert_eq!(records[2].1, UiLayoutPreferences::default());
+    assert!(records[2].2);
+
+    // An over-bound list is refused before anything is written, by command id,
+    // and never answered with a record a client would render as stored.
+    let refusal = fixture
+        .events
+        .iter()
+        .find_map(|envelope| match &envelope.event {
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::CommandRejected { command_id, reason },
+                ..
+            }) if command_id == "layout_set_over_bound" => Some(reason.clone()),
+            _ => None,
+        })
+        .expect("the over-bound patch is refused by command id");
+    assert!(refusal.contains(&MAX_HIDDEN_STATUSBAR_SEGMENTS.to_string()));
+}
+
+#[test]
+#[ignore = "manual layout preference fixture refresh; normal tests validate committed JSON only"]
+fn refresh_ui_layout_preferences_extension_fixture() {
+    let root = fixture_root();
+    fs::create_dir_all(&root).unwrap();
+    let fixture = ui_layout_preferences_fixture();
+    fs::write(
+        root.join("ui-layout-preferences.json"),
+        serde_json::to_string_pretty(&fixture).unwrap() + "\n",
+    )
+    .unwrap();
+}
+
+/// GUI-CORE-027, as bytes.
+///
+/// Every value is fixed and no machine path appears, so the fixture is
+/// identical on every machine that regenerates it. The workspace and project
+/// ids are the shapes Core mints — `ws_` plus 16 hex characters, `prj_` plus a
+/// token — rather than real ones, because a real id names a real directory.
+fn workspace_owner_fixture() -> FrontendContractFixtureOut {
+    let fixture_id = "workspace-owner";
+    let workspace_owner = RuntimeOwner {
+        workspace_id: "ws_4f3c1a09b8d27e65".to_string(),
+        project_id: "prj_contract_v1_workspace".to_string(),
+        lane_id: None,
+        session_id: None,
+        task_id: None,
+        turn_id: None,
+    };
+    // A Lane created after the binding: its owner starts from the workspace
+    // identity, so both ids are the same and only the Lane fields are added.
+    let lane_owner = RuntimeOwner {
+        lane_id: Some("lane_workspace_owner".to_string()),
+        session_id: Some("session_workspace_owner".to_string()),
+        task_id: Some("task_workspace_owner".to_string()),
+        turn_id: Some("turn_workspace_owner".to_string()),
+        ..workspace_owner.clone()
+    };
+    let lane = AgentLaneRecord {
+        id: "lane_workspace_owner".to_string(),
+        task_id: Some("task_workspace_owner".to_string()),
+        role: AgentRole::Coder,
+        route: AgentRoute::BuiltIn,
+        gate_strength: GateStrength::Full,
+        mutation_policy: MutationPolicy::ProposeOnly,
+        worktree: Some("workspace/.worktrees/lane-workspace".to_string()),
+        branch: Some("codex/lane-workspace".to_string()),
+        target: ExecutionTarget::Local,
+        data_egress: viden_types::DataEgressPolicy::Deny,
+        status: LaneStatus::Running,
+        budget: LaneBudget::default(),
+        active_session_ids: vec!["session_workspace_owner".to_string()],
+        summary: "Lane created under the published workspace identity".to_string(),
+        evidence: Vec::new(),
+        run_stats: None,
+    };
+    let workspace_source = WorkspaceSourceView {
+        status: viden_types::WorkspaceSourceStatus::Ready,
+        branch: Some("main".to_string()),
+        worktree: Some("workspace/viden".to_string()),
+        ahead: 1,
+        behind: 0,
+        added: 0,
+        deleted: 0,
+        dirty: false,
+    };
+    // The Lane worktree's own facts: a different branch and a dirty tree. If
+    // this rode `WorkspaceSourceUpdated` the workspace chip would claim the
+    // Lane's branch, which is the confusion the Lane row exists to end.
+    let lane_source = WorkspaceSourceView {
+        branch: Some("codex/lane-workspace".to_string()),
+        worktree: Some("workspace/.worktrees/lane-workspace".to_string()),
+        ahead: 0,
+        added: 3,
+        deleted: 1,
+        dirty: true,
+        ..workspace_source.clone()
+    };
+    let commit_audit = AuditRecord::sanitized(
+        "audit_workspace_commit".to_string(),
+        1_700_004_100,
+        workspace_owner.clone(),
+        AuditActor::Operator,
+        "source.commit".to_string(),
+        vec![AuditObjectRef {
+            kind: AuditObjectRef::KIND_SOURCE.to_string(),
+            id: "workspace".to_string(),
+        }],
+        AuditOutcome::Success,
+        [
+            ("phase".to_string(), "authorized".to_string()),
+            ("tool".to_string(), "git_commit".to_string()),
+        ]
+        .into_iter()
+        .collect(),
+    )
+    .expect("the audit record is well formed");
+
+    let owned_events: Vec<(RuntimeEventKind, RuntimeOwner)> = vec![
+        // The binding is the first fact after the snapshot, so a client that
+        // only replays a snapshot still learns which owner to send.
+        (
+            RuntimeEventKind::WorkspaceRuntimeOwnerBound {
+                binding: WorkspaceRuntimeOwnerBinding {
+                    canonical_root: "workspace/viden".to_string(),
+                    owner: workspace_owner.clone(),
+                    project_id_origin: ProjectIdOrigin::Minted,
+                },
+            },
+            workspace_owner.clone(),
+        ),
+        (
+            RuntimeEventKind::WorkspaceSourceUpdated {
+                source: workspace_source.clone(),
+            },
+            workspace_owner.clone(),
+        ),
+        (
+            RuntimeEventKind::LaneUpdated { lane: lane.clone() },
+            lane_owner.clone(),
+        ),
+        (
+            RuntimeEventKind::LaneRuntimeOwnerBound {
+                binding: LaneRuntimeOwnerBinding {
+                    lane_id: "lane_workspace_owner".to_string(),
+                    owner: lane_owner.clone(),
+                },
+            },
+            lane_owner.clone(),
+        ),
+        // The commit that had nowhere to go before this capability.
+        (
+            RuntimeEventKind::CommandAccepted {
+                command_id: "workspace_commit".to_string(),
+                command: RuntimeCommand::RunOperatorGitAction {
+                    owner: workspace_owner.clone(),
+                    target: SourceTarget::Workspace,
+                    action: OperatorGitAction::Commit {
+                        message: "feat(core): commit without a Lane".to_string(),
+                    },
+                },
+            },
+            workspace_owner.clone(),
+        ),
+        (
+            RuntimeEventKind::OperatorGitActionFinished {
+                command_id: "workspace_commit".to_string(),
+                target: SourceTarget::Workspace,
+                action: OperatorGitAction::Commit {
+                    message: "feat(core): commit without a Lane".to_string(),
+                },
+                outcome: OperatorGitOutcome::Completed {
+                    output: "[main 9f8e7d6] feat(core): commit without a Lane\n 1 file \
+                             changed, 4 insertions(+)"
+                        .to_string(),
+                    truncated: false,
+                    source: WorkspaceSourceView {
+                        ahead: 2,
+                        ..workspace_source.clone()
+                    },
+                },
+                audit_id: "audit_workspace_commit".to_string(),
+            },
+            workspace_owner.clone(),
+        ),
+        (
+            RuntimeEventKind::WorkspaceSourceUpdated {
+                source: WorkspaceSourceView {
+                    ahead: 2,
+                    ..workspace_source
+                },
+            },
+            workspace_owner.clone(),
+        ),
+        // The authorization is readable: the audit row names the workspace
+        // owner rather than nobody, which is what GUI-CORE-027 was about.
+        (
+            RuntimeEventKind::AuditPageLoaded {
+                command_id: Some("workspace_audit_read".to_string()),
+                page: AuditPage {
+                    records: vec![commit_audit],
+                    next_before: None,
+                    complete: true,
+                },
+            },
+            workspace_owner.clone(),
+        ),
+        // A Lane-target stage settles and publishes *that Lane's* source.
+        (
+            RuntimeEventKind::OperatorGitActionFinished {
+                command_id: "lane_stage".to_string(),
+                target: SourceTarget::Lane {
+                    lane_id: "lane_workspace_owner".to_string(),
+                },
+                action: OperatorGitAction::Stage { paths: Vec::new() },
+                outcome: OperatorGitOutcome::Completed {
+                    output: String::new(),
+                    truncated: false,
+                    source: lane_source.clone(),
+                },
+                audit_id: "audit_lane_stage".to_string(),
+            },
+            lane_owner.clone(),
+        ),
+        (
+            RuntimeEventKind::LaneSourceUpdated {
+                lane_id: "lane_workspace_owner".to_string(),
+                source: lane_source,
+            },
+            lane_owner,
+        ),
+    ];
+
+    fixture(
+        fixture_id,
+        &[
+            "runtime.approvals",
+            "runtime.audit",
+            "runtime.commands",
+            "runtime.events",
+            "runtime.lane_owner_projection",
+            "runtime.operator_git",
+            "runtime.snapshot",
+            "runtime.typed_lanes",
+            "runtime.workspace_owner",
+        ],
+        snapshot(WorkMode::Build),
+        owned_envelopes_per_event(fixture_id, owned_events, 1_700_004_000),
+    )
+}
+
+/// `ui.layout_preferences`, as bytes.
+fn ui_layout_preferences_fixture() -> FrontendContractFixtureOut {
+    let fixture_id = "ui-layout-preferences";
+    let owner = RuntimeOwner {
+        workspace_id: "ws_4f3c1a09b8d27e65".to_string(),
+        project_id: "prj_contract_v1_workspace".to_string(),
+        lane_id: None,
+        session_id: None,
+        task_id: None,
+        turn_id: None,
+    };
+    let floating = UiLayoutPreferences {
+        lane_sidebar_mode: LaneSidebarMode::Floating,
+        // An unknown segment name, kept verbatim: the statusbar vocabulary
+        // belongs to the client, and a Core that stored only the names it knew
+        // would quietly unhide everything a newer client hid.
+        hidden_statusbar_segments: vec!["cost".to_string(), "a-future-client-segment".to_string()],
+    };
+
+    let kinds = vec![
+        // The snapshot prefix's copy: the defaults, and no command id, because
+        // nobody asked for it.
+        RuntimeEventKind::UiLayoutPreferencesUpdated {
+            command_id: None,
+            preferences: UiLayoutPreferences::default(),
+            persisted: true,
+            diagnostics: Vec::new(),
+        },
+        RuntimeEventKind::CommandAccepted {
+            command_id: "layout_set_floating".to_string(),
+            command: RuntimeCommand::SetUiLayoutPreferences {
+                patch: UiLayoutPreferencePatch {
+                    lane_sidebar_mode: Some(LaneSidebarMode::Floating),
+                    hidden_statusbar_segments: Some(vec![
+                        "cost".to_string(),
+                        "a-future-client-segment".to_string(),
+                    ]),
+                },
+            },
+        },
+        // Applied for this session, but the config file could not be written.
+        // `persisted: false` plus the reason is the whole difference between
+        // "saved" and "saved until you restart".
+        RuntimeEventKind::UiLayoutPreferencesUpdated {
+            command_id: Some("layout_set_floating".to_string()),
+            preferences: floating,
+            persisted: false,
+            diagnostics: vec![UiPreferenceDiagnostic::new(
+                "ui.layout.not_persisted",
+                "ui.layout",
+                "ui.layout",
+                Some("Failed to create config temp: read-only file system".to_string()),
+            )],
+        },
+        // Refused before anything was written, by command id. An empty success
+        // here would tell a client its preference was stored when it was not.
+        RuntimeEventKind::CommandRejected {
+            command_id: "layout_set_over_bound".to_string(),
+            reason: "hidden statusbar segments exceed the bound of 16".to_string(),
+        },
+        RuntimeEventKind::CommandAccepted {
+            command_id: "layout_reset".to_string(),
+            command: RuntimeCommand::ResetUiLayoutPreferences,
+        },
+        RuntimeEventKind::UiLayoutPreferencesUpdated {
+            command_id: Some("layout_reset".to_string()),
+            preferences: UiLayoutPreferences::default(),
+            persisted: true,
+            diagnostics: Vec::new(),
+        },
+    ];
+
+    fixture(
+        fixture_id,
+        &[
+            "runtime.commands",
+            "runtime.events",
+            "runtime.snapshot",
+            "ui.layout_preferences",
+            "ui.preferences",
+        ],
+        snapshot(WorkMode::Build),
+        owned_envelopes(fixture_id, owner, kinds, 1_700_004_200),
+    )
+}
+
+/// Envelopes whose owner varies per event.
+///
+/// `owned_envelopes` fixes one owner for a whole fixture, which cannot express
+/// a workspace-scoped fact standing beside a Lane-scoped one — the exact pair
+/// `runtime.workspace_owner` exists to distinguish.
+fn owned_envelopes_per_event(
+    fixture_id: &str,
+    events: Vec<(RuntimeEventKind, RuntimeOwner)>,
+    base_timestamp: u64,
+) -> Vec<RuntimeEventEnvelope> {
+    events
+        .into_iter()
+        .enumerate()
+        .map(|(index, (kind, owner))| {
+            let sequence = index as u64 + 1;
+            RuntimeEventEnvelope {
+                schema_version: FRONTEND_SCHEMA_V1,
+                owner,
+                cursor: EventCursor {
+                    stream_id: format!("fixture:{fixture_id}"),
+                    sequence,
+                },
+                event: RuntimeWireEvent::Known(RuntimeEvent::with_timestamp(
+                    sequence,
+                    Some(base_timestamp + sequence),
+                    kind,
+                )),
+            }
+        })
+        .collect()
 }

@@ -1,0 +1,230 @@
+{
+  "fixture_id": "ui-layout-preferences",
+  "schema_version": 1,
+  "required_capabilities": [
+    "runtime.commands",
+    "runtime.events",
+    "runtime.snapshot",
+    "ui.layout_preferences",
+    "ui.preferences"
+  ],
+  "initial_snapshot": {
+    "cwd": "workspace/viden",
+    "provider_family": "deepseek",
+    "model_label": "deepseek-v4-flash",
+    "work_mode": "build",
+    "permission_mode": "default",
+    "permission_level": "ask",
+    "config_summary": "{\"design_entry\":{\"d11\":\"onboarding subordinate\",\"gui\":\"GUI index -> component library -> D1 desktop cockpit\",\"hierarchy\":[\"docs/viden-design/Viden/index.html\",\"client design index\",\"component library\",\"TUI unified prototype or GUI D1 desktop cockpit\"],\"tui\":\"TUI index -> component library -> unified prototype\"},\"ui\":{\"density\":[\"compact\",\"regular\",\"comfy\"],\"effective\":{\"density\":\"regular\",\"locale\":\"zh-CN\",\"mode\":\"dark\",\"motion\":\"reduced\",\"skin\":\"aurora\"},\"locales\":[\"en\",\"zh-CN\"],\"motion\":[\"system\",\"reduced\",\"full\"],\"skin_mode_pairs\":[[\"aurora\",\"dark\"],[\"aurora\",\"light\"],[\"ice\",\"dark\"],[\"ice\",\"light\"],[\"mono\",\"dark\"],[\"mono\",\"light\"],[\"amber\",\"dark\"],[\"phosphor\",\"dark\"]]}}",
+    "loaded_config_files": [
+      "config/viden.toml"
+    ],
+    "startup_overrides": [
+      "--provider=deepseek"
+    ],
+    "ui_preferences": {
+      "locale": "zh-CN",
+      "skin": "aurora",
+      "mode": "dark",
+      "density": "regular",
+      "motion": "reduced",
+      "diagnostics": []
+    }
+  },
+  "events": [
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "ws_4f3c1a09b8d27e65",
+        "project_id": "prj_contract_v1_workspace",
+        "lane_id": null,
+        "session_id": null,
+        "task_id": null,
+        "turn_id": null
+      },
+      "cursor": {
+        "stream_id": "fixture:ui-layout-preferences",
+        "sequence": 1
+      },
+      "event": {
+        "sequence": 1,
+        "timestamp": 1700004201,
+        "kind": {
+          "type": "ui_layout_preferences_updated",
+          "payload": {
+            "preferences": {
+              "lane_sidebar_mode": "pinned",
+              "hidden_statusbar_segments": []
+            },
+            "persisted": true
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "ws_4f3c1a09b8d27e65",
+        "project_id": "prj_contract_v1_workspace",
+        "lane_id": null,
+        "session_id": null,
+        "task_id": null,
+        "turn_id": null
+      },
+      "cursor": {
+        "stream_id": "fixture:ui-layout-preferences",
+        "sequence": 2
+      },
+      "event": {
+        "sequence": 2,
+        "timestamp": 1700004202,
+        "kind": {
+          "type": "command_accepted",
+          "payload": {
+            "command_id": "layout_set_floating",
+            "command": {
+              "type": "set_ui_layout_preferences",
+              "patch": {
+                "lane_sidebar_mode": "floating",
+                "hidden_statusbar_segments": [
+                  "cost",
+                  "a-future-client-segment"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "ws_4f3c1a09b8d27e65",
+        "project_id": "prj_contract_v1_workspace",
+        "lane_id": null,
+        "session_id": null,
+        "task_id": null,
+        "turn_id": null
+      },
+      "cursor": {
+        "stream_id": "fixture:ui-layout-preferences",
+        "sequence": 3
+      },
+      "event": {
+        "sequence": 3,
+        "timestamp": 1700004203,
+        "kind": {
+          "type": "ui_layout_preferences_updated",
+          "payload": {
+            "command_id": "layout_set_floating",
+            "preferences": {
+              "lane_sidebar_mode": "floating",
+              "hidden_statusbar_segments": [
+                "cost",
+                "a-future-client-segment"
+              ]
+            },
+            "persisted": false,
+            "diagnostics": [
+              {
+                "code": "ui.layout.not_persisted",
+                "key": "ui.layout",
+                "field": "ui.layout",
+                "rejected_value": "Failed to create config temp: read-only file system"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "ws_4f3c1a09b8d27e65",
+        "project_id": "prj_contract_v1_workspace",
+        "lane_id": null,
+        "session_id": null,
+        "task_id": null,
+        "turn_id": null
+      },
+      "cursor": {
+        "stream_id": "fixture:ui-layout-preferences",
+        "sequence": 4
+      },
+      "event": {
+        "sequence": 4,
+        "timestamp": 1700004204,
+        "kind": {
+          "type": "command_rejected",
+          "payload": {
+            "command_id": "layout_set_over_bound",
+            "reason": "hidden statusbar segments exceed the bound of 16"
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "ws_4f3c1a09b8d27e65",
+        "project_id": "prj_contract_v1_workspace",
+        "lane_id": null,
+        "session_id": null,
+        "task_id": null,
+        "turn_id": null
+      },
+      "cursor": {
+        "stream_id": "fixture:ui-layout-preferences",
+        "sequence": 5
+      },
+      "event": {
+        "sequence": 5,
+        "timestamp": 1700004205,
+        "kind": {
+          "type": "command_accepted",
+          "payload": {
+            "command_id": "layout_reset",
+            "command": {
+              "type": "reset_ui_layout_preferences"
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "ws_4f3c1a09b8d27e65",
+        "project_id": "prj_contract_v1_workspace",
+        "lane_id": null,
+        "session_id": null,
+        "task_id": null,
+        "turn_id": null
+      },
+      "cursor": {
+        "stream_id": "fixture:ui-layout-preferences",
+        "sequence": 6
+      },
+      "event": {
+        "sequence": 6,
+        "timestamp": 1700004206,
+        "kind": {
+          "type": "ui_layout_preferences_updated",
+          "payload": {
+            "command_id": "layout_reset",
+            "preferences": {
+              "lane_sidebar_mode": "pinned",
+              "hidden_statusbar_segments": []
+            },
+            "persisted": true
+          }
+        }
+      }
+    }
+  ],
+  "expected_final_cursor": {
+    "stream_id": "fixture:ui-layout-preferences",
+    "sequence": 6
+  },
+  "expected_view_sha256": "4bd474eb181ac8bf8acb002627074fa80920a233be47d57dff0a1991d3a7c0e1"
+}

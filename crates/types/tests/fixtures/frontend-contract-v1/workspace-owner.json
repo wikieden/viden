@@ -1,0 +1,464 @@
+{
+  "fixture_id": "workspace-owner",
+  "schema_version": 1,
+  "required_capabilities": [
+    "runtime.approvals",
+    "runtime.audit",
+    "runtime.commands",
+    "runtime.events",
+    "runtime.lane_owner_projection",
+    "runtime.operator_git",
+    "runtime.snapshot",
+    "runtime.typed_lanes",
+    "runtime.workspace_owner"
+  ],
+  "initial_snapshot": {
+    "cwd": "workspace/viden",
+    "provider_family": "deepseek",
+    "model_label": "deepseek-v4-flash",
+    "work_mode": "build",
+    "permission_mode": "default",
+    "permission_level": "ask",
+    "config_summary": "{\"design_entry\":{\"d11\":\"onboarding subordinate\",\"gui\":\"GUI index -> component library -> D1 desktop cockpit\",\"hierarchy\":[\"docs/viden-design/Viden/index.html\",\"client design index\",\"component library\",\"TUI unified prototype or GUI D1 desktop cockpit\"],\"tui\":\"TUI index -> component library -> unified prototype\"},\"ui\":{\"density\":[\"compact\",\"regular\",\"comfy\"],\"effective\":{\"density\":\"regular\",\"locale\":\"zh-CN\",\"mode\":\"dark\",\"motion\":\"reduced\",\"skin\":\"aurora\"},\"locales\":[\"en\",\"zh-CN\"],\"motion\":[\"system\",\"reduced\",\"full\"],\"skin_mode_pairs\":[[\"aurora\",\"dark\"],[\"aurora\",\"light\"],[\"ice\",\"dark\"],[\"ice\",\"light\"],[\"mono\",\"dark\"],[\"mono\",\"light\"],[\"amber\",\"dark\"],[\"phosphor\",\"dark\"]]}}",
+    "loaded_config_files": [
+      "config/viden.toml"
+    ],
+    "startup_overrides": [
+      "--provider=deepseek"
+    ],
+    "ui_preferences": {
+      "locale": "zh-CN",
+      "skin": "aurora",
+      "mode": "dark",
+      "density": "regular",
+      "motion": "reduced",
+      "diagnostics": []
+    }
+  },
+  "events": [
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "ws_4f3c1a09b8d27e65",
+        "project_id": "prj_contract_v1_workspace",
+        "lane_id": null,
+        "session_id": null,
+        "task_id": null,
+        "turn_id": null
+      },
+      "cursor": {
+        "stream_id": "fixture:workspace-owner",
+        "sequence": 1
+      },
+      "event": {
+        "sequence": 1,
+        "timestamp": 1700004001,
+        "kind": {
+          "type": "workspace_runtime_owner_bound",
+          "payload": {
+            "binding": {
+              "canonical_root": "workspace/viden",
+              "owner": {
+                "workspace_id": "ws_4f3c1a09b8d27e65",
+                "project_id": "prj_contract_v1_workspace",
+                "lane_id": null,
+                "session_id": null,
+                "task_id": null,
+                "turn_id": null
+              },
+              "project_id_origin": "minted"
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "ws_4f3c1a09b8d27e65",
+        "project_id": "prj_contract_v1_workspace",
+        "lane_id": null,
+        "session_id": null,
+        "task_id": null,
+        "turn_id": null
+      },
+      "cursor": {
+        "stream_id": "fixture:workspace-owner",
+        "sequence": 2
+      },
+      "event": {
+        "sequence": 2,
+        "timestamp": 1700004002,
+        "kind": {
+          "type": "workspace_source_updated",
+          "payload": {
+            "source": {
+              "status": "ready",
+              "branch": "main",
+              "worktree": "workspace/viden",
+              "ahead": 1,
+              "behind": 0,
+              "added": 0,
+              "deleted": 0,
+              "dirty": false
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "ws_4f3c1a09b8d27e65",
+        "project_id": "prj_contract_v1_workspace",
+        "lane_id": "lane_workspace_owner",
+        "session_id": "session_workspace_owner",
+        "task_id": "task_workspace_owner",
+        "turn_id": "turn_workspace_owner"
+      },
+      "cursor": {
+        "stream_id": "fixture:workspace-owner",
+        "sequence": 3
+      },
+      "event": {
+        "sequence": 3,
+        "timestamp": 1700004003,
+        "kind": {
+          "type": "lane_updated",
+          "payload": {
+            "lane": {
+              "id": "lane_workspace_owner",
+              "task_id": "task_workspace_owner",
+              "role": "coder",
+              "route": "built_in",
+              "gate_strength": "full",
+              "mutation_policy": "propose_only",
+              "worktree": "workspace/.worktrees/lane-workspace",
+              "branch": "codex/lane-workspace",
+              "target": "local",
+              "data_egress": "deny",
+              "status": "running",
+              "budget": {
+                "token_limit": null,
+                "cost_limit_micro_usd": null,
+                "wall_time_limit_secs": null
+              },
+              "active_session_ids": [
+                "session_workspace_owner"
+              ],
+              "summary": "Lane created under the published workspace identity",
+              "evidence": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "ws_4f3c1a09b8d27e65",
+        "project_id": "prj_contract_v1_workspace",
+        "lane_id": "lane_workspace_owner",
+        "session_id": "session_workspace_owner",
+        "task_id": "task_workspace_owner",
+        "turn_id": "turn_workspace_owner"
+      },
+      "cursor": {
+        "stream_id": "fixture:workspace-owner",
+        "sequence": 4
+      },
+      "event": {
+        "sequence": 4,
+        "timestamp": 1700004004,
+        "kind": {
+          "type": "lane_runtime_owner_bound",
+          "payload": {
+            "binding": {
+              "lane_id": "lane_workspace_owner",
+              "owner": {
+                "workspace_id": "ws_4f3c1a09b8d27e65",
+                "project_id": "prj_contract_v1_workspace",
+                "lane_id": "lane_workspace_owner",
+                "session_id": "session_workspace_owner",
+                "task_id": "task_workspace_owner",
+                "turn_id": "turn_workspace_owner"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "ws_4f3c1a09b8d27e65",
+        "project_id": "prj_contract_v1_workspace",
+        "lane_id": null,
+        "session_id": null,
+        "task_id": null,
+        "turn_id": null
+      },
+      "cursor": {
+        "stream_id": "fixture:workspace-owner",
+        "sequence": 5
+      },
+      "event": {
+        "sequence": 5,
+        "timestamp": 1700004005,
+        "kind": {
+          "type": "command_accepted",
+          "payload": {
+            "command_id": "workspace_commit",
+            "command": {
+              "type": "run_operator_git_action",
+              "owner": {
+                "workspace_id": "ws_4f3c1a09b8d27e65",
+                "project_id": "prj_contract_v1_workspace",
+                "lane_id": null,
+                "session_id": null,
+                "task_id": null,
+                "turn_id": null
+              },
+              "target": "workspace",
+              "action": {
+                "commit": {
+                  "message": "feat(core): commit without a Lane"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "ws_4f3c1a09b8d27e65",
+        "project_id": "prj_contract_v1_workspace",
+        "lane_id": null,
+        "session_id": null,
+        "task_id": null,
+        "turn_id": null
+      },
+      "cursor": {
+        "stream_id": "fixture:workspace-owner",
+        "sequence": 6
+      },
+      "event": {
+        "sequence": 6,
+        "timestamp": 1700004006,
+        "kind": {
+          "type": "operator_git_action_finished",
+          "payload": {
+            "command_id": "workspace_commit",
+            "target": "workspace",
+            "action": {
+              "commit": {
+                "message": "feat(core): commit without a Lane"
+              }
+            },
+            "outcome": {
+              "completed": {
+                "output": "[main 9f8e7d6] feat(core): commit without a Lane\n 1 file changed, 4 insertions(+)",
+                "truncated": false,
+                "source": {
+                  "status": "ready",
+                  "branch": "main",
+                  "worktree": "workspace/viden",
+                  "ahead": 2,
+                  "behind": 0,
+                  "added": 0,
+                  "deleted": 0,
+                  "dirty": false
+                }
+              }
+            },
+            "audit_id": "audit_workspace_commit"
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "ws_4f3c1a09b8d27e65",
+        "project_id": "prj_contract_v1_workspace",
+        "lane_id": null,
+        "session_id": null,
+        "task_id": null,
+        "turn_id": null
+      },
+      "cursor": {
+        "stream_id": "fixture:workspace-owner",
+        "sequence": 7
+      },
+      "event": {
+        "sequence": 7,
+        "timestamp": 1700004007,
+        "kind": {
+          "type": "workspace_source_updated",
+          "payload": {
+            "source": {
+              "status": "ready",
+              "branch": "main",
+              "worktree": "workspace/viden",
+              "ahead": 2,
+              "behind": 0,
+              "added": 0,
+              "deleted": 0,
+              "dirty": false
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "ws_4f3c1a09b8d27e65",
+        "project_id": "prj_contract_v1_workspace",
+        "lane_id": null,
+        "session_id": null,
+        "task_id": null,
+        "turn_id": null
+      },
+      "cursor": {
+        "stream_id": "fixture:workspace-owner",
+        "sequence": 8
+      },
+      "event": {
+        "sequence": 8,
+        "timestamp": 1700004008,
+        "kind": {
+          "type": "audit_page_loaded",
+          "payload": {
+            "command_id": "workspace_audit_read",
+            "page": {
+              "records": [
+                {
+                  "audit_id": "audit_workspace_commit",
+                  "timestamp": 1700004100,
+                  "owner": {
+                    "workspace_id": "ws_4f3c1a09b8d27e65",
+                    "project_id": "prj_contract_v1_workspace",
+                    "lane_id": null,
+                    "session_id": null,
+                    "task_id": null,
+                    "turn_id": null
+                  },
+                  "actor": "operator",
+                  "action": "source.commit",
+                  "objects": [
+                    {
+                      "kind": "source",
+                      "id": "workspace"
+                    }
+                  ],
+                  "outcome": "success",
+                  "args": {
+                    "phase": "authorized",
+                    "tool": "git_commit"
+                  }
+                }
+              ],
+              "next_before": null,
+              "complete": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "ws_4f3c1a09b8d27e65",
+        "project_id": "prj_contract_v1_workspace",
+        "lane_id": "lane_workspace_owner",
+        "session_id": "session_workspace_owner",
+        "task_id": "task_workspace_owner",
+        "turn_id": "turn_workspace_owner"
+      },
+      "cursor": {
+        "stream_id": "fixture:workspace-owner",
+        "sequence": 9
+      },
+      "event": {
+        "sequence": 9,
+        "timestamp": 1700004009,
+        "kind": {
+          "type": "operator_git_action_finished",
+          "payload": {
+            "command_id": "lane_stage",
+            "target": {
+              "lane": {
+                "lane_id": "lane_workspace_owner"
+              }
+            },
+            "action": {
+              "stage": {
+                "paths": []
+              }
+            },
+            "outcome": {
+              "completed": {
+                "output": "",
+                "truncated": false,
+                "source": {
+                  "status": "ready",
+                  "branch": "codex/lane-workspace",
+                  "worktree": "workspace/.worktrees/lane-workspace",
+                  "ahead": 0,
+                  "behind": 0,
+                  "added": 3,
+                  "deleted": 1,
+                  "dirty": true
+                }
+              }
+            },
+            "audit_id": "audit_lane_stage"
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "ws_4f3c1a09b8d27e65",
+        "project_id": "prj_contract_v1_workspace",
+        "lane_id": "lane_workspace_owner",
+        "session_id": "session_workspace_owner",
+        "task_id": "task_workspace_owner",
+        "turn_id": "turn_workspace_owner"
+      },
+      "cursor": {
+        "stream_id": "fixture:workspace-owner",
+        "sequence": 10
+      },
+      "event": {
+        "sequence": 10,
+        "timestamp": 1700004010,
+        "kind": {
+          "type": "lane_source_updated",
+          "payload": {
+            "lane_id": "lane_workspace_owner",
+            "source": {
+              "status": "ready",
+              "branch": "codex/lane-workspace",
+              "worktree": "workspace/.worktrees/lane-workspace",
+              "ahead": 0,
+              "behind": 0,
+              "added": 3,
+              "deleted": 1,
+              "dirty": true
+            }
+          }
+        }
+      }
+    }
+  ],
+  "expected_final_cursor": {
+    "stream_id": "fixture:workspace-owner",
+    "sequence": 10
+  },
+  "expected_view_sha256": "0866370b2f4a9c85b1a577688e7cce42f51243b711440c7f3a033a5e75515a87"
+}

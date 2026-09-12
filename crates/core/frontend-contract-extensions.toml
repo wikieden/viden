@@ -3,7 +3,7 @@ base_component_version = "0.3.0"
 candidate_component_version = "0.3.6"
 base_contract_checkpoint = "5bd2b80b0953f4194d082940a7b9164c7231ca2d"
 compatibility = "additive_capability_gated"
-capabilities = ["core.workspace_host", "runtime.agent_adapters", "runtime.agent_conversation", "runtime.agent_permission_bridge", "runtime.agent_session_input", "runtime.agent_sessions", "runtime.audit", "runtime.cockpit_context_v1", "runtime.conflict_content", "runtime.credential_handles", "runtime.credential_staging", "runtime.evidence_reads", "runtime.lane_lifecycle", "runtime.lane_owner_projection", "runtime.operator_git", "runtime.project_onboarding", "runtime.recent_work", "runtime.starter_lane_preview", "runtime.structured_diff", "runtime.trust_loop", "runtime.workspace_eligibility", "runtime.workspace_files", "ui.preference_persistence"]
+capabilities = ["core.workspace_host", "runtime.agent_adapters", "runtime.agent_conversation", "runtime.agent_permission_bridge", "runtime.agent_session_input", "runtime.agent_sessions", "runtime.audit", "runtime.cockpit_context_v1", "runtime.conflict_content", "runtime.credential_handles", "runtime.credential_staging", "runtime.evidence_reads", "runtime.lane_lifecycle", "runtime.lane_owner_projection", "runtime.operator_git", "runtime.project_onboarding", "runtime.recent_work", "runtime.starter_lane_preview", "runtime.structured_diff", "runtime.trust_loop", "runtime.workspace_eligibility", "runtime.workspace_files", "runtime.workspace_owner", "ui.layout_preferences", "ui.preference_persistence"]
 extension_fixture = "frontend-host-services.json"
 extension_fixture_sha256 = "96dd5fde9f1241eb50f9d8978cf478d0ac5d3327448dc6ccde9d0e5018ce1580"
 interaction_fixture = "interaction-closed-loop.json"
@@ -45,6 +45,12 @@ conflict_content_view_sha256 = "d73ea2a144cd2682f3c5121f124c952dfad158e4befdd1a6
 evidence_reads_fixture = "evidence-reads.json"
 evidence_reads_fixture_sha256 = "4d33513151bda26aa8e11242a9963d7fde25cc332980a40306f6393e6fc4caa0"
 evidence_reads_view_sha256 = "b15cb2fd024f60a1abb3a5a39b5c5736fca8bec443ae1a99a69e99f51edf8ef9"
+workspace_owner_fixture = "workspace-owner.json"
+workspace_owner_fixture_sha256 = "b8ac58db0fc8d3780d514e75531b21d98d7592e7e44b8aebd7bab69094777286"
+workspace_owner_view_sha256 = "0866370b2f4a9c85b1a577688e7cce42f51243b711440c7f3a033a5e75515a87"
+ui_layout_preferences_fixture = "ui-layout-preferences.json"
+ui_layout_preferences_fixture_sha256 = "3dbde7428fba6a00be4fc771b12eb9b7efe01ec2c97cb016b36049ece8612908"
+ui_layout_preferences_view_sha256 = "4bd474eb181ac8bf8acb002627074fa80920a233be47d57dff0a1991d3a7c0e1"
 
 [live_work_owner]
 facts = ["agent_task_record", "tool_call_view", "queued_input_view", "evidence_view"]
@@ -189,3 +195,27 @@ never_unverified = "there is no variant for bytes Core could not verify — cont
 refusals = "an over-limit `kinds` list, a cursor this build did not issue, and an evidence id never recorded are pre-answer refusals published as `command_rejected` carrying the caller's own command id, never an empty page a client would render as an empty archive; `limit` is clamped to 1..=200 rather than refused, as `audit_query` does, because a client that asked for too many rows still means something answerable"
 bounds = "50 rows per page by default and at most 200, at most 32 `kinds` filters, and 256 KiB of content with `truncated` on the text path and the document's own `truncated` on the diff path"
 state = "both answers are query results and neither is folded into `RuntimeViewState`; the view already carries `latest_evidence`, so folding an archive page in would let a paged read of old rows overwrite the live projection with no way for a client to tell the two apart"
+
+[runtime_workspace_owner]
+events = ["workspace_runtime_owner_bound", "lane_source_updated"]
+minting = "`workspace_id` is `ws_` plus the first 16 lowercase hex characters of SHA-256 over the canonical root path, so the same directory always mints the same id with no store to consult and moving the repository changes it — the id names a location, and that is stated rather than hidden; `project_id` is read from `.viden/project.toml` `[project] id` and minted there as `prj_<token>` on the first open, because that is the half an audit trail joins on and the half that must survive a move"
+origin = "`project_id_origin` separates `existing` from `minted`, so an operator meeting a new project id in an audit trail can tell which of the two happened without diffing a file Core owns; an id already in the file is never rewritten, since a second minted id would split one project's history into two identities with nothing to join them on"
+scope = "a workspace owner carries `workspace_id` and `project_id` and nothing else — `lane_id`, `session_id`, `task_id`, and `turn_id` are all absent — and a binding that carries any of them is refused by the producer and ignored by the reducer rather than trimmed, because a trimmed one would make a Lane's identity the actor every workspace-target mutation is audited under"
+publication = "emitted once per open as the first fact after `snapshot_updated`, so a snapshot replay carries it; absence is a real answer meaning this Core published no workspace identity, and a client gates its workspace-target commit bar on presence rather than substituting an empty owner"
+inheritance = "a new binding starts from the workspace identity: the supervisor folds the two ids into an envelope owner that carries neither, once, so a Lane created after open carries them in its binding; an owner a client did name is never rewritten, and a command carrying its own actor is skipped because the supervisor validates actor against envelope owner and stamping one side would launder a mismatch past that check"
+operator_git = "a `run_operator_git_action` with `target = workspace` is accepted when its owner names the published workspace and refused before any process spawns when it names none or names another workspace; the refusal is a `command_rejected` quoting GUI-CORE-027 so an operator learns which capability their client is missing rather than only that they were refused, and the audit record the action appends names that owner rather than nobody"
+lane_source = "`lane_source_updated` carries one Lane worktree's own source facts, sampled wherever the workspace source is sampled (connect, snapshot, and every completed supervised command) and again after an operator git action targeting that Lane; `workspace_source_updated` keeps its meaning — the workspace root only — so a Lane action no longer puts one tree's branch and ahead/behind into another tree's chip"
+no_row = "a Lane with no worktree of its own is a direct-workspace Lane whose source *is* the workspace source, so it has no row rather than a duplicate one, and a terminal Lane has none either because its worktree may already be gone and sampling a missing directory would publish `unavailable` for a Lane that simply finished; an empty map means Core sampled no Lane, never that every Lane is clean"
+state = "`workspace_owner` and `lane_sources` are optional view fields skipped when absent, so a view that never saw either fact serializes to exactly the bytes it did before and the nine frozen base fixtures do not move"
+
+[ui_layout_preferences]
+commands = ["set_ui_layout_preferences", "reset_ui_layout_preferences"]
+events = ["ui_layout_preferences_updated"]
+separate_record = "a separate record and capability rather than a `UiPreferences` field, because `ResolvedUiPreferences` serializes into every `RuntimeSnapshot`: one more field there would move the recorded digest of all nine frozen base fixtures, while an optional view field skipped when absent moves none"
+persistence = "the `[ui.layout]` table beside `[ui]` in the same user config file, written through the same atomic temp-then-rename path the appearance profile uses; resetting the appearance profile deliberately carries `[ui.layout]` across, because the two records answer two different commands and an operator resetting a theme must not find their cockpit rearranged"
+not_persisted = "a record Core applied but could not write is published with `persisted = false` and the reason as a diagnostic rather than dropped or reported as saved, mirroring `ui.preference_persistence`; the record still governs the session, because refusing to apply it over a read-only disk would be the worse answer"
+vocabulary = "`hidden_statusbar_segments` names are kept verbatim, including ones this Core does not recognize, because the statusbar vocabulary belongs to the client and a Core that stored only the names it knew would quietly unhide everything a newer client hid; identity and actionable segments are never listed, since a client must not offer to hide what tells an operator who they are or what needs a decision"
+bounds = "at most 16 hidden segments and 64 bytes per name, refused rather than clamped: a clamped list silently keeps showing a segment the operator asked to hide and nothing on the stream would say so; an empty name and a control character are refused for the same reason a segment name is not free text"
+gate = "no permission prompt: the record grants nothing and arranges one client's own window, and prompting an operator to approve their own layout would train them to click through the prompts that matter; a refusal is always pre-write and is answered as a `command_rejected` naming the caller's command"
+patch = "`None` on a patch field means leave it, never reset it — a reset is its own command — so a client changing only the sidebar cannot accidentally unhide every segment the operator hid"
+defaults = "`pinned` is the default, which is what the D1 flagship shows and what an operator who never opened Settings should see; a record Core never published is absent rather than defaulted, so a client can tell `Core has no layout preference for you` from `Core says pinned`"
