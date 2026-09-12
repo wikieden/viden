@@ -184,6 +184,37 @@ provider certification, Plan Studio, Agent Board, D5, D7, D8, D9, DockSD,
 Diagnostics, pop-out windows, multi-workspace supervision (023), forge
 status (021).
 
+### Exit Criteria Status (E2, 2026-09-12)
+
+Filled by the release-evidence step on `claude/e2-release-evidence`, from the
+integration tip `39ed155dcc1847b915965f49626e6779b8b538d7`. The criteria above
+say "on `main`", and **nothing is on `main`**: the whole `0.3.4` candidate sits
+on the local integration branch, unpushed and unmerged. So no row below can be
+read as completion; each says whether the criterion is *satisfied by the
+candidate*, and the last column names the evidence.
+
+The GUI-native rows are marked **not evidenced natively this run**: the host
+screen was locked for the whole batch, so no keystroke was sent to the window
+and no native capture exists. Where a row's underlying Core behaviour was
+proven live, it was proven on the TUI, which is the other client of the same
+contract — that is cited rather than passed off as GUI evidence.
+
+| # | Criterion | State | Evidence |
+| --- | --- | --- | --- |
+| 1 | Core `0.3.7` recorded as an immutable checkpoint with the 29-capability set, six new extension fixtures, and unchanged base fixture bytes | **Met** | `crates/core/release-manifest.toml` (`component_version = "0.3.7"`, `contract_implementation_checkpoint = 39ed155d…`, 29 capabilities, the six `0.3.4` fixture rows with derived digests); nine frozen base fixtures byte-identical to `git show 25072a0a:<path>` and to their pinned digests — [checkpoints.md](release-evidence/gui-trusted-delivery/checkpoints.md), "Frozen base fixture bytes" |
+| 2 | Every non-dropped rail destination renders inside the cockpit chrome with a return path; DiffReview and EvidenceView have rail entries | **Met in the candidate; not evidenced natively this run** | G3 batch: `apps/gui/src/**` router, per-destination chrome-survival and `Esc` tests, harness captures and `EVIDENCE.md` rows under `apps/gui/evidence/` |
+| 3 | Cockpit centre has the Lane tab strip, Lane switching, palette Lane creation, `Cmd+L`/`Cmd+G`/`Cmd+.` and inline tool diffs; the context dock has Environment, Files and Diff tabs backed by Core facts | **Met in the candidate; not evidenced natively this run** | G4 and G5 batches with their vitest suites and harness captures; the Files and Code surfaces are backed by C9's `runtime.workspace_file_reads` |
+| 4 | A commit **and** a push complete from the cockpit with no Lane selected, under a Core-published workspace owner | **Met on the contract and evidenced live on the TUI; the GUI cockpit not evidenced natively** | TUI cross-check steps 2, 12, 13, 14, 16: `/git` workspace rows enabled under the owner, `git_add`/`git_commit`/`git_push` approvals, `OperatorGitOutcome::Completed` for commit and push and `Failed { NoUpstream }` for the refused one, all with `L:-`; commit `b9f393e` and the bare `origin` verified out of band — [checkpoints.md](release-evidence/gui-trusted-delivery/checkpoints.md). The GUI's own commit bar and sync chip are G7 code with harness coverage only |
+| 5 | A queued follow-up runs; an applied native edit appears in EvidenceView as a `patch` row with verified content; the approval that allowed it appears in D14 | **Met on the contract and evidenced live on the TUI; the GUI surfaces not evidenced natively** | TUI cross-check steps 9, 10, 11, 17: `LOADED 1 · archive complete` with a `patch` row, `RECORD … verified` and `HASH d46176df` equal to the sha256 of the 132-byte ContextStore blob on disk, `approval.allow_once ✓` in the timeline and in `audit.jsonl`, and a follow-up that waited 39 s and ran as its own turn behind `TurnFinished` |
+| 6 | The register closes 009, 027 and 028 with dates; 013, 018, 019, 021, 023, 026 and 029 carry `0.3.5` notes | **Met** | `apps/gui/contract-requests{,.zh-CN}.md`: 009/027/028 closed on both the Core and the client side (C8/C5/C7 plus G7 and T2); open register 013, 018, 019, 021, 023, 026 and the four new G7 entries 030–033, with 029 reserved |
+| 7 | The E2 evidence document exists in both languages with native GUI captures of every step, and the compatibility follow-ups are closed or re-dated | **Not met** | The document exists in both languages and the follow-ups are closed or re-dated (`docs/core-0.3-compatibility{,.zh-CN}.md`: 1–9 and 11–12 closed, 10 and 13 carrying `0.3.5` notes, 14–16 opened by E2). **Native GUI captures do not exist**: the host screen was locked at 14:37:21Z and at 14:45:30Z, so the window was never driven. This is the only criterion that fails for a reason inside E2's scope, and the reason is environmental |
+
+Aggregate: `0.3.4` is **not complete**. Two things are missing and they are
+different in kind. The candidate is unpushed and unmerged, which is a decision
+for the user and not a gap. And criterion 7's native captures need one run with
+an unlocked screen — the third release step in a row to be blocked on that, and
+the only remaining piece of goal 6.
+
 ## Risks
 
 - **Chrome-retaining views change the D-screen tests.** D2/D10/D12/D13/D14

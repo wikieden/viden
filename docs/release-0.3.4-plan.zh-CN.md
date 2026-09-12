@@ -145,6 +145,33 @@ D1 设计、以及设计包里已经做好的全部交互与跳转拉齐，并�
 明确不属于完成范围：打包、公证、Homebrew、实盘供应商认证、Plan Studio、Agent Board、
 D5、D7、D8、D9、DockSD、Diagnostics、弹出窗口、多工作区监督（023）、forge 状态（021）。
 
+### 退出标准状态（E2，2026-09-12）
+
+由发布证据步骤在 `claude/e2-release-evidence` 上、从集成分支 tip
+`39ed155dcc1847b915965f49626e6779b8b538d7` 填写。上面的标准写的是「在 `main` 上」，
+而**没有任何内容在 `main` 上**：整个 `0.3.4` 候选都位于本地集成分支，未推送、未合并。
+所以下表没有任何一行可以被读作「完成」；每一行说明该标准是否*由候选满足*，最后一列
+指明证据。
+
+GUI 原生相关的行标注为**本次运行未获得原生证据**：本批次全程宿主屏幕处于锁定状态，
+因此没有向窗口发送任何按键，也不存在任何原生截图。凡是底层 Core 行为已被实地证明的
+行，都是在 TUI 上证明的 —— 那是同一份契约的另一个客户端；这一点被明确引用，而不是
+冒充为 GUI 证据。
+
+| # | 标准 | 状态 | 证据 |
+| --- | --- | --- | --- |
+| 1 | Core `0.3.7` 被记录为不可变 checkpoint，带 29 个能力、六个新扩展 fixture，且基础 fixture 字节未变 | **已达成** | `crates/core/release-manifest.toml`（`component_version = "0.3.7"`、`contract_implementation_checkpoint = 39ed155d…`、29 个能力、六个 `0.3.4` fixture 行及其派生摘要）；九个冻结基础 fixture 与 `git show 25072a0a:<path>` 及其固定摘要逐字节一致 —— [checkpoints.zh-CN.md](release-evidence/gui-trusted-delivery/checkpoints.zh-CN.md)「冻结基础 fixture 的字节」 |
+| 2 | 所有未被放弃的 rail 目的地都在驾驶舱 chrome 内渲染并有返回路径；DiffReview 与 EvidenceView 拥有 rail 入口 | **候选已达成；本次运行未获得原生证据** | G3 批次：`apps/gui/src/**` 路由、逐目的地的 chrome 存续与 `Esc` 测试、`apps/gui/evidence/` 下的 harness 截图与 `EVIDENCE.md` 行 |
+| 3 | 驾驶舱中央区具备 Lane 标签条、Lane 切换、palette 创建 Lane、`Cmd+L`/`Cmd+G`/`Cmd+.` 与内联工具 diff；上下文 dock 具备由 Core 事实支撑的 Environment、Files、Diff 页签 | **候选已达成；本次运行未获得原生证据** | G4 与 G5 批次及其 vitest 套件与 harness 截图；Files 与 Code 界面由 C9 的 `runtime.workspace_file_reads` 支撑 |
+| 4 | 在未选中 Lane 的情况下，从驾驶舱完成一次提交**与**一次 push，运行在 Core 发布的工作区 owner 之下 | **契约层已达成并在 TUI 上实地取证；GUI 驾驶舱未获得原生证据** | TUI 交叉核对第 2、12、13、14、16 步：owner 之下 `/git` 工作区行可选、`git_add`/`git_commit`/`git_push` 审批、提交与 push 的 `OperatorGitOutcome::Completed` 以及被拒 push 的 `Failed { NoUpstream }`，全部在 `L:-` 下完成；提交 `b9f393e` 与裸 `origin` 已带外验证 —— [checkpoints.zh-CN.md](release-evidence/gui-trusted-delivery/checkpoints.zh-CN.md)。GUI 自己的提交栏与同步 chip 是 G7 代码，仅有 harness 覆盖 |
+| 5 | 一条排队的追加提示得以运行；一次已应用的原生变更以带已验证内容的 `patch` 行出现在 EvidenceView；批准它的那次审批出现在 D14 | **契约层已达成并在 TUI 上实地取证；GUI 界面未获得原生证据** | TUI 交叉核对第 9、10、11、17 步：`LOADED 1 · archive complete` 带一条 `patch` 行、`RECORD … verified` 与等于磁盘上 132 字节 ContextStore blob 的 sha256 的 `HASH d46176df`、时间线与 `audit.jsonl` 中的 `approval.allow_once ✓`，以及一条等待 39 秒后在 `TurnFinished` 之后作为自己轮次运行的追加提示 |
+| 6 | 登记表把 009、027、028 带日期关闭；013、018、019、021、023、026 与 029 带上 `0.3.5` 说明 | **已达成** | `apps/gui/contract-requests{,.zh-CN}.md`：009/027/028 在 Core 侧与客户端侧均已关闭（C8/C5/C7 加 G7 与 T2）；未决登记表为 013、018、019、021、023、026 以及 G7 新增的四条 030–033，029 保留 |
+| 7 | E2 证据文档在两种语言中存在，且带有每一步的原生 GUI 截图，并且兼容性遗留项已关闭或重新标注日期 | **未达成** | 文档在两种语言中都存在，遗留项已关闭或重新标注日期（`docs/core-0.3-compatibility{,.zh-CN}.md`：1–9 与 11–12 已关闭，10 与 13 带 `0.3.5` 说明，14–16 由 E2 新开）。**原生 GUI 截图不存在**：宿主屏幕在 14:37:21Z 与 14:45:30Z 均处于锁定状态，窗口从未被驱动。这是唯一一条因 E2 范围之内的原因而失败的标准，而该原因是环境性的 |
+
+总体：`0.3.4` **未完成**。缺两样东西，而它们性质不同。候选未推送、未合并，这是用户的
+决定而不是缺口。而标准 7 的原生截图需要一次屏幕未锁定的运行 —— 这已经是连续第三个
+发布步骤卡在这一点上，也是目标 6 仅剩的那一块。
+
 ## 风险
 
 - **保留 chrome 的视图会牵动 D 屏测试。** D2/D10/D12/D13/D14 各有为全窗口渲染写的投影

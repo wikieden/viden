@@ -207,8 +207,15 @@ Next release planning (`0.2.x` and `0.3.x`):
   increment behind them is in `docs/release-0.3.3-contract-design.md`.
 - `0.3.4`: Cockpit alignment and trusted delivery completion. Batches,
   gates, and exit criteria are in `docs/release-0.3.4-plan.md`; the Core
-  contract increment behind them will be in
+  contract increment behind them is in
   `docs/release-0.3.4-contract-design.md`.
+  Status 2026-09-12: **candidate on `claude/int-0.3.4` at
+  `39ed155dcc1847b915965f49626e6779b8b538d7`, awaiting push.** Core `0.3.7`
+  (29 extension capabilities, schema `1`), TUI `0.3.5`, GUI `0.1.0-rc.5`.
+  Every batch landed and the gate set is green. The one exit criterion still
+  open is the native GUI capture set: the host screen was locked for the whole
+  release step, so the real task was evidenced end to end through the TUI
+  instead. Nothing is on `main`. See `docs/release-0.3.4-report.md`.
 - `0.3.5`: Visual fidelity and production release gate (moved from `0.3.4`
   on 2026-09-12 together with Plan Studio and Agent Board).
 - Keep Mode/Permission, provider/model, plan-mode, daily-loop, and live

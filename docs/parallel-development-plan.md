@@ -512,6 +512,39 @@ kept as its history. The current local candidate is the integration branch
 results, and the honest limits of its one real task are in
 `docs/release-evidence/gui-trusted-delivery/checkpoints.md`.
 
+### 0.3.4 Cockpit Alignment Candidate
+
+Amendment 2026-09-12. The section above is kept as the `0.3.3` history. The
+current local candidate is the integration branch `claude/int-0.3.4` at
+`39ed155dcc1847b915965f49626e6779b8b538d7`, based on `origin/main` at
+`25072a0acee7a9959bfd8060721378cb3d4d5397` and 68 commits ahead of it,
+combining Core `0.3.7` (contract checkpoint
+`39ed155dcc1847b915965f49626e6779b8b538d7`, schema `1`, 29 extension
+capabilities), TUI `0.3.5`, and GUI `0.1.0-rc.5`. The three lines moved
+independently, as this plan requires: Core because the increment added six
+capabilities across C5 to C9, the clients because both adopted them in G7 and
+T2.
+
+**Status: candidate on `claude/int-0.3.4` at
+`39ed155dcc1847b915965f49626e6779b8b538d7`, awaiting push.** It is not on
+`main`, not pushed, not merged, and not released. The gate set is green,
+including the workspace suite with `viden-plugin-host` and `viden-agents` rerun
+serially, the nine frozen base fixtures byte-identical to `25072a0a`, and the
+macOS `.app` bundle at `0.1.0-rc.5`.
+
+One exit criterion is open, and the reason is environmental rather than a
+capability gap: the host screen was locked for the whole release step, so no
+native GUI window was driven and no native capture exists — the third release
+step in a row blocked on that. The real task was instead driven end to end
+through the TUI, where a Lane creation under a Core approval, an approved typed
+edit, an archived `patch` row with verified canonical bytes, a durable
+`approval.allow_once` audit row, a commit and an accepted push with **no Lane
+selected** under the Core-published workspace owner, and a drained session
+queue were all observed live. The record, the frames, the four new defects, and
+the exit-criteria table are in
+`docs/release-evidence/gui-trusted-delivery/checkpoints.md` and
+`docs/release-0.3.4-report.md`.
+
 ## Explicit Non-Goals
 
 - Do not create implementation branches from the current dirty, stale local `main`.

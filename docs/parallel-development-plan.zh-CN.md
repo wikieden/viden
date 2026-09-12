@@ -448,6 +448,32 @@ capability）、TUI `0.3.4` 与 GUI `0.1.0-rc.4`。它不在 `main` 上，没有
 发布。记录、确定性 gate 结果，以及它那次真实任务的诚实边界，见
 `docs/release-evidence/gui-trusted-delivery/checkpoints.zh-CN.md`。
 
+### 0.3.4 驾驶舱对齐候选
+
+2026-09-12 修订。上一节作为 `0.3.3` 的历史保留。当前的本地候选是集成分支
+`claude/int-0.3.4`，位于 `39ed155dcc1847b915965f49626e6779b8b538d7`，基于
+`origin/main` 的 `25072a0acee7a9959bfd8060721378cb3d4d5397` 并领先 68 个提交，
+组合 Core `0.3.7`（契约 checkpoint `39ed155dcc1847b915965f49626e6779b8b538d7`，
+schema `1`，29 项 extension capability）、TUI `0.3.5` 与 GUI `0.1.0-rc.5`。三条线
+按本计划的要求各自独立推进：Core 是因为该增量在 C5 到 C9 中新增了六个能力，两个
+客户端是因为它们分别在 G7 与 T2 中完成采纳。
+
+**状态：候选位于 `claude/int-0.3.4` 的
+`39ed155dcc1847b915965f49626e6779b8b538d7`，等待推送。** 它不在 `main` 上，未推送、
+未合并、未发布。gate 集合全绿，包括把 `viden-plugin-host` 与 `viden-agents` 串行
+重跑的工作区套件、与 `25072a0a` 逐字节一致的九个冻结基础 fixture，以及版本为
+`0.1.0-rc.5` 的 macOS `.app` 包。
+
+有一条退出标准未达成，原因是环境性的而不是能力缺口：本发布步骤全程宿主屏幕处于锁定
+状态，因此没有驱动任何原生 GUI 窗口，也不存在任何原生截图 —— 这已是连续第三个发布
+步骤卡在这一点上。真实任务改为通过 TUI 端到端驱动，在那里实地观察到了：Core 审批下
+的 Lane 创建、一次被批准的类型化变更、一条带已验证规范字节的归档 `patch` 行、一条
+持久的 `approval.allow_once` 审计行、在 Core 发布的工作区 owner 之下**未选中任何
+Lane** 完成的一次提交与一次被接受的 push，以及一次被排空的会话队列。记录、截图帧、
+四个新缺陷与退出标准表见
+`docs/release-evidence/gui-trusted-delivery/checkpoints.zh-CN.md` 与
+`docs/release-0.3.4-report.zh-CN.md`。
+
 ## 明确不做
 
 - 不从当前 dirty、落后的本地 `main` 直接创建三个实现分支。
