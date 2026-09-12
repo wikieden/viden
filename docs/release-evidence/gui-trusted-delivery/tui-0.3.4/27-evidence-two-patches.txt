@@ -1,0 +1,40 @@
+ VIDEN / COCKPIT  fallback  test-local  healthy
+ /scratch-root...................  lane -  session -  approvals 0
+
+┌ TRANSCRIPT ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│   tool edit_file path=README.m┌ EVIDENCE INSPECTOR ───────── Esc back · Enter open · f filter · r reload ┐                               │
+│                               │ SCOPE whole archive · oldest first                                       │                               │
+│ USER                          │ FILTER every kind Core returns                                           │                               │
+│   the queued follow-up for E2 │ 2026-09-12 UTC                                                           │                               │
+│                               │ > 14:49:58 [patch] native session edit: README.md (+1/-1) · no lane      │                               │
+│ USER                          │   15:00:44 [patch] native session edit: README.md (+0/-0) · no lane      │                               │
+│   i/evidence                  │ LOADED 2 · archive complete                                              │                               │
+│                               │                                                                          │                               │
+│ LANE-OUTPUT LANE_1789224502859│                                                                          │                               │
+│   HEAD is now at 8b5cf49 Add t│                                                                          │000')                         │
+│                               │                                                                          │                               │
+│ EVIDENCE                      │                                                                          │                               │
+│   edit_file completed path:   │                                                                          │                               │
+│   /scratch-root...............│                                                                          │ad/e2-fixture/README.md size:  │
+│   91 B effect: edited 6 lines │                                                                          │                               │
+│                               │                                                                          │                               │
+│ EVIDENCE                      │                                                                          │                               │
+│   native session edit: README.│                                                                          │                               │
+│                               │                                                                          │                               │
+│ EVIDENCE                      │                                                                          │                               │
+│   native session edit: README.│                                                                          │                               │
+│                               └──────────────────────────────────────────────────────────────────────────┘                               │
+│      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄                                         │
+│      ┊  ✦ Latest coder task done •                                                                                                       │
+│      ┊    └ turn-session_-1789225373000 · coder done · next review result or continue · live provider request · updated 17s ago          │
+│      ┊  SUPERVISION · Core facts                                                                                                         │
+│      ┊  COMMAND tui-27 · pending Core fact                                                                                               │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+┌ Viden >_ ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                                                                                                                           │              │
+│ › Type your instruction...                                                                                                │ MODE Build ▾ │
+│                                                                                                                           │              │
+│ MODE [Build]  PERM [Ask]                                              ACTIONS: [^J Send] [^K Clr] [^R Regenerate] [^N New Task] [? Help] │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+ P:e2-fixture L:- M:Build OVERLAY · IDLE · EVENTS 11 · TOKENS 0 · PROVIDER healthy
+ PERM:Ask A:0 ⏸ 0 E:0 · CTX:nominal · COST:blind · CMD:pending Core fact · Ctrl-K commands · Ctrl-C cancel · Esc back

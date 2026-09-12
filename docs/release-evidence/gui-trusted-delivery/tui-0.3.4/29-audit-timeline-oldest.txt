@@ -1,0 +1,40 @@
+ VIDEN / DECISIONS  fallback  test-local  healthy
+ /scratch-root...................  lane -  session -  approvals 0
+
+┌ DECISIONS ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ COMMAND tui-28 · pending Core ┌ AUDIT TIMELINE ──────────── Esc close · arrows select · Enter load older ┐                               │
+│                               │ SCOPE project timeline · newest first                                    │                               │
+│                               │ > 15:00:44 approval.allow_once ✓ permission:approval_1789225201055568000 │                               │
+│                               │   14:59:29 source.push ✓ source:workspace attempt=audit_1789225169647993 │                               │
+│                               │   14:59:29 source.push ✓ source:workspace phase=authorized tool=git_push │                               │
+│                               │   14:59:29 approval.allow_once ✓ permission:approval_1789225151791910000 │                               │
+│                               │   14:56:10 source.push ✗ source:workspace attempt=audit_1789224970080956 │                               │
+│                               │   14:56:10 source.push ✓ source:workspace phase=authorized tool=git_push │                               │
+│                               │   14:56:10 approval.allow_once ✓ permission:approval_1789224953000701000 │                               │
+│                               │   14:55:29 source.commit ✓ source:workspace attempt=audit_17892249294004 │                               │
+│                               │   14:55:29 source.commit ✓ source:workspace phase=authorized tool=git_co │                               │
+│                               │   14:55:29 approval.allow_once ✓ permission:approval_1789224912695575000 │                               │
+│                               │   14:54:36 source.stage ✓ source:workspace attempt=audit_178922487635484 │                               │
+│                               └──────────────────────────────────────────────────────────────────────────┘                               │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+ P:e2-fixture L:- M:Build OVERLAY · IDLE · EVENTS 11 · TOKENS 0 · PROVIDER healthy
+ PERM:Ask A:0 ⏸ 0 E:0 · CTX:nominal · COST:blind · CMD:pending Core fact · Ctrl-K commands · Ctrl-C cancel · Esc back

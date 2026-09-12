@@ -1,0 +1,40 @@
+ VIDEN / DECISIONS  fallback  test-local  healthy
+ /scratch-root...................  lane -  session -  approvals 1
+
+┌ DECISIONS ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ APPROVAL lane-approval_1789224┌ APPROVAL ────────────────────────── Esc close · arrows move · Enter open ┐0                              │
+│ COMMAND tui-4 · pending Core f│ Approve lane_create · Medium                                             │                               │
+│                               │ Approve `lane_create` for lane `lane_1789224502859401000`                │                               │
+│                               │ TARGET  /scratch-root...........................................         │                               │
+│                               │ INPUT   branch: viden/lane_1789224502859401000path: /private/tm         │                                │
+│                               │ 1 Allow once                                                             │                               │
+│                               │ 2 Allow for session · unavailable                                        │                               │
+│                               │ 3 Add repo allowlist                                                     │                               │
+│                               │ 4 Deny                                                                   │                               │
+│                               │ auto-deny @1789224803 · default Deny                                     │                               │
+│                               │ AUDIT   audit_1789224503187620000                                        │                               │
+│                               │                                                                          │                               │
+│                               │                                                                          │                               │
+│                               └──────────────────────────────────────────────────────────────────────────┘                               │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+ P:e2-fixture L:- M:Build OVERLAY · ACTIVE · EVENTS 1 · TOKENS 0 · PROVIDER healthy
+ PERM:Ask A:1 ⏸ 0 E:0 · CTX:nominal · COST:blind · CMD:pending Core fact · Ctrl-K commands · Ctrl-C cancel · Esc back

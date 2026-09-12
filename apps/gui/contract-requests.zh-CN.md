@@ -71,6 +71,25 @@ G4 与 G5 批次以散文写下、未编号的四个缺口在此编号为新的�
 同一个计数来关闭。当前开放的登记项为 013、018、019、021、023、026、030、031、032、033，
 029 已预留但尚未写出。
 
+状态说明 2026-09-12（T2，由 E2 记录）：009、027、028 现在在**两个**客户端侧都已关闭，
+而这正是这三条登记项自己陈述的条件，所以它们都不再是采纳项。T2 在 Core 发布的 owner
+之下发送工作区目标的 git 动作（027）、在证据与审计检视器中显示归档 patch 与审批审计行
+（028），并在转录透镜中读取 Core 自己的有序行（009）。随后 `0.3.4` 发布步骤通过 TUI
+把整个任务走通，并把这三条都变成了实地证据而不是 fixture 回放：`/git` 工作区行可选、
+owner 之下的一次真实提交与 push、一条规范哈希等于磁盘字节的 `patch` 行，以及释放该
+变更的那次决策对应的 `approval.allow_once` 行。见
+`docs/release-evidence/gui-trusted-delivery/checkpoints.zh-CN.md` 的「TUI 交叉核对」。
+
+当前开放的登记项保持为 013、018、019、021、023、026、030、031、032、033 —— 共十条，
+全部带 `0.3.5` 说明 —— 029 为 D5 画廊评审预留且尚未写出。
+`apps/gui/release-manifest.toml` 记录 `[contract_requests] open_count = 10` 与之对应。
+
+E2 在驱动该任务时发现了四个缺陷。它们都刻意没有占用登记号：其中三个在 Core 侧，
+记为 `docs/core-0.3-compatibility.zh-CN.md` 的兼容性跟进项 14 到 16；第四个是 TUI 缺口，
+记在 `docs/release-tui-0.3.4-source-control-parity.zh-CN.md` 中。登记表针对的是
+**客户端**需要而 Core 未发布的能力；一个已经存在却做错了的 Core 行为属于兼容性跟进项，
+而某个客户端缺少的控件属于那个客户端。
+
 ## GUI-CORE-008：所选 Lane 的上下文作用域 — 已关闭
 
 历史：Core `0.3.5` 已暴露 `RuntimeViewState.context_budgets`，但 frontend-neutral

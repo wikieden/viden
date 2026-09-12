@@ -1,0 +1,40 @@
+ VIDEN / DECISIONS  fallback  test-local  healthy
+ /scratch-root...................  lane -  session -  approvals 0
+
+┌ DECISIONS ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ COMMAND tui-10 · pending Core ┌ EVIDENCE INSPECTOR ───────── Esc back · Enter open · f filter · r reload ┐                               │
+│                               │ patch · native session edit: README.md (+1/-1)                           │                               │
+│                               │ ID  patch-tool_1789224570013118000 · 2026-09-12 14:49:58                 │                               │
+│                               │ OWNER  workspace=ws_d449023423e1a290 project=prj_1789224423279254000 …   │                               │
+│                               │ SOURCE  native                                                           │                               │
+│                               │ PATH  README.md                                                          │                               │
+│                               │ CANONICAL  item …_1789224598405957000_32 · bundle …ion_17892244232518…   │                               │
+│                               │ HASH  d46176df                                                           │                               │
+│                               │ PRODUCER  native · coder · task turn_1789224569891144000                 │                               │
+│                               │ APPROVAL  audit audit_1789224570047389000                                │                               │
+│                               │ RECORD  Core verified the canonical reference: verified                  │                               │
+│                               │ DIFF verified against d46176df                                           │                               │
+│                               │ after  Renamed  +1 -1                                                    │                               │
+│                               │   renamed from before                                                    │                               │
+│                               │   @@ -1,6 +1,6 @@                                                        │                               │
+│                               │     1       - # E2 Fixture                                               │                               │
+│                               │           1 + # E2 Edited                                                │                               │
+│                               │     2     2                                                              │                               │
+│                               │     3     3   A fixture repository for the 0.3.4 release-evidence run.   │                               │
+│                               │     4     4                                                              │                               │
+│                               │     5     5   line four                                                  │                               │
+│                               └──────────────────────────────────────────────────────────────────────────┘                               │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+ P:e2-fixture L:- M:Build OVERLAY · IDLE · EVENTS 5 · TOKENS 0 · PROVIDER healthy
+ PERM:Ask A:0 ⏸ 0 E:0 · CTX:nominal · COST:blind · CMD:pending Core fact · Ctrl-K commands · Ctrl-C cancel · Esc back

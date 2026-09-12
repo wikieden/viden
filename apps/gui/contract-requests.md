@@ -90,6 +90,31 @@ G7 closed by deriving the rail badge, the statusbar chip and the D2 header from
 one count. The open register is 013, 018, 019, 021, 023, 026, 030, 031, 032,
 and 033, with 029 reserved and not yet written.
 
+Status note 2026-09-12 (T2, recorded by E2): 009, 027, and 028 are now closed on
+**both** client sides, which is the condition those three entries stated, so
+none of them is an adoption item any more. T2 sends workspace-target git actions
+under the Core-published owner (027), shows archived patches and approval audit
+rows in the evidence and audit inspectors (028), and reads Core's ordered rows
+in its transcript lens (009). The `0.3.4` release step then drove the whole task
+through the TUI and evidenced all three live rather than by fixture replay: the
+`/git` workspace rows enabled and a real commit and push under the owner, a
+`patch` row whose canonical hash equals the bytes on disk, and the
+`approval.allow_once` row for the decision that released the mutation. See
+`docs/release-evidence/gui-trusted-delivery/checkpoints.md`, "TUI Cross-Check".
+
+The open register is unchanged at 013, 018, 019, 021, 023, 026, 030, 031, 032,
+and 033 — ten entries, all carrying `0.3.5` notes — with 029 reserved for the D5
+gallery review and not yet written. `apps/gui/release-manifest.toml` records
+`[contract_requests] open_count = 10` to match.
+
+E2 found four defects while driving the task. None minted a register number,
+deliberately: three are Core-side and are recorded as compatibility follow-ups
+14 to 16 in `docs/core-0.3-compatibility.md`, and the fourth is a TUI gap
+recorded in `docs/release-tui-0.3.4-source-control-parity.md`. The register is
+for capabilities a *client* needs and Core does not publish; a Core behaviour
+that is wrong where it already exists belongs in the compatibility follow-ups,
+and a missing control in one client belongs to that client.
+
 ## GUI-CORE-008: Selected-Lane context scope — CLOSED
 
 History: Core `0.3.5` exposed `RuntimeViewState.context_budgets`, but the

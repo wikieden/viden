@@ -772,13 +772,17 @@ where a pinned approval's keys live.
   live in the approval overlay, which is where an approval is decided; the
   pinned panel is a fixed-height summary and growing it would push the pinned
   actions off a short terminal.
-- The evidence inspector's detail pane still has no *live* capture. The gap has
-  moved: `runtime.durable_work_evidence` (C7) makes an applied native mutation
-  archive a `patch` row, so the archive is no longer structurally empty for a
-  TUI session, but the capture of one is E2's to take. T2's evidence for the
-  pane is the generated preview frame plus the two fixture replays named above.
-  The recent window and the archive remain different projections, which is why
-  this client still never derives archive rows from `latest_evidence`.
+- ~~The evidence inspector's detail pane still has no *live* capture.~~
+  **Closed 2026-09-12 by E2.** `runtime.durable_work_evidence` (C7) makes an
+  applied native mutation archive a `patch` row, and E2 took the capture: the
+  list frame, the detail pane with the canonical reference, `HASH d46176df` and
+  `RECORD Core verified the canonical reference: verified`, and the on-disk blob
+  whose sha256 equals the hash on screen. One labelling defect was found there
+  and is compatibility follow-up 14 — the rendered rows call a modified file a
+  rename, because `evidence_reads.rs` publishes `render_diff`'s placeholder
+  `before`/`after` headers without stamping the entry's own path. The recent
+  window and the archive remain different projections, which is why this client
+  still never derives archive rows from `latest_evidence`.
 - The inspector offers one kind filter at a time. Core's `kinds` is an OR list,
   but the overlay has one cycling control, so sending several would claim a
   selection the operator never made. Owner filters below the opened scope, and
@@ -788,14 +792,31 @@ where a pinned approval's keys live.
   overlay browses and reads; it decides nothing.
 - `QueryWorkspaceDiff` / `WorkspaceDiffLoaded` has no TUI reader yet: the TUI
   renders the diff Core attaches to an approval, not an operator diff pane.
+- The `/git` picker has no set-upstream control, so Core's own `NoUpstream`
+  recovery is unreachable from the client that showed the refusal. Core answers
+  a first push on an untracked branch with `Failed { NoUpstream }` and the words
+  "push again with set upstream", and the contract prescribes the same step
+  (`crates/types/src/source_control.rs:225`: "`NoUpstream` -> offer
+  `set_upstream`"). The picker offers exactly four rows and its push row
+  hard-codes `set_upstream: false` (`apps/tui/src/tui/modal.rs:1163-1167`).
+  Found by E2 on 2026-09-12, which had to configure the tracking ref out of band
+  to evidence an accepted push, and recorded that in its step table rather than
+  hiding it. Adding a recovery row that appears once Core has answered
+  `NoUpstream` for this target is the fix; it needs no Core change, because the
+  command field already exists. Deferred to `0.3.5` with the rest of the picker
+  work.
 - **Closed 2026-09-12 by C5 and T2, with one Core-side gap left.** Core mints a
   workspace-scoped operator identity, and this client sends the workspace
   target under it, so the `/git` rows are actionable for the workspace as well
   as for a Lane whose runtime owner Core has published. A target with no
   published owner is still refused locally, now naming the missing fact rather
-  than GUI-CORE-027. The gap: `apps/cli` bootstraps the engine and supervisor
-  directly rather than through `LocalCoreHost::open_workspace`, which is the
-  only production caller of `SessionEngine::bind_workspace_owner`, so a `viden`
-  TUI session still sees `workspace_owner` absent and shows the refusal. The
-  GUI is unaffected because its adapter opens through the host. Closing it is a
-  Core or CLI change, not a client one.
+  than GUI-CORE-027. **The Core-side gap is closed too, by C10 on the same
+  day**, and E2 evidenced it on 2026-09-12: minting and binding moved into the
+  shared bootstrap, so a `viden --provider fallback` session now mints
+  `.viden/project.toml` at open, `RuntimeViewState.workspace_owner` is present,
+  and all four `/git` workspace rows are pickable. The original gap follows.
+  `apps/cli` bootstrapped the engine and supervisor directly rather than through
+  `LocalCoreHost::open_workspace`, which was the only production caller of
+  `SessionEngine::bind_workspace_owner`, so a `viden` TUI session saw
+  `workspace_owner` absent and showed the refusal. The GUI was unaffected
+  because its adapter opens through the host.

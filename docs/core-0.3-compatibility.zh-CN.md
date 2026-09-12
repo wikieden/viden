@@ -844,7 +844,6 @@ checkpoint，命名的是一个并不存在的契约。
 这项声明关乎契约，不关乎分发。本文中的任何内容都不授权创建 tag、推送、发布或改动
 Homebrew。
 
-
 2026-09-10 记录的未决跟进项。每一条都是在 `0.3.3` 各批次中确认、并被刻意留在
 批次之外的，因此它们不会日后被当作新发现重新提出：
 
@@ -1043,6 +1042,57 @@ Homebrew。
    `runtime.workspace_eligibility`）却未刷新已提交文件，因此被忽略的刷新测试会重写它
    （`a6f1c436…` → `c2ea4647…`），而对文件做哈希的重放测试仍然通过。0.3.4 以已提交
    字节为准；刷新它与语料摘要是 0.3.5 的簿记项，由决定而非在修复批次内顺手完成。
+
+2026-09-12 由 E2 发布证据运行新增的未决跟进项。该运行用 `fallback` provider 对着一个
+临时 Git 仓库，通过 TUI 把一个真实任务端到端走通。每一条都已复现并定位到源码；E2 没有
+修复其中任何一条，因为在声明 checkpoint 的那一步修改 Core 行为，会让该 checkpoint
+失效。完整记录（含截图帧）在
+`docs/release-evidence/gui-trusted-delivery/checkpoints.zh-CN.md`（缺陷 10 到 13）。
+
+14. **一条归档 patch 渲染出的 diff 把文件称为重命名**（Core，观感问题但会误导，
+   E2 期间发现，2026-09-12）。`render_diff`（`crates/tools/src/files.rs:148`）写入
+   占位的 `--- before` / `+++ after` 头部且不写 `@@` 行，其文档注释也这么说。该输出的
+   另外两个读取方都会把自己解析出的路径盖到占位符之上 ——
+   `crates/runtime/src/decision_context.rs:110-116`（其注释陈述了这条规则）与
+   `crates/runtime/src/frontend_services.rs:1224-1227` —— 但
+   `crates/runtime/src/evidence_reads.rs:147` 把规范字节直接解析进
+   `EvidenceContent::Diff`，因此 Core 发布的归档文档把 `before`/`after` 当作两个不同
+   路径，每个客户端都会为一个原地修改的文件画出 `after  Renamed` /
+   `renamed from before`。条目自己的 `PATH`、规范哈希与验证结论全部正确；只有派生出的
+   单文件标注是错的。闭环方式是在 `evidence_reads.rs` 中把条目的路径与
+   `WorkspaceChangeKind` 盖到文档上。`0.3.5`。
+15. **Lane 生命周期审批的决策不写持久审计行**（Core，对审计完整性而言是阻塞级，
+   E2 期间发现，2026-09-12）。这是跟进项 8 / E1 缺陷 4 在两条审批路径中的另一条上
+   越过了 C7。`RespondToApproval` 先检查
+   `lane_supervisor.pending_approval_owner`
+   （`crates/runtime/src/runtime_supervisor.rs:1138-1160`），对于由 lane supervisor
+   持有的审批，它转发为 `SupervisorMessage::LaneApprovalResponse` 并**在** `:1253` 的
+   `ApprovalAuditLog::record_decision` **之前返回**。`LaneApprovalResponse` 分支
+   （`:1853-1894`）只发出 `CommandAccepted`，不写任何记录；而 `crates/lanes` 根本没有
+   审计写入方 —— 这是正确的，因为审计是 runtime 拥有并注入进去的策略。复现：一次
+   `lane_create` 审批显示了 `audit_1789224503187620000`，同一会话共批准了五次审批，
+   而持久时间线持有四条 `approval.allow_once` 行；缺的那条就是 `lane_create`。闭环
+   方式是在 lane 分支上同样写审计，使用同一个预先铸造的 id，并在宣告它的那条事实之前
+   写入。`0.3.5`。
+16. **在一次轮次进行中排队的会话追加提示，其「待排队」状态永远不可观察**
+   （Core/TUI 接缝，产品缺口，E2 期间发现，2026-09-12）。屏幕上没有任何虚假陈述，
+   这也正是它是缺口而不是破裂的原因。supervisor 是单个 worker，所以客户端在一次轮次
+   进行中发出的 `QueueFollowUp` 是在 supervisor 的 channel 里等待，而不是在 Core 的
+   队列里 —— `crates/runtime/src/runtime_supervisor.rs:1596-1605` 正是以此说明为什么
+   排空是由一个*已完成*的轮次来*武装*的 —— 只有 worker 空闲后才到达
+   `crates/runtime/src/runtime_contract.rs:793`，并在同一瞬间发出 `InputQueued` 与
+   `InputDequeued`。观察到的现象：该提示等待了约 39 秒，作为自己的成对轮次运行，而
+   `RuntimeViewState.queued_inputs` 在整段等待期间都是空的，因此 TUI composer 渲染的是
+   `composer.active` 而不是 `composer.queued`，操作者完全看不到自己的提示正在排队。
+   两个客户端基于 C6 建起来的 `queued_inputs` 界面，因此在原生路径的会话作用域上不可
+   达。闭环方式是让 Core 在接受该命令时就确认队列条目，而不是等到 worker 处理它时。
+   `0.3.5`。
+
+E2 的第四项发现属于客户端侧，记录在它该在的地方而不是这里：`/git` 选择器把
+`set_upstream: false` 写死（`apps/tui/src/tui/modal.rs:1163-1167`），因此本文自身契约
+所规定的 `NoUpstream` 恢复路径
+（`crates/types/src/source_control.rs:225`）在 TUI 中没有控件。见
+`docs/release-tui-0.3.4-source-control-parity.zh-CN.md` 的「已知缺口」。
 
 `context-budgets` fixture 为 `ContextScope` 与 `ContextBudgetRecord` 的 frontend-neutral
 facade 导出提供依据。Budget 只能通过该 Lane 精确绑定的 runtime owner 所指名的 typed task

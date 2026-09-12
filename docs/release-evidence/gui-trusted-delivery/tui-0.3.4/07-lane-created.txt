@@ -1,0 +1,40 @@
+ VIDEN / LANES  fallback  test-local  healthy
+ /scratch-root...................  lane lane_1789224502859401000  session -  approvals 0
+
+┌ LANE BOARD ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ lane_1789224502859401000 · cod┌ LANE DETAIL ─────────────────────────────────── lane_1789224502859401000 ┐                               │
+│                               │ lane_1789224502859401000 coder                                           │                               │
+│                               │ ROUTE main→side-1                                                        │                               │
+│                               │ STATE  Draft                                                             │                               │
+│                               │ CONTROL [stop] [tmux] [pty] [send] [inspect]                             │                               │
+│                               │                                                                          │                               │
+│                               │                                                                          │                               │
+│                               │                                                                          │                               │
+│                               │                                                                          │                               │
+│                               └──────────────────────────────────────────────────────────────────────────┘                               │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+ P:e2-fixture L:lane_178922450 M:Build NORMAL · IDLE · EVENTS 3 · TOKENS 0 · PROVIDER healthy
+ PERM:Ask A:0 ⏸ 0 E:0 · CTX:nominal · COST:blind · CMD:pending Core fact · Ctrl-K commands · Ctrl-C cancel · Esc back

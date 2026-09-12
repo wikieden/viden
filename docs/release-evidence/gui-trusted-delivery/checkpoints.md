@@ -496,3 +496,326 @@ tagged, packaged for any platform, synchronized to the Homebrew tap, or
 certified against a live provider. The macOS `.app` referenced above is a local
 build artifact and was not installed or distributed. The release gate's
 prepublish phase was not run.
+
+# 0.3.4 Trusted Delivery Completion (E2)
+
+Date: 2026-09-12
+
+Everything above is the `0.3.3` record and is not rewritten. This part is the
+`0.3.4` release step. Like the part above it describes a **local candidate
+only**: nothing here is published, signed, notarized, pushed, merged, tagged,
+or live-provider certified.
+
+## Candidate Line
+
+| Item | SHA / path |
+| --- | --- |
+| Base `origin/main` | `25072a0acee7a9959bfd8060721378cb3d4d5397` |
+| Integration branch | `claude/int-0.3.4` at `39ed155dcc1847b915965f49626e6779b8b538d7`, 68 commits ahead of `main` |
+| E2 branch / worktree | `claude/e2-release-evidence` in `.worktrees/e2-release-evidence`, created at that SHA |
+| Core `0.3.7` contract checkpoint | `39ed155dcc1847b915965f49626e6779b8b538d7` — the integration tip every `0.3.4` batch had landed on, and the SHA `crates/core/release-manifest.toml` now records as `contract_implementation_checkpoint` |
+| Core `0.3.7` base contract checkpoint | `5bd2b80b0953f4194d082940a7b9164c7231ca2d`, unchanged since `0.3.0` |
+| TUI candidate | `0.3.5`; `min_core_version` deliberately unchanged at `0.3.4` |
+| GUI candidate | `0.1.0-rc.5`; `[core].minimum_version` deliberately unchanged at `0.3.5` |
+| Frontend schema | `1`, unchanged |
+| Capabilities | 15 frozen base + 29 extensions |
+
+The three lines move independently. Core moves because the `0.3.4` increment
+added six capabilities (23 to 29) across C5 to C9; the clients move because
+both adopted them (G7, T2).
+
+Why the checkpoint is declared here rather than per batch: each Core batch
+added its own fixture rows and left `component_version` and the checkpoint
+alone, because a checkpoint named while the contract is still moving names a
+contract that does not exist. If `claude/int-0.3.4` is rebased before it
+merges, this checkpoint must be re-declared against the new SHA rather than
+assumed to have survived.
+
+### Frozen base fixture bytes
+
+The nine frozen `frontend-contract-v1` base fixtures were compared three ways:
+the bytes on disk in this worktree, the bytes at `git show 25072a0a:<path>`,
+and the digest pinned in `apps/tui/release-manifest.toml`. All three agree for
+all nine; none moved across the whole `0.3.4` increment.
+
+| Fixture | sha256 (worktree = `25072a0a` = pinned) |
+| --- | --- |
+| `approval-allow-deny.json` | `a31d8c64…8700248e` |
+| `context-pressure-cost-blind.json` | `dbae6f87…e270d697` |
+| `d1-vertical-slice.json` | `d8dc7a14…248a71df5e` |
+| `dag-blocker.json` | `98e2ad2b…bc37c85e5c7` |
+| `merge-gate.json` | `d71807ab…d50365becf11` |
+| `multi-lane.json` | `1a20e8ec…90788331fc5cd` |
+| `plan-denial.json` | `6a04b5ef…d55d783b307` |
+| `queued-follow-up.json` | `83c31272…7c6892299031` |
+| `stream-tool.json` | `a097f17d…9951c9fd548a` |
+
+### Deterministic evidence
+
+The full gate table for this candidate — the workspace suite with
+`viden-plugin-host` and `viden-agents` rerun serially, fmt, clippy, the
+dependency boundary, the TUI regression and both smokes, the GUI vitest and
+build, the projection capture, the Tauri bundle, and the doc pair/link checks,
+with what was deliberately not run and why — is in
+[release-0.3.4-report.md](../../release-0.3.4-report.md), "Gates". It is kept in
+one place rather than copied here, because two copies of a gate table drift.
+
+## Native GUI Run — 2026-09-12 (0.3.4)
+
+**Not attempted: the host screen was locked at 14:37:21Z**, before any of this
+batch's work began, and it was still locked at 14:45:30Z when the bundle was
+ready. `CGSessionCopyCurrentDictionary()` returned
+`CGSSessionScreenIsLocked = 1` with `kCGSSessionOnConsoleKey = 1` at both
+checks. No keystroke and no click was sent to the window, and the application
+was not launched to be driven, because a locked session routes input to the
+login window — the same rule E1 and E1b followed, and the reason E1b stopped
+where it did. Unlocking the Mac needs the user's password, which this run may
+not enter.
+
+So this section records what could be established without a display, and says
+plainly what could not. Nothing below is inferred from a fixture replay, and
+nothing is claimed about a surface that was not driven.
+
+### The application under test
+
+`npm --prefix apps/gui run tauri -- build --bundles app` PASSED in 1 m 10 s
+(14:43:54Z to 14:45:04Z) and produced
+`target/release/bundle/macos/Viden.app`:
+
+| Fact | Value |
+| --- | --- |
+| `CFBundleShortVersionString` | `0.1.0-rc.5` |
+| `CFBundleVersion` | `0.1.0-rc.5` |
+| `CFBundleIdentifier` | `dev.viden.gui` |
+| `CFBundleExecutable` | `viden-gui` |
+| Architecture | `Mach-O 64-bit executable arm64` |
+| Executable size | 40,655,440 bytes |
+| Signature | ad-hoc, linker-signed, `TeamIdentifier=not set`, `Sealed Resources=none` |
+
+The build log shows `Compiling viden-gui v0.1.0-rc.5`, so the bundle carries
+this batch's version bump rather than the rc.4 one it replaced. It is a local
+build artifact: it was not installed, distributed, signed with an identity,
+notarized, or launched.
+
+### What was not reached, and why
+
+| Step | State |
+| --- | --- |
+| Welcome, `⌘O` bind, cockpit bound, Lane tab strip, `⌘L` New Lane, Lane under a Core approval, composer edit, D2 hunks, inline tool diff, check-run block, EvidenceView archive row, D14 audit row, queued follow-up drain, DiffReview commit with and without a Lane, push refused then accepted, dock Files tab, focus mode `⌘.`, `Esc` return | **Not attempted.** Host screen locked; see above. No native capture was taken, so this section lists no PNG. |
+
+The GUI's own evidence for these surfaces is therefore the deterministic
+harness captures the G3 to G7 batches took under `apps/gui/evidence/` and their
+`EVIDENCE.md` rows, plus the vitest and projection suites — not a live window.
+That is weaker evidence for the *integration*, and this document does not
+pretend otherwise: the statement "the cockpit carries the whole task natively"
+is **still unproven**, for the third release step running, and for an
+environmental reason each time.
+
+### The harness facts, carried forward unchanged
+
+Recorded again because the next run needs them and nothing in this run could
+re-verify or refute them:
+
+- the window's `CGWindowListCopyWindowInfo` owner name is `Viden`, but the
+  Accessibility process name is `viden-gui`; `System Events` addressed as
+  `process "Viden"` raises `-1719`;
+- `screencapture -x -o -l <window id>` frequently returns the frame from
+  *before* the last state change, so every capture must be taken twice and the
+  second frame read, with the Accessibility tree as the reliable state read;
+- the `Open project folder` panel is hosted by
+  `com.apple.appkit.xpc.openAndSavePanelService`, so its `Open` button is not
+  reachable through Accessibility and the panel is driven by keystroke only
+  (`⌘⇧G`, the path, `Return`, `Return`);
+- synthetic `CGEvent` mouse clicks had no effect; pointer input must go through
+  `System Events`' own `click at`.
+
+## TUI Cross-Check — 2026-09-12
+
+This is the run that could happen: offline, in `tmux` at 140×40, with
+`cargo run -p viden-cli -- --provider fallback --model test-local` (built
+binary `target/debug/viden`, version banner `v0.3.5`) against a scratch Git
+repository, `VIDEN_HOME` pointed at a scratch directory. This repository's own
+`.viden/` was never read or written.
+
+It is a cross-check, not a substitute: the TUI and the GUI are two clients of
+one contract, so a Core fact this run observed is a Core fact, but a GUI
+*surface* this run did not touch stays unevidenced.
+
+### Fixture
+
+A fresh temporary Git repository under the run's scratch directory: one commit
+`8b5cf4990d4818bd6089a7fa751f647aeec9fabd` ("Add the fixture README"), a
+`README.md`, a `.gitignore` covering `.viden/` and `.worktrees/`, and a
+`.viden/config.toml` selecting `provider = "fallback"` / `model = "test-local"`.
+The bare `origin` was deliberately **not** created until after the first
+refused push. The `fallback` provider turns a user message of the form
+`tool <name> key=value …` into a real tool call
+(`crates/provider/src/fallback.rs`, `parse_explicit_tool_call`), which is how a
+mutation happens with no live model.
+
+### Step by step
+
+Every frame below is a `tmux capture-pane` of the running TUI, taken at the
+moment described, and every one was read before it was listed. The capture
+host's scratch path is replaced by a same-width placeholder so the frames stay
+column-aligned; nothing else in them is edited.
+
+| # | Step | Result | Capture |
+| --- | --- | --- | --- |
+| 1 | Intake | The TUI opened the fixture as the workspace and resolved `fallback` / `test-local` from the project config. `0 lanes`, version `v0.3.5`. Core minted `.viden/project.toml` `[project] id = prj_1789224423279254000` at bootstrap — the C10 binding site, visible on disk. | [`01-welcome.txt`](tui-0.3.4/01-welcome.txt) |
+| 2 | **`/git` with no Lane selected** | All four rows pickable, `TARGET workspace · main · ahead 0 behind 0 · clean`. This is the row E1 saw disabled as `no workspace owner · GUI-CORE-027` and the row T2's own live check still could not enable, because `apps/cli` did not bind the owner. C5 published the identity and C10 moved the binding into the shared bootstrap; this frame is the first live TUI evidence of both. | [`02-git-picker-workspace-enabled.txt`](tui-0.3.4/02-git-picker-workspace-enabled.txt) |
+| 3 | New Lane | `n` opened `NEW NATIVE LANE`; the first task description published a Core `lane_create` approval, risk **Medium**, `TARGET` the workspace root, `INPUT` naming the branch and worktree path, `AUDIT audit_1789224503187620000`, with `1 Allow once` / `2 Allow for session · unavailable` / `3 Add repo allowlist` / `4 Deny` and an `auto-deny @1789224803 · default Deny` expiry. | [`03-new-lane-overlay.txt`](tui-0.3.4/03-new-lane-overlay.txt), [`04-lane-create-approval.txt`](tui-0.3.4/04-lane-create-approval.txt), [`06-lane-create-approval-detail.txt`](tui-0.3.4/06-lane-create-approval-detail.txt) |
+| 4 | Lane created | `Allow once` created the Lane, route `main→side-1`, state `Draft`. Verified out of band: `git worktree list` shows `.worktrees/lane_1789224502859401000` and `git branch` shows `viden/lane_1789224502859401000`. | [`07-lane-created.txt`](tui-0.3.4/07-lane-created.txt) |
+| 5 | Lane target dropped | Two `Esc` rungs closed the detail and cleared the target, each announced as its own system row (`Cleared the Lane target … /git now names the workspace.`), and `L:` returned to `-`. The rest of the run is workspace-scoped on purpose: this is the "deliverable without a Lane" the milestone is about. | [`08-edit-approval-pinned.txt`](tui-0.3.4/08-edit-approval-pinned.txt) |
+| 6 | Composer edit | `tool edit_file path=README.md old=Fixture new=Edited` produced a Core `edit_file` approval, risk **Medium**, pinned with `AUDIT audit_1789224570047389000`. The pinned panel shows the tool input, as designed. | [`08-edit-approval-pinned.txt`](tui-0.3.4/08-edit-approval-pinned.txt) |
+| 7 | **C1 decision context** | The approval detail rendered Core's typed hunks rather than the tool input: `README.md  Modified  +1 -1`, `@@ -1,6 +1,6 @@`, per-line old/new numbering with `- # E2 Fixture` / `+ # E2 Edited`, four unchanged context rows, and the base note `computed against ed2e9faf`. The operator approved a diff, not a string. | [`09-edit-approval-hunks.txt`](tui-0.3.4/09-edit-approval-hunks.txt) |
+| 8 | Edit applied | `Allow once` applied it. Verified out of band: `README.md` line 1 is `# E2 Edited` and `git status --short` reports ` M README.md`. | [`10-edit-applied.txt`](tui-0.3.4/10-edit-applied.txt) |
+| 9 | **EvidenceView: an archived patch** | `/evidence` answered `LOADED 1 · archive complete` with `14:49:58 [patch] native session edit: README.md (+1/-1) · no lane`. This is the row E1 could not produce and T2 could not either; GUI-CORE-028 and E1 defect 5 are now evidenced live, not by fixture replay. | [`11-evidence-archive.txt`](tui-0.3.4/11-evidence-archive.txt) |
+| 10 | **Canonical bytes** | Opening the row showed `ID patch-tool_1789224570013118000`, `OWNER workspace=ws_d449023423e1a290 project=prj_1789224423279254000`, `SOURCE native`, `PATH README.md`, a `CANONICAL` item/bundle reference, `HASH d46176df`, `PRODUCER native · coder · task turn_1789224569891144000`, `APPROVAL audit audit_1789224570047389000`, `RECORD Core verified the canonical reference: verified` and `DIFF verified against d46176df` above Core's parsed rows. Verified out of band: the ContextStore blob is 132 bytes and its sha256 is `d46176df6e9abd082f0d16ec270ff0d20e158c42ef67fc450b2b163c86fd95cb` — the hash on screen is the hash of the bytes on disk. One labelling defect here; see defect 10. | [`12-evidence-detail-canonical.txt`](tui-0.3.4/12-evidence-detail-canonical.txt) |
+| 11 | **D14: the approval as a durable audit row** | The audit timeline answered `SCOPE project timeline · newest first`, `14:49:58 approval.allow_once ✓ permission:approval_1789224570047386000`, `LOADED 1 · nothing older matches`. Verified out of band in `.viden/workflows/projects/*/audit.jsonl`: actor `operator`, action `approval.allow_once`, objects `permission:approval_…`, `tool:edit_file`, `job:tui-7`, outcome `success`, under `audit_1789224570047389000` — the id the approval had already shown. E1 defect 4 is closed for this path; one gap remains, defect 11. | [`13-audit-approval-rows.txt`](tui-0.3.4/13-audit-approval-rows.txt) |
+| 12 | Stage | `/git` over the dirty workspace, `Stage all changes` → a Core `git_add` approval, risk **Low**, `TARGET git_add (workspace)`. `Allow once` staged it; `git status --short` reports `M  README.md`. | [`14-git-picker-dirty.txt`](tui-0.3.4/14-git-picker-dirty.txt), [`15-stage-approval.txt`](tui-0.3.4/15-stage-approval.txt), [`16-staged.txt`](tui-0.3.4/16-staged.txt) |
+| 13 | **Commit** | `Commit…` opened the message prompt; the message produced a Core `git_commit` approval, risk **Medium**, `TARGET git_commit (workspace)`. `Allow once` committed: `Commit completed · main · ahead 0 behind 0 · clean · OUTPUT 2 lines · [main b9f393e] Edit the fixture README heading AUDIT audit_1789224929400408000`. Verified out of band: `b9f393e Edit the fixture README heading`, working tree clean. **`OperatorGitOutcome::Completed` observed live for the first time**, with no Lane selected, under the Core-published workspace owner. | [`17-commit-message-prompt.txt`](tui-0.3.4/17-commit-message-prompt.txt), [`18-commit-approval.txt`](tui-0.3.4/18-commit-approval.txt), [`19-committed.txt`](tui-0.3.4/19-committed.txt) |
+| 14 | **Push refused** | `Push` → a Core `git_push` approval, risk **High**. `Allow once` produced `Push failed · this branch has no upstream · push again with set upstream · the current branch has no upstream branch; push with set_upstream to create one AUDIT audit_1789224970080956000`. **`OperatorGitOutcome::Failed { NoUpstream }` observed live for the first time.** No remote existed at this point. | [`20-push-refused-noupstream.txt`](tui-0.3.4/20-push-refused-noupstream.txt), [`21-push-noupstream-outcome.txt`](tui-0.3.4/21-push-noupstream-outcome.txt) |
+| 15 | Bare `origin` added | `git init --bare` under the scratch directory and `git remote add origin`, out of band, after the refusal and not before. | — |
+| 16 | **Push accepted** | `Push completed · main · ahead 0 behind 0 · clean · OUTPUT 2 lines · To …/e2-origin.git AUDIT audit_1789225169647993000`. Verified out of band: the bare `origin` now holds `b9f393e`, and the local branch reads `## main...origin/main` with no divergence. **`OperatorGitOutcome::Completed` for a push observed live.** One honest qualification: the branch's upstream tracking ref had to be configured out of band, because the TUI picker offers no set-upstream control — see defect 12. The push itself was performed by Core under an operator approval, and it moved a real commit into a real remote. | [`22-git-picker-after-remote.txt`](tui-0.3.4/22-git-picker-after-remote.txt), [`23-push-approval.txt`](tui-0.3.4/23-push-approval.txt), [`24-push-accepted.txt`](tui-0.3.4/24-push-accepted.txt) |
+| 17 | **A queued follow-up drains** | A second `tool edit_file` left the turn open on its approval: the composer switched to `[^J Queue]` and the status row to `ACTIVE`, both from Core's `active_turns` rather than from display residue. A follow-up submitted there was accepted, and it ran only when the first turn ended. Verified out of band in the session JSONL: `turn_owner` cleared at `1789225244` (the first turn's `TurnFinished`), `turn_owner` set again in the same second, then the user message `the queued follow-up for E2` and its assistant reply, then `turn_owner` cleared again. The prompt waited about 39 seconds and ran as its own bracketed turn behind a completed one — C6's session-queue drain, which T2's own live check could not show. One seam observation, defect 13. | [`25-followup-queued.txt`](tui-0.3.4/25-followup-queued.txt), [`26-followup-drained.txt`](tui-0.3.4/26-followup-drained.txt) |
+| 18 | Archive and timeline after the run | `LOADED 2 · archive complete` (the second patch is `+0/-0`, because the fallback tool-input parser splits on spaces and the second edit resolved to a no-op). The audit timeline holds twelve rows: four `approval.allow_once`, and an `authorized`/`completed`-or-`failed` pair for each of `source.stage`, `source.commit` and the two pushes, with `14:56:10 source.push ✗ … attempt=audit_1789224970080956` beside its authorization. | [`27-evidence-two-patches.txt`](tui-0.3.4/27-evidence-two-patches.txt), [`28-audit-timeline-full.txt`](tui-0.3.4/28-audit-timeline-full.txt), [`29-audit-timeline-oldest.txt`](tui-0.3.4/29-audit-timeline-oldest.txt) |
+
+### Exact Core outcome variants observed live
+
+- `WorkspaceRuntimeOwnerBound` on the `apps/cli` path, with the minted
+  `.viden/project.toml` id — observed live (C5 + C10).
+- `RunOperatorGitAction { target: Workspace }` authorized under that owner with
+  no Lane selected — observed live (C5).
+- `OperatorGitOutcome::Completed` for `stage`, `commit` and `push` — observed
+  live. `OperatorGitOutcome::Failed { NoUpstream }` — observed live. Before
+  this run all three existed only as `operator-git.json` replay.
+- `ApprovalRequestView` with `decision_context` carrying a `DiffDocument`
+  (one file, one hunk, `+1 -1`, `base_sha256` present) — observed live.
+- `ApprovalDecision` allow-once on five approvals, each followed by its
+  effect — observed live.
+- `EvidencePage` **non-empty**, with a `patch` row whose canonical reference
+  Core verified and whose bytes hash to the value on screen — observed live
+  (C7).
+- `AuditPage` **non-empty**, with the `approval.*` row for the decision that
+  released the mutation — observed live (C7).
+- `TurnStarted` / `TurnFinished` bracketing a native turn, and the session
+  queue drained behind a completed one — observed live through their durable
+  `turn_owner` facts (C6).
+- `RemoteUnreachable` — **not observed.** The bare `origin` is a local path, so
+  no unreachable-remote case arose; it remains fixture replay only.
+- Every GUI surface — **not observed.** Host screen locked.
+
+## Defects And Gaps Found By E2
+
+Numbering continues from the nine above. Each was reproduced, not inferred, and
+each is located in the source. None was fixed in E2: this is a release-evidence
+step, and fixing a Core behaviour here would invalidate the checkpoint it just
+declared.
+
+10. **An archived patch's rendered diff calls the file a rename** (Core,
+    cosmetic but misleading). The evidence row's own `PATH` says `README.md`,
+    and the rows under it say `after  Renamed  +1 -1` / `renamed from before`.
+    `render_diff` (`crates/tools/src/files.rs:148`) writes placeholder
+    `--- before` / `+++ after` headers and no `@@` line — deliberately, and its
+    doc comment says so. Both other readers of that output stamp the path they
+    actually resolved over the placeholder:
+    `crates/runtime/src/decision_context.rs:110-116`, whose comment states the
+    rule ("the tool input is the authoritative source for both; the rendered
+    header is not"), and `crates/runtime/src/frontend_services.rs:1224-1227`.
+    `crates/runtime/src/evidence_reads.rs:147` does not, so Core publishes the
+    archived document with the placeholder paths and every client renders a
+    rename that never happened. Confirmed against the bytes on disk: the
+    132-byte ContextStore blob begins `--- before` / `+++ after`. The bytes,
+    the hash, the verification verdict and the `PATH` row are all correct; only
+    the derived per-file label is wrong. Closing it means stamping the entry's
+    path onto the document in `evidence_reads.rs`, the way the approval path
+    already does.
+11. **A lane-lifecycle approval decision writes no durable audit row** (Core,
+    blocking for audit completeness). This is E1 defect 4's exact shape,
+    surviving C7 on the other of the two approval paths. `RespondToApproval`
+    checks `lane_supervisor.pending_approval_owner` first
+    (`crates/runtime/src/runtime_supervisor.rs:1138-1160`) and, for an approval
+    the lane supervisor owns, forwards it as
+    `SupervisorMessage::LaneApprovalResponse` and **returns before**
+    `ApprovalAuditLog::record_decision` at `:1253`. The
+    `LaneApprovalResponse` arm (`:1853-1894`) emits `CommandAccepted` and no
+    audit record, and `crates/lanes` has no audit writer at all — correctly,
+    since audit is runtime-owned policy that is injected. Reproduced: the
+    `lane_create` approval displayed `AUDIT audit_1789224503187620000` on
+    screen, five approvals were allowed in this session, and the durable
+    timeline holds four `approval.allow_once` rows — the missing one is
+    `lane_create`. An operator who follows that receipt finds nothing.
+12. **The `NoUpstream` recovery has no TUI control** (TUI). Core's refusal says
+    "push again with set upstream", and the contract states the same recovery
+    (`crates/types/src/source_control.rs:225`: "`NoUpstream` -> offer
+    `set_upstream`"). The `/git` picker offers exactly four rows and its push
+    row hard-codes `set_upstream: false`
+    (`apps/tui/src/tui/modal.rs:1163-1167`), so the step Core names is
+    unreachable from the client that showed the refusal. E2 had to configure
+    the tracking ref out of band to evidence an accepted push, which is
+    recorded in step 16 rather than hidden.
+13. **A session follow-up queued during a turn is never observably pending**
+    (Core/TUI seam, product gap — nothing on screen is false). The composer
+    offered `[^J Queue]`, the prompt was genuinely queued, and it ran 39
+    seconds later behind the completed turn. Throughout that wait
+    `RuntimeViewState.queued_inputs` stayed empty and the composer rendered
+    `composer.active` ("Type next prompt while Viden works…") rather than
+    `composer.queued`, so the operator got no indication their prompt was in
+    line. The mechanism is documented where it is caused: the supervisor is one
+    worker, so a `QueueFollowUp` sent while a turn runs waits in the
+    supervisor's channel rather than in Core's queue
+    (`crates/runtime/src/runtime_supervisor.rs:1596-1605`), reaches
+    `runtime_contract.rs:793` only once the worker is free, and emits
+    `InputQueued` and `InputDequeued` in the same instant. So Core is honest —
+    it has not accepted a queue entry yet — and the client is honest about what
+    Core published, but the `queued_inputs` surface both clients built on C6 is
+    unreachable for the session scope on the native path. This is reported as a
+    product gap, not as a contract break.
+
+Two harness notes, which are about the driver and not about the client. Three
+`USER` rows read `i/lanes`, `i/evidence` and `iconfirm the push outcome`,
+because the driver sent an `i` while the composer was already in Insert mode —
+the same artifact T2's live check recorded. And `/lanes` on a workspace with no
+Lanes opens an empty board rather than a creation flow; `n` in Normal mode is
+the entry point, which is what step 3 used.
+
+## What This Means For Plan Goal 4
+
+`docs/release-0.3.3-plan.md` goal 4 — "one real local-first development task
+completes through the GUI, from intake to a committed change, with audit and
+evidence recorded" — carried into `0.3.4` as goal 6. Per surface:
+
+- **Through the TUI — met, end to end, for the first time.** Intake, Lane
+  creation under a Core approval, a mutation approved against Core's typed
+  decision context and applied to a real file, an archived `patch` row with
+  canonical bytes Core verified, a durable `approval.allow_once` audit row, a
+  staged change, a **commit**, a push refused as `NoUpstream`, and a push
+  accepted into a real remote — all of the source-control half with no Lane
+  selected, under the workspace owner Core published. Every E1 "not met" is now
+  met on this surface, and the two pieces `0.3.3` was missing structurally
+  (GUI-CORE-027, GUI-CORE-028) are evidenced live rather than by replay.
+- **Through the native GUI window — not attempted.** The host screen was locked
+  before this batch began and never unlocked. E1 could not drive the window;
+  E1b reached intake and stopped; E2 did not start. The cockpit's own surfaces
+  are covered by deterministic harness captures from G3 to G7, which is
+  evidence about rendering and not about the integration.
+- **The honest aggregate:** the task is now proven end to end on one client of
+  the contract, and the contract capabilities it needs are proven live. What is
+  still unproven is that the **GUI cockpit** carries it. Goal 4 is therefore
+  **met on the contract and on the TUI, and unproven on the GUI**, and the
+  remaining gap is environmental rather than a capability gap. A run with an
+  unlocked screen is the only thing it needs.
+
+## Boundary Statement
+
+This is a local candidate. The candidate versions Core `0.3.7`, TUI `0.3.5`,
+and GUI `0.1.0-rc.5` exist only on the local branch
+`claude/e2-release-evidence`, based on the local integration branch
+`claude/int-0.3.4`. Nothing in this part has been published, code-signed,
+notarized, pushed, merged, tagged, packaged for any platform, synchronized to
+the Homebrew tap, or certified against a live provider. The macOS `.app`
+referenced above is a local build artifact and was not installed or
+distributed. The release gate's prepublish phase was not run; packaging,
+notarization, Homebrew and live-provider certification are `0.3.5` scope by the
+`0.3.4` plan's own scope amendment.

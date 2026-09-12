@@ -422,3 +422,277 @@ GUI 从接入走到一次已提交的变更，并记录审计与证据」。结�
 打 tag、为任何平台打包、同步到 Homebrew tap，也没有对着 live provider 做过认证。
 上文提到的 macOS `.app` 是本地构建产物，既未安装也未分发。release gate 的
 prepublish 阶段没有运行。
+
+# 0.3.4 可信交付收尾（E2）
+
+日期：2026-09-12
+
+上面的全部内容是 `0.3.3` 的记录，不做改写。本部分是 `0.3.4` 的发布步骤。与上半部分
+一样，它描述的只是一个**本地候选**：本文中没有任何内容被发布、签名、公证、推送、
+合并、打 tag，或对着 live provider 做过认证。
+
+## 候选线
+
+| 项 | SHA / 路径 |
+| --- | --- |
+| 基线 `origin/main` | `25072a0acee7a9959bfd8060721378cb3d4d5397` |
+| 集成分支 | `claude/int-0.3.4`，位于 `39ed155dcc1847b915965f49626e6779b8b538d7`，领先 `main` 68 个提交 |
+| E2 分支 / worktree | `claude/e2-release-evidence`，位于 `.worktrees/e2-release-evidence`，从该 SHA 创建 |
+| Core `0.3.7` 契约 checkpoint | `39ed155dcc1847b915965f49626e6779b8b538d7` —— 所有 `0.3.4` 批次都已落地其上的集成分支 tip，也是 `crates/core/release-manifest.toml` 现在记录的 `contract_implementation_checkpoint` |
+| Core `0.3.7` 基础契约 checkpoint | `5bd2b80b0953f4194d082940a7b9164c7231ca2d`，自 `0.3.0` 起未变 |
+| TUI 候选 | `0.3.5`；`min_core_version` 有意保持在 `0.3.4` |
+| GUI 候选 | `0.1.0-rc.5`；`[core].minimum_version` 有意保持在 `0.3.5` |
+| 前端 schema | `1`，未变 |
+| 能力 | 15 个冻结基础能力 + 29 个扩展能力 |
+
+三条线各自独立推进。Core 前进是因为 `0.3.4` 增量在 C5 到 C9 中新增了六个能力
+（23 到 29）；两个客户端前进是因为它们都完成了适配（G7、T2）。
+
+为什么 checkpoint 在这里声明而不是逐批声明：每个 Core 批次只添加自己的 fixture 行，
+而不动 `component_version` 和 checkpoint —— 因为在契约还在移动时命名一个
+checkpoint，命名的是一个并不存在的契约。如果 `claude/int-0.3.4` 在合并前被 rebase，
+这个 checkpoint 必须针对新的 SHA 重新声明，而不能假定它自动存续。
+
+### 冻结基础 fixture 的字节
+
+九个冻结的 `frontend-contract-v1` 基础 fixture 做了三方比对：本 worktree 磁盘上的
+字节、`git show 25072a0a:<path>` 的字节，以及 `apps/tui/release-manifest.toml` 中
+固定的摘要。九个全部三方一致；在整个 `0.3.4` 增量中没有一个移动过。
+
+| Fixture | sha256（worktree = `25072a0a` = 固定值） |
+| --- | --- |
+| `approval-allow-deny.json` | `a31d8c64…8700248e` |
+| `context-pressure-cost-blind.json` | `dbae6f87…e270d697` |
+| `d1-vertical-slice.json` | `d8dc7a14…248a71df5e` |
+| `dag-blocker.json` | `98e2ad2b…bc37c85e5c7` |
+| `merge-gate.json` | `d71807ab…d50365becf11` |
+| `multi-lane.json` | `1a20e8ec…90788331fc5cd` |
+| `plan-denial.json` | `6a04b5ef…d55d783b307` |
+| `queued-follow-up.json` | `83c31272…7c6892299031` |
+| `stream-tool.json` | `a097f17d…9951c9fd548a` |
+
+### 确定性证据
+
+本候选的完整 gate 表 —— 把 `viden-plugin-host` 与 `viden-agents` 串行重跑的工作区
+套件、fmt、clippy、依赖边界、TUI 回归与两个 smoke、GUI 的 vitest 与构建、投影截取、
+Tauri 应用包，以及文档配对/链接检查，并说明哪些被刻意不运行及原因 —— 在
+[release-0.3.4-report.zh-CN.md](../../release-0.3.4-report.zh-CN.md) 的「Gate」一节。
+它只保存在一处而不在此复制，因为一张 gate 表的两份副本会漂移。
+
+## 原生 GUI 运行 —— 2026-09-12（0.3.4）
+
+**未尝试：宿主屏幕在 14:37:21Z 处于锁定状态**，早于本批次任何工作开始；到 14:45:30Z
+应用包构建完成时仍然锁定。两次检查中 `CGSessionCopyCurrentDictionary()` 都返回
+`CGSSessionScreenIsLocked = 1` 且 `kCGSSessionOnConsoleKey = 1`。没有向窗口发送任何
+按键或点击，也没有为驱动而启动应用，因为锁定的会话会把输入路由到登录窗口 —— 这与
+E1 和 E1b 遵循的是同一条规则，也是 E1b 停在原处的原因。解锁这台 Mac 需要输入用户
+密码，本次运行不得输入。
+
+因此本节记录的是在没有显示器的情况下能够确立的事实，并明确说明不能确立的部分。
+下文没有任何内容是从 fixture 回放推断出来的，也没有对任何未被驱动的界面作出断言。
+
+### 被测应用
+
+`npm --prefix apps/gui run tauri -- build --bundles app` 在 1 分 10 秒内通过
+（14:43:54Z 到 14:45:04Z），产出
+`target/release/bundle/macos/Viden.app`：
+
+| 事实 | 值 |
+| --- | --- |
+| `CFBundleShortVersionString` | `0.1.0-rc.5` |
+| `CFBundleVersion` | `0.1.0-rc.5` |
+| `CFBundleIdentifier` | `dev.viden.gui` |
+| `CFBundleExecutable` | `viden-gui` |
+| 架构 | `Mach-O 64-bit executable arm64` |
+| 可执行文件大小 | 40,655,440 字节 |
+| 签名 | ad-hoc，linker-signed，`TeamIdentifier=not set`，`Sealed Resources=none` |
+
+构建日志中出现 `Compiling viden-gui v0.1.0-rc.5`，所以这个包带的是本批次的版本号，
+而不是它替换掉的 rc.4。它是一个本地构建产物：没有被安装、分发、用身份签名、公证，
+也没有被启动。
+
+### 哪些步骤未走到，以及为什么
+
+| 步骤 | 状态 |
+| --- | --- |
+| Welcome、`⌘O` 绑定、驾驶舱绑定、Lane 标签条、`⌘L` 新建 Lane、Core 审批下创建 Lane、composer 变更、D2 hunk、内联工具 diff、check-run 块、EvidenceView 归档行、D14 审计行、排队追加提示的排空、带 Lane 与不带 Lane 的 DiffReview 提交、push 被拒后被接受、dock Files 页签、聚焦模式 `⌘.`、`Esc` 返回 | **未尝试。** 宿主屏幕锁定；见上文。本次未拍摄任何原生截图，所以本节不列任何 PNG。 |
+
+因此 GUI 自身对这些界面的证据，是 G3 到 G7 批次在 `apps/gui/evidence/` 下拍摄的
+确定性 harness 截图及其 `EVIDENCE.md` 行，加上 vitest 与 projection 套件 —— 而不是
+一个活的窗口。这对**集成**来说是更弱的证据，本文不作相反的暗示：「驾驶舱原生地承载
+了整个任务」这句话**仍然未被证明**，这已经是连续第三个发布步骤如此，且每次都是
+环境原因。
+
+### 原封不动沿用的 harness 事实
+
+再次记录，因为下一次运行需要它们，而本次运行既无法重新验证也无法否证它们：
+
+- 窗口的 `CGWindowListCopyWindowInfo` owner 名是 `Viden`，但 Accessibility 进程名是
+  `viden-gui`；用 `process "Viden"` 寻址 `System Events` 会抛出 `-1719`；
+- `screencapture -x -o -l <window id>` 经常返回**上一次**状态变化之前的帧，所以每次
+  截图必须拍两次并读第二帧，并以 Accessibility 树作为可靠的状态读取源；
+- `Open project folder` 面板由
+  `com.apple.appkit.xpc.openAndSavePanelService` 托管，所以它的 `Open` 按钮无法通过
+  Accessibility 触达，该面板只能用按键驱动（`⌘⇧G`、路径、`Return`、`Return`）；
+- 用 `CGEvent` 合成的鼠标点击无效；指针输入必须走 `System Events` 自己的
+  `click at`。
+
+## TUI 交叉核对 —— 2026-09-12
+
+这是能够发生的那次运行：离线，在 140×40 的 `tmux` 中，使用
+`cargo run -p viden-cli -- --provider fallback --model test-local`（构建出的二进制
+`target/debug/viden`，版本横幅 `v0.3.5`），对着一个临时 Git 仓库运行，`VIDEN_HOME`
+指向一个临时目录。本仓库自己的 `.viden/` 从未被读取或写入。
+
+它是交叉核对，不是替代：TUI 与 GUI 是同一份契约的两个客户端，所以本次运行观察到的
+Core 事实就是 Core 事实；但本次运行没有触碰的 GUI **界面**仍然没有证据。
+
+### Fixture
+
+运行临时目录下的一个全新 Git 仓库：一个提交
+`8b5cf4990d4818bd6089a7fa751f647aeec9fabd`（"Add the fixture README"）、一个
+`README.md`、一个覆盖 `.viden/` 与 `.worktrees/` 的 `.gitignore`，以及一个选择
+`provider = "fallback"` / `model = "test-local"` 的 `.viden/config.toml`。裸仓库
+`origin` 有意在第一次 push 被拒**之后**才创建。`fallback` provider 会把形如
+`tool <name> key=value …` 的用户消息转成一次真实的工具调用
+（`crates/provider/src/fallback.rs`，`parse_explicit_tool_call`），这就是在没有
+live 模型的情况下发生真实变更的方式。
+
+### 逐步记录
+
+下面每一帧都是运行中 TUI 的 `tmux capture-pane`，在所描述的那一刻拍摄，并且每一帧
+都在被列出之前被读过。截图宿主的临时目录路径被替换成等宽占位符，以保持帧的列对齐；
+除此之外没有任何编辑。
+
+| # | 步骤 | 结果 | 截图 |
+| --- | --- | --- | --- |
+| 1 | 接入 | TUI 把 fixture 作为工作区打开，并从项目配置解析出 `fallback` / `test-local`。`0 lanes`，版本 `v0.3.5`。Core 在 bootstrap 时铸造了 `.viden/project.toml` `[project] id = prj_1789224423279254000` —— 这就是 C10 的绑定点，在磁盘上可见。 | [`01-welcome.txt`](tui-0.3.4/01-welcome.txt) |
+| 2 | **未选中 Lane 时的 `/git`** | 四行全部可选，`TARGET workspace · main · ahead 0 behind 0 · clean`。E1 看到这几行是禁用的并标注 `no workspace owner · GUI-CORE-027`，而 T2 自己的实地检查也仍然无法启用它们，因为 `apps/cli` 没有绑定 owner。C5 发布了这个身份，C10 把绑定移进了共享 bootstrap；这一帧是两者的第一份实地 TUI 证据。 | [`02-git-picker-workspace-enabled.txt`](tui-0.3.4/02-git-picker-workspace-enabled.txt) |
+| 3 | 新建 Lane | `n` 打开了 `NEW NATIVE LANE`；第一条任务描述发布了一个 Core `lane_create` 审批，风险 **Medium**，`TARGET` 是工作区根目录，`INPUT` 指明分支与 worktree 路径，`AUDIT audit_1789224503187620000`，带 `1 Allow once` / `2 Allow for session · unavailable` / `3 Add repo allowlist` / `4 Deny` 以及 `auto-deny @1789224803 · default Deny` 过期项。 | [`03-new-lane-overlay.txt`](tui-0.3.4/03-new-lane-overlay.txt)、[`04-lane-create-approval.txt`](tui-0.3.4/04-lane-create-approval.txt)、[`06-lane-create-approval-detail.txt`](tui-0.3.4/06-lane-create-approval-detail.txt) |
+| 4 | Lane 已创建 | `Allow once` 创建了 Lane，路由 `main→side-1`，状态 `Draft`。带外验证：`git worktree list` 显示 `.worktrees/lane_1789224502859401000`，`git branch` 显示 `viden/lane_1789224502859401000`。 | [`07-lane-created.txt`](tui-0.3.4/07-lane-created.txt) |
+| 5 | 放弃 Lane 目标 | 两级 `Esc` 分别关闭详情面板并清除目标，各自以自己的 system 行宣告（`Cleared the Lane target … /git now names the workspace.`），`L:` 回到 `-`。本次运行余下部分有意是工作区作用域的：这正是本里程碑关心的「没有 Lane 也能交付」。 | [`08-edit-approval-pinned.txt`](tui-0.3.4/08-edit-approval-pinned.txt) |
+| 6 | composer 变更 | `tool edit_file path=README.md old=Fixture new=Edited` 产生了一个 Core `edit_file` 审批，风险 **Medium**，以 `AUDIT audit_1789224570047389000` 常驻。常驻面板按设计显示工具输入。 | [`08-edit-approval-pinned.txt`](tui-0.3.4/08-edit-approval-pinned.txt) |
+| 7 | **C1 决策上下文** | 审批详情渲染的是 Core 的类型化 hunk，而不是工具输入：`README.md  Modified  +1 -1`、`@@ -1,6 +1,6 @@`、带逐行旧/新行号的 `- # E2 Fixture` / `+ # E2 Edited`、四行未变上下文，以及基线说明 `computed against ed2e9faf`。操作者批准的是一份 diff，不是一个字符串。 | [`09-edit-approval-hunks.txt`](tui-0.3.4/09-edit-approval-hunks.txt) |
+| 8 | 变更已应用 | `Allow once` 应用了它。带外验证：`README.md` 第一行是 `# E2 Edited`，`git status --short` 报告 ` M README.md`。 | [`10-edit-applied.txt`](tui-0.3.4/10-edit-applied.txt) |
+| 9 | **EvidenceView：一条归档 patch** | `/evidence` 回答 `LOADED 1 · archive complete`，内容为 `14:49:58 [patch] native session edit: README.md (+1/-1) · no lane`。这正是 E1 无法产生、T2 也无法产生的那一行；GUI-CORE-028 与 E1 缺陷 5 现在是实地证据，而不是 fixture 回放。 | [`11-evidence-archive.txt`](tui-0.3.4/11-evidence-archive.txt) |
+| 10 | **规范字节** | 打开该行后显示 `ID patch-tool_1789224570013118000`、`OWNER workspace=ws_d449023423e1a290 project=prj_1789224423279254000`、`SOURCE native`、`PATH README.md`、一个 `CANONICAL` item/bundle 引用、`HASH d46176df`、`PRODUCER native · coder · task turn_1789224569891144000`、`APPROVAL audit audit_1789224570047389000`、`RECORD Core verified the canonical reference: verified` 与 `DIFF verified against d46176df`，其下是 Core 自己解析出的行。带外验证：ContextStore blob 为 132 字节，其 sha256 是 `d46176df6e9abd082f0d16ec270ff0d20e158c42ef67fc450b2b163c86fd95cb` —— 屏幕上的哈希就是磁盘字节的哈希。此处有一个标注缺陷，见缺陷 10。 | [`12-evidence-detail-canonical.txt`](tui-0.3.4/12-evidence-detail-canonical.txt) |
+| 11 | **D14：审批成为持久审计行** | 审计时间线回答 `SCOPE project timeline · newest first`、`14:49:58 approval.allow_once ✓ permission:approval_1789224570047386000`、`LOADED 1 · nothing older matches`。在 `.viden/workflows/projects/*/audit.jsonl` 中带外验证：actor `operator`、action `approval.allow_once`、objects `permission:approval_…`、`tool:edit_file`、`job:tui-7`、outcome `success`，记在 `audit_1789224570047389000` 之下 —— 正是审批此前已经显示过的那个 id。E1 缺陷 4 在这条路径上已闭环；还剩一个缺口，见缺陷 11。 | [`13-audit-approval-rows.txt`](tui-0.3.4/13-audit-approval-rows.txt) |
+| 12 | Stage | 在 dirty 工作区上 `/git`，`Stage all changes` → 一个 Core `git_add` 审批，风险 **Low**，`TARGET git_add (workspace)`。`Allow once` 完成暂存；`git status --short` 报告 `M  README.md`。 | [`14-git-picker-dirty.txt`](tui-0.3.4/14-git-picker-dirty.txt)、[`15-stage-approval.txt`](tui-0.3.4/15-stage-approval.txt)、[`16-staged.txt`](tui-0.3.4/16-staged.txt) |
+| 13 | **Commit** | `Commit…` 打开消息输入；提交消息产生了一个 Core `git_commit` 审批，风险 **Medium**，`TARGET git_commit (workspace)`。`Allow once` 完成提交：`Commit completed · main · ahead 0 behind 0 · clean · OUTPUT 2 lines · [main b9f393e] Edit the fixture README heading AUDIT audit_1789224929400408000`。带外验证：`b9f393e Edit the fixture README heading`，工作树干净。**`OperatorGitOutcome::Completed` 首次被实地观察到**，且未选中任何 Lane，运行在 Core 发布的工作区 owner 之下。 | [`17-commit-message-prompt.txt`](tui-0.3.4/17-commit-message-prompt.txt)、[`18-commit-approval.txt`](tui-0.3.4/18-commit-approval.txt)、[`19-committed.txt`](tui-0.3.4/19-committed.txt) |
+| 14 | **Push 被拒** | `Push` → 一个 Core `git_push` 审批，风险 **High**。`Allow once` 得到 `Push failed · this branch has no upstream · push again with set upstream · the current branch has no upstream branch; push with set_upstream to create one AUDIT audit_1789224970080956000`。**`OperatorGitOutcome::Failed { NoUpstream }` 首次被实地观察到。** 此时还不存在任何 remote。 | [`20-push-refused-noupstream.txt`](tui-0.3.4/20-push-refused-noupstream.txt)、[`21-push-noupstream-outcome.txt`](tui-0.3.4/21-push-noupstream-outcome.txt) |
+| 15 | 加入裸 `origin` | 在临时目录下 `git init --bare` 并 `git remote add origin`，带外执行，在被拒**之后**而非之前。 | —— |
+| 16 | **Push 被接受** | `Push completed · main · ahead 0 behind 0 · clean · OUTPUT 2 lines · To …/e2-origin.git AUDIT audit_1789225169647993000`。带外验证：裸 `origin` 现在持有 `b9f393e`，本地分支读作 `## main...origin/main` 且无分歧。**push 的 `OperatorGitOutcome::Completed` 被实地观察到。** 一个诚实的限定：分支的 upstream tracking ref 必须带外配置，因为 TUI 选择器不提供 set-upstream 控件 —— 见缺陷 12。push 本身是 Core 在一次操作者审批之下执行的，并且把一个真实提交送进了一个真实 remote。 | [`22-git-picker-after-remote.txt`](tui-0.3.4/22-git-picker-after-remote.txt)、[`23-push-approval.txt`](tui-0.3.4/23-push-approval.txt)、[`24-push-accepted.txt`](tui-0.3.4/24-push-accepted.txt) |
+| 17 | **排队的追加提示被排空** | 第二次 `tool edit_file` 让该轮次停在它的审批上：composer 切换为 `[^J Queue]`，状态行切换为 `ACTIVE`，两者都来自 Core 的 `active_turns` 而不是显示残留。在那里提交的追加提示被接受，并且只在第一轮结束后才运行。在会话 JSONL 中带外验证：`turn_owner` 在 `1789225244` 被清空（第一轮的 `TurnFinished`），同一秒内 `turn_owner` 再次被设置，随后是用户消息 `the queued follow-up for E2` 及其 assistant 回复，然后 `turn_owner` 再次清空。该提示等待了约 39 秒，并作为自己的成对轮次在一个已完成轮次之后运行 —— 这是 C6 的会话队列排空，也是 T2 自己的实地检查无法展示的部分。此处有一个接缝观察，见缺陷 13。 | [`25-followup-queued.txt`](tui-0.3.4/25-followup-queued.txt)、[`26-followup-drained.txt`](tui-0.3.4/26-followup-drained.txt) |
+| 18 | 运行结束后的归档与时间线 | `LOADED 2 · archive complete`（第二条 patch 是 `+0/-0`，因为 fallback 的工具输入解析器按空格切分，第二次变更解析成了一次空操作）。审计时间线持有十二行：四条 `approval.allow_once`，以及 `source.stage`、`source.commit` 和两次 push 各自的 `authorized` 与 `completed`/`failed` 配对，其中 `14:56:10 source.push ✗ … attempt=audit_1789224970080956` 与它的授权行并列。 | [`27-evidence-two-patches.txt`](tui-0.3.4/27-evidence-two-patches.txt)、[`28-audit-timeline-full.txt`](tui-0.3.4/28-audit-timeline-full.txt)、[`29-audit-timeline-oldest.txt`](tui-0.3.4/29-audit-timeline-oldest.txt) |
+
+### 实地观察到的 Core 结果变体
+
+- `apps/cli` 路径上的 `WorkspaceRuntimeOwnerBound`，带铸造出的
+  `.viden/project.toml` id —— 实地观察到（C5 + C10）。
+- 在该 owner 之下、未选中任何 Lane 时被授权的
+  `RunOperatorGitAction { target: Workspace }` —— 实地观察到（C5）。
+- `stage`、`commit` 与 `push` 的 `OperatorGitOutcome::Completed` —— 实地观察到。
+  `OperatorGitOutcome::Failed { NoUpstream }` —— 实地观察到。在本次运行之前，这三者
+  只存在于 `operator-git.json` 回放中。
+- 携带 `DiffDocument` 的 `ApprovalRequestView.decision_context`（一个文件、一个
+  hunk、`+1 -1`、`base_sha256` 存在）—— 实地观察到。
+- 五次审批上的 allow-once `ApprovalDecision`，每一次之后都跟着它的效果 ——
+  实地观察到。
+- **非空**的 `EvidencePage`，其中一条 `patch` 行的规范引用被 Core 验证过，且其字节
+  哈希等于屏幕上的值 —— 实地观察到（C7）。
+- **非空**的 `AuditPage`，其中有释放了该变更的那次决策对应的 `approval.*` 行 ——
+  实地观察到（C7）。
+- 包裹一次原生轮次的 `TurnStarted` / `TurnFinished`，以及在一个已完成轮次之后被排空
+  的会话队列 —— 通过它们持久的 `turn_owner` 事实实地观察到（C6）。
+- `RemoteUnreachable` —— **未观察到**。裸 `origin` 是一个本地路径，所以不存在
+  remote 不可达的情形；它仍然只有 fixture 回放。
+- 所有 GUI 界面 —— **未观察到**。宿主屏幕锁定。
+
+## E2 发现的缺陷与缺口
+
+编号接续上面的九条。每一条都是复现出来的，不是推断出来的，并且都定位到了源码。E2
+没有修复其中任何一条：这是一个发布证据步骤，在这里修 Core 行为会让它刚刚声明的
+checkpoint 失效。
+
+10. **一条归档 patch 渲染出的 diff 把文件称为重命名**（Core，观感问题但会误导）。
+    证据行自己的 `PATH` 写着 `README.md`，而它下面的行写着
+    `after  Renamed  +1 -1` / `renamed from before`。`render_diff`
+    （`crates/tools/src/files.rs:148`）写入占位的 `--- before` / `+++ after` 头部
+    且不写 `@@` 行 —— 这是有意的，其文档注释也这么说。该输出的另外两个读取方都会把
+    自己真正解析出的路径盖到占位符之上：
+    `crates/runtime/src/decision_context.rs:110-116`，其注释陈述了这条规则
+    （「工具输入才是两者的权威来源；渲染出的头部不是」），以及
+    `crates/runtime/src/frontend_services.rs:1224-1227`。
+    `crates/runtime/src/evidence_reads.rs:147` 没有这么做，所以 Core 发布的归档文档
+    带着占位路径，而每个客户端都会渲染出一次从未发生的重命名。对着磁盘字节确认过：
+    132 字节的 ContextStore blob 以 `--- before` / `+++ after` 开头。字节、哈希、
+    验证结论与 `PATH` 行全都正确；只有派生出的单文件标注是错的。闭环方式是在
+    `evidence_reads.rs` 中把条目的路径盖到文档上，就像审批路径已经做的那样。
+11. **Lane 生命周期审批的决策不写持久审计行**（Core，对审计完整性而言是阻塞级）。
+    这正是 E1 缺陷 4 的原形，在两条审批路径中的另一条上越过了 C7。
+    `RespondToApproval` 先检查 `lane_supervisor.pending_approval_owner`
+    （`crates/runtime/src/runtime_supervisor.rs:1138-1160`），对于由 lane supervisor
+    持有的审批，它转发为 `SupervisorMessage::LaneApprovalResponse` 并**在**
+    `:1253` 的 `ApprovalAuditLog::record_decision` **之前返回**。
+    `LaneApprovalResponse` 分支（`:1853-1894`）只发出 `CommandAccepted`，不写审计
+    记录；而 `crates/lanes` 根本没有审计写入方 —— 这是正确的，因为审计是 runtime
+    拥有、注入进去的策略。复现：`lane_create` 审批在屏幕上显示了
+    `AUDIT audit_1789224503187620000`，本次会话共批准了五次审批，而持久时间线持有
+    四条 `approval.allow_once` 行 —— 缺的那条就是 `lane_create`。跟着那张收据去查的
+    操作者什么也找不到。
+12. **`NoUpstream` 的恢复路径在 TUI 中没有控件**（TUI）。Core 的拒绝语说
+    「push again with set upstream」，契约也陈述了同一条恢复路径
+    （`crates/types/src/source_control.rs:225`：「`NoUpstream` -> offer
+    `set_upstream`」）。`/git` 选择器只提供四行，而它的 push 行把
+    `set_upstream: false` 写死（`apps/tui/src/tui/modal.rs:1163-1167`），所以 Core
+    指出的那一步，在显示了这条拒绝的客户端上无法触达。E2 必须带外配置 tracking ref
+    才能拿到一次被接受的 push 的证据，这一点记在第 16 步里而不是被隐藏。
+13. **在一次轮次进行中排队的会话追加提示，其「待排队」状态永远不可观察**
+    （Core/TUI 接缝，产品缺口 —— 屏幕上没有任何虚假陈述）。composer 提供了
+    `[^J Queue]`，提示确实进了队列，并在 39 秒后在已完成的轮次之后运行。在整段等待
+    期间 `RuntimeViewState.queued_inputs` 一直是空的，composer 渲染的是
+    `composer.active`（「Type next prompt while Viden works…」）而不是
+    `composer.queued`，所以操作者完全看不到自己的提示正在排队。成因在它被造成的地方
+    就有文档说明：supervisor 是单个 worker，所以在一次轮次进行中发出的
+    `QueueFollowUp` 是在 supervisor 的 channel 里等待，而不是在 Core 的队列里
+    （`crates/runtime/src/runtime_supervisor.rs:1596-1605`），只有 worker 空闲后才到
+    达 `runtime_contract.rs:793`，并在同一瞬间发出 `InputQueued` 与 `InputDequeued`。
+    所以 Core 是诚实的 —— 它还没有接受一个队列条目；客户端对 Core 发布的内容也是
+    诚实的；但两个客户端基于 C6 建起来的 `queued_inputs` 界面，在原生路径的会话作用
+    域上是不可达的。这被报告为产品缺口，而不是契约破裂。
+
+两条关于驱动器而非客户端的 harness 说明。三条 `USER` 行读作 `i/lanes`、`i/evidence`
+和 `iconfirm the push outcome`，因为驱动器在 composer 已处于 Insert 模式时又发了一个
+`i` —— 与 T2 实地检查记录的是同一个现象。另外，在没有 Lane 的工作区上 `/lanes` 打开
+的是一个空看板而不是创建流程；Normal 模式下的 `n` 才是入口，第 3 步用的就是它。
+
+## 这对计划目标 4 意味着什么
+
+`docs/release-0.3.3-plan.md` 的目标 4 —— 「一个真实的本地优先开发任务通过 GUI 从
+接入走到一次已提交的变更，并记录审计与证据」—— 在 `0.3.4` 中作为目标 6 延续。按界面
+分别说明：
+
+- **通过 TUI —— 首次端到端达成。** 接入、在 Core 审批下创建 Lane、一次对着 Core
+  类型化决策上下文批准并应用到真实文件的变更、一条带有 Core 验证过的规范字节的归档
+  `patch` 行、一条持久的 `approval.allow_once` 审计行、一次暂存、一次**提交**、一次
+  被判为 `NoUpstream` 的 push，以及一次被接受并进入真实 remote 的 push —— 其中所有
+  源码管理环节都在未选中 Lane 的情况下、运行在 Core 发布的工作区 owner 之下完成。
+  E1 的每一条「未达成」现在在这个界面上都已达成，而 `0.3.3` 结构性缺失的两块
+  （GUI-CORE-027、GUI-CORE-028）现在是实地证据而不是回放。
+- **通过原生 GUI 窗口 —— 未尝试。** 宿主屏幕在本批次开始前就已锁定，并且从未解锁。
+  E1 无法驱动窗口；E1b 走到接入就停了；E2 没有开始。驾驶舱自己的界面由 G3 到 G7 的
+  确定性 harness 截图覆盖，那是关于渲染的证据，不是关于集成的证据。
+- **诚实的总体结论：** 该任务现在已在契约的一个客户端上端到端证明，并且它所需要的
+  契约能力都已被实地证明。仍未证明的是 **GUI 驾驶舱**能承载它。因此目标 4
+  **在契约上与 TUI 上已达成，在 GUI 上未被证明**，而剩下的缺口是环境性的，不是能力
+  缺口。它唯一需要的，是一次屏幕未锁定的运行。
+
+## 边界声明
+
+这是一个本地候选。候选版本 Core `0.3.7`、TUI `0.3.5`、GUI `0.1.0-rc.5` 只存在于
+本地分支 `claude/e2-release-evidence` 上，该分支基于本地集成分支
+`claude/int-0.3.4`。本部分中的任何内容都没有被发布、代码签名、公证、推送、合并、
+打 tag、为任何平台打包、同步到 Homebrew tap，也没有对着 live provider 做过认证。
+上文提到的 macOS `.app` 是本地构建产物，既未安装也未分发。release gate 的
+prepublish 阶段没有运行；打包、公证、Homebrew 与 live provider 认证按 `0.3.4` 计划
+自己的范围修订属于 `0.3.5` 的范围。

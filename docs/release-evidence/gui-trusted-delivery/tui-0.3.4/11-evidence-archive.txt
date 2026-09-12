@@ -1,0 +1,40 @@
+ VIDEN / DECISIONS  fallback  test-local  healthy
+ /scratch-root...................  lane -  session -  approvals 0
+
+┌ DECISIONS ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ COMMAND tui-9 · pending Core f┌ EVIDENCE INSPECTOR ───────── Esc back · Enter open · f filter · r reload ┐                               │
+│                               │ SCOPE whole archive · oldest first                                       │                               │
+│                               │ FILTER every kind Core returns                                           │                               │
+│                               │ 2026-09-12 UTC                                                           │                               │
+│                               │ > 14:49:58 [patch] native session edit: README.md (+1/-1) · no lane      │                               │
+│                               │ LOADED 1 · archive complete                                              │                               │
+│                               │                                                                          │                               │
+│                               │                                                                          │                               │
+│                               │                                                                          │                               │
+│                               │                                                                          │                               │
+│                               │                                                                          │                               │
+│                               │                                                                          │                               │
+│                               │                                                                          │                               │
+│                               │                                                                          │                               │
+│                               │                                                                          │                               │
+│                               │                                                                          │                               │
+│                               │                                                                          │                               │
+│                               │                                                                          │                               │
+│                               │                                                                          │                               │
+│                               │                                                                          │                               │
+│                               │                                                                          │                               │
+│                               └──────────────────────────────────────────────────────────────────────────┘                               │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+ P:e2-fixture L:- M:Build OVERLAY · IDLE · EVENTS 5 · TOKENS 0 · PROVIDER healthy
+ PERM:Ask A:0 ⏸ 0 E:0 · CTX:nominal · COST:blind · CMD:pending Core fact · Ctrl-K commands · Ctrl-C cancel · Esc back

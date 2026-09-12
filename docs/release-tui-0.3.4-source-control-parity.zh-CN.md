@@ -653,6 +653,31 @@ worktree。本仓库的 `.viden/` 既未被打开也未被修改。
 欢迎流程，它会创建一条 starter Lane 并请求 `lane_create`；该审批是在 Decisions
 界面上批准的，那里才是常驻审批按键所在之处。
 
+### 三项「无法展示」都已由 E2 在 2026-09-12 展示
+
+在 C10 把工作区 owner 的绑定移入共享 bootstrap 之后，`0.3.4` 发布步骤用同样形状的
+fixture 再次驱动了本客户端，上面三个缺口都以实地帧而不是测试的方式关闭：
+
+- **工作区 `/git` 行处于可用状态。** 未选中 Lane 时 `/git` 把四行全部渲染为可选，
+  并给出 `TARGET workspace · main · ahead 0 behind 0 · clean`，随后在 Core 发布的
+  owner 之下真实执行了 `git_add`、`git_commit` 与 `git_push`。提交 `b9f393e` 与持有
+  它的裸 `origin` 已带外验证。`OperatorGitOutcome::Completed` 与
+  `Failed { NoUpstream }` 都首次被实地观察到。
+- **TUI 会话中的归档 patch。** `tool edit_file path=README.md old=Fixture
+  new=Edited` 是 fallback provider 确实会产生的一次已应用变更 —— 经由
+  `parse_explicit_tool_call`，而 T2 自己的运行没有用到它 —— 所以归档回答了
+  `LOADED 1 · archive complete`，其详情面板显示了规范引用、`HASH d46176df`、
+  `RECORD Core verified the canonical reference: verified` 以及 Core 解析出的行。
+  磁盘上 132 字节的 ContextStore blob 的哈希正是该值。
+- **被排空的会话队列。** 第二次 `tool edit_file` 让其轮次停在审批上，因此 composer
+  依据 Core 的 `active_turns` 切换为 `[^J Queue]`；在那里提交的追加提示等待了约 39
+  秒，并在第一轮结束的那一瞬间作为自己的成对轮次运行 —— 会话 JSONL 显示
+  `turn_owner` 被清空后立即被重新设置。
+
+帧与带外验证见
+[release-evidence/gui-trusted-delivery/checkpoints.zh-CN.md](release-evidence/gui-trusted-delivery/checkpoints.zh-CN.md)
+的「TUI 交叉核对」。那次运行也发现了下文记录的 `set_upstream` 缺口。
+
 ## 已知缺口
 
 - 冲突弹窗由监督浮层的查看行打开，该行面向合并门退回。Lane 冲突在其记录条目上给出
@@ -660,11 +685,15 @@ worktree。本仓库的 `.viden/` 既未被打开也未被修改。
   一同推迟。
 - 常驻的审批固定面板仍保留 `input_preview` 行。差异块行位于审批浮层中——审批是在
   那里做出的；固定面板是定高摘要，增高会把固定操作挤出较矮的终端。
-- 证据检视器的详情面板仍然没有**实测**截图。缺口的位置变了：
-  `runtime.durable_work_evidence`（C7）让一次已应用的原生改动归档出一条 `patch`
-  行，所以对 TUI 会话而言归档已不再是结构性为空，但拍到一次的任务属于 E2。T2 为
-  该面板提供的证据是生成的预览帧加上文点名的两次 fixture 回放。近期窗口与归档仍是
-  两个不同的投影，这也是本客户端仍然绝不从 `latest_evidence` 推导归档行的原因。
+- ~~证据检视器的详情面板仍然没有**实测**截图。~~
+  **已于 2026-09-12 由 E2 关闭。** `runtime.durable_work_evidence`（C7）让一次已应用
+  的原生改动归档出一条 `patch` 行，而 E2 拍到了：列表帧、带规范引用与
+  `HASH d46176df` 及 `RECORD Core verified the canonical reference: verified` 的详情
+  面板，以及磁盘上 sha256 等于屏幕哈希的那个 blob。在那里发现了一个标注缺陷，记为
+  兼容性跟进项 14 —— 渲染出的行把一个原地修改的文件称为重命名，因为
+  `evidence_reads.rs` 发布了 `render_diff` 的占位 `before`/`after` 头部而没有盖上
+  条目自己的路径。近期窗口与归档仍是两个不同的投影，这也是本客户端仍然绝不从
+  `latest_evidence` 推导归档行的原因。
 - 检视器一次只提供一个种类过滤。Core 的 `kinds` 是 OR 列表，但浮层只有一个循环
   控件，发送多个就等于宣称操作者做过并不存在的选择。所开作用域之下的 owner 过滤
   与时间范围同样没有控件。
@@ -672,6 +701,15 @@ worktree。本仓库的 `.viden/` 既未被打开也未被修改。
   跳转到需要它的合并门。该浮层只负责浏览与读取，不做任何决策。
 - `QueryWorkspaceDiff` / `WorkspaceDiffLoaded` 尚无 TUI 读取方：TUI 渲染 Core 附加在
   审批上的差异，而不是操作者差异面板。
+- `/git` 选择器没有 set-upstream 控件，因此 Core 自己的 `NoUpstream` 恢复路径在显示
+  了这条拒绝的客户端上无法触达。Core 对一个无跟踪分支的首次 push 回答
+  `Failed { NoUpstream }` 并附上「push again with set upstream」，契约也规定了同一
+  步骤（`crates/types/src/source_control.rs:225`：「`NoUpstream` -> offer
+  `set_upstream`」）。选择器只提供四行，其 push 行把 `set_upstream: false` 写死
+  （`apps/tui/src/tui/modal.rs:1163-1167`）。由 E2 在 2026-09-12 发现 —— 它必须带外
+  配置 tracking ref 才能拿到一次被接受的 push 的证据，并把这一点记在自己的步骤表里
+  而不是隐藏。修法是加一条在 Core 对该目标回答过 `NoUpstream` 之后出现的恢复行；
+  它不需要 Core 改动，因为命令字段已经存在。与选择器的其余工作一同推迟到 `0.3.5`。
 - **已于 2026-09-12 由 C5 与 T2 关闭，但留有一个 Core 侧缺口。** Core 会铸造一个
   工作区范围的操作者身份，本客户端也在该身份之下发送工作区目标，因此 `/git` 行项
   对工作区与「Core 已发布运行时 owner 的 Lane」都可操作。没有已发布 owner 的目标
@@ -679,5 +717,8 @@ worktree。本仓库的 `.viden/` 既未被打开也未被修改。
   `apps/cli` 直接引导 engine 与 supervisor，而不经过
   `LocalCoreHost::open_workspace`——后者是 `SessionEngine::bind_workspace_owner`
   在生产代码中的唯一调用方——所以 `viden` 的 TUI 会话仍看到 `workspace_owner`
-  缺失并显示拒绝。GUI 不受影响，因为它的适配层经由该 host 打开工作区。关闭它是
-  Core 或 CLI 的改动，不是客户端改动。
+  缺失并显示拒绝。**Core 侧的缺口也已在同一天由 C10 关闭**，并由 E2 在 2026-09-12
+  取证：铸造与绑定移入了共享 bootstrap，因此一个 `viden --provider fallback` 会话现在
+  会在打开时铸造 `.viden/project.toml`，`RuntimeViewState.workspace_owner` 存在，
+  `/git` 的四行工作区行全部可选。上文保留原始缺口的描述。GUI 当时不受影响，因为它的
+  适配层经由该 host 打开工作区。

@@ -1110,7 +1110,6 @@ named while the contract is still moving names a contract that does not exist.
 This declaration is about the contract, not about distribution. Nothing in this
 document authorizes a tag, a push, a publish, or a Homebrew change.
 
-
 Open follow-ups recorded 2026-09-10. Each was confirmed during the `0.3.3`
 batches and deliberately left out of them, so none is rediscovered later as a
 new finding:
@@ -1368,6 +1367,71 @@ provider. Each was reproduced, not inferred; none was fixed in E1.
    replay test, which hashes the file, still passes. The committed bytes stay
    canonical for 0.3.4; refreshing them and the corpus digest is a 0.3.5
    bookkeeping item, decided rather than done inside a fix batch.
+
+Open follow-ups added 2026-09-12 by the E2 release-evidence run, which drove one
+real task end to end through the TUI against a temporary Git repository with the
+`fallback` provider. Each was reproduced and located in the source; none was
+fixed in E2, because fixing a Core behaviour in the step that declares the
+checkpoint would invalidate the checkpoint. The full record, with the frames, is
+in `docs/release-evidence/gui-trusted-delivery/checkpoints.md` (defects 10 to
+13).
+
+14. **An archived patch's rendered diff calls the file a rename** (Core,
+   cosmetic but misleading, found during E2, 2026-09-12). `render_diff`
+   (`crates/tools/src/files.rs:148`) writes placeholder `--- before` /
+   `+++ after` headers and no `@@` line, and says so in its doc comment. The
+   two other readers of that output stamp the path they resolved over the
+   placeholder — `crates/runtime/src/decision_context.rs:110-116`, whose
+   comment states the rule, and
+   `crates/runtime/src/frontend_services.rs:1224-1227` — but
+   `crates/runtime/src/evidence_reads.rs:147` parses the canonical bytes
+   straight into `EvidenceContent::Diff`, so Core publishes the archived
+   document with `before`/`after` as two different paths and every client draws
+   `after  Renamed` / `renamed from before` for a file that was modified in
+   place. The entry's own `PATH`, the canonical hash, and the verification
+   verdict are all correct; only the derived per-file label is wrong. Closing it
+   means stamping the entry's path and `WorkspaceChangeKind` onto the document
+   in `evidence_reads.rs`. `0.3.5`.
+15. **A lane-lifecycle approval decision writes no durable audit row** (Core,
+   blocking for audit completeness, found during E2, 2026-09-12). This is
+   follow-up 8 / E1 defect 4 surviving C7 on the other of the two approval
+   paths. `RespondToApproval` checks
+   `lane_supervisor.pending_approval_owner` first
+   (`crates/runtime/src/runtime_supervisor.rs:1138-1160`) and, for an approval
+   the lane supervisor owns, forwards it as
+   `SupervisorMessage::LaneApprovalResponse` and returns **before**
+   `ApprovalAuditLog::record_decision` at `:1253`. The `LaneApprovalResponse`
+   arm (`:1853-1894`) emits `CommandAccepted` and writes no record, and
+   `crates/lanes` has no audit writer at all — correctly, since audit is
+   runtime-owned policy that is injected into it. Reproduced: a `lane_create`
+   approval displayed `audit_1789224503187620000`, five approvals were allowed
+   in one session, and the durable timeline holds four `approval.allow_once`
+   rows; the missing one is `lane_create`. Closing it means auditing on the lane
+   branch too, under the same pre-minted id and before the fact that announces
+   it. `0.3.5`.
+16. **A session follow-up queued during a turn is never observably pending**
+   (Core/TUI seam, product gap, found during E2, 2026-09-12). Nothing on screen
+   is false, which is why this is a gap and not a break. The supervisor is one
+   worker, so a `QueueFollowUp` a client sends while a turn runs waits in the
+   supervisor's channel rather than in Core's queue — which
+   `crates/runtime/src/runtime_supervisor.rs:1596-1605` states as the reason the
+   drain is *armed* by a completed turn — reaches
+   `crates/runtime/src/runtime_contract.rs:793` only once the worker is free,
+   and emits `InputQueued` and `InputDequeued` in the same instant. Observed:
+   the prompt waited about 39 seconds, ran as its own bracketed turn, and
+   `RuntimeViewState.queued_inputs` was empty for the whole wait, so the TUI
+   composer rendered `composer.active` rather than `composer.queued` and the
+   operator saw no sign their prompt was in line. The `queued_inputs` surface
+   both clients built on C6 is therefore unreachable for the session scope on
+   the native path. Closing it means Core acknowledging the queue entry when it
+   accepts the command rather than when the worker reaches it. `0.3.5`.
+
+A fourth E2 finding is client-side and is recorded where it belongs rather than
+here: the `/git` picker hard-codes `set_upstream: false`
+(`apps/tui/src/tui/modal.rs:1163-1167`), so the `NoUpstream` recovery this
+document's own contract prescribes
+(`crates/types/src/source_control.rs:225`) has no TUI control. See
+`docs/release-tui-0.3.4-source-control-parity.md`, Known Gaps.
 
 
 The `context-budgets` fixture backs the frontend-neutral facade export of

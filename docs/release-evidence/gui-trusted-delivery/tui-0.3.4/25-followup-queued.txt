@@ -1,0 +1,40 @@
+ VIDEN / COCKPIT  fallback  test-local  healthy
+ /scratch-root...................  lane -  session -  approvals 1
+
+┌ TRANSCRIPT ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                               ┌ APPROVAL ───────────────────────────────────── audit_1789225201055571000 ┐                               │
+│ USER                          │ Approve edit_file · Medium                                               │                               │
+│   iconfirm the push outcome   │ Approve edit_file?                                                       │                               │
+│                               │ TARGET    new: line  old: line  path: README.md                        │                                 │
+│ USER                          │ INPUT     new: line  old: line  path: README.md                        │                                 │
+│   tool edit_file path=README.m│ PINNED · Ctrl-G Decisions · Enter select to focus                        │                               │
+│                               │                                                                          │                               │
+│ USER                          └──────────────────────────────────────────────────────────────────────────┘                               │
+│   the queued follow-up for E2                                                                                                            │
+│                                                                                                                                          │
+│ LANE-OUTPUT LANE_1789224502859401000 RECEIPT                                                                                             │
+│   HEAD is now at 8b5cf49 Add the fixture READMEPreparing worktree (new branch 'viden/lane_1789224502859401000')                         │
+│                                                                                                                                          │
+│ EVIDENCE                                                                                                                                 │
+│   edit_file completed path:                                                                                                              │
+│   /scratch-root............................................................................................./e2-fixture/README.md size:  │
+│   91 B effect: edited 6 lines                                                                                                            │
+│                                                                                                                                          │
+│ EVIDENCE                                                                                                                                 │
+│   native session edit: README.md (+1/-1)                                                                                                 │
+│                                                                                                                                          │
+│      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄                                         │
+│      ┊  ✦ Latest coder task done •                                                                                                       │
+│      ┊    └ turn-session_-1789225179000 · coder done · next review result or continue · live provider request · updated 41s ago          │
+│      ┊  SUPERVISION · Core facts                                                                                                         │
+│      ┊  APPROVAL approval_1789225201055568000 · Active · AUDIT audit_1789225201055571000                                                 │
+│      ┊  COMMAND tui-23 · pending Core fact                                                                                               │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+┌ Viden >_ ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                                                                                                                           │              │
+│ › Type next prompt while Viden works...                                                                                   │ MODE Build ▾ │
+│                                                                                                                           │              │
+│ MODE [Build]  PERM [Ask]                                                         ACTIONS: [^J Queue] [^C Cancel] [PgUp History] [? Help] │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+ P:e2-fixture L:- M:Build INSERT · ACTIVE · EVENTS 7 · TOKENS 0 · PROVIDER healthy
+ PERM:Ask A:1 ⏸ 0 E:0 · CTX:nominal · COST:blind · CMD:pending Core fact · Ctrl-K commands · Ctrl-C cancel · Esc back

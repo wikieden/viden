@@ -1,0 +1,40 @@
+ VIDEN / DECISIONS  fallback  test-local  healthy
+ /scratch-root...................  lane -  session -  approvals 1
+
+┌ DECISIONS ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ APPROVAL approval_178922457004┌ APPROVAL ────────────────────────── Esc close · arrows move · Enter open ┐                               │
+│ COMMAND tui-7 · pending Core f│ Approve edit_file · Medium                                               │                               │
+│                               │ Approve edit_file?                                                       │                               │
+│                               │ TARGET    new: Edited  old: Fixture  path: README.md                   │                                 │
+│                               │ README.md  Modified  +1 -1                                               │                               │
+│                               │   @@ -1,6 +1,6 @@                                                        │                               │
+│                               │     1       - # E2 Fixture                                               │                               │
+│                               │           1 + # E2 Edited                                                │                               │
+│                               │     2     2                                                              │                               │
+│                               │     3     3   A fixture repository for the 0.3.4 release-evidence run.   │                               │
+│                               │     4     4                                                              │                               │
+│                               │     5     5   line four                                                  │                               │
+│                               │     6     6   line five                                                  │                               │
+│                               │ computed against ed2e9faf                                                │                               │
+│                               │ 1 Allow once                                                             │                               │
+│                               │ 2 Allow for session · unavailable                                        │                               │
+│                               │ 3 Add repo allowlist                                                     │                               │
+│                               │ 4 Deny                                                                   │                               │
+│                               │ auto-deny @1789224870 · default Deny                                     │                               │
+│                               │ AUDIT   audit_1789224570047389000                                        │                               │
+│                               │                                                                          │                               │
+│                               │                                                                          │                               │
+│                               └──────────────────────────────────────────────────────────────────────────┘                               │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+│                                                                                                                                          │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+ P:e2-fixture L:- M:Build OVERLAY · ACTIVE · EVENTS 3 · TOKENS 0 · PROVIDER healthy
+ PERM:Ask A:1 ⏸ 0 E:0 · CTX:nominal · COST:blind · CMD:pending Core fact · Ctrl-K commands · Ctrl-C cancel · Esc back

@@ -1,0 +1,40 @@
+ VIDEN / COCKPIT  fallback  test-local  healthy
+ /scratch-root...................  lane -  session -  approvals 1
+
+┌ TRANSCRIPT ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│   i/lanes                     ┌ APPROVAL ───────────────────────────────────── audit_1789224570047389000 ┐                               │
+│                               │ Approve edit_file · Medium                                               │                               │
+│ USER                          │ Approve edit_file?                                                       │                               │
+│   Update the fixture README he│ TARGET    new: Edited  old: Fixture  path: README.md                   │                                 │
+│                               │ INPUT     new: Edited  old: Fixture  path: README.md                   │                                 │
+│ SYSTEM                        │ PINNED · Ctrl-G Decisions · Enter select to focus                        │                               │
+│   Closed the lane detail. The │                                                                          │                               │
+│                               └──────────────────────────────────────────────────────────────────────────┘                               │
+│ SYSTEM                                                                                                                                   │
+│   Cleared the Lane target lane_1789224502859401000. /git now names the workspace.                                                        │
+│                                                                                                                                          │
+│ USER                                                                                                                                     │
+│   tool edit_file path=README.md old=Fixture new=Edited                                                                                   │
+│                                                                                                                                          │
+│ ASSISTANT                                                                                                                                │
+│   fallback provider is running in local fallback mode for model `test-local`. Use `tool <name> key=value ...` to force a tool call, or   │
+│   configure API credentials. You said: Update the fixture README heading                                                                 │
+│                                                                                                                                          │
+│ LANE-OUTPUT LANE_1789224502859401000 RECEIPT                                                                                             │
+│   HEAD is now at 8b5cf49 Add the fixture READMEPreparing worktree (new branch 'viden/lane_1789224502859401000')                         │
+│                                                                                                                                          │
+│      ┊  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄                                         │
+│      ┊  ✦ Latest coder task done ∙                                                                                                       │
+│      ┊    └ turn-session_-1789224533000 · coder done · next review result or continue · live provider request · updated 41s ago          │
+│      ┊  SUPERVISION · Core facts                                                                                                         │
+│      ┊  APPROVAL approval_1789224570047386000 · Active · AUDIT audit_1789224570047389000                                                 │
+│      ┊  COMMAND tui-7 · pending Core fact                                                                                                │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+┌ Viden >_ ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                                                                                                                           │              │
+│ › Type next prompt while Viden works...                                                                                   │ MODE Build ▾ │
+│                                                                                                                           │              │
+│ MODE [Build]  PERM [Ask]                                                         ACTIONS: [^J Queue] [^C Cancel] [PgUp History] [? Help] │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+ P:e2-fixture L:- M:Build INSERT · ACTIVE · EVENTS 3 · TOKENS 0 · PROVIDER healthy
+ PERM:Ask A:1 ⏸ 0 E:0 · CTX:nominal · COST:blind · CMD:pending Core fact · Ctrl-K commands · Ctrl-C cancel · Esc back
