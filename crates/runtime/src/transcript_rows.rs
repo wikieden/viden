@@ -32,15 +32,12 @@
 //! it is all Core knows. Such a row never satisfies a Lane-scoped query,
 //! because the shared owner matcher requires a set field to match exactly.
 //!
-//! **Known limitation, not introduced here.** `TranscriptEntry::from_json_line`
-//! decodes a JSON string byte by byte and casts each byte to `char`
-//! (`viden_types::transcript`), so a persisted message body containing
-//! non-ASCII text replays mangled. Every reader of the session log has this
-//! defect — resume, the base `runtime.transcript_page`, and now these rows —
-//! and it is a base-capability fix with its own replay coverage rather than
-//! part of this capability. Until it is fixed, a non-ASCII row's text is as
-//! wrong here as it already is everywhere else, and the character-boundary
-//! bound below operates on whatever the decoder produced.
+//! **A row's text is the persisted text.** `TranscriptEntry::from_json_line`
+//! decodes a persisted JSON string as UTF-8 (`viden_types::transcript`), so a
+//! non-ASCII body replays byte-equal and the character-boundary bound below
+//! cuts real characters. That held for none of the readers of the session log
+//! until C11 fixed the decoder for all three — resume, the base
+//! `runtime.transcript_page`, and these rows.
 //!
 //! **Ordering is stable under append.** Row positions are derived from the
 //! source's own position rather than from a rank over the merged set, so a new

@@ -5002,3 +5002,63 @@ fn transcript_page_runtime_command_emits_transient_page_loaded_event() {
             if matches!(event.kind, RuntimeEventKind::TranscriptPageLoaded { .. })
     )));
 }
+
+/// Compatibility follow-up 12, reader two of three: the base
+/// `runtime.transcript_page` answers a persisted non-ASCII body verbatim. The
+/// page is the only transcript a frontend may read, so a Latin-1 reading here
+/// is what every client would have rendered.
+#[test]
+fn transcript_page_answers_persisted_non_ascii_text_verbatim() {
+    let home = temp_dir("transcript_page_utf8_home");
+    let cwd = temp_dir("transcript_page_utf8_cwd");
+    let provider = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    let session_id = engine.session_id().to_string();
+    let store = SessionStore::new_with_home(&home, &cwd, Some(session_id.clone())).unwrap();
+    let body = "café 你好 — ✓ 🚀";
+    store
+        .append_entry(&TranscriptEntry::Message {
+            message: viden_types::Message {
+                id: "msg-utf8-page".to_string(),
+                role: viden_types::Role::Assistant,
+                content: body.to_string(),
+                timestamp: 1,
+                tool_name: None,
+                tool_call_id: None,
+            },
+        })
+        .unwrap();
+
+    let events = engine
+        .handle_runtime_command(
+            "cmd_page_utf8",
+            RuntimeCommand::LoadTranscriptPage {
+                request: TranscriptPageRequest {
+                    session_id: session_id.clone(),
+                    before: None,
+                    limit: 20,
+                },
+            },
+            &mut |_| ApprovalResponse::deny(None),
+        )
+        .unwrap();
+    let page = events
+        .iter()
+        .find_map(|event| match &event.kind {
+            RuntimeEventKind::TranscriptPageLoaded { page } => Some(page),
+            _ => None,
+        })
+        .expect("expected a transcript page");
+    let texts = page
+        .rows
+        .iter()
+        .filter_map(|row| match &row.kind {
+            viden_types::TranscriptRowKind::Message { message } => Some(message.content.clone()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        texts.iter().any(|text| text == body),
+        "the page must carry the persisted body byte-equal, got {texts:?}"
+    );
+}

@@ -661,17 +661,60 @@ fn an_unattributed_row_never_answers_a_lane_scoped_query() {
     );
 }
 
+/// Compatibility follow-up 12, reader three of three: an owner-scoped row
+/// carries the persisted text byte-equal. These rows are the only transcript
+/// GUI-CORE-009 gave a client, so a Latin-1 reading here is what the client
+/// would render for every non-Latin conversation.
+#[test]
+fn a_row_answers_the_persisted_non_ascii_text_byte_equal() {
+    let mut fixture = fixture("transcript_rows_utf8");
+    let turn = owner(None, Some(&fixture.session_id), "turn-utf8");
+    let prompt = "请检查 naïve 的补丁 ✓";
+    let reply = "café 你好 — ✓ 🚀";
+    durable_turn(
+        &mut fixture.engine,
+        turn.clone(),
+        &[user(prompt), assistant(reply)],
+    );
+
+    let page = read_page(
+        &mut fixture.engine,
+        "rows-utf8",
+        TranscriptRowsQuery {
+            owner: turn,
+            ..TranscriptRowsQuery::default()
+        },
+    );
+    assert_eq!(
+        row_texts(&page),
+        vec![prompt.to_string(), reply.to_string()],
+        "a row must answer the persisted text, not a Latin-1 reading of its bytes"
+    );
+}
+
 /// A body over the bound is cut on a character boundary, says so, and names
 /// the canonical evidence row that already holds it in full.
 #[test]
 fn a_truncated_assistant_row_names_the_evidence_that_holds_its_body() {
     let mut fixture = fixture("transcript_rows_truncation");
     let turn = owner(None, Some(&fixture.session_id), "turn-truncation");
-    // ASCII, so the byte bound and the character bound coincide. The
-    // character-boundary cut itself is proven in `viden-types`; a multi-byte
-    // body cannot be round-tripped through the transcript JSONL on this build
-    // (see the known limitation in `crate::transcript_rows`).
-    let body = "a".repeat(MAX_TRANSCRIPT_ROW_TEXT_BYTES as usize + 64);
+    // A real multi-byte body, so the character bound and the byte bound cannot
+    // coincide: the 8 KiB cut lands inside a three-byte character and has to
+    // step back to the boundary below it. C8 used an ASCII stand-in here
+    // because a non-ASCII body could not survive the transcript round trip at
+    // all; C11 fixed the decoder, so the cut is proven on the real shape.
+    let body = "你好 café ✓ ".repeat(500);
+    let expected_cut = {
+        let mut cut = MAX_TRANSCRIPT_ROW_TEXT_BYTES as usize;
+        while !body.is_char_boundary(cut) {
+            cut -= 1;
+        }
+        cut
+    };
+    assert!(
+        expected_cut < MAX_TRANSCRIPT_ROW_TEXT_BYTES as usize,
+        "the body must straddle the bound, or this proves nothing about characters"
+    );
     start_evidence_gate(&mut fixture.engine);
     record_canonical_evidence(
         &fixture.cwd,
@@ -699,8 +742,13 @@ fn a_truncated_assistant_row_names_the_evidence_that_holds_its_body() {
             assert!(truncated, "the bound cut the body and must say so");
             assert_eq!(
                 text.len(),
-                MAX_TRANSCRIPT_ROW_TEXT_BYTES as usize,
-                "the body is cut at the bound, not at the row"
+                expected_cut,
+                "the body is cut on the character boundary below the bound"
+            );
+            assert_eq!(
+                text.as_str(),
+                &body[..expected_cut],
+                "the bounded text is the persisted body's own prefix"
             );
             assert_eq!(
                 evidence_id.as_deref(),

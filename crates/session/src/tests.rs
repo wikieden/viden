@@ -526,6 +526,39 @@ fn jsonl_round_trip_works() {
     assert_eq!(entries.len(), 1);
 }
 
+/// Compatibility follow-up 12: the store is the real persistence boundary, so
+/// a non-ASCII body must come back from disk byte-equal. The bytes written are
+/// already valid UTF-8 — this is a read-side contract and needs no migration.
+#[test]
+fn jsonl_round_trip_preserves_non_ascii_text() {
+    let home = temp_home("jsonl_utf8");
+    let cwd = home.join("workspace");
+    fs::create_dir_all(&cwd).unwrap();
+    let store = SessionStore::new_with_home(&home, &cwd, Some("session_utf8".into())).unwrap();
+    let body = "café 你好 — ✓";
+    store
+        .append_entry(&TranscriptEntry::Message {
+            message: Message::new(Role::Assistant, body),
+        })
+        .unwrap();
+
+    let raw = fs::read(store.transcript_path()).unwrap();
+    let persisted = std::str::from_utf8(&raw).expect("the transcript file is valid UTF-8");
+    assert!(
+        persisted.contains(body),
+        "the persisted line already holds the body verbatim: {persisted}"
+    );
+
+    let entries = store.load_entries().unwrap();
+    match &entries[0] {
+        TranscriptEntry::Message { message } => assert_eq!(
+            message.content, body,
+            "replay must return the persisted body, not a Latin-1 reading of it"
+        ),
+        other => panic!("expected a message entry, got {other:?}"),
+    }
+}
+
 #[test]
 fn replay_discards_trailing_partial_batch() {
     let home = temp_home("partial_batch_legacy");

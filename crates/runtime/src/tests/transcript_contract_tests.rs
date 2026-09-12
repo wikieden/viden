@@ -141,6 +141,55 @@ fn denied_tool_call_history_is_reconstructible_from_transcript() {
     );
 }
 
+/// Compatibility follow-up 12, reader one of three: resume rebuilds the
+/// model-visible history from the JSONL alone, so a non-ASCII prompt and reply
+/// must come back exactly as they were written. Latin-1 decoding replayed them
+/// as mojibake, which a provider would then see on the next request.
+#[test]
+fn non_ascii_transcript_text_survives_a_session_rebuild() {
+    let home = temp_dir("log_contract_utf8_home");
+    let cwd = temp_dir("log_contract_utf8_cwd");
+    let prompt = "请用三种文字回答: café, 你好, ✓";
+    let reply = "café 你好 — ✓ 🚀";
+    let provider = Box::new(SequenceProvider::new(vec![vec![
+        ModelEvent::AssistantText {
+            content: reply.to_string(),
+        },
+    ]]));
+    let mut approver = |_prompt| ApprovalResponse::allow_once(None);
+    let mut live_engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    let session_id = live_engine.session_id().to_string();
+    live_engine
+        .process_input_with_approval(prompt, &mut approver)
+        .unwrap();
+    let live = model_visible_projection(&live_engine.messages);
+
+    let rebuilt_provider = Box::new(SequenceProvider::new(vec![]));
+    let mut rebuilt_engine =
+        SessionEngine::new_with_home(&cwd, rebuilt_provider, Some(home)).unwrap();
+    rebuilt_engine
+        .resume_session(RuntimeResumeRequest::exact_session_id(session_id))
+        .unwrap();
+    let rebuilt = model_visible_projection(&rebuilt_engine.messages);
+
+    assert_eq!(
+        live, rebuilt,
+        "a non-ASCII history rebuilt from the JSONL must match the live history"
+    );
+    assert!(
+        rebuilt
+            .iter()
+            .any(|(role, content, _, _)| *role == Role::Assistant && content == reply),
+        "the resumed assistant reply must be byte-equal to the persisted one: {rebuilt:?}"
+    );
+    assert!(
+        rebuilt
+            .iter()
+            .any(|(role, content, _, _)| *role == Role::User && content == prompt),
+        "the resumed prompt must be byte-equal to the persisted one: {rebuilt:?}"
+    );
+}
+
 #[test]
 fn resume_surfaces_quarantined_transcript_lines_as_a_system_fact() {
     let home = temp_dir("log_contract_quarantine_home");
