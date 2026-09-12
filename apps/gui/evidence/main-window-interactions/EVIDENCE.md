@@ -195,6 +195,10 @@ All URLs share the prefix
 | `evidence-unavailable` | `…/qa.html?state=evidence-unavailable` | the opposite absence on the `patch` row: `Unavailable { HashMismatch }` as "canonical bytes failed verification — not shown", in the error colour, with no body anywhere on the screen |
 | `evidence-empty` | `…/qa.html?state=evidence-empty` | "No evidence in this scope." — the only state drawn that way, over a page Core actually answered — with `complete` stated as "Archive complete" rather than left to the absence of a `Load older` button |
 | `evidence-rejected` | `…/qa.html?state=evidence-rejected` | Core's over-limit `kinds` refusal verbatim in a `role=alert`, its `hint:` line kept on its own line, with nothing loaded, no paging foot, and no empty-archive sentence |
+| `nav-d2-in-cockpit` | `…/qa.html?state=nav-d2-in-cockpit` | the decision queue as a **centre-pane view**: the cockpit chrome unchanged around it — titlebar with the source block, activity rail with `Decisions` marked `aria-current` and carrying Core's own pending count as its badge, context dock, composer still addressed to the selected Lane, statusbar with its gate chip — plus the view's own `AUDIT`-style head and the Close control in the position DiffReview puts its own |
+| `nav-d14-in-cockpit` | `…/qa.html?state=nav-d14-in-cockpit` | the audit trail in the same shell, which is where `D-AUDIT`'s one-way link from an evidence row or a D12 baseline chip now lands: the rail's `Audit timeline` slot marked current, the mode toggle and the three audit rows below the view head, and the conversation still one `Esc` away |
+| `nav-sidebar-floating-peek` | `…/qa.html?state=nav-sidebar-floating-peek` | `D-SIDEBAR` floating mode with the peek open through the keyboard path (the Lanes rail slot): the sidebar as an **overlay above the transcript** rather than a layout column, the 12px hot zone with its `.edgehint` cue against the activity rail, and the header's pin control in its unpinned state |
+| `nav-statusbar-config` | `…/qa.html?state=nav-statusbar-config` | the `D-STATUSBAR` config gear open: the `.sbcfg` popover listing the six ambient segments with their checkboxes, the footer sentence saying identity and actionable items are always pinned, and `MODE`, `PERM`, `LANE`, and the pending-gate chip visible on the bar behind it while absent from the list |
 
 `mode=dark|light` and `locale=en|zh-CN` are accepted on every state and resolve
 through the shared `resolveTheme` path, so the harness never ships a second
@@ -750,3 +754,43 @@ verification — not shown". Those are two different facts — Core's recorded
 verdicts on the *evidence record*, and the *content read's* own hash check
 against `source_hash` — and the screen currently states neither relationship.
 Recorded as a follow-up in `docs/core-0.3-compatibility.md`, not fixed here.
+
+## Navigation shell captures (G3)
+
+Captured 2026-09-12 with the same headless Chrome procedure
+(`--headless --window-size=1440,900 --virtual-time-budget=6000`) against the
+vite dev server on port 4173, then visually reviewed. These are the first
+images of the rail-as-router shell: `D-RAILNAV` with the five secondary
+D-screens rendered inside the cockpit, `D-SIDEBAR`'s floating mode, and
+`D-STATUSBAR`'s config gear.
+
+The D2 and D14 projections are the **generated** ones the standalone captures
+already used (`../gui-screen-restore/projections/d2.json` and
+`d14-audit.json` / `d14-raw.json`), handed to the same production renderers
+through the cockpit's `secondaryViews` seam. Nothing about the screens changed
+for these captures — only the container they are mounted into — which is the
+property the images exist to show.
+
+| File | State | Viewport | Mode | Locale |
+| --- | --- | --- | --- | --- |
+| [nav-d2-in-cockpit-1440x900-dark-en.png](nav-d2-in-cockpit-1440x900-dark-en.png) | nav-d2-in-cockpit | 1440x900 | dark | en |
+| [nav-d2-in-cockpit-1440x900-light-zh-CN.png](nav-d2-in-cockpit-1440x900-light-zh-CN.png) | nav-d2-in-cockpit | 1440x900 | light | zh-CN |
+| [nav-d14-in-cockpit-1440x900-dark-en.png](nav-d14-in-cockpit-1440x900-dark-en.png) | nav-d14-in-cockpit | 1440x900 | dark | en |
+| [nav-sidebar-floating-peek-1440x900-dark-en.png](nav-sidebar-floating-peek-1440x900-dark-en.png) | nav-sidebar-floating-peek | 1440x900 | dark | en |
+| [nav-statusbar-config-1440x900-dark-en.png](nav-statusbar-config-1440x900-dark-en.png) | nav-statusbar-config | 1440x900 | dark | en |
+
+Each image exists to make one claim falsifiable:
+
+| Image | The claim it proves |
+| --- | --- |
+| `nav-d2-in-cockpit` | the chrome **survives** the switch. Before G3 this screen replaced the window; here the titlebar, the activity rail, the context dock, the composer, and the statusbar are all still on screen beside it, and the composer still names the selected Lane. The rail marks `Decisions` current and carries `2` — Core's own `pendingGateCount`, the one published number the rail is allowed to show |
+| `nav-d2-in-cockpit` (light/zh-CN) | the locale proof for the added copy: the view head, the Close control's accessible name, and the rail's new slot names translate, while Core's ids, the raw action keys, and the capability names stay exactly as Core published them |
+| `nav-d14-in-cockpit` | the return path has somewhere to return **to**. `D-AUDIT`'s link runs one way — audit rows link evidence, not the reverse — so an operator who follows it from an evidence row or a D12 chip used to lose the conversation; here the trail renders over it and `Esc` or the Close control brings the transcript back |
+| `nav-sidebar-floating-peek` | `D-SIDEBAR`'s floating mode is an overlay, not a second layout. The transcript keeps its full width behind the peeked sidebar, the 12px hot zone with its `.edgehint` sits against the activity rail, and the header's pin control reads unpinned — the same component, a different host |
+| `nav-statusbar-config` | `D-STATUSBAR` splits the bar by **actionability**, not urgency. The popover offers exactly the six ambient segments; `MODE`, `PERM`, `LANE`, and the pending-gate chip are on the bar behind it and are not in the list, because a control that can be switched off is a control the operator cannot reach when it matters (`O-B6`) |
+
+No existing capture was re-taken. The rail gained slots and the statusbar
+gained a gear, so every cockpit-bearing image is now one revision behind on
+those two strips; they are left as the record of what the shell looked like
+before G3 rather than silently refreshed, and the recapture belongs with the
+batch that next changes what they document.

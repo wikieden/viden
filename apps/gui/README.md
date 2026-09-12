@@ -247,29 +247,10 @@ claim command acceptance as business success. Ordered Core refreshes update the
 activity and Lane rails in place so their hover roots remain mounted while
 volatile Lane/Agent status changes; this prevents the floating sidebar from
 flashing without hiding fresh Core facts. Every enabled activity-rail slot has
-an action behind it: routing slots open their restored screen, the Lane slot
-toggles the Lane rail, and `Work` — the slot marked `aria-current` because it
-is the screen already showing — returns focus to the composer. A slot with no
-available action is disabled rather than enabled and inert.
-
-Every routing slot is labelled — tooltip and accessible name alike — with the
-screen it actually opens: Integration gate (D12), Decisions (D2), Audit
-timeline (D14), Lane monitor (D10), and Fleet board (D13), each carrying the
-registered `GUI/gui-icons.jsx` glyph closest to that screen. The rail
-previously wore an editor's file-explorer vocabulary (Search, Source control,
-Evidence, Diagnostics, Inbox) over those same routes, which is worse than a
-missing label: the operator could only learn the real mapping by clicking, and
-every tooltip and screen-reader announcement taught it wrong until they did.
-The destinations are honest as of this change and the routing itself is
-unchanged. What stays open is the *design* question rather than the labelling
-one — the accepted rail has no slot for the decision queue, the audit trail,
-the lane monitor, or the fleet board, and the design reaches several of them as
-in-cockpit secondary views instead, so those four slots were a routing decision
-awaiting design adjudication. That adjudication has since landed: the design
-package's `docs/SPEC.md` decision `D-RAILNAV` (2026-09-08) accepts the rail as a
-router to the standalone D-screens and keeps the flagship's in-page view
-switching as design exploration, so this shipped routing is the accepted model
-rather than an interim one.
+an action behind it, and a slot with no available action is disabled rather
+than enabled and inert. The rail itself is the cockpit's router; see
+[Navigation shell](#navigation-shell) below for the table, the centre views,
+the return path, and the Lane sidebar's two modes.
 
 `New Lane` opens one compact, anchored popover with the built-in Viden Agent
 selected by default, discovered ACP Agents, the task draft, branded Agent
@@ -427,7 +408,9 @@ position because frontend-contract-v1 publishes no event counter), `LANE`
 (provider request/error counts). A segment whose Core fact is absent renders
 an explicit em-dash rather than a fabricated number. When approvals or open
 merge gates are waiting, the right edge shows the pending-gate segment — the
-bar's only interactive element — which navigates to the D2 decision queue.
+bar's only actionable element — which opens the in-cockpit D2 decision queue. A
+gear at the leading edge opens the `D-STATUSBAR` config popover over the six
+ambient segments; see [Navigation shell](#navigation-shell).
 
 The transcript retains at most 240 rows. Leaving the latest edge sets
 `follow_latest=false`, preserves the current anchor, and increments a visible
@@ -447,6 +430,135 @@ explicit unavailable fact; D1 never fabricates a successful placeholder. The
 row claiming otherwise would be a stale statement about Core rather than a
 fact. `diff` and `apply` still appear against a Core build that really
 publishes neither capability, and then name the capability itself.
+
+## Navigation shell
+
+The activity rail is the cockpit's router (`D-RAILNAV`), and every destination
+it names renders **inside** the cockpit chrome. The `0.3.4` plan resolved the
+question `D-RAILNAV` left open in favour of the D1 flagship's own behaviour:
+D2, D10, D12, D13, and D14 were full-window screens that discarded the
+titlebar, both rails, the context dock, the composer, and the statusbar, and
+left no way back except a browser-style route; they are now views over the
+transcript, exactly as DiffReview and EvidenceView already were.
+
+**One router table.** `src/components/activity_rail.ts` exports
+`D1_RAIL_ROUTES`, a single ordered array that is both the rail's render order
+and its routing map. It replaced a slot list plus a separate route map keyed by
+message id, which could drift apart; one table makes "every registered
+destination is reachable from the rail" checkable rather than asserted.
+
+| # | Slot | Opens | Glyph | Availability |
+| --- | --- | --- | --- | --- |
+| 1 | Conversation | the transcript; focuses the composer | `chat` | a focusable composer |
+| 2 | Lanes | toggles the Lane sidebar (see below) | `lanes` | a bound workspace |
+| 3 | Diff review | centre view `review` | `review` | `runtime.structured_diff` |
+| 4 | Evidence | centre view `evidence` | `evidence` | `runtime.evidence_reads` |
+| 5 | Decisions | centre view `d2` | `decide` | a bound host |
+| 6 | Lane monitor | centre view `d10` | `diagnostics` | a bound host |
+| 7 | Integration gate | centre view `d12` | `worktree` | a bound host |
+| 8 | Fleet | centre view `d13` | `fleet` | a bound host |
+| 9 | Audit | centre view `d14` | `brief` | a bound host |
+| — | Settings | the Settings overlay, below the spacer | `settings` | a bound host |
+
+Every glyph is a registered `GUI/gui-icons.jsx` path; no slot invents art.
+Exactly one slot is marked `aria-current="page"`, and the table decides which:
+the Conversation slot is current precisely when no destination is, so the rail
+can never mark two at once.
+
+**Absence is named, never hidden.** A destination whose Core capability is
+missing is disabled *and* labelled with the capability, in the accessible name
+rather than only in a tooltip — `Diff review — unavailable: Core publishes no
+runtime.structured_diff`. Audit is the one destination that is never blocked:
+without `runtime.audit` D14 opens in raw event replay, which is a different
+view of the same question, so the slot says so up front instead of letting the
+operator discover it after the click. The only badge is the Decisions slot's
+pending count, which is `statusbar.pendingGateCount` — a number Core already
+publishes. No other slot carries one, because no other slot has a Core-published
+count, and a zero would read as "nothing waiting" when the truth is "nobody
+counted".
+
+**Centre views.** `centerView` is `transcript | review | evidence | d2 | d10 |
+d12 | d13 | d14`, and the cockpit publishes it as `data-center-view` on its own
+frame; `root.dataset.route` stays `d1`, because the centre view is a fact about
+the cockpit rather than a route. The five D-screens are mounted through one
+seam, `D1RenderOptions.secondaryViews`: the shell owns *what* goes in (each
+screen is a Core read that belongs to the client boundary) and the cockpit owns
+*where* — the centre pane, the chrome around it, the Close control, and `Esc`.
+The screen renderers are untouched; they take a container and fill it, and only
+the container moved from the window root into D1's centre pane. That is what
+keeps their existing Rust projections, `onNavigate` semantics, and vitest
+coverage passing. The host node is kept across ordered Core refreshes, so a
+mounted screen holds its own selection, filter, and mode instead of being
+rebuilt — and re-read from Core — on every wake. A rejected read renders Core's
+own words in a `role=alert` in place of the screen; the pane is never left
+blank, because blank reads as "nothing here" rather than "Core would not
+answer".
+
+**Deep links.** `?screen=d2|d10|d12|d13|d14` opens the cockpit and then
+switches its centre pane, so a link produces the same chrome, the same selected
+Lane, and the same return path the rail does. `?screen=d4` and `?screen=d11`
+stay full-window flows: they really do replace the cockpit. Welcome still wins
+when no workspace is bound — the deep link is only read once Core answered with
+a cockpit projection.
+
+**Every cross-view link lands in the cockpit.** The palette's `#` rows (a merge
+gate to D12, an ask to D2), the statusbar's pending-gate segment, the
+titlebar's worktrees chip, D2's and D12's audit-trail links, EvidenceView's
+"Open audit trail" footer, and D10's card action to the decision centre all go
+through one function — the cockpit's `navigate` — which switches the centre
+view when it can host the destination and falls through to the shell's window
+route when it cannot. The scope each of them carries is preserved: D14's
+`kind:id` audit scope still goes through `parseAuditScope`, and D12's gate id
+and D2's decision id are still Core's own ids, re-read by the screen before it
+renders.
+
+**Return path.** Every non-transcript view carries a Close control in the
+position DiffReview puts its own — the trailing end of the view's head — and
+pressing the same rail slot again returns to the transcript. `⌘G` / `⌃G` opens
+Decisions and toggles the same way, joining `⌘R` (Diff review) and `⌘E`
+(Evidence). `Esc` is handled in exactly one place, with an explicit priority
+order, because the order *is* the contract:
+
+1. an IME composition owns the key outright;
+2. an open overlay owns it — the settings panel, the command palette, a
+   composer-control popover, the New Lane popover, the project picker, or the
+   permission dock. A decision the operator is being asked to make outranks any
+   navigation;
+3. the floating Lane sidebar's peek, the most transient thing on screen and the
+   one `D-SIDEBAR` binds `Esc` to;
+4. the composer's cancel-turn binding, which stops real work rather than moving
+   a view. Its affordance — the Live Work strip's Cancel — lives inside the
+   transcript, so in practice the two never contend;
+5. the centre view's return path, and only then.
+
+**Lane sidebar modes (`D-SIDEBAR`).** `pinned` is the default and is the
+behaviour that shipped before: the Lanes slot toggles the rail and the activity
+rail's hover reveals it. `floating` hides it and gives the horizontal space back
+to the transcript; the design's 12 px hot zone with its `.edgehint` cue sits
+against the activity rail, a pointer entering it peeks the sidebar open, and
+leaving hides it after the design's ~700 ms delay. Selecting a Lane hides it
+immediately — it has done its job — and so does `Esc`. The keyboard path is the
+Lanes rail slot, which toggles the peek. The pin/unpin control in the sidebar
+header switches modes. The component is the same node in both modes; only its
+host changes, which is the decision's own rule.
+
+**Statusbar config gear (`D-STATUSBAR`).** A gear at the leading edge of the bar
+opens the design's `.sbcfg` popover listing the six *ambient* segments —
+`CONTEXT`, `EVENTS`, `LATENCY`, `TOKENS`, `DIAG`, `REQ` — with a checkbox each.
+The pinned half is not listed and cannot be switched off: `MODE`, `PERM`,
+`LANE`, and the pending-gate chip are identity and action, and `D-STATUSBAR`
+splits the bar by actionability rather than urgency. A bar mounted without the
+config port renders no gear at all, rather than a gear that does nothing.
+
+**Two in-memory seams.** The Lane sidebar mode and the statusbar's ambient
+visibility are presentation state held in memory for this batch and
+deliberately **not** persisted. The frontend contract makes Core the single
+preference authority, so the design prototype's `localStorage` keys
+(`vd-leftmode`, `vd-leftw`) would be the second preference model the contract
+forbids. Core batch `C5` adds `UiPreferences.lane_sidebar_mode`; G7 then reads
+it through the resolved preference projection and writes it with
+`SetUiPreferences`, and `D1RenderOptions.laneSidebarMode` becomes Core's value
+rather than a caller default. Both seams carry that note in the code.
 
 ## Projects, recent work, and the grouped rail
 
@@ -492,7 +604,9 @@ columns rather than also dismissing the popover; Escape at the columns closes
 it and hands focus back to whichever anchor opened it, resolving the *live*
 anchor because a Core refresh rebuilds both the titlebar and the rail.
 
-**The Lane rail** is the design's workspace explorer: one `.wsroot` group
+**The Lane rail** has two `D-SIDEBAR` modes (see
+[Navigation shell](#navigation-shell)) and is, in both, the design's workspace
+explorer: one `.wsroot` group
 header carrying the project name Core published (or the workspace path when it
 published none), a `▸`/`▾` collapse whose state is GUI-local and survives
 ordered Core refreshes, the per-group `＋` — the same Lane creation action, now

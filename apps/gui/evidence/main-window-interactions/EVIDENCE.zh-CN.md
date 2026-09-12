@@ -163,6 +163,10 @@ URL 与尺寸，不在该运行时之外调用浏览器自动化。
 | `evidence-unavailable` | `…/qa.html?state=evidence-unavailable` | `patch` 行上的相反缺席：`Unavailable { HashMismatch }` 渲染为「规范字节校验失败——不予展示」，使用错误色，整屏没有任何正文 |
 | `evidence-empty` | `…/qa.html?state=evidence-empty` | 「此范围内没有证据。」——唯一可以这样画的状态，且画在 Core 确实答复过的一页之上——并把 `complete` 明说为「档案已完整」，而不是靠 `加载更早` 按钮的缺席来表示 |
 | `evidence-rejected` | `…/qa.html?state=evidence-rejected` | Core 对越界 `kinds` 的拒绝原文放进 `role=alert`，其 `hint:` 行保持独立成行，什么都未加载，没有翻页脚，也没有空档案的句子 |
+| `nav-d2-in-cockpit` | `…/qa.html?state=nav-d2-in-cockpit` | 决策队列作为**中央面板视图**：四周驾驶舱 chrome 原封不动——带 source 块的标题栏、`决策` 槽位标记 `aria-current` 并带上 Core 自己的待处理计数徽标的活动 rail、上下文坞、仍然对准选中 Lane 的 composer、带待审闸芯片的状态栏——外加该视图自己的头部与 Close 控件（位置与 DiffReview 的一致） |
+| `nav-d14-in-cockpit` | `…/qa.html?state=nav-d14-in-cockpit` | 同一外壳中的审计轨迹，也就是 `D-AUDIT` 从证据行或 D12 基线芯片单向链接如今落到的地方：rail 的 `审计时间线` 槽位标记为当前，视图头部之下是模式切换与三条审计行，而对话只差一个 `Esc` |
+| `nav-sidebar-floating-peek` | `…/qa.html?state=nav-sidebar-floating-peek` | `D-SIDEBAR` 浮动模式经键盘路径（Lane rail 槽位）peek 打开：侧栏是**覆盖在转录之上的浮层**而非布局列，12px 热区连同 `.edgehint` 提示条贴在活动 rail 右缘，头部 pin 控件处于未固定态 |
+| `nav-statusbar-config` | `…/qa.html?state=nav-statusbar-config` | `D-STATUSBAR` 配置齿轮打开：`.sbcfg` 弹层列出六个环境段及其勾选框，页脚写明身份项与可操作项始终固定，而 `MODE`、`PERM`、`LANE` 与待审闸芯片就在其后的状态栏上、却不在列表中 |
 | `palette` | `…/qa.html?state=palette` | 从标题栏按钮打开、覆盖在驾驶舱之上的 ⌘K 命令面板，四个分区全部可见——动作、跳转到（跨 Lane 的闸与询问，加上本 Lane）、设置，以及列出 Core 已发布工作区清单的「文件」分区 |
 | `palette-files` | `…/qa.html?state=palette-files` | 同一个面板但预先限定到 `~`，单独框出 Core 发布的清单：六条路径按 Core 的字典序排列，每条带 Core 报告的条目类型，没有任何一条是客户端自行发现的（`GUI-CORE-022`） |
 | `d10-ticker` | `…/qa.html?state=d10-ticker` | Lane 卡片下方的 D10 事件走马灯：Core 审计时间线的一页有界 newest-first 记录，两个项目交错出现，因此该条展示的是跨项目的同一个顺序而不是按项目分组的列表；每行携带 Core 的稳定 id、原样的点分 action key、owner 与时间戳（`GUI-CORE-014`） |
@@ -651,3 +655,38 @@ Core 没有本地化名称的原始 `task_summary` 类型，以及 `YYYY-MM-DD` 
 这是两个不同的事实——Core 对**证据记录**记下的判定，与**内容读取**自身对 `source_hash`
 的哈希校验——而屏幕目前没有说明两者的关系。已作为后续项记入
 `docs/core-0.3-compatibility.md`，本批次不做修复。
+
+## 导航外壳截图（G3）
+
+2026-09-12 以同一套 headless Chrome 流程拍摄
+（`--headless --window-size=1440,900 --virtual-time-budget=6000`），针对 4173
+端口上的 vite dev server，随后逐张目视复核。这是 rail-as-router 外壳的第一批图像：
+`D-RAILNAV` 下五个次级 D 屏渲染在驾驶舱内部、`D-SIDEBAR` 的浮动模式，以及
+`D-STATUSBAR` 的配置齿轮。
+
+D2 与 D14 的投影就是独立屏截图已经用过的那份**生成**投影
+（`../gui-screen-restore/projections/d2.json` 与 `d14-audit.json` / `d14-raw.json`），
+经驾驶舱的 `secondaryViews` 接缝交给同一批生产渲染函数。这些截图里屏幕本身没有任何改动
+——只有承载它们的容器变了——而这正是这些图像要展示的性质。
+
+| 文件 | 状态 | 视口 | 模式 | 语言 |
+| --- | --- | --- | --- | --- |
+| [nav-d2-in-cockpit-1440x900-dark-en.png](nav-d2-in-cockpit-1440x900-dark-en.png) | nav-d2-in-cockpit | 1440x900 | dark | en |
+| [nav-d2-in-cockpit-1440x900-light-zh-CN.png](nav-d2-in-cockpit-1440x900-light-zh-CN.png) | nav-d2-in-cockpit | 1440x900 | light | zh-CN |
+| [nav-d14-in-cockpit-1440x900-dark-en.png](nav-d14-in-cockpit-1440x900-dark-en.png) | nav-d14-in-cockpit | 1440x900 | dark | en |
+| [nav-sidebar-floating-peek-1440x900-dark-en.png](nav-sidebar-floating-peek-1440x900-dark-en.png) | nav-sidebar-floating-peek | 1440x900 | dark | en |
+| [nav-statusbar-config-1440x900-dark-en.png](nav-statusbar-config-1440x900-dark-en.png) | nav-statusbar-config | 1440x900 | dark | en |
+
+每张图都让一个主张可被证伪：
+
+| 图像 | 它证明的主张 |
+| --- | --- |
+| `nav-d2-in-cockpit` | chrome 在切换中**存活**。G3 之前这块屏幕会替换整个窗口；这里标题栏、活动 rail、上下文坞、composer 与状态栏都仍在它旁边，composer 也仍然指名选中的 Lane。Rail 把 `决策` 标记为当前并带 `2`——来自 Core 自己的 `pendingGateCount`，是 rail 唯一被允许展示的已发布数字 |
+| `nav-d2-in-cockpit`（light/zh-CN） | 新增文案的语言证明：视图头部、Close 控件的可访问名称与 rail 新槽位名都会翻译，而 Core 的 id、原始动作键与能力名保持 Core 发布时的原样 |
+| `nav-d14-in-cockpit` | 返回路径有地方可回。`D-AUDIT` 的链接是单向的——审计行链接证据，不反向——因此从证据行或 D12 芯片跟过去的操作者过去会丢掉对话；这里轨迹渲染在对话之上，`Esc` 或 Close 控件把转录带回来 |
+| `nav-sidebar-floating-peek` | `D-SIDEBAR` 的浮动模式是浮层，不是第二套布局。Peek 打开的侧栏之后转录保持完整宽度，12px 热区连同 `.edgehint` 贴在活动 rail 右缘，头部 pin 控件读作未固定——同一个组件，不同的宿主 |
+| `nav-statusbar-config` | `D-STATUSBAR` 按**可操作性**而不是紧急程度切分状态栏。弹层恰好提供六个环境段；`MODE`、`PERM`、`LANE` 与待审闸芯片就在其后的状态栏上，且不在列表中，因为可以被关掉的控件就是操作者在需要时够不到的控件（`O-B6`） |
+
+没有重拍任何既有截图。Rail 增加了槽位、状态栏增加了齿轮，因此每一张带驾驶舱的图像在这
+两条上都落后一个修订；这里把它们保留为 G3 之前外壳样貌的记录，而不是悄悄刷新，重拍应当
+与下一次改动它们所记录内容的批次一同进行。
