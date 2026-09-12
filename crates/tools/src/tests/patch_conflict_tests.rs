@@ -11,7 +11,7 @@ use std::fs;
 use viden_types::{ConflictBaseline, ConflictHunkReason};
 
 use super::temp_dir;
-use crate::patch::{LocalPatchBackend, PatchRequest, conflict_content};
+use crate::patch::{LocalPatchBackend, PatchBackend, PatchRequest, conflict_content};
 
 fn request(cwd: &std::path::Path, unified_diff: &str) -> PatchRequest {
     PatchRequest {
@@ -210,4 +210,174 @@ fn the_strict_apply_still_returns_its_original_conflict_message() {
             .contains("patch conflict: expected hunk context was not found"),
         "{error}"
     );
+}
+
+/*
+ * H2 hygiene — compatibility follow-up 1: "strict apply silently drops binary
+ * files from a patch".
+ *
+ * `parse_unified_diff` discarded any file it had scanned no rows for, which is
+ * every binary file Git reports as `Binary files … differ` or `GIT binary
+ * patch`. A mixed patch therefore applied its text files and said *nothing at
+ * all* about the binary ones — the operator read "applied" and had no way to
+ * learn that part of the change was never written. That silence is also why
+ * `ConflictHunkReason::Binary` had no producer.
+ *
+ * The outcome is now stated per file, in the shape the types already model: the
+ * text files still apply, and the apply result names the binary file in
+ * `conflicts`. Nothing new is invented — no event, no capability, no fixture.
+ */
+
+/// A `git diff` over one text file and one binary file, exactly as Git writes
+/// it: the binary section carries the `Binary files` marker and no `@@` at all.
+const MIXED_BINARY_DIFF: &str = concat!(
+    "diff --git a/notes.txt b/notes.txt\n",
+    "--- a/notes.txt\n",
+    "+++ b/notes.txt\n",
+    "@@ -1,1 +1,1 @@\n",
+    "-one\n",
+    "+ONE\n",
+    "diff --git a/logo.png b/logo.png\n",
+    "index 1111111..2222222 100644\n",
+    "Binary files a/logo.png and b/logo.png differ\n",
+);
+
+#[test]
+fn a_binary_file_in_a_mixed_patch_is_reported_while_the_text_file_still_applies() {
+    let cwd = temp_dir("patch_binary_mixed");
+    fs::write(cwd.join("notes.txt"), "one\n").unwrap();
+    fs::write(cwd.join("logo.png"), [0x89, 0x50, 0x4e, 0x47]).unwrap();
+
+    let outcome = LocalPatchBackend
+        .apply(&request(&cwd, MIXED_BINARY_DIFF))
+        .expect("a binary file is a stated outcome, not a failed apply");
+
+    // The text file is applied, because refusing the whole patch for a file
+    // this apply cannot read would be a different and larger change.
+    assert!(outcome.applied, "{outcome:?}");
+    assert_eq!(fs::read_to_string(cwd.join("notes.txt")).unwrap(), "ONE\n");
+    assert_eq!(outcome.writes.len(), 1, "{outcome:?}");
+    assert!(
+        outcome.writes[0].ends_with("notes.txt"),
+        "only the text file is written: {outcome:?}"
+    );
+
+    // And the binary file is named, with a reason, instead of vanishing.
+    assert_eq!(outcome.conflicts.len(), 1, "{outcome:?}");
+    assert_eq!(
+        outcome.conflicts[0].path,
+        std::path::PathBuf::from("logo.png")
+    );
+    assert!(
+        outcome.conflicts[0].message.contains("binary"),
+        "{:?}",
+        outcome.conflicts[0]
+    );
+
+    // The binary bytes are untouched: a refusal does not half-write a file.
+    assert_eq!(
+        fs::read(cwd.join("logo.png")).unwrap(),
+        vec![0x89, 0x50, 0x4e, 0x47]
+    );
+}
+
+/// `check` is the dry run the approval surfaces read. It must name the same
+/// file the apply would, or an operator would approve a patch whose binary
+/// half only appears afterwards.
+#[test]
+fn the_dry_run_names_the_binary_file_before_anything_is_written() {
+    let cwd = temp_dir("patch_binary_check");
+    fs::write(cwd.join("notes.txt"), "one\n").unwrap();
+
+    let outcome = LocalPatchBackend
+        .check(&request(&cwd, MIXED_BINARY_DIFF))
+        .expect("a dry run over a mixed patch must answer");
+
+    assert!(!outcome.applied);
+    assert_eq!(outcome.writes.len(), 1, "{outcome:?}");
+    assert_eq!(outcome.conflicts.len(), 1, "{outcome:?}");
+    assert_eq!(
+        outcome.conflicts[0].path,
+        std::path::PathBuf::from("logo.png")
+    );
+    assert_eq!(fs::read_to_string(cwd.join("notes.txt")).unwrap(), "one\n");
+}
+
+/// A patch that is *only* binary applied nothing, so it must not report
+/// `applied`. The old path returned "no unified diff patch found", which named
+/// no file and read as a malformed patch rather than as one this apply cannot
+/// carry.
+#[test]
+fn an_all_binary_patch_applies_nothing_and_still_names_its_files() {
+    let cwd = temp_dir("patch_binary_only");
+    let diff = concat!(
+        "diff --git a/logo.png b/logo.png\n",
+        "GIT binary patch\n",
+        "literal 4\n",
+    );
+
+    let outcome = LocalPatchBackend
+        .apply(&request(&cwd, diff))
+        .expect("an all-binary patch is answered, not an error");
+
+    assert!(!outcome.applied, "{outcome:?}");
+    assert!(outcome.writes.is_empty(), "{outcome:?}");
+    assert_eq!(outcome.conflicts.len(), 1, "{outcome:?}");
+    assert_eq!(
+        outcome.conflicts[0].path,
+        std::path::PathBuf::from("logo.png")
+    );
+}
+
+/// The variant the doc comment said had no producer. `ConflictHunkReason::
+/// Binary` is what a client renders for a file with no lines to match, and the
+/// hunk carries `base: None` — "no preimage at all", which is a different fact
+/// from the `Some(vec![])` a creation expects.
+#[test]
+fn a_binary_file_publishes_conflict_content_with_the_binary_reason() {
+    let cwd = temp_dir("patch_binary_conflict_content");
+    fs::write(cwd.join("notes.txt"), "one\n").unwrap();
+
+    let content = conflict_content(&request(&cwd, MIXED_BINARY_DIFF), ConflictBaseline::Unknown)
+        .expect("a binary file Core cannot patch must publish content");
+
+    let binary = content
+        .files
+        .iter()
+        .find(|file| file.path == "logo.png")
+        .expect("the binary file is published");
+    assert_eq!(binary.hunks.len(), 1);
+    assert_eq!(binary.hunks[0].reason, ConflictHunkReason::Binary);
+    assert!(binary.hunks[0].ours.is_empty());
+    assert!(binary.hunks[0].theirs.is_empty());
+    assert_eq!(binary.hunks[0].base, None);
+    assert!(!binary.omitted);
+}
+
+/// A file with no rows that is *not* binary is still dropped, as before: the
+/// scanner produces one for a header-only section Git writes for a mode change
+/// with no content change, and inventing a refusal for it would report a
+/// conflict that does not exist.
+#[test]
+fn a_header_only_section_that_is_not_binary_is_still_not_reported() {
+    let cwd = temp_dir("patch_mode_only");
+    fs::write(cwd.join("notes.txt"), "one\n").unwrap();
+    let diff = concat!(
+        "diff --git a/notes.txt b/notes.txt\n",
+        "--- a/notes.txt\n",
+        "+++ b/notes.txt\n",
+        "@@ -1,1 +1,1 @@\n",
+        "-one\n",
+        "+ONE\n",
+        "diff --git a/script.sh b/script.sh\n",
+        "old mode 100644\n",
+        "new mode 100755\n",
+    );
+
+    let outcome = LocalPatchBackend
+        .apply(&request(&cwd, diff))
+        .expect("a mode-only section does not fail the apply");
+
+    assert!(outcome.applied, "{outcome:?}");
+    assert!(outcome.conflicts.is_empty(), "{outcome:?}");
 }

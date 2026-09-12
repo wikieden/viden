@@ -54,6 +54,12 @@ impl PatchChange {
 pub struct PatchApplication {
     root: PathBuf,
     changes: Vec<PatchChange>,
+    /// Files the patch names that this apply cannot write, each with its own
+    /// stated reason. Today that is exactly the binary files: they are carried
+    /// alongside the changes rather than failing the whole patch, so the text
+    /// files in a mixed patch still apply and the operator still learns which
+    /// files did not.
+    refusals: Vec<PatchConflictReport>,
 }
 
 impl PatchApplication {
@@ -95,11 +101,27 @@ impl LocalPatchBackend {
         // Resolve and validate every target before touching the filesystem.
         // This keeps creates, writes, and deletes inside one rollback boundary.
         let mut changes = Vec::new();
+        let mut refusals = Vec::new();
         for patch_file in patch_files {
+            if patch_file.binary {
+                // The path is still validated, so a traversal attempt is
+                // refused hard rather than reported as an ordinary binary
+                // file, and the reported path is the relative one.
+                let relative_path = validate_patch_path(binary_patch_path(&patch_file))?;
+                refusals.push(PatchConflictReport {
+                    path: relative_path,
+                    message: BINARY_REFUSAL.to_string(),
+                });
+                continue;
+            }
             changes.push(prepare_patch_file(&root, &patch_file).map_err(|failure| failure.error)?);
         }
 
-        Ok(PatchApplication { root, changes })
+        Ok(PatchApplication {
+            root,
+            changes,
+            refusals,
+        })
     }
 
     pub fn write_application(
@@ -148,7 +170,10 @@ impl PatchBackend for LocalPatchBackend {
             Ok(application) => Ok(PatchApplyOutcome {
                 applied: false,
                 writes: application.write_paths().map(Path::to_path_buf).collect(),
-                conflicts: Vec::new(),
+                // The dry run names the same files the apply would refuse: an
+                // approval surface must see the binary half before the write,
+                // not after it.
+                conflicts: application.refusals.clone(),
             }),
             Err(LaneEffectError::PatchConflict { path, message }) => {
                 Ok(conflict_outcome(path, message))
@@ -168,11 +193,32 @@ impl PatchBackend for LocalPatchBackend {
     }
 }
 
+/// The one sentence a binary file gets. It names the limit rather than the
+/// file's contents, because Core did not read them: `git` said binary and this
+/// apply matches lines.
+const BINARY_REFUSAL: &str =
+    "patch reports binary content, which the strict line-based apply cannot write";
+
+/// The path a binary section is about.
+///
+/// The new side names where the bytes were going; a deletion has only an old
+/// side. `validate_patch_path` rejects `/dev/null` and anything unsafe, so
+/// this only has to choose which header to read.
+fn binary_patch_path(patch_file: &PatchFile) -> &str {
+    if patch_file.new_path.trim() == "/dev/null" || patch_file.new_path.trim().is_empty() {
+        &patch_file.old_path
+    } else {
+        &patch_file.new_path
+    }
+}
+
 fn success_outcome(application: &PatchApplication) -> PatchApplyOutcome {
     PatchApplyOutcome {
-        applied: true,
+        // A patch whose every file was refused wrote nothing, and saying
+        // `applied` for it would be the same silence in a different shape.
+        applied: !application.changes.is_empty(),
         writes: application.write_paths().map(Path::to_path_buf).collect(),
-        conflicts: Vec::new(),
+        conflicts: application.refusals.clone(),
     }
 }
 
@@ -201,10 +247,11 @@ fn conflict_outcome(path: PathBuf, message: String) -> PatchApplyOutcome {
 /// Nothing here is invented. A patch the scanner could not parse, a hunk the
 /// apply never reached, and a refusal with no hunk shape at all (an
 /// unsupported rename) are absent rather than guessed at, so `None` means
-/// "Core has nothing to show" and never "the conflict was empty". Binary files
-/// carry no rows for this apply to reject, so it never reports
-/// [`ConflictHunkReason::Binary`]; that variant is there for an apply path
-/// that can see one.
+/// "Core has nothing to show" and never "the conflict was empty". A binary
+/// file carries no rows for this apply to reject, so it is published as one
+/// row-less hunk with [`ConflictHunkReason::Binary`] and `base: None` — the
+/// file itself is the refusal. This is that variant's producer; before H2 the
+/// scanner dropped binary sections outright, which is why it had none.
 ///
 /// `baseline` comes from the caller because only the runtime knows what the
 /// conflict was computed against — a merge gate's canonical evidence bindings
@@ -222,11 +269,34 @@ pub fn conflict_content(
     let mut spent: u64 = 0;
     let mut truncated = false;
     for patch_file in patch_files {
-        let Err(failure) = prepare_patch_file(&root, &patch_file) else {
-            continue;
-        };
-        let Some(file) = failure.file else {
-            continue;
+        let file = if patch_file.binary {
+            // No rows to match, so there is nothing to reject hunk by hunk;
+            // the file itself is the refusal. `base: None` says "no preimage
+            // at all", which is the fact here and is encoded differently from
+            // the `Some(vec![])` a creation's empty region carries.
+            let Ok(relative_path) = validate_patch_path(binary_patch_path(&patch_file)) else {
+                continue;
+            };
+            ConflictFile {
+                path: conflict_path(&relative_path),
+                hunks: vec![ConflictHunk {
+                    ours_start: 1,
+                    ours: Vec::new(),
+                    theirs_start: 1,
+                    theirs: Vec::new(),
+                    base: None,
+                    reason: ConflictHunkReason::Binary,
+                }],
+                omitted: false,
+            }
+        } else {
+            let Err(failure) = prepare_patch_file(&root, &patch_file) else {
+                continue;
+            };
+            let Some(file) = failure.file else {
+                continue;
+            };
+            file
         };
         let size = conflict_file_bytes(&file);
         if spent.saturating_add(size) > u64::from(MAX_CONFLICT_CONTENT_BYTES) {
@@ -281,6 +351,10 @@ fn patch_conflict(path: PathBuf, message: impl Into<String>) -> LaneEffectError 
 struct PatchFile {
     old_path: String,
     new_path: String,
+    /// Git reported binary content, so this file carries no rows for the
+    /// strict apply to match. It is kept rather than dropped: a file this
+    /// apply cannot write is a *stated* outcome, never a silent absence.
+    binary: bool,
     hunks: Vec<PatchHunk>,
 }
 
@@ -764,12 +838,19 @@ fn parse_unified_diff(diff: &str) -> Result<Vec<PatchFile>, LaneEffectError> {
                 }
             })
             .collect::<Vec<_>>();
-        if hunks.is_empty() {
+        // A binary file has no rows by definition, so "no rows" alone cannot
+        // decide whether a section is worth keeping. A binary one is kept and
+        // refused by name; a non-binary section with no rows — the header-only
+        // one Git writes for a mode change — carries no change this apply
+        // could make or refuse, and inventing an outcome for it would report a
+        // conflict that does not exist.
+        if hunks.is_empty() && !file.binary {
             continue;
         }
         files.push(PatchFile {
             old_path: file.old_path,
             new_path: file.new_path,
+            binary: file.binary,
             hunks,
         });
     }
