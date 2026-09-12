@@ -1,4 +1,7 @@
-use crate::{AgentLaneRecord, LocaleId, RuntimeOwner, UiColorMode, UiDensity, UiMotion, UiSkin};
+use crate::{
+    AgentLaneRecord, LaneSidebarMode, LocaleId, MAX_HIDDEN_STATUSBAR_SEGMENT_BYTES,
+    MAX_HIDDEN_STATUSBAR_SEGMENTS, RuntimeOwner, UiColorMode, UiDensity, UiMotion, UiSkin,
+};
 
 /// Partial personal UI preference update sent by a frontend.
 ///
@@ -11,6 +14,60 @@ pub struct UiPreferencePatch {
     pub mode: Option<UiColorMode>,
     pub density: Option<UiDensity>,
     pub motion: Option<UiMotion>,
+}
+
+/// Partial cockpit layout update sent by a frontend (`ui.layout_preferences`).
+///
+/// `None` on a field means "leave it as it is", never "reset it": a reset is
+/// its own command, so a client that omits a field cannot accidentally erase a
+/// preference it never meant to touch.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct UiLayoutPreferencePatch {
+    #[serde(default)]
+    pub lane_sidebar_mode: Option<LaneSidebarMode>,
+    #[serde(default)]
+    pub hidden_statusbar_segments: Option<Vec<String>>,
+}
+
+impl UiLayoutPreferencePatch {
+    /// Rejects a patch that cannot mean what it says, before anything is
+    /// written.
+    ///
+    /// Every rejection here becomes a `CommandRejected`. The bound is a
+    /// refusal rather than a clamp because the two answers are different
+    /// facts: a clamped list silently keeps showing a segment the operator
+    /// asked to hide, and nothing on the stream would say so.
+    pub fn validate(&self) -> Result<(), String> {
+        let Some(segments) = &self.hidden_statusbar_segments else {
+            return Ok(());
+        };
+        if segments.len() > MAX_HIDDEN_STATUSBAR_SEGMENTS {
+            return Err(format!(
+                "hidden statusbar segments exceed the bound of {MAX_HIDDEN_STATUSBAR_SEGMENTS}"
+            ));
+        }
+        for segment in segments {
+            if segment.trim().is_empty() {
+                return Err("a hidden statusbar segment name cannot be empty".to_string());
+            }
+            if segment.len() > MAX_HIDDEN_STATUSBAR_SEGMENT_BYTES {
+                return Err(format!(
+                    "hidden statusbar segment `{segment}` exceeds \
+                     {MAX_HIDDEN_STATUSBAR_SEGMENT_BYTES} bytes"
+                ));
+            }
+            // A control character in a segment name would reach a terminal
+            // statusbar as an escape sequence. Core cannot validate the
+            // client's vocabulary, but it can refuse a name no vocabulary
+            // contains.
+            if segment.chars().any(char::is_control) {
+                return Err(
+                    "a hidden statusbar segment name cannot contain control characters".to_string(),
+                );
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Bounded cross-project session inventory requested by a frontend.

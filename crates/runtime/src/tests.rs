@@ -26,6 +26,7 @@ mod session_command_tests;
 mod structured_diff_tests;
 mod transcript_contract_tests;
 mod trust_loop_tests;
+mod ui_layout_tests;
 mod workflow_command_tests;
 mod workspace_files_tests;
 

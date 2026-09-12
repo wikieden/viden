@@ -3,16 +3,19 @@ use std::path::{Path, PathBuf};
 
 use viden_config::{
     default_user_config_path, preview_reset_user_ui_preferences_at, preview_user_ui_preferences_at,
-    reset_user_ui_preferences_at, resolve_user_ui_preferences_at, save_user_ui_preferences_at,
+    reset_user_ui_layout_preferences_at, reset_user_ui_preferences_at,
+    resolve_user_ui_layout_preferences_at, resolve_user_ui_preferences_at,
+    save_user_ui_layout_preferences_at, save_user_ui_preferences_at,
 };
 use viden_tools::patch::parse_diff_document;
 use viden_tools::render_diff;
 use viden_types::{
     ApprovalResponse, AuditQuery, DiffFile, EvidenceQuery, LaneStatus, PermissionDecision,
     RecentWorkQuery, RuntimeCommand, RuntimeEvent, RuntimeEventKind, SourceTarget, ToolInput,
-    ToolSpec, UiPreferencePatch, UiPreferences, WorkspaceChangeKind, WorkspaceDiffEntry,
-    WorkspaceDiffPage, WorkspaceDiffQuery, WorkspaceDiffScope, WorkspaceFileEntry,
-    WorkspaceFileKind, WorkspaceFilePage, WorkspaceFilesQuery, resolve_ui_preferences,
+    ToolSpec, UiLayoutPreferencePatch, UiLayoutPreferences, UiPreferencePatch, UiPreferences,
+    WorkspaceChangeKind, WorkspaceDiffEntry, WorkspaceDiffPage, WorkspaceDiffQuery,
+    WorkspaceDiffScope, WorkspaceFileEntry, WorkspaceFileKind, WorkspaceFilePage,
+    WorkspaceFilesQuery, resolve_ui_preferences,
 };
 
 use crate::SessionEngine;
@@ -581,6 +584,81 @@ impl SessionEngine {
                 diagnostics: state.diagnostics,
             },
         )])
+    }
+
+    /// Applies one cockpit layout patch and publishes the resulting record
+    /// (`ui.layout_preferences`).
+    ///
+    /// Deliberately *not* routed through `ensure_workflow_permission` the way
+    /// the appearance profile is. That gate exists because `[ui]` governs how
+    /// Core renders every surface and is worth an explicit approval; the
+    /// layout record is one client's sidebar and statusbar arrangement, it
+    /// grants nothing, and prompting an operator to approve their own window
+    /// layout would train them to click through prompts that matter.
+    ///
+    /// A write failure is not an error: the record still governs this session,
+    /// so it is published with `persisted: false` and the reason as a
+    /// diagnostic, mirroring `ui.preference_persistence`.
+    pub(crate) fn set_ui_layout_preferences(
+        &mut self,
+        command_id: &str,
+        patch: &UiLayoutPreferencePatch,
+    ) -> Result<Vec<RuntimeEvent>, String> {
+        patch.validate()?;
+        let path = self.ui_user_config_path()?;
+        let state = save_user_ui_layout_preferences_at(&path, patch)?;
+        self.ui_layout_preferences = Some(state.preferences.clone());
+        Ok(vec![RuntimeEvent::new(
+            1,
+            RuntimeEventKind::UiLayoutPreferencesUpdated {
+                command_id: Some(command_id.to_string()),
+                preferences: state.preferences,
+                persisted: state.persisted,
+                diagnostics: state.diagnostics,
+            },
+        )])
+    }
+
+    pub(crate) fn reset_ui_layout_preferences(
+        &mut self,
+        command_id: &str,
+    ) -> Result<Vec<RuntimeEvent>, String> {
+        let path = self.ui_user_config_path()?;
+        let state = reset_user_ui_layout_preferences_at(&path)?;
+        self.ui_layout_preferences = Some(state.preferences.clone());
+        Ok(vec![RuntimeEvent::new(
+            1,
+            RuntimeEventKind::UiLayoutPreferencesUpdated {
+                command_id: Some(command_id.to_string()),
+                preferences: state.preferences,
+                persisted: state.persisted,
+                diagnostics: state.diagnostics,
+            },
+        )])
+    }
+
+    /// The layout record the snapshot prefix republishes.
+    ///
+    /// Read from the engine's own cache rather than from disk: the prefix is
+    /// rebuilt for every command, and re-reading the operator's config file
+    /// that often would put a filesystem read on the hot path for a record
+    /// that only this engine changes.
+    pub(crate) fn ui_layout_preferences_snapshot(&self) -> Option<UiLayoutPreferences> {
+        self.ui_layout_preferences.clone()
+    }
+
+    /// Loads the stored layout record once, at bootstrap.
+    ///
+    /// A file Core could not read leaves the cache `None`, which the prefix
+    /// publishes as nothing at all: "the operator chose pinned" and "Core
+    /// could not look" are different facts.
+    pub(crate) fn load_ui_layout_preferences(&mut self) {
+        let Ok(path) = self.ui_user_config_path() else {
+            return;
+        };
+        if let Ok(state) = resolve_user_ui_layout_preferences_at(&path) {
+            self.ui_layout_preferences = Some(state.preferences);
+        }
     }
 
     fn ui_user_config_path(&self) -> Result<PathBuf, String> {

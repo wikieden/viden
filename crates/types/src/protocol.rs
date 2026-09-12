@@ -50,6 +50,8 @@ pub const FRONTEND_V1_EXTENSION_CAPABILITIES: &[&str] = &[
     "runtime.trust_loop",
     "runtime.workspace_eligibility",
     "runtime.workspace_files",
+    "runtime.workspace_owner",
+    "ui.layout_preferences",
     "ui.preference_persistence",
 ];
 
@@ -353,6 +355,20 @@ fn is_known_runtime_event_type(event_type: &str) -> bool {
             // remote.
             | "operator_git_action_finished"
             | "workspace_source_updated"
+            // The workspace-scoped operator identity
+            // (`runtime.workspace_owner`, GUI-CORE-027). Quarantining it
+            // leaves a client with no actor for a workspace-target commit, so
+            // it renders the commit bar as unavailable and an operator reads
+            // "this build cannot commit" about a Core that can.
+            | "workspace_runtime_owner_bound"
+            // One Lane worktree's source facts. Quarantining a Lane's row
+            // leaves its tab strip and context dock reading the *workspace*
+            // branch, which is a different tree wearing this Lane's name.
+            | "lane_source_updated"
+            // The persisted cockpit layout record. Quarantining it strands an
+            // operator's sidebar and statusbar choices on a client that
+            // believes Core never stored them.
+            | "ui_layout_preferences_updated"
             | "runtime_service_health_updated"
             | "workspace_change_updated"
             | "check_run_updated"

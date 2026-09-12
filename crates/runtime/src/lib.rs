@@ -338,6 +338,12 @@ pub struct SessionEngine {
     user_config_path_override: Option<PathBuf>,
     ui_cli_override: Option<UiPreferences>,
     ui_system_context: UiPreferences,
+    /// The cockpit layout record (`ui.layout_preferences`) as Core last read
+    /// or wrote it. `None` means Core never resolved one — it is never a
+    /// defaulted record, because "the operator chose pinned" and "Core could
+    /// not look" are different facts and the snapshot prefix must not publish
+    /// the second as the first.
+    ui_layout_preferences: Option<viden_types::UiLayoutPreferences>,
     tools: ToolRegistry,
     /// Shared handle so the registry-level permission backstop always sees
     /// the live mode and rules; see `permission_gate`.
@@ -501,6 +507,7 @@ impl SessionEngine {
             user_config_path_override: None,
             ui_cli_override: None,
             ui_system_context: UiPreferences::client_default(),
+            ui_layout_preferences: None,
             tools,
             permissions,
             store,

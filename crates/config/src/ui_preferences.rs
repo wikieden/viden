@@ -98,7 +98,16 @@ pub fn reset_user_ui_preferences_at(
     let root = value
         .as_table_mut()
         .ok_or_else(|| format!("Config {} must be a TOML table", path.display()))?;
+    // `[ui.layout]` is a different record answering a different command
+    // (`ui.layout_preferences`). It lives under `[ui]` for readability only,
+    // so an appearance reset lifts it across rather than taking it with the
+    // profile: an operator resetting their theme must not find their cockpit
+    // rearranged.
+    let layout = crate::ui_layout::take_layout_table(root);
     root.remove("ui");
+    if let Some(layout) = layout {
+        crate::ui_layout::restore_layout_table(root, layout);
+    }
     atomic_write_config(path, &value, None)?;
     Ok(state)
 }
@@ -228,7 +237,7 @@ fn enum_value<T: serde::Serialize>(value: T) -> Result<Value, String> {
     Value::try_from(value).map_err(|error| format!("failed to serialize UI preference: {error}"))
 }
 
-fn read_config_value(path: &Path) -> Result<Value, String> {
+pub(crate) fn read_config_value(path: &Path) -> Result<Value, String> {
     if !path.exists() {
         return Ok(Value::Table(Map::new()));
     }
@@ -243,7 +252,7 @@ fn read_config_value(path: &Path) -> Result<Value, String> {
     }
 }
 
-fn atomic_write_config(
+pub(crate) fn atomic_write_config(
     path: &Path,
     value: &Value,
     #[cfg_attr(not(test), allow(unused_variables))] failure: Option<UiPreferenceWriteFailure>,

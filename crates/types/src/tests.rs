@@ -6229,3 +6229,319 @@ fn the_evidence_reads_capability_is_an_advertised_extension() {
         "extension capabilities must stay sorted and unique"
     );
 }
+
+// --- runtime.workspace_owner (C5, GUI-CORE-027) ------------------------------
+
+fn workspace_owner_fixture() -> RuntimeOwner {
+    RuntimeOwner {
+        workspace_id: "ws_0123456789abcdef".to_string(),
+        project_id: "prj_contract_v1".to_string(),
+        lane_id: None,
+        session_id: None,
+        task_id: None,
+        turn_id: None,
+    }
+}
+
+/// The published workspace owner reaches the view, and a view that never saw
+/// one serializes without the field — which is what keeps the nine frozen base
+/// fixtures byte-identical.
+#[test]
+fn a_bound_workspace_owner_reduces_and_is_absent_until_it_is_published() {
+    let snapshot: RuntimeSnapshot = serde_json::from_value(runtime_snapshot_json()).unwrap();
+    let mut view = RuntimeViewState::new(snapshot);
+    assert!(view.workspace_owner.is_none());
+    let encoded = serde_json::to_value(&view).unwrap();
+    assert!(
+        encoded.get("workspace_owner").is_none(),
+        "an unpublished workspace owner must not appear on the wire"
+    );
+    assert!(encoded.get("lane_sources").is_none());
+    assert!(encoded.get("layout_preferences").is_none());
+
+    view.apply_event(&RuntimeEvent::new(
+        1,
+        RuntimeEventKind::WorkspaceRuntimeOwnerBound {
+            binding: WorkspaceRuntimeOwnerBinding {
+                canonical_root: "workspace/viden".to_string(),
+                owner: workspace_owner_fixture(),
+                project_id_origin: ProjectIdOrigin::Minted,
+            },
+        },
+    ));
+
+    assert_eq!(view.workspace_owner, Some(workspace_owner_fixture()));
+}
+
+/// A workspace owner is the *workspace* scope: a binding that carries a Lane,
+/// session, task, or turn is not that scope and is refused rather than
+/// normalized, because publishing it would let one Lane's identity become the
+/// actor every workspace-target mutation is audited under.
+#[test]
+fn a_workspace_owner_binding_rejects_a_lane_scoped_owner() {
+    let mut owner = workspace_owner_fixture();
+    owner.lane_id = Some("lane_a".to_string());
+    let binding = WorkspaceRuntimeOwnerBinding {
+        canonical_root: "workspace/viden".to_string(),
+        owner,
+        project_id_origin: ProjectIdOrigin::Existing,
+    };
+    assert!(binding.validate().is_err());
+
+    let mut empty = workspace_owner_fixture();
+    empty.workspace_id = String::new();
+    assert!(
+        WorkspaceRuntimeOwnerBinding {
+            canonical_root: "workspace/viden".to_string(),
+            owner: empty,
+            project_id_origin: ProjectIdOrigin::Existing,
+        }
+        .validate()
+        .is_err()
+    );
+}
+
+/// An invalid binding never reaches the view. The reducer is the last place a
+/// client can be protected from a payload that claims an authority Core did
+/// not publish.
+#[test]
+fn an_invalid_workspace_owner_binding_is_not_reduced() {
+    let snapshot: RuntimeSnapshot = serde_json::from_value(runtime_snapshot_json()).unwrap();
+    let mut view = RuntimeViewState::new(snapshot);
+    let mut owner = workspace_owner_fixture();
+    owner.project_id = String::new();
+    view.apply_event(&RuntimeEvent::new(
+        1,
+        RuntimeEventKind::WorkspaceRuntimeOwnerBound {
+            binding: WorkspaceRuntimeOwnerBinding {
+                canonical_root: "workspace/viden".to_string(),
+                owner,
+                project_id_origin: ProjectIdOrigin::Minted,
+            },
+        },
+    ));
+    assert!(view.workspace_owner.is_none());
+}
+
+/// A Lane's own source is keyed by Lane and never collapses into
+/// `workspace_source`: the two answer different questions and a client showing
+/// one for the other reports a Lane worktree's branch as the workspace's.
+#[test]
+fn lane_sources_are_keyed_by_lane_and_never_touch_the_workspace_source() {
+    let snapshot: RuntimeSnapshot = serde_json::from_value(runtime_snapshot_json()).unwrap();
+    let mut view = RuntimeViewState::new(snapshot);
+    let source = WorkspaceSourceView {
+        status: WorkspaceSourceStatus::Ready,
+        branch: Some("codex/lane-a".to_string()),
+        worktree: Some("workspace/.worktrees/lane-a".to_string()),
+        ahead: 1,
+        behind: 0,
+        added: 3,
+        deleted: 1,
+        dirty: true,
+    };
+    view.apply_event(&RuntimeEvent::new(
+        1,
+        RuntimeEventKind::LaneSourceUpdated {
+            lane_id: "lane_a".to_string(),
+            source: source.clone(),
+        },
+    ));
+
+    assert_eq!(view.lane_sources.get("lane_a"), Some(&source));
+    assert!(view.workspace_source.is_none());
+
+    let moved = WorkspaceSourceView {
+        ahead: 2,
+        dirty: false,
+        ..source
+    };
+    view.apply_event(&RuntimeEvent::new(
+        2,
+        RuntimeEventKind::LaneSourceUpdated {
+            lane_id: "lane_a".to_string(),
+            source: moved.clone(),
+        },
+    ));
+    assert_eq!(view.lane_sources.len(), 1);
+    assert_eq!(view.lane_sources.get("lane_a"), Some(&moved));
+}
+
+/// `runtime.workspace_owner` and `ui.layout_preferences` are post-checkpoint
+/// additions, so they belong to the extension list and never to the frozen
+/// base capabilities.
+#[test]
+fn the_workspace_owner_and_layout_capabilities_are_advertised_extensions() {
+    for capability in ["runtime.workspace_owner", "ui.layout_preferences"] {
+        assert!(FRONTEND_V1_EXTENSION_CAPABILITIES.contains(&capability));
+        assert!(!FRONTEND_V1_CAPABILITIES.contains(&capability));
+    }
+    assert!(
+        FRONTEND_V1_EXTENSION_CAPABILITIES
+            .windows(2)
+            .all(|pair| pair[0] < pair[1]),
+        "extension capabilities must stay sorted and unique"
+    );
+}
+
+// --- ui.layout_preferences (C5) ----------------------------------------------
+
+/// The layout record is separate from `UiPreferences` precisely so the
+/// resolved preference profile — which every base fixture serializes — cannot
+/// move. Reducing a layout update must leave it alone.
+#[test]
+fn a_layout_preference_update_reduces_without_touching_resolved_ui_preferences() {
+    let snapshot: RuntimeSnapshot = serde_json::from_value(runtime_snapshot_json()).unwrap();
+    let before = snapshot.ui_preferences.clone();
+    let mut view = RuntimeViewState::new(snapshot);
+    let preferences = UiLayoutPreferences {
+        lane_sidebar_mode: LaneSidebarMode::Floating,
+        hidden_statusbar_segments: vec!["cost".to_string()],
+    };
+    view.apply_event(&RuntimeEvent::new(
+        1,
+        RuntimeEventKind::UiLayoutPreferencesUpdated {
+            command_id: Some("layout_set".to_string()),
+            preferences: preferences.clone(),
+            persisted: true,
+            diagnostics: Vec::new(),
+        },
+    ));
+
+    assert_eq!(view.layout_preferences, Some(preferences));
+    assert_eq!(view.ui_preferences, before);
+    assert_eq!(view.snapshot.ui_preferences, before);
+}
+
+/// The default is pinned, and a record Core never published is `None` rather
+/// than a fabricated default: a client must be able to tell "Core has no
+/// layout preference for you" from "Core says pinned".
+#[test]
+fn the_default_lane_sidebar_mode_is_pinned_and_absence_stays_absent() {
+    assert_eq!(LaneSidebarMode::default(), LaneSidebarMode::Pinned);
+    let defaults = UiLayoutPreferences::default();
+    assert_eq!(defaults.lane_sidebar_mode, LaneSidebarMode::Pinned);
+    assert!(defaults.hidden_statusbar_segments.is_empty());
+
+    let snapshot: RuntimeSnapshot = serde_json::from_value(runtime_snapshot_json()).unwrap();
+    let view = RuntimeViewState::new(snapshot);
+    assert!(view.layout_preferences.is_none());
+}
+
+/// The hidden-segment list is bounded and refused over the bound rather than
+/// clamped: clamping would silently keep showing a segment the operator asked
+/// to hide, and a client would have no way to learn that happened.
+#[test]
+fn an_over_bound_hidden_segment_list_is_refused_not_clamped() {
+    let within = UiLayoutPreferencePatch {
+        lane_sidebar_mode: None,
+        hidden_statusbar_segments: Some(
+            (0..MAX_HIDDEN_STATUSBAR_SEGMENTS)
+                .map(|index| format!("segment_{index}"))
+                .collect(),
+        ),
+    };
+    assert!(within.validate().is_ok());
+
+    let over = UiLayoutPreferencePatch {
+        lane_sidebar_mode: None,
+        hidden_statusbar_segments: Some(
+            (0..=MAX_HIDDEN_STATUSBAR_SEGMENTS)
+                .map(|index| format!("segment_{index}"))
+                .collect(),
+        ),
+    };
+    let error = over
+        .validate()
+        .expect_err("over-bound list must be refused");
+    assert!(error.contains(&MAX_HIDDEN_STATUSBAR_SEGMENTS.to_string()));
+
+    let blank = UiLayoutPreferencePatch {
+        lane_sidebar_mode: None,
+        hidden_statusbar_segments: Some(vec!["  ".to_string()]),
+    };
+    assert!(blank.validate().is_err());
+}
+
+/// A segment name this Core does not know is kept verbatim: the statusbar
+/// vocabulary belongs to the client, so Core storing only the names it
+/// recognizes would quietly unhide everything a newer client hid.
+#[test]
+fn an_unknown_statusbar_segment_round_trips_verbatim() {
+    let preferences = UiLayoutPreferences {
+        lane_sidebar_mode: LaneSidebarMode::Floating,
+        hidden_statusbar_segments: vec!["a-future-client-segment".to_string()],
+    };
+    let encoded = serde_json::to_string(&preferences).unwrap();
+    let decoded: UiLayoutPreferences = serde_json::from_str(&encoded).unwrap();
+    assert_eq!(decoded, preferences);
+    assert_eq!(
+        decoded.hidden_statusbar_segments,
+        vec!["a-future-client-segment".to_string()]
+    );
+}
+
+/// Every new event type must be known to the wire decoder. An unknown one is
+/// quarantined, and a quarantined `workspace_runtime_owner_bound` reads to a
+/// client as "this workspace has no operator identity" — the exact fabricated
+/// absence GUI-CORE-027 exists to end.
+#[test]
+fn the_new_c5_events_are_known_wire_event_types() {
+    for kind in [
+        RuntimeEventKind::WorkspaceRuntimeOwnerBound {
+            binding: WorkspaceRuntimeOwnerBinding {
+                canonical_root: "workspace/viden".to_string(),
+                owner: workspace_owner_fixture(),
+                project_id_origin: ProjectIdOrigin::Existing,
+            },
+        },
+        RuntimeEventKind::LaneSourceUpdated {
+            lane_id: "lane_a".to_string(),
+            source: WorkspaceSourceView {
+                status: WorkspaceSourceStatus::Ready,
+                branch: Some("codex/lane-a".to_string()),
+                worktree: Some("workspace/.worktrees/lane-a".to_string()),
+                ahead: 0,
+                behind: 0,
+                added: 0,
+                deleted: 0,
+                dirty: false,
+            },
+        },
+        RuntimeEventKind::UiLayoutPreferencesUpdated {
+            command_id: None,
+            preferences: UiLayoutPreferences::default(),
+            persisted: true,
+            diagnostics: Vec::new(),
+        },
+    ] {
+        let event = RuntimeEvent::new(1, kind);
+        let encoded = serde_json::to_string(&event).unwrap();
+        let decoded: RuntimeWireEvent = serde_json::from_str(&encoded).unwrap();
+        match decoded {
+            RuntimeWireEvent::Known(known) => assert_eq!(known.kind, event.kind),
+            RuntimeWireEvent::Unknown { event_type, .. } => {
+                panic!("`{event_type}` must be a known runtime event type")
+            }
+        }
+    }
+}
+
+/// The two layout commands round-trip on the wire. A command a client sends
+/// and Core cannot decode is a silently dropped preference.
+#[test]
+fn the_layout_preference_commands_round_trip() {
+    for command in [
+        RuntimeCommand::SetUiLayoutPreferences {
+            patch: UiLayoutPreferencePatch {
+                lane_sidebar_mode: Some(LaneSidebarMode::Floating),
+                hidden_statusbar_segments: Some(vec!["cost".to_string()]),
+            },
+        },
+        RuntimeCommand::ResetUiLayoutPreferences,
+    ] {
+        let encoded = serde_json::to_string(&command).unwrap();
+        let decoded: RuntimeCommand = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(decoded, command);
+    }
+}

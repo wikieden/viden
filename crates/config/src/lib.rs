@@ -10,11 +10,16 @@ use viden_types::{
 };
 
 mod project;
+mod ui_layout;
 mod ui_preferences;
 
 pub use project::{
     EgressMode, EgressPolicy, OwnershipRule, ProjectFileConfig, ToolAllowlists,
     parse_project_config,
+};
+pub use ui_layout::{
+    UiLayoutPreferenceFileState, reset_user_ui_layout_preferences_at,
+    resolve_user_ui_layout_preferences_at, save_user_ui_layout_preferences_at,
 };
 pub use ui_preferences::{
     UiPreferenceFileState, preview_reset_user_ui_preferences_at, preview_user_ui_preferences_at,
@@ -773,7 +778,7 @@ fn record_ui_type_diagnostic(
     }
 }
 
-fn value_kind(value: &Value) -> &'static str {
+pub(crate) fn value_kind(value: &Value) -> &'static str {
     match value {
         Value::String(_) => "string",
         Value::Integer(_) => "integer",

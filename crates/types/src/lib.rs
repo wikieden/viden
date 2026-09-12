@@ -21,6 +21,7 @@ mod trust;
 mod ui_preferences;
 mod workflow;
 mod workspace_files;
+mod workspace_owner;
 
 pub use agent::{
     AgentAdapterSource, AgentAdapterView, AgentAuthState, AgentAvailability, AgentContentPart,
@@ -58,8 +59,8 @@ pub use frontend_services::{
     CheckRunStatus, CheckRunView, RecentProjectSummary, RecentSessionSummary, RecentWorkQuery,
     RuntimeServiceHealthView, RuntimeServiceKind, RuntimeServiceStatus, StarterLanePreset,
     StarterLanePreview, StarterLanePreviewInvalidationReason, StarterLaneReceipt,
-    StarterLaneRequest, UiPreferencePatch, WorkspaceChangeKind, WorkspaceChangeView,
-    WorkspaceSourceStatus, WorkspaceSourceView,
+    StarterLaneRequest, UiLayoutPreferencePatch, UiPreferencePatch, WorkspaceChangeKind,
+    WorkspaceChangeView, WorkspaceSourceStatus, WorkspaceSourceView,
 };
 pub use lsp::{LspDiagnostic, LspLocation, LspPosition, LspRange, LspSymbol};
 pub use project::{
@@ -97,7 +98,8 @@ pub use trust::{
     RevertRecord, ReviewRequestRecord, ReviewRequestStatus, ReviewVerdict, ReviewedEvidenceBinding,
 };
 pub use ui_preferences::{
-    LocaleId, ResolvedUiPreferences, TuiColorDepth, UiColorMode, UiDensity, UiMotion,
+    LaneSidebarMode, LocaleId, MAX_HIDDEN_STATUSBAR_SEGMENT_BYTES, MAX_HIDDEN_STATUSBAR_SEGMENTS,
+    ResolvedUiPreferences, TuiColorDepth, UiColorMode, UiDensity, UiLayoutPreferences, UiMotion,
     UiPreferenceDiagnostic, UiPreferences, UiSkin, resolve_ui_preferences,
 };
 pub use workflow::{
@@ -107,6 +109,10 @@ pub use workflow::{
 pub use workspace_files::{
     DEFAULT_WORKSPACE_FILE_PAGE_SIZE, MAX_WORKSPACE_FILE_PAGE_SIZE, WorkspaceFileEntry,
     WorkspaceFileKind, WorkspaceFilePage, WorkspaceFilesQuery,
+};
+pub use workspace_owner::{
+    PROJECT_ID_PREFIX, ProjectIdOrigin, WORKSPACE_ID_DIGEST_CHARS, WORKSPACE_ID_PREFIX,
+    WorkspaceRuntimeOwnerBinding, workspace_owner_authorizes,
 };
 
 pub type SessionId = String;

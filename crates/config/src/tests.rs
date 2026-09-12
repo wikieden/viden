@@ -1,7 +1,8 @@
 use super::*;
 use std::collections::BTreeMap;
 use viden_types::{
-    LocaleId, UiColorMode, UiDensity, UiMotion, UiPreferencePatch, UiPreferences, UiSkin,
+    LaneSidebarMode, LocaleId, UiColorMode, UiDensity, UiLayoutPreferencePatch,
+    UiLayoutPreferences, UiMotion, UiPreferencePatch, UiPreferences, UiSkin,
 };
 
 fn default_config_path_for_test(root: &Path) -> PathBuf {
@@ -1286,4 +1287,223 @@ provider = "deepseek-anthropic"
         config.api_base.as_deref(),
         Some("https://api.deepseek.com/anthropic")
     );
+}
+
+// --- ui.layout_preferences (C5) ----------------------------------------------
+
+fn layout_root(name: &str) -> PathBuf {
+    let root = std::env::temp_dir().join(format!("viden_{name}_{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(&root).unwrap();
+    root
+}
+
+/// The layout record persists under `[ui.layout]` and leaves every other key
+/// in the file — including the appearance profile beside it — untouched.
+#[test]
+fn ui_layout_write_patch_preserves_the_rest_of_the_file() {
+    let path = layout_root("ui_layout_write").join("config.toml");
+    fs::write(
+        &path,
+        "custom = 7\n\n[ui]\nlocale = \"en\"\nskin = \"ice\"\n",
+    )
+    .unwrap();
+
+    let state = save_user_ui_layout_preferences_at(
+        &path,
+        &UiLayoutPreferencePatch {
+            lane_sidebar_mode: Some(LaneSidebarMode::Floating),
+            hidden_statusbar_segments: Some(vec!["cost".to_string()]),
+        },
+    )
+    .unwrap();
+
+    assert!(state.persisted);
+    assert_eq!(
+        state.preferences.lane_sidebar_mode,
+        LaneSidebarMode::Floating
+    );
+    let value = fs::read_to_string(&path)
+        .unwrap()
+        .parse::<toml::Value>()
+        .unwrap();
+    assert_eq!(
+        value.get("custom").and_then(toml::Value::as_integer),
+        Some(7)
+    );
+    assert_eq!(
+        value
+            .get("ui")
+            .and_then(|ui| ui.get("skin"))
+            .and_then(toml::Value::as_str),
+        Some("ice")
+    );
+    assert_eq!(
+        value
+            .get("ui")
+            .and_then(|ui| ui.get("layout"))
+            .and_then(|layout| layout.get("lane_sidebar_mode"))
+            .and_then(toml::Value::as_str),
+        Some("floating")
+    );
+
+    let resolved = resolve_user_ui_layout_preferences_at(&path).unwrap();
+    assert_eq!(
+        resolved.preferences.lane_sidebar_mode,
+        LaneSidebarMode::Floating
+    );
+    assert_eq!(
+        resolved.preferences.hidden_statusbar_segments,
+        vec!["cost".to_string()]
+    );
+}
+
+/// A patch sets only the fields it names. Omitting a field means "leave it",
+/// never "reset it": a client that only changes the sidebar must not silently
+/// unhide every statusbar segment the operator hid.
+#[test]
+fn ui_layout_patch_leaves_unnamed_fields_alone() {
+    let path = layout_root("ui_layout_partial").join("config.toml");
+    save_user_ui_layout_preferences_at(
+        &path,
+        &UiLayoutPreferencePatch {
+            lane_sidebar_mode: Some(LaneSidebarMode::Floating),
+            hidden_statusbar_segments: Some(vec!["cost".to_string(), "lsp".to_string()]),
+        },
+    )
+    .unwrap();
+
+    let state = save_user_ui_layout_preferences_at(
+        &path,
+        &UiLayoutPreferencePatch {
+            lane_sidebar_mode: Some(LaneSidebarMode::Pinned),
+            hidden_statusbar_segments: None,
+        },
+    )
+    .unwrap();
+
+    assert_eq!(state.preferences.lane_sidebar_mode, LaneSidebarMode::Pinned);
+    assert_eq!(
+        state.preferences.hidden_statusbar_segments,
+        vec!["cost".to_string(), "lsp".to_string()]
+    );
+}
+
+/// Resetting the appearance profile must not reset the cockpit layout. The two
+/// are separate records with separate commands; collapsing them because
+/// `[ui.layout]` happens to live under `[ui]` would make an appearance reset
+/// silently rearrange the operator's workspace.
+#[test]
+fn resetting_appearance_preferences_keeps_the_layout_record() {
+    let path = layout_root("ui_layout_reset_isolation").join("config.toml");
+    fs::write(&path, "[ui]\nskin = \"ice\"\n").unwrap();
+    save_user_ui_layout_preferences_at(
+        &path,
+        &UiLayoutPreferencePatch {
+            lane_sidebar_mode: Some(LaneSidebarMode::Floating),
+            hidden_statusbar_segments: None,
+        },
+    )
+    .unwrap();
+
+    reset_user_ui_preferences_at(&path, None, UiPreferences::client_default()).unwrap();
+
+    let value = fs::read_to_string(&path)
+        .unwrap()
+        .parse::<toml::Value>()
+        .unwrap();
+    assert!(
+        value.get("ui").and_then(|ui| ui.get("skin")).is_none(),
+        "the appearance profile must be gone"
+    );
+    let resolved = resolve_user_ui_layout_preferences_at(&path).unwrap();
+    assert_eq!(
+        resolved.preferences.lane_sidebar_mode,
+        LaneSidebarMode::Floating
+    );
+}
+
+/// Resetting the layout record removes `[ui.layout]` and republishes the
+/// defaults, leaving the appearance profile in place.
+#[test]
+fn resetting_the_layout_record_keeps_appearance_preferences() {
+    let path = layout_root("ui_layout_reset").join("config.toml");
+    fs::write(&path, "[ui]\nskin = \"ice\"\n").unwrap();
+    save_user_ui_layout_preferences_at(
+        &path,
+        &UiLayoutPreferencePatch {
+            lane_sidebar_mode: Some(LaneSidebarMode::Floating),
+            hidden_statusbar_segments: Some(vec!["cost".to_string()]),
+        },
+    )
+    .unwrap();
+
+    let state = reset_user_ui_layout_preferences_at(&path).unwrap();
+
+    assert_eq!(state.preferences, UiLayoutPreferences::default());
+    assert!(state.persisted);
+    let value = fs::read_to_string(&path)
+        .unwrap()
+        .parse::<toml::Value>()
+        .unwrap();
+    assert!(value.get("ui").and_then(|ui| ui.get("layout")).is_none());
+    assert_eq!(
+        value
+            .get("ui")
+            .and_then(|ui| ui.get("skin"))
+            .and_then(toml::Value::as_str),
+        Some("ice")
+    );
+}
+
+/// A stored value this build cannot name is reported as a diagnostic and
+/// replaced by the default for that field alone. Refusing to load the whole
+/// record would strand every other layout choice over one bad key.
+#[test]
+fn an_unreadable_layout_value_falls_back_with_a_diagnostic() {
+    let path = layout_root("ui_layout_invalid").join("config.toml");
+    fs::write(
+        &path,
+        "[ui.layout]\nlane_sidebar_mode = \"hovering\"\nhidden_statusbar_segments = [\"cost\"]\n",
+    )
+    .unwrap();
+
+    let state = resolve_user_ui_layout_preferences_at(&path).unwrap();
+
+    assert_eq!(state.preferences.lane_sidebar_mode, LaneSidebarMode::Pinned);
+    assert_eq!(
+        state.preferences.hidden_statusbar_segments,
+        vec!["cost".to_string()]
+    );
+    assert_eq!(state.diagnostics.len(), 1);
+    assert_eq!(state.diagnostics[0].code, "ui.layout.invalid_value");
+    assert_eq!(
+        state.diagnostics[0].rejected_value.as_deref(),
+        Some("hovering")
+    );
+}
+
+/// An over-bound patch is refused before anything is written, so the file on
+/// disk still holds exactly what it held.
+#[test]
+fn an_over_bound_layout_patch_is_refused_without_changing_bytes() {
+    let path = layout_root("ui_layout_over_bound").join("config.toml");
+    fs::write(&path, "custom = 7\n").unwrap();
+    let before = fs::read_to_string(&path).unwrap();
+
+    let error = save_user_ui_layout_preferences_at(
+        &path,
+        &UiLayoutPreferencePatch {
+            lane_sidebar_mode: None,
+            hidden_statusbar_segments: Some(
+                (0..=viden_types::MAX_HIDDEN_STATUSBAR_SEGMENTS)
+                    .map(|index| format!("segment_{index}"))
+                    .collect(),
+            ),
+        },
+    )
+    .expect_err("an over-bound patch must be refused");
+
+    assert!(error.contains("16"));
+    assert_eq!(fs::read_to_string(&path).unwrap(), before);
 }

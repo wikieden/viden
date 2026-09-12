@@ -150,6 +150,9 @@ fn bootstrap_runtime_with_context(
         runtime_snapshot,
     )?;
     engine.set_ui_preference_context(ui_cli_override, Some(ui_config_path), ui_system_context);
+    // Read once, here: the snapshot prefix republishes this record for every
+    // command and must not re-read the operator's config file each time.
+    engine.load_ui_layout_preferences();
     if let Some((summary, loaded)) = resolved_resume {
         engine
             .activate_resolved_session(summary, loaded)

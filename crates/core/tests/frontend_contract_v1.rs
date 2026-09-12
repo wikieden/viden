@@ -209,6 +209,15 @@ fn frontend_host_capabilities_are_schema_one_core_0_3_6_and_additive() {
         // GUI-CORE-022. The frozen base list above is unchanged, which is what
         // keeps the nine base fixtures byte-identical.
         "runtime.workspace_files",
+        // GUI-CORE-027, the first capability of the 0.3.4 contract increment
+        // (C5). The workspace-scoped operator identity a commit made with no
+        // Lane selected is audited under.
+        "runtime.workspace_owner",
+        // The cockpit layout record, C5's second capability. It is a separate
+        // record rather than a `UiPreferences` field precisely because
+        // `ResolvedUiPreferences` rides every `RuntimeSnapshot`: a field there
+        // would move all nine frozen base digests, and this one moves none.
+        "ui.layout_preferences",
         "ui.preference_persistence",
     ];
 

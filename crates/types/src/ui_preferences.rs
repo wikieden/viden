@@ -221,3 +221,63 @@ fn resolve_mode(requested: UiColorMode, client: UiColorMode) -> UiColorMode {
         },
     }
 }
+
+/// Largest number of statusbar segments an operator may hide
+/// (`ui.layout_preferences`).
+///
+/// Sixteen: more than the designed statusbar has segments, so a legitimate
+/// client can hide every ambient one and still have room, and small enough
+/// that the list cannot become an unbounded client-chosen blob riding every
+/// snapshot. Over the bound the patch is *refused* rather than clamped — a
+/// clamp would silently keep showing a segment the operator asked to hide, and
+/// no event would say so.
+pub const MAX_HIDDEN_STATUSBAR_SEGMENTS: usize = 16;
+
+/// Largest byte length one hidden-segment name may carry.
+///
+/// The segment vocabulary belongs to the client, so Core cannot validate the
+/// names — only their size. Long enough for any plausible identifier, short
+/// enough that the bounded list stays bounded in bytes as well as in rows.
+pub const MAX_HIDDEN_STATUSBAR_SEGMENT_BYTES: usize = 64;
+
+/// How the Lane sidebar occupies the cockpit (`D-SIDEBAR`).
+///
+/// `#[non_exhaustive]`, like every other wire-facing preference enum: a future
+/// mode must not break a client's match arms.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum LaneSidebarMode {
+    /// The sidebar holds its own column. The default, because it is what the
+    /// D1 flagship shows and what an operator who has never opened Settings
+    /// should see.
+    #[default]
+    Pinned,
+    /// The sidebar overlays the centre pane and peeks on hover.
+    Floating,
+}
+
+/// Cockpit layout preferences Core persists on the operator's behalf.
+///
+/// This is a *separate* record from [`UiPreferences`] on purpose.
+/// [`ResolvedUiPreferences`] is serialized into every `RuntimeSnapshot`, so a
+/// new field on it would move the recorded digest of all nine frozen
+/// `frontend-contract-v1` base fixtures; a separate record reduces into its
+/// own optional view field, absent until Core publishes one, and therefore
+/// moves nothing. The trade is deliberate and recorded in
+/// `docs/release-0.3.4-contract-design.md`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct UiLayoutPreferences {
+    #[serde(default)]
+    pub lane_sidebar_mode: LaneSidebarMode,
+    /// Ambient statusbar segments the operator hid.
+    ///
+    /// Names are kept verbatim, including ones this Core does not recognize:
+    /// the statusbar vocabulary belongs to the client, and a Core that stored
+    /// only the names it knew would quietly unhide everything a newer client
+    /// hid. Identity and actionable segments are never listed here — a client
+    /// must not offer to hide the ones that tell an operator who they are or
+    /// what needs a decision.
+    #[serde(default)]
+    pub hidden_statusbar_segments: Vec<String>,
+}

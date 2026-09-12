@@ -524,6 +524,21 @@ impl SessionEngine {
                     );
                 }
             },
+            // The layout record writes only `[ui.layout]` and grants nothing,
+            // so a refusal here is always pre-write and answered as a plain
+            // `CommandRejected` naming this command.
+            RuntimeCommand::SetUiLayoutPreferences { patch } => {
+                match self.set_ui_layout_preferences(&command_id, &patch) {
+                    Ok(layout_events) => append_resequenced(&mut events, layout_events),
+                    Err(err) => return Ok(vec![command_rejected(command_id, err)]),
+                }
+            }
+            RuntimeCommand::ResetUiLayoutPreferences => {
+                match self.reset_ui_layout_preferences(&command_id) {
+                    Ok(layout_events) => append_resequenced(&mut events, layout_events),
+                    Err(err) => return Ok(vec![command_rejected(command_id, err)]),
+                }
+            }
             RuntimeCommand::QueryRecentWork { query } => match self.query_recent_work(query) {
                 Ok(recent_events) => append_resequenced(&mut events, recent_events),
                 Err(err) => return Ok(vec![command_rejected(command_id, err)]),
@@ -1698,6 +1713,21 @@ impl SessionEngine {
                 snapshot: self.runtime_snapshot(),
             },
         )];
+        // The layout record rides the snapshot prefix with no command id: a
+        // reconnecting client learns its stored layout without asking, and
+        // cannot mistake this copy for the answer to a request it has in
+        // flight.
+        if let Some(preferences) = self.ui_layout_preferences_snapshot() {
+            events.push(RuntimeEvent::new(
+                next_sequence(&events),
+                RuntimeEventKind::UiLayoutPreferencesUpdated {
+                    command_id: None,
+                    preferences,
+                    persisted: true,
+                    diagnostics: Vec::new(),
+                },
+            ));
+        }
         if let Some(preview) = &self.confirmed_project_config {
             events.push(RuntimeEvent::new(
                 next_sequence(&events),
@@ -5942,6 +5972,16 @@ pub(crate) fn redacted_runtime_command_for_event(command: &RuntimeCommand) -> Ru
             RuntimeCommand::SetUiPreferences { patch: *patch }
         }
         RuntimeCommand::ResetUiPreferences => RuntimeCommand::ResetUiPreferences,
+        // Closed enums and client-chosen segment names bounded by
+        // `UiLayoutPreferencePatch::validate`; there is no free-form secret
+        // surface to redact, so the patch passes through like the appearance
+        // one.
+        RuntimeCommand::SetUiLayoutPreferences { patch } => {
+            RuntimeCommand::SetUiLayoutPreferences {
+                patch: patch.clone(),
+            }
+        }
+        RuntimeCommand::ResetUiLayoutPreferences => RuntimeCommand::ResetUiLayoutPreferences,
         RuntimeCommand::QueryRecentWork { query } => {
             RuntimeCommand::QueryRecentWork { query: *query }
         }

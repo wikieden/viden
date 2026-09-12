@@ -16,9 +16,10 @@ use crate::{
     ReviewedEvidenceBinding, RuntimeOwner, RuntimeServiceHealthView, RuntimeSnapshot, SessionId,
     SourceTarget, StarterLanePreset, StarterLanePreview, StarterLanePreviewInvalidationReason,
     StarterLaneReceipt, StarterLaneRequest, ToolCallId, TranscriptPage, TranscriptPageRequest,
-    UiPreferenceDiagnostic, UiPreferencePatch, UiPreferences, WorkMode, WorkspaceChangeView,
-    WorkspaceDiffPage, WorkspaceDiffQuery, WorkspaceEligibility, WorkspaceFilePage,
-    WorkspaceFilesQuery, WorkspaceSourceView, now_timestamp,
+    UiLayoutPreferencePatch, UiLayoutPreferences, UiPreferenceDiagnostic, UiPreferencePatch,
+    UiPreferences, WorkMode, WorkspaceChangeView, WorkspaceDiffPage, WorkspaceDiffQuery,
+    WorkspaceEligibility, WorkspaceFilePage, WorkspaceFilesQuery, WorkspaceRuntimeOwnerBinding,
+    WorkspaceSourceView, now_timestamp,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -64,6 +65,17 @@ pub enum RuntimeCommand {
         patch: UiPreferencePatch,
     },
     ResetUiPreferences,
+    /// Partial cockpit layout update (`ui.layout_preferences`).
+    ///
+    /// A separate command from `SetUiPreferences` because it writes a separate
+    /// persisted table (`[ui.layout]`) and a separate published record. The
+    /// answering `UiLayoutPreferencesUpdated` repeats the envelope's command
+    /// id; a pre-write refusal is `CommandRejected` with that same id.
+    SetUiLayoutPreferences {
+        patch: UiLayoutPreferencePatch,
+    },
+    /// Drops the persisted `[ui.layout]` table and republishes the defaults.
+    ResetUiLayoutPreferences,
     QueryRecentWork {
         query: RecentWorkQuery,
     },
@@ -716,6 +728,27 @@ pub enum RuntimeEventKind {
         persisted: Option<UiPreferences>,
         diagnostics: Vec<UiPreferenceDiagnostic>,
     },
+    /// The current cockpit layout record (`ui.layout_preferences`).
+    ///
+    /// Published as the answer to `SetUiLayoutPreferences` and
+    /// `ResetUiLayoutPreferences`, and again on the snapshot prefix so a
+    /// reconnecting client learns the record without asking.
+    UiLayoutPreferencesUpdated {
+        /// The exact command this answers. Absent on the snapshot prefix,
+        /// where no client asked: a fabricated id there would let a client
+        /// settle a request it never sent.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        command_id: Option<String>,
+        preferences: UiLayoutPreferences,
+        /// Whether the record reached the config file. `false` means Core
+        /// applied it for this session but could not write it, and the reason
+        /// is in `diagnostics` — the `ui.preference_persistence` precedent. A
+        /// client must render that difference rather than report a saved
+        /// preference that will not survive a restart.
+        persisted: bool,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        diagnostics: Vec<UiPreferenceDiagnostic>,
+    },
     RecentWorkLoaded {
         projects: Vec<RecentProjectSummary>,
         sessions: Vec<RecentSessionSummary>,
@@ -813,6 +846,30 @@ pub enum RuntimeEventKind {
         audit_id: String,
     },
     WorkspaceSourceUpdated {
+        source: WorkspaceSourceView,
+    },
+    /// The workspace-scoped operator identity Core minted at open
+    /// (`runtime.workspace_owner`, GUI-CORE-027).
+    ///
+    /// Emitted once per open as the first fact after `SnapshotUpdated`, so a
+    /// snapshot replay carries it, and again whenever the workspace is
+    /// rebound. Its absence is a real answer — "this Core published no
+    /// workspace identity" — and a client must render the workspace-target
+    /// commit bar as unavailable rather than substitute
+    /// `RuntimeOwner::default()`, which names nobody.
+    WorkspaceRuntimeOwnerBound {
+        binding: WorkspaceRuntimeOwnerBinding,
+    },
+    /// One Lane worktree's own source-control facts
+    /// (`runtime.workspace_owner`).
+    ///
+    /// `WorkspaceSourceUpdated` keeps its meaning — the workspace root only —
+    /// so a Lane's branch and ahead/behind arrive here instead of overwriting
+    /// the workspace chip with another tree's numbers. A Lane with no worktree
+    /// of its own is the workspace and therefore has no row at all; an empty
+    /// map means Core sampled no Lane, never that every Lane is clean.
+    LaneSourceUpdated {
+        lane_id: crate::AgentLaneId,
         source: WorkspaceSourceView,
     },
     RuntimeServiceHealthUpdated {
@@ -1044,6 +1101,22 @@ pub struct RuntimeViewState {
     pub recent_work_diagnostics: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workspace_source: Option<WorkspaceSourceView>,
+    /// The workspace-scoped operator identity Core published, if any
+    /// (`runtime.workspace_owner`). Absent means Core published none: a
+    /// client gates its workspace-target commit bar on this being present and
+    /// never fabricates one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_owner: Option<RuntimeOwner>,
+    /// Per-Lane source-control facts, keyed by Lane id. A Lane with no
+    /// worktree of its own has no row, because its source *is*
+    /// `workspace_source`.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub lane_sources: BTreeMap<AgentLaneId, WorkspaceSourceView>,
+    /// The persisted cockpit layout record (`ui.layout_preferences`). Absent
+    /// until Core publishes one, which is what keeps every frozen base fixture
+    /// digest where it is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub layout_preferences: Option<UiLayoutPreferences>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub runtime_services: Vec<RuntimeServiceHealthView>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -1140,6 +1213,9 @@ impl RuntimeViewState {
             recent_sessions: Vec::new(),
             recent_work_diagnostics: Vec::new(),
             workspace_source: None,
+            workspace_owner: None,
+            lane_sources: BTreeMap::new(),
+            layout_preferences: None,
             runtime_services: Vec::new(),
             workspace_changes: Vec::new(),
             check_runs: Vec::new(),
@@ -1357,6 +1433,13 @@ impl RuntimeViewState {
                 self.ui_preferences = resolved.clone();
                 self.snapshot.ui_preferences = resolved.clone();
             }
+            // Deliberately does not touch `ui_preferences` or
+            // `snapshot.ui_preferences`: the layout record is a separate fact
+            // precisely so the resolved preference profile every base fixture
+            // serializes stays where it is.
+            RuntimeEventKind::UiLayoutPreferencesUpdated { preferences, .. } => {
+                self.layout_preferences = Some(preferences.clone());
+            }
             RuntimeEventKind::RecentWorkLoaded {
                 projects,
                 sessions,
@@ -1398,6 +1481,27 @@ impl RuntimeViewState {
             RuntimeEventKind::OperatorGitActionFinished { .. } => {}
             RuntimeEventKind::WorkspaceSourceUpdated { source } => {
                 self.workspace_source = Some(source.clone());
+            }
+            RuntimeEventKind::WorkspaceRuntimeOwnerBound { binding } => {
+                // A payload that does not describe the workspace scope is
+                // untrusted protocol input. Storing it would hand a client an
+                // authority Core never published — the one failure a
+                // workspace-scoped actor exists to prevent — so an invalid
+                // binding leaves the projection exactly as it was.
+                if binding.validate().is_ok() {
+                    self.workspace_owner = Some(binding.owner.clone());
+                }
+            }
+            RuntimeEventKind::LaneSourceUpdated { lane_id, source } => {
+                self.lane_sources.insert(lane_id.clone(), source.clone());
+                // Keyed by Lane, so the map is bounded by the Lane count the
+                // rest of the view already caps rather than by event volume.
+                if self.lane_sources.len() > RUNTIME_VIEW_COLLECTION_LIMIT
+                    && let Some(oldest) = self.lane_sources.keys().next().cloned()
+                    && oldest != *lane_id
+                {
+                    self.lane_sources.remove(&oldest);
+                }
             }
             RuntimeEventKind::RuntimeServiceHealthUpdated { service } => {
                 upsert_by_id(&mut self.runtime_services, service.clone(), |existing| {
