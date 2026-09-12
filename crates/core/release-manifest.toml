@@ -6,7 +6,7 @@ frontend_schema_version = 1
 base_contract_checkpoint = "5bd2b80b0953f4194d082940a7b9164c7231ca2d"
 contract_implementation_checkpoint = "1cec82185bbe860d6b8536a63741bc01f1edf2f6"
 compatibility = "additive_capability_gated"
-capabilities = ["core.workspace_host", "runtime.agent_adapters", "runtime.agent_conversation", "runtime.agent_permission_bridge", "runtime.agent_session_input", "runtime.agent_sessions", "runtime.audit", "runtime.cockpit_context_v1", "runtime.conflict_content", "runtime.credential_handles", "runtime.credential_staging", "runtime.evidence_reads", "runtime.lane_lifecycle", "runtime.lane_owner_projection", "runtime.operator_git", "runtime.project_onboarding", "runtime.recent_work", "runtime.starter_lane_preview", "runtime.structured_diff", "runtime.trust_loop", "runtime.turn_lifecycle", "runtime.workspace_eligibility", "runtime.workspace_files", "runtime.workspace_owner", "ui.layout_preferences", "ui.preference_persistence"]
+capabilities = ["core.workspace_host", "runtime.agent_adapters", "runtime.agent_conversation", "runtime.agent_permission_bridge", "runtime.agent_session_input", "runtime.agent_sessions", "runtime.audit", "runtime.cockpit_context_v1", "runtime.conflict_content", "runtime.credential_handles", "runtime.credential_staging", "runtime.evidence_reads", "runtime.lane_lifecycle", "runtime.lane_owner_projection", "runtime.operator_git", "runtime.project_onboarding", "runtime.recent_work", "runtime.starter_lane_preview", "runtime.structured_diff", "runtime.trust_loop", "runtime.turn_lifecycle", "runtime.workspace_eligibility", "runtime.workspace_file_reads", "runtime.workspace_files", "runtime.workspace_owner", "ui.layout_preferences", "ui.preference_persistence"]
 
 [cockpit_context]
 capability = "runtime.cockpit_context_v1"
@@ -81,13 +81,22 @@ payload_sha256 = "fb40f5de446bce9c0bf81e2e6b56a75e6e7b59ac7c787570bebab971fdb9b9
 view_sha256 = "946f68640b6a299b35c00c9bef105ea3b64ee7b642e47d26ac003078b48f4603"
 final_cursor = 21
 
+# The 0.3.4 contract increment's fifth batch (C9). C7's
+# `runtime.durable_work_evidence` lands on a concurrent branch and adds its own
+# row, so the integrator reconciles the capability count below to 28.
+[fixtures.workspace_file_reads]
+path = "../types/tests/fixtures/frontend-contract-v1/workspace-file-reads.json"
+payload_sha256 = "98bd938eb1f2fe6cffe106b1e5d5bbeaa1106663592b1aa5e0dfbd069654255f"
+view_sha256 = "1b5ffcffebfeabecf9c79967ca7d84b912d510e7c9f2003012a1e48d0184304e"
+final_cursor = 14
+
 [verification]
 date = "2026-09-10"
 core_gates = "passed"
 workspace_gate = "passed"
 workspace_baseline = "13795abce263bd60f0e4785e4af0f3f852cb3009"
 base_fixture_bytes = "nine frozen frontend-contract-v1 fixtures byte-equal to their apps/tui/release-manifest.toml digests"
-capability_count = "15 frozen base + 26 extensions"
+capability_count = "15 frozen base + 27 extensions"
 integration_branch = "claude/int-0.3.3"
 on_main = false
 tag_authorized = false

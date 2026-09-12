@@ -1,0 +1,488 @@
+{
+  "fixture_id": "workspace-file-reads",
+  "schema_version": 1,
+  "required_capabilities": [
+    "runtime.commands",
+    "runtime.events",
+    "runtime.snapshot",
+    "runtime.workspace_file_reads"
+  ],
+  "initial_snapshot": {
+    "cwd": "workspace/viden",
+    "provider_family": "deepseek",
+    "model_label": "deepseek-v4-flash",
+    "work_mode": "build",
+    "permission_mode": "default",
+    "permission_level": "ask",
+    "config_summary": "{\"design_entry\":{\"d11\":\"onboarding subordinate\",\"gui\":\"GUI index -> component library -> D1 desktop cockpit\",\"hierarchy\":[\"docs/viden-design/Viden/index.html\",\"client design index\",\"component library\",\"TUI unified prototype or GUI D1 desktop cockpit\"],\"tui\":\"TUI index -> component library -> unified prototype\"},\"ui\":{\"density\":[\"compact\",\"regular\",\"comfy\"],\"effective\":{\"density\":\"regular\",\"locale\":\"zh-CN\",\"mode\":\"dark\",\"motion\":\"reduced\",\"skin\":\"aurora\"},\"locales\":[\"en\",\"zh-CN\"],\"motion\":[\"system\",\"reduced\",\"full\"],\"skin_mode_pairs\":[[\"aurora\",\"dark\"],[\"aurora\",\"light\"],[\"ice\",\"dark\"],[\"ice\",\"light\"],[\"mono\",\"dark\"],[\"mono\",\"light\"],[\"amber\",\"dark\"],[\"phosphor\",\"dark\"]]}}",
+    "loaded_config_files": [
+      "config/viden.toml"
+    ],
+    "startup_overrides": [
+      "--provider=deepseek"
+    ],
+    "ui_preferences": {
+      "locale": "zh-CN",
+      "skin": "aurora",
+      "mode": "dark",
+      "density": "regular",
+      "motion": "reduced",
+      "diagnostics": []
+    }
+  },
+  "events": [
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_workspace_file_reads",
+        "task_id": null,
+        "turn_id": "turn_workspace_file_reads"
+      },
+      "cursor": {
+        "stream_id": "fixture:workspace-file-reads",
+        "sequence": 1
+      },
+      "event": {
+        "sequence": 1,
+        "timestamp": 1700006001,
+        "kind": {
+          "type": "command_accepted",
+          "payload": {
+            "command_id": "file_read_text",
+            "command": {
+              "type": "read_workspace_file",
+              "query": {
+                "target": "workspace",
+                "path": "crates/types/src/workspace_files.rs"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_workspace_file_reads",
+        "task_id": null,
+        "turn_id": "turn_workspace_file_reads"
+      },
+      "cursor": {
+        "stream_id": "fixture:workspace-file-reads",
+        "sequence": 2
+      },
+      "event": {
+        "sequence": 2,
+        "timestamp": 1700006002,
+        "kind": {
+          "type": "command_accepted",
+          "payload": {
+            "command_id": "file_read_truncated",
+            "command": {
+              "type": "read_workspace_file",
+              "query": {
+                "target": "workspace",
+                "path": "docs/frontend-integration-contract.md",
+                "byte_limit": 61
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_workspace_file_reads",
+        "task_id": null,
+        "turn_id": "turn_workspace_file_reads"
+      },
+      "cursor": {
+        "stream_id": "fixture:workspace-file-reads",
+        "sequence": 3
+      },
+      "event": {
+        "sequence": 3,
+        "timestamp": 1700006003,
+        "kind": {
+          "type": "workspace_file_loaded",
+          "payload": {
+            "command_id": "file_read_truncated",
+            "file": {
+              "path": "docs/frontend-integration-contract.md",
+              "size": 68,
+              "sha256": "72ba755c18098bf58ca11115941686130316591f78a3bbf1d7c7476644f1c37f",
+              "content": {
+                "kind": "text",
+                "text": "The bound cuts on a character boundary, never inside the caf",
+                "truncated": true
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_workspace_file_reads",
+        "task_id": null,
+        "turn_id": "turn_workspace_file_reads"
+      },
+      "cursor": {
+        "stream_id": "fixture:workspace-file-reads",
+        "sequence": 4
+      },
+      "event": {
+        "sequence": 4,
+        "timestamp": 1700006004,
+        "kind": {
+          "type": "workspace_file_loaded",
+          "payload": {
+            "command_id": "file_read_text",
+            "file": {
+              "path": "crates/types/src/workspace_files.rs",
+              "size": 55,
+              "sha256": "8907401c65c8ce278bdeb26f32f7833702db2b12e20acd2eb516ce1fdf24ff41",
+              "content": {
+                "kind": "text",
+                "text": "pub const MAX_WORKSPACE_FILE_BYTES: u32 = 1024 * 1024;\n",
+                "truncated": false
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_workspace_file_reads",
+        "task_id": null,
+        "turn_id": "turn_workspace_file_reads"
+      },
+      "cursor": {
+        "stream_id": "fixture:workspace-file-reads",
+        "sequence": 5
+      },
+      "event": {
+        "sequence": 5,
+        "timestamp": 1700006005,
+        "kind": {
+          "type": "command_accepted",
+          "payload": {
+            "command_id": "file_read_binary",
+            "command": {
+              "type": "read_workspace_file",
+              "query": {
+                "target": {
+                  "lane": {
+                    "lane_id": "lane_workspace_file_reads"
+                  }
+                },
+                "path": "docs/viden-design/Viden/assets/cockpit.png"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_workspace_file_reads",
+        "task_id": null,
+        "turn_id": "turn_workspace_file_reads"
+      },
+      "cursor": {
+        "stream_id": "fixture:workspace-file-reads",
+        "sequence": 6
+      },
+      "event": {
+        "sequence": 6,
+        "timestamp": 1700006006,
+        "kind": {
+          "type": "workspace_file_loaded",
+          "payload": {
+            "command_id": "file_read_binary",
+            "file": {
+              "path": "docs/viden-design/Viden/assets/cockpit.png",
+              "size": 12,
+              "sha256": "218ad85a233eff829618a6865ab681222b734c62d35a32b3eabd5c37d8945f86",
+              "content": {
+                "kind": "binary"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_workspace_file_reads",
+        "task_id": null,
+        "turn_id": "turn_workspace_file_reads"
+      },
+      "cursor": {
+        "stream_id": "fixture:workspace-file-reads",
+        "sequence": 7
+      },
+      "event": {
+        "sequence": 7,
+        "timestamp": 1700006007,
+        "kind": {
+          "type": "command_accepted",
+          "payload": {
+            "command_id": "file_read_missing",
+            "command": {
+              "type": "read_workspace_file",
+              "query": {
+                "target": "workspace",
+                "path": "crates/types/src/removed.rs"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_workspace_file_reads",
+        "task_id": null,
+        "turn_id": "turn_workspace_file_reads"
+      },
+      "cursor": {
+        "stream_id": "fixture:workspace-file-reads",
+        "sequence": 8
+      },
+      "event": {
+        "sequence": 8,
+        "timestamp": 1700006008,
+        "kind": {
+          "type": "workspace_file_loaded",
+          "payload": {
+            "command_id": "file_read_missing",
+            "file": {
+              "path": "crates/types/src/removed.rs",
+              "content": {
+                "kind": "unavailable",
+                "reason": "not_found"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_workspace_file_reads",
+        "task_id": null,
+        "turn_id": "turn_workspace_file_reads"
+      },
+      "cursor": {
+        "stream_id": "fixture:workspace-file-reads",
+        "sequence": 9
+      },
+      "event": {
+        "sequence": 9,
+        "timestamp": 1700006009,
+        "kind": {
+          "type": "command_accepted",
+          "payload": {
+            "command_id": "file_read_directory",
+            "command": {
+              "type": "read_workspace_file",
+              "query": {
+                "target": "workspace",
+                "path": "crates/types/src"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_workspace_file_reads",
+        "task_id": null,
+        "turn_id": "turn_workspace_file_reads"
+      },
+      "cursor": {
+        "stream_id": "fixture:workspace-file-reads",
+        "sequence": 10
+      },
+      "event": {
+        "sequence": 10,
+        "timestamp": 1700006010,
+        "kind": {
+          "type": "workspace_file_loaded",
+          "payload": {
+            "command_id": "file_read_directory",
+            "file": {
+              "path": "crates/types/src",
+              "content": {
+                "kind": "unavailable",
+                "reason": "directory"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_workspace_file_reads",
+        "task_id": null,
+        "turn_id": "turn_workspace_file_reads"
+      },
+      "cursor": {
+        "stream_id": "fixture:workspace-file-reads",
+        "sequence": 11
+      },
+      "event": {
+        "sequence": 11,
+        "timestamp": 1700006011,
+        "kind": {
+          "type": "command_accepted",
+          "payload": {
+            "command_id": "file_read_escape",
+            "command": {
+              "type": "read_workspace_file",
+              "query": {
+                "target": "workspace",
+                "path": "crates/../../etc/passwd"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_workspace_file_reads",
+        "task_id": null,
+        "turn_id": "turn_workspace_file_reads"
+      },
+      "cursor": {
+        "stream_id": "fixture:workspace-file-reads",
+        "sequence": 12
+      },
+      "event": {
+        "sequence": 12,
+        "timestamp": 1700006012,
+        "kind": {
+          "type": "command_rejected",
+          "payload": {
+            "command_id": "file_read_escape",
+            "reason": "workspace file path `crates/../../etc/passwd` leaves the target"
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_workspace_file_reads",
+        "task_id": null,
+        "turn_id": "turn_workspace_file_reads"
+      },
+      "cursor": {
+        "stream_id": "fixture:workspace-file-reads",
+        "sequence": 13
+      },
+      "event": {
+        "sequence": 13,
+        "timestamp": 1700006013,
+        "kind": {
+          "type": "command_accepted",
+          "payload": {
+            "command_id": "file_read_denied",
+            "command": {
+              "type": "read_workspace_file",
+              "query": {
+                "target": "workspace",
+                "path": "viden.toml"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_workspace_file_reads",
+        "task_id": null,
+        "turn_id": "turn_workspace_file_reads"
+      },
+      "cursor": {
+        "stream_id": "fixture:workspace-file-reads",
+        "sequence": 14
+      },
+      "event": {
+        "sequence": 14,
+        "timestamp": 1700006014,
+        "kind": {
+          "type": "command_rejected",
+          "payload": {
+            "command_id": "file_read_denied",
+            "reason": "Permission decision:\nSummary: decision=deny\n\nDetails\ntool: read_file\nreason: RuleDeny\nmessage: Denied by permission rule for read_file\nhint: grant the `read_file` permission to open workspace files from this client"
+          }
+        }
+      }
+    }
+  ],
+  "expected_final_cursor": {
+    "stream_id": "fixture:workspace-file-reads",
+    "sequence": 14
+  },
+  "expected_view_sha256": "1b5ffcffebfeabecf9c79967ca7d84b912d510e7c9f2003012a1e48d0184304e"
+}

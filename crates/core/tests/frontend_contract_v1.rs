@@ -36,8 +36,9 @@ use viden_types::{
     TokenUsage, TurnOutcome, TurnSource, TurnView, UiColorMode, UiDensity, UiLayoutPreferencePatch,
     UiLayoutPreferences, UiMotion, UiPreferenceDiagnostic, UiPreferences, UiSkin, WorkMode,
     WorkspaceChangeKind, WorkspaceDiffEntry, WorkspaceDiffPage, WorkspaceDiffQuery,
-    WorkspaceDiffScope, WorkspaceEligibility, WorkspaceFileEntry, WorkspaceFileKind,
-    WorkspaceFilePage, WorkspaceFilesQuery, WorkspaceRuntimeOwnerBinding,
+    WorkspaceDiffScope, WorkspaceEligibility, WorkspaceFileBody, WorkspaceFileContent,
+    WorkspaceFileEntry, WorkspaceFileKind, WorkspaceFilePage, WorkspaceFileReadQuery,
+    WorkspaceFileUnavailableReason, WorkspaceFilesQuery, WorkspaceRuntimeOwnerBinding,
 };
 
 const FIXTURE_DIR: &str = "tests/fixtures/frontend-contract-v1";
@@ -7078,5 +7079,397 @@ fn turn_lifecycle_fixture() -> FrontendContractFixtureOut {
         ],
         snapshot(WorkMode::Build),
         owned_envelopes_per_event(fixture_id, owned_events, 1_700_005_000),
+    )
+}
+
+/// Canonical proof of the single-file read contract
+/// (`runtime.workspace_file_reads`, C9).
+///
+/// Deliberately not a happy path. Two reads are outstanding at once and the
+/// second is answered first, so a client correlating by arrival order
+/// misattributes both. One answer is whole text, one is text the bound cut on a
+/// character boundary, one is binary with no payload, one is a path that is not
+/// there, and one is a directory — five different things a naive client would
+/// render as the same empty editor. Two more reads are refused outright: a path
+/// that leaves the target, and a `read_file` deny rule. A client that treated a
+/// truncated body, a binary body, a missing path, a directory, and a refusal
+/// alike would show an operator an empty file five times over, which is the
+/// fabricated content this capability exists to prevent.
+#[test]
+fn workspace_file_reads_fixture_types_every_body_and_refuses_rather_than_faking_absence() {
+    let name = "workspace-file-reads.json";
+    let root = fixture_root();
+    let fixture_bytes = fs::read(root.join(name)).expect("read workspace file reads fixture bytes");
+    let fixture_sha256 = format!("{:x}", Sha256::digest(&fixture_bytes));
+    let extension_manifest = include_str!("../frontend-contract-extensions.toml");
+    assert!(
+        extension_manifest.contains(&format!(
+            "workspace_file_reads_fixture_sha256 = \"{fixture_sha256}\""
+        )),
+        "the extension manifest must register the exact workspace file reads fixture bytes"
+    );
+    assert!(
+        extension_manifest.contains("workspace_file_reads_fixture = \"workspace-file-reads.json\"")
+    );
+
+    let fixture = read_fixture(&root, name);
+    assert_fixture_identity(name, &fixture);
+    assert_capabilities_are_sorted_unique_and_advertised(name, &fixture);
+    assert_cursors_are_contiguous(name, &fixture);
+
+    let (view, first_cursor, first_digest) = replay_fixture(&fixture);
+    let (second_view, second_cursor, second_digest) = replay_fixture(&fixture);
+    assert_eq!(view, second_view);
+    assert_eq!(first_cursor, second_cursor);
+    assert_eq!(first_digest, second_digest);
+    assert_eq!(first_cursor, fixture.expected_final_cursor);
+    assert_eq!(first_digest, fixture.expected_view_sha256);
+    assert!(
+        extension_manifest.contains(&format!(
+            "workspace_file_reads_view_sha256 = \"{first_digest}\""
+        )),
+        "the extension manifest must register the replayed view digest"
+    );
+
+    let answers = fixture
+        .events
+        .iter()
+        .filter_map(|envelope| match &envelope.event {
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::WorkspaceFileLoaded { command_id, file },
+                ..
+            }) => Some((command_id.clone(), file.clone())),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(answers.len(), 5);
+
+    // Both reads are outstanding before either is answered, and the second is
+    // answered first: a client correlating by arrival order attributes the
+    // truncated body to the read that asked for the whole file.
+    let accepted_order = fixture
+        .events
+        .iter()
+        .filter_map(|envelope| match &envelope.event {
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind:
+                    RuntimeEventKind::CommandAccepted {
+                        command_id,
+                        command: RuntimeCommand::ReadWorkspaceFile { .. },
+                    },
+                ..
+            }) => Some(command_id.clone()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(accepted_order[0], "file_read_text");
+    assert_eq!(accepted_order[1], "file_read_truncated");
+    assert_eq!(answers[0].0, "file_read_truncated");
+    assert_eq!(answers[1].0, "file_read_text");
+
+    // Whole text: not truncated, and its digest covers the bytes it carries.
+    let whole = &answers[1].1;
+    let WorkspaceFileBody::Text { text, truncated } = &whole.content else {
+        panic!("the first read answers text, got {:?}", whole.content);
+    };
+    assert!(!truncated);
+    assert_eq!(whole.size, Some(text.len() as u64));
+    assert_eq!(
+        whole.sha256.as_deref(),
+        Some(format!("{:x}", Sha256::digest(text.as_bytes())).as_str()),
+    );
+
+    // The cut body: the text is shorter than the file, the cut landed on a
+    // character boundary, and `size`/`sha256` still describe the whole file —
+    // which is what lets a client tell a truncated view of one revision from a
+    // full view of another.
+    let cut = &answers[0].1;
+    let WorkspaceFileBody::Text { text, truncated } = &cut.content else {
+        panic!("the second read answers text, got {:?}", cut.content);
+    };
+    assert!(truncated);
+    assert!(cut.size.unwrap() > text.len() as u64);
+    assert!(text.is_char_boundary(text.len()));
+    assert!(
+        !text.ends_with('\u{fffd}'),
+        "a cut never yields replacements"
+    );
+
+    // Binary carries no payload, and still identifies the bytes.
+    let binary = &answers[2].1;
+    assert_eq!(binary.content, WorkspaceFileBody::Binary);
+    assert!(binary.size.is_some() && binary.sha256.is_some());
+
+    // The two absences are typed, and neither pretends to a size or a hash.
+    for (index, reason) in [
+        (3, WorkspaceFileUnavailableReason::NotFound),
+        (4, WorkspaceFileUnavailableReason::Directory),
+    ] {
+        let absent = &answers[index].1;
+        assert_eq!(
+            absent.content,
+            WorkspaceFileBody::Unavailable { reason },
+            "absence is typed so a client's affordance can differ per case"
+        );
+        assert_eq!(
+            (absent.size, absent.sha256.clone()),
+            (None, None),
+            "0 and an empty digest would render as a real empty file"
+        );
+    }
+
+    // The two refusals answer their own reads and publish no body at all.
+    let refusals = fixture
+        .events
+        .iter()
+        .filter_map(|envelope| match &envelope.event {
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::CommandRejected { command_id, reason },
+                ..
+            }) => Some((command_id.clone(), reason.clone())),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(refusals.len(), 2);
+    assert_eq!(refusals[0].0, "file_read_escape");
+    assert!(
+        refusals[0].1.contains("leaves the target"),
+        "an escaping path is refused, never answered as a missing file"
+    );
+    assert!(
+        !refusals[0].1.contains("not_found"),
+        "a refusal must not masquerade as an absence"
+    );
+    assert_eq!(refusals[1].0, "file_read_denied");
+    assert!(refusals[1].1.contains("read_file"));
+    assert!(
+        refusals[1].1.contains("grant the `read_file` permission"),
+        "the refusal keeps the actionable grant hint"
+    );
+
+    // A file read is a query answer, never view state: applying every answer
+    // in this fixture to a fresh view leaves it byte-identical, so publishing
+    // one moves no snapshot digest and no frozen base fixture.
+    let untouched = RuntimeViewState::new(fixture.initial_snapshot.clone());
+    let mut only_answers = RuntimeViewState::new(fixture.initial_snapshot.clone());
+    for envelope in &fixture.events {
+        if let RuntimeWireEvent::Known(event) = &envelope.event
+            && matches!(event.kind, RuntimeEventKind::WorkspaceFileLoaded { .. })
+        {
+            only_answers.apply_event(event);
+        }
+    }
+    assert_eq!(
+        canonical_view_sha256(&only_answers),
+        canonical_view_sha256(&untouched),
+        "no file read may reduce into RuntimeViewState"
+    );
+}
+
+#[test]
+#[ignore = "manual workspace file read fixture refresh; normal tests validate committed JSON only"]
+fn refresh_workspace_file_reads_extension_fixture() {
+    let root = fixture_root();
+    fs::create_dir_all(&root).unwrap();
+    let fixture = workspace_file_reads_fixture();
+    fs::write(
+        root.join("workspace-file-reads.json"),
+        serde_json::to_string_pretty(&fixture).unwrap() + "\n",
+    )
+    .unwrap();
+}
+
+/// `runtime.workspace_file_reads`, as bytes.
+///
+/// Seven reads over one session-scoped owner: whole text, text the bound cut on
+/// a character boundary, binary, a path that is not there, a directory, a path
+/// that leaves the target, and a `read_file` deny rule. The contents are fixed
+/// strings with no machine path in them, so the bytes are identical on every
+/// machine that regenerates this fixture.
+fn workspace_file_reads_fixture() -> FrontendContractFixtureOut {
+    let fixture_id = "workspace-file-reads";
+    let owner = RuntimeOwner {
+        workspace_id: "workspace_contract_v1".to_string(),
+        project_id: "project_viden".to_string(),
+        lane_id: None,
+        session_id: Some("session_workspace_file_reads".to_string()),
+        task_id: None,
+        turn_id: Some("turn_workspace_file_reads".to_string()),
+    };
+    let digest = |bytes: &[u8]| format!("{:x}", Sha256::digest(bytes));
+    let accepted =
+        |command_id: &str, query: WorkspaceFileReadQuery| RuntimeEventKind::CommandAccepted {
+            command_id: command_id.to_string(),
+            command: RuntimeCommand::ReadWorkspaceFile { query },
+        };
+    let loaded =
+        |command_id: &str, file: WorkspaceFileContent| RuntimeEventKind::WorkspaceFileLoaded {
+            command_id: command_id.to_string(),
+            file,
+        };
+    let unavailable = |path: &str, reason: WorkspaceFileUnavailableReason| WorkspaceFileContent {
+        path: path.to_string(),
+        size: None,
+        sha256: None,
+        content: WorkspaceFileBody::Unavailable { reason },
+    };
+
+    let whole_text = "pub const MAX_WORKSPACE_FILE_BYTES: u32 = 1024 * 1024;\n".to_string();
+    // The bound below lands on the first byte of the two-byte `é`, so the cut
+    // has to fall back to the character boundary before it.
+    let long_text =
+        "The bound cuts on a character boundary, never inside the caf\u{00e9} sign.".to_string();
+    let boundary = long_text
+        .find('\u{00e9}')
+        .expect("the fixture text carries the multi-byte char");
+    let cut_limit = boundary as u32 + 1;
+    // A PNG signature: the leading NUL-free bytes still fail the decode, and
+    // byte 0x89 is what a client must never be shown as text.
+    let binary_bytes: Vec<u8> = vec![
+        0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
+    ];
+
+    let kinds = vec![
+        // Both reads are sent before either is answered.
+        accepted(
+            "file_read_text",
+            WorkspaceFileReadQuery {
+                target: SourceTarget::Workspace,
+                path: "crates/types/src/workspace_files.rs".to_string(),
+                byte_limit: None,
+            },
+        ),
+        accepted(
+            "file_read_truncated",
+            WorkspaceFileReadQuery {
+                target: SourceTarget::Workspace,
+                path: "docs/frontend-integration-contract.md".to_string(),
+                byte_limit: Some(cut_limit),
+            },
+        ),
+        // The second read is answered first, so a client correlating by
+        // arrival order attributes the cut body to the whole-file read.
+        loaded(
+            "file_read_truncated",
+            WorkspaceFileContent {
+                path: "docs/frontend-integration-contract.md".to_string(),
+                size: Some(long_text.len() as u64),
+                sha256: Some(digest(long_text.as_bytes())),
+                content: WorkspaceFileBody::Text {
+                    text: long_text[..boundary].to_string(),
+                    truncated: true,
+                },
+            },
+        ),
+        loaded(
+            "file_read_text",
+            WorkspaceFileContent {
+                path: "crates/types/src/workspace_files.rs".to_string(),
+                size: Some(whole_text.len() as u64),
+                sha256: Some(digest(whole_text.as_bytes())),
+                content: WorkspaceFileBody::Text {
+                    text: whole_text.clone(),
+                    truncated: false,
+                },
+            },
+        ),
+        // A Lane target: Core resolved the worktree from its own records and
+        // the client passed no path.
+        accepted(
+            "file_read_binary",
+            WorkspaceFileReadQuery {
+                target: SourceTarget::Lane {
+                    lane_id: "lane_workspace_file_reads".to_string(),
+                },
+                path: "docs/viden-design/Viden/assets/cockpit.png".to_string(),
+                byte_limit: None,
+            },
+        ),
+        loaded(
+            "file_read_binary",
+            WorkspaceFileContent {
+                path: "docs/viden-design/Viden/assets/cockpit.png".to_string(),
+                size: Some(binary_bytes.len() as u64),
+                sha256: Some(digest(&binary_bytes)),
+                content: WorkspaceFileBody::Binary,
+            },
+        ),
+        // Absent and directory: two facts about the tree, not two failures.
+        accepted(
+            "file_read_missing",
+            WorkspaceFileReadQuery {
+                target: SourceTarget::Workspace,
+                path: "crates/types/src/removed.rs".to_string(),
+                byte_limit: None,
+            },
+        ),
+        loaded(
+            "file_read_missing",
+            unavailable(
+                "crates/types/src/removed.rs",
+                WorkspaceFileUnavailableReason::NotFound,
+            ),
+        ),
+        accepted(
+            "file_read_directory",
+            WorkspaceFileReadQuery {
+                target: SourceTarget::Workspace,
+                path: "crates/types/src".to_string(),
+                byte_limit: None,
+            },
+        ),
+        loaded(
+            "file_read_directory",
+            unavailable(
+                "crates/types/src",
+                WorkspaceFileUnavailableReason::Directory,
+            ),
+        ),
+        // A path that leaves the target. Refused, and deliberately not
+        // answered as `not_found`: "you may not ask that" and "your tree does
+        // not contain it" are different facts.
+        accepted(
+            "file_read_escape",
+            WorkspaceFileReadQuery {
+                target: SourceTarget::Workspace,
+                path: "crates/../../etc/passwd".to_string(),
+                byte_limit: None,
+            },
+        ),
+        RuntimeEventKind::CommandRejected {
+            command_id: "file_read_escape".to_string(),
+            reason: "workspace file path `crates/../../etc/passwd` leaves the target".to_string(),
+        },
+        // A `read_file` deny rule. The refusal names the gate and folds the
+        // actionable hint into the reason, because `CommandRejected` has no
+        // `hint` field and a refusal an operator cannot act on is worse.
+        accepted(
+            "file_read_denied",
+            WorkspaceFileReadQuery {
+                target: SourceTarget::Workspace,
+                path: "viden.toml".to_string(),
+                byte_limit: None,
+            },
+        ),
+        RuntimeEventKind::CommandRejected {
+            command_id: "file_read_denied".to_string(),
+            reason: "Permission decision:\nSummary: decision=deny\n\nDetails\ntool: read_file\n\
+                     reason: RuleDeny\nmessage: Denied by permission rule for read_file\n\
+                     hint: grant the `read_file` permission to open workspace files from this \
+                     client"
+                .to_string(),
+        },
+    ];
+
+    fixture(
+        fixture_id,
+        &[
+            "runtime.commands",
+            "runtime.events",
+            "runtime.snapshot",
+            "runtime.workspace_file_reads",
+        ],
+        snapshot(WorkMode::Build),
+        owned_envelopes(fixture_id, owner, kinds, 1_700_006_000),
     )
 }
