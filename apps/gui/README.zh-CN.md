@@ -52,12 +52,12 @@ Agent 可用性探测与后续 ACP spawn 使用同一命令路径；整个过程
 
 | 字段 | 值 |
 | --- | --- |
-| GUI 组件版本 | `0.1.0-rc.4` |
+| GUI 组件版本 | `0.1.0-rc.5` |
 | 最低 Core 版本 | `0.3.5` |
 | 支持 frontend schema | `[1]` |
 | 共同分支基线 | `3a7740ea72e58f4a22248a80f9e7324c49bb0f73` |
 | Core 最终 checkpoint | `f7fe1b31dfb237e4062209767a7051c2b2c68b93` |
-| Core code checkpoint | `1cec82185bbe860d6b8536a63741bc01f1edf2f6` |
+| Core code checkpoint | `39ed155dcc1847b915965f49626e6779b8b538d7` |
 | 合同 payload | `5bd2b80b0953f4194d082940a7b9164c7231ca2d` |
 | 规范 D1 fixture | `d1-main-cockpit.json`，SHA-256 `05ac25909beaa84942a0468d2ae2d8058e7348bd0bd2b7bc86d6fd344fe69439` |
 | 必需 Core capabilities | 15 项冻结能力加 additive extension capabilities，包括 `runtime.cockpit_context_v1` |
@@ -65,12 +65,20 @@ Agent 可用性探测与后续 ACP spawn 使用同一命令路径；整个过程
 | 外观系统 | 5 套 skin、8 组有效 skin/mode、3 档 density、3 种 motion |
 
 当前机器可读 manifest 是 [release-manifest.toml](release-manifest.toml)。
-不可变 rc.4 快照是
-[manifests/0.1.0-rc.4.toml](manifests/0.1.0-rc.4.toml)；此版本 checkpoint
-下两者必须逐字节一致。更早的 alpha、beta、rc.2 与 rc.3 快照继续作为历史证据保留，
-不会被重写。`rc.4` 新增 DiffReview 与 EvidenceView 两个界面以及 `0.3.3` 的四项
-Core capability；它的 `[evidence].root` 有意仍指向 rc.3 目录，因为本次 checkpoint
-没有产出 `0.1.0-rc.4` 验收目录，指名一个不存在的目录比指名一个真实存在的更糟。
+不可变 rc.5 快照是
+[manifests/0.1.0-rc.5.toml](manifests/0.1.0-rc.5.toml)；此版本 checkpoint
+下两者必须逐字节一致。更早的 alpha、beta、rc.2、rc.3 与 rc.4 快照继续作为历史证据
+保留，不会被重写。`rc.4` 曾新增 DiffReview 与 EvidenceView 两个界面以及 `0.3.3` 的
+四项 Core capability。`rc.5` 把驾驶舱推到与已接受的 D1 设计齐平 —— 带舱内次级视图的
+rail-as-router 导航外壳（G3）、Lane 标签条、内联工具 diff 与聚焦模式（G4）、带页签的
+上下文 dock（G5）、D10/D13/D14 视图工作（G6）—— 并采纳了 `0.3.4` 增量发布的六项
+additive Core capability（G7）。`[core].feature_capabilities` 新增这六项，外加
+`runtime.audit` 与 `runtime.workspace_files` —— 本客户端自 `0.3.3` 起就在消费它们
+（D14 的时间线与 dock 的文件树），但 manifest 一直没有记录；共八条，其中六条是新
+capability，两条是补回的遗漏。它的
+`[evidence].root` 有意仍指向 rc.3 目录，因为 `0.1.0-rc.4` 与 `0.1.0-rc.5` 两次
+checkpoint 都没有产出验收目录，指名一个不存在的目录比指名一个真实存在的更糟；两者
+各自按界面的截图都在 `evidence/` 下。
 
 ## 设计真源顺序
 
@@ -135,7 +143,8 @@ Task 2-3 及其证据；spike 结果不能授权生产 mutation 或 persistence�
 
 ## `0.3.4` 的 Core 消费方（G7）
 
-G7 批次采纳了 Core 在 `0.3.4` 中新增的五项能力。下表列出每一项由什么消费，以及
+G7 批次采纳了 Core 在 `0.3.4` 中新增的六项能力 —— 这是计划自身版本目标表给出的
+计数，由发布步骤从「五项」更正而来。下表列出每一项由什么消费，以及
 ——更要紧的那一半——当某个 Core **完全不发布**它时界面显示什么：缺席、空、在途与
 拒绝在这里同样是四句不同的话。
 
@@ -1093,7 +1102,8 @@ qa state 或脚本渲染它，它的样式表也从未进入过 bundle，因此�
 不可能发生回归。于是 `release-manifest.toml` 以及 `0.1.0-rc.2`/`0.1.0-rc.3` 快照中的
 `[evidence] component_gallery` 键曾指向一个不再存在的路径。rc.2 与 rc.3 两份快照被
 `rc_release_manifest_is_an_immutable_byte_equivalent_snapshot` 逐字节冻结，无法就地
-修正；该键已在本次 release 步骤编写的 active manifest 及其 `0.1.0-rc.4` 快照中移除，
+修正；该键已在 active manifest 以及为那两次 release 步骤编写的 `0.1.0-rc.4` 与
+`0.1.0-rc.5` 快照中移除，
 被冻结的 rc.2 与 rc.3 快照保留它作为那两个版本自身声明的记录，模块本身仍可从 Git
 历史中恢复。
 

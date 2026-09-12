@@ -43,7 +43,7 @@ fn production_crate_has_an_explicit_version_and_only_core_as_a_viden_dependency(
         .parse()
         .expect("parse production GUI manifest");
 
-    assert_eq!(manifest["package"]["version"].as_str(), Some("0.1.0-rc.4"));
+    assert_eq!(manifest["package"]["version"].as_str(), Some("0.1.0-rc.5"));
     let mut internal = Vec::new();
     for section in ["dependencies", "dev-dependencies", "build-dependencies"] {
         if let Some(table) = manifest.get(section).and_then(toml::Value::as_table) {
@@ -76,8 +76,8 @@ fn rust_web_and_tauri_packages_share_the_explicit_rc_version() {
     )
     .expect("parse Tauri configuration");
 
-    assert_eq!(package["version"].as_str(), Some("0.1.0-rc.4"));
-    assert_eq!(tauri["version"].as_str(), Some("0.1.0-rc.4"));
+    assert_eq!(package["version"].as_str(), Some("0.1.0-rc.5"));
+    assert_eq!(tauri["version"].as_str(), Some("0.1.0-rc.5"));
 }
 
 #[test]
@@ -140,7 +140,7 @@ fn root_workspace_contains_only_the_selected_tauri_production_crate() {
 fn rc_release_manifest_is_an_immutable_byte_equivalent_snapshot() {
     let gui_root = gui_root();
     let active_path = gui_root.join("release-manifest.toml");
-    let snapshot_path = gui_root.join("manifests/0.1.0-rc.4.toml");
+    let snapshot_path = gui_root.join("manifests/0.1.0-rc.5.toml");
     let active = fs::read(&active_path).expect("read active GUI release manifest");
     let snapshot = fs::read(&snapshot_path).expect("read immutable beta release manifest");
 
@@ -152,7 +152,7 @@ fn rc_release_manifest_is_an_immutable_byte_equivalent_snapshot() {
         .expect("release manifest must be UTF-8")
         .parse()
         .expect("parse GUI release manifest");
-    assert_eq!(manifest["component_version"].as_str(), Some("0.1.0-rc.4"));
+    assert_eq!(manifest["component_version"].as_str(), Some("0.1.0-rc.5"));
     assert_eq!(manifest["release_channel"].as_str(), Some("rc"));
     assert_eq!(
         manifest["status"].as_str(),

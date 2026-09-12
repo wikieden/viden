@@ -62,12 +62,12 @@ login shell or embedding a machine-specific absolute path.
 
 | Field | Value |
 | --- | --- |
-| GUI component version | `0.1.0-rc.4` |
+| GUI component version | `0.1.0-rc.5` |
 | Minimum Core version | `0.3.5` |
 | Supported frontend schemas | `[1]` |
 | Common branch base | `3a7740ea72e58f4a22248a80f9e7324c49bb0f73` |
 | Core final checkpoint | `f7fe1b31dfb237e4062209767a7051c2b2c68b93` |
-| Core code checkpoint | `1cec82185bbe860d6b8536a63741bc01f1edf2f6` |
+| Core code checkpoint | `39ed155dcc1847b915965f49626e6779b8b538d7` |
 | Contract payload | `5bd2b80b0953f4194d082940a7b9164c7231ca2d` |
 | Canonical D1 fixture | `d1-main-cockpit.json`, SHA-256 `05ac25909beaa84942a0468d2ae2d8058e7348bd0bd2b7bc86d6fd344fe69439` |
 | Required Core capabilities | 15 frozen values plus additive extension capabilities, including `runtime.cockpit_context_v1` |
@@ -75,14 +75,23 @@ login shell or embedding a machine-specific absolute path.
 | Appearance | 5 skins, 8 valid skin/mode pairs, 3 densities, 3 motion policies |
 
 The active machine-readable manifest is
-[release-manifest.toml](release-manifest.toml). Its immutable rc.4 snapshot is
-[manifests/0.1.0-rc.4.toml](manifests/0.1.0-rc.4.toml); both files must
+[release-manifest.toml](release-manifest.toml). Its immutable rc.5 snapshot is
+[manifests/0.1.0-rc.5.toml](manifests/0.1.0-rc.5.toml); both files must
 remain byte-equivalent for this release checkpoint. Earlier alpha, beta, rc.2,
-and rc.3 snapshots remain historical evidence and are not rewritten. `rc.4`
-adds the DiffReview and EvidenceView surfaces and the four `0.3.3` Core
-capabilities; its `[evidence].root` deliberately still names the rc.3 tree,
-because no `0.1.0-rc.4` acceptance tree was produced and naming one that does
-not exist would be worse than naming the one that does.
+rc.3, and rc.4 snapshots remain historical evidence and are not rewritten.
+`rc.4` added the DiffReview and EvidenceView surfaces and the four `0.3.3` Core
+capabilities. `rc.5` brings the cockpit level with the accepted D1 design — the
+rail-as-router navigation shell with in-cockpit secondary views (G3), the Lane
+tab strip, inline tool diffs and focus mode (G4), the tabbed context dock (G5),
+the D10/D13/D14 view work (G6) — and adopts the six additive Core
+capabilities the `0.3.4` increment published (G7). `[core].feature_capabilities`
+gains those six plus `runtime.audit` and `runtime.workspace_files`, which this
+client had consumed since `0.3.3` (D14's timeline and the dock's file tree) but
+which the manifest had never recorded; eight entries, six of them new
+capabilities and two of them a corrected omission. Its `[evidence].root` deliberately still names
+the rc.3 tree, because no `0.1.0-rc.4` or `0.1.0-rc.5` acceptance tree was
+produced and naming one that does not exist would be worse than naming the one
+that does; the per-surface captures for both live under `evidence/`.
 
 ## Design source order
 
@@ -154,7 +163,9 @@ evidence; no spike result authorizes production mutation or persistence.
 
 ## The `0.3.4` Core consumers (G7)
 
-Batch G7 adopted the five capabilities Core added in `0.3.4`. Each row names
+Batch G7 adopted the six capabilities Core added in `0.3.4` — the count the
+plan's own version-target table gives, and corrected here from "five" by the
+release step. Each row names
 what consumes it and — the part that matters — what the surface shows on a Core
 that publishes it **not at all**, because absence, emptiness, pending and
 refusal are four different sentences here as everywhere else.
@@ -1443,10 +1454,10 @@ reached a bundle, so it produced no capture and could not regress. The
 `0.1.0-rc.2`/`0.1.0-rc.3` snapshots therefore named a path that no longer
 exists. Those two snapshots are byte-frozen by
 `rc_release_manifest_is_an_immutable_byte_equivalent_snapshot`, so the key
-could not be corrected in place. It is dropped from the active manifest and its
-`0.1.0-rc.4` snapshot, authored for this release step; the frozen rc.2 and rc.3
-snapshots keep it as the record of what those versions claimed, and the module
-stays recoverable from Git history.
+could not be corrected in place. It is dropped from the active manifest and
+from the `0.1.0-rc.4` and `0.1.0-rc.5` snapshots authored for those release
+steps; the frozen rc.2 and rc.3 snapshots keep it as the record of what those
+versions claimed, and the module stays recoverable from Git history.
 
 ## Lane monitor actions
 

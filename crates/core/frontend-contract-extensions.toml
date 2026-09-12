@@ -1,6 +1,6 @@
 schema_version = 1
 base_component_version = "0.3.0"
-candidate_component_version = "0.3.6"
+candidate_component_version = "0.3.7"
 base_contract_checkpoint = "5bd2b80b0953f4194d082940a7b9164c7231ca2d"
 compatibility = "additive_capability_gated"
 capabilities = ["core.workspace_host", "runtime.agent_adapters", "runtime.agent_conversation", "runtime.agent_permission_bridge", "runtime.agent_session_input", "runtime.agent_sessions", "runtime.audit", "runtime.cockpit_context_v1", "runtime.conflict_content", "runtime.credential_handles", "runtime.credential_staging", "runtime.durable_work_evidence", "runtime.evidence_reads", "runtime.lane_lifecycle", "runtime.lane_owner_projection", "runtime.operator_git", "runtime.project_onboarding", "runtime.recent_work", "runtime.starter_lane_preview", "runtime.structured_diff", "runtime.transcript_rows", "runtime.trust_loop", "runtime.turn_lifecycle", "runtime.workspace_eligibility", "runtime.workspace_file_reads", "runtime.workspace_files", "runtime.workspace_owner", "ui.layout_preferences", "ui.preference_persistence"]

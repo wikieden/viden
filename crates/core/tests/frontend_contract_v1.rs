@@ -153,11 +153,11 @@ fn frontend_contract_v1_capability_source_is_frozen_and_sorted() {
     assert!(advertised.contains(&CapabilityId("runtime.credential_handles".to_string())));
     let extension_manifest = include_str!("../frontend-contract-extensions.toml");
     assert!(extension_manifest.contains("base_component_version = \"0.3.0\""));
-    assert!(extension_manifest.contains("candidate_component_version = \"0.3.6\""));
+    assert!(extension_manifest.contains("candidate_component_version = \"0.3.7\""));
     assert!(extension_manifest.contains("compatibility = \"additive_capability_gated\""));
     assert!(extension_manifest.contains("[runtime_trust_loop]\ncommand_count = 8"));
-    assert_eq!(CORE_CLIENT_VERSION, "0.3.6");
-    assert_eq!(local_core_handshake().core_version, "0.3.6");
+    assert_eq!(CORE_CLIENT_VERSION, "0.3.7");
+    assert_eq!(local_core_handshake().core_version, "0.3.7");
 }
 
 #[test]
@@ -249,7 +249,7 @@ fn frontend_host_capabilities_are_schema_one_core_0_3_6_and_additive() {
     ];
 
     assert_eq!(FRONTEND_SCHEMA_V1, SchemaVersion(1));
-    assert_eq!(CORE_CLIENT_VERSION, "0.3.6");
+    assert_eq!(CORE_CLIENT_VERSION, "0.3.7");
     assert_eq!(CORE_CLIENT_CAPABILITIES, frozen_base);
     assert_eq!(CORE_EXTENSION_CAPABILITIES, extensions);
     assert!(
@@ -278,7 +278,7 @@ fn frontend_host_capabilities_are_schema_one_core_0_3_6_and_additive() {
         .expect("missing optional extensions must not block a frozen-base client");
 
     let extension_manifest = include_str!("../frontend-contract-extensions.toml");
-    assert!(extension_manifest.contains("candidate_component_version = \"0.3.6\""));
+    assert!(extension_manifest.contains("candidate_component_version = \"0.3.7\""));
     assert!(extension_manifest.contains("schema_version = 1"));
     assert!(extension_manifest.contains("runtime.cockpit_context_v1"));
     assert!(!extension_manifest.contains("runtime.workspace_facts"));
@@ -492,11 +492,15 @@ fn interaction_closed_loop_fixture_replays_identically_after_a_gap() {
     assert_eq!(full_view.lane_recoveries.len(), 1);
 
     let release_manifest = include_str!("../release-manifest.toml");
-    assert!(release_manifest.contains("component_version = \"0.3.6\""));
+    assert!(release_manifest.contains("component_version = \"0.3.7\""));
     assert!(release_manifest.contains("runtime.cockpit_context_v1"));
     assert!(!release_manifest.contains("runtime.workspace_facts"));
+    // The Core 0.3.7 contract checkpoint: the `claude/int-0.3.4` tip every
+    // 0.3.4 Core batch had landed on. Declared once by the release step (E2)
+    // rather than per batch, because a checkpoint named while the contract is
+    // still moving names a contract that does not exist.
     assert!(release_manifest.contains(
-        "contract_implementation_checkpoint = \"1cec82185bbe860d6b8536a63741bc01f1edf2f6\""
+        "contract_implementation_checkpoint = \"39ed155dcc1847b915965f49626e6779b8b538d7\""
     ));
 
     // The manifest's fixture digests are pinned by *recomputation*, not by a

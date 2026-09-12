@@ -3,8 +3,8 @@
 Chinese version: [core-0.3-compatibility.zh-CN.md](core-0.3-compatibility.zh-CN.md)
 
 This document is the human-readable compatibility manifest for the frozen Core
-0.3.0 `frontend-contract-v1` payload and its backward-compatible Core 0.3.3
-extension candidate. It records the frontend schema, handshake capabilities,
+0.3.0 `frontend-contract-v1` payload and its backward-compatible extension
+line, whose current immutable declaration is the Core 0.3.7 checkpoint below. It records the frontend schema, handshake capabilities,
 migration order, deterministic fixture corpus, UI preference contract, and
 design-entry hierarchy.
 
@@ -1071,6 +1071,46 @@ capability count gate in `scripts/tui-regression.sh` moved 28 -> 29. Neither
 client has adopted it yet: the GUI's ordered transcript rows are G7 and the
 TUI's transcript lens is T2.
 
+### Core 0.3.7 Contract Checkpoint
+
+Declared 2026-09-12 by the `0.3.4` release step (E2), once, after every Core and
+client batch of the increment had landed:
+
+```text
+component = viden-core
+component_version = 0.3.7
+status = immutable_checkpoint
+supported_schema_versions = [1]
+active_schema_version = 1
+base_contract_checkpoint = 5bd2b80b0953f4194d082940a7b9164c7231ca2d
+contract_implementation_checkpoint = 39ed155dcc1847b915965f49626e6779b8b538d7
+capabilities = 15 frozen base + 29 extensions
+```
+
+The payload it freezes is the schema-1 protocol plus the 29 advertised
+capabilities and the fixture digests `crates/core/release-manifest.toml`
+records. The six capabilities the increment added are
+`runtime.workspace_owner` and `ui.layout_preferences` (C5),
+`runtime.turn_lifecycle` (C6), `runtime.durable_work_evidence` (C7),
+`runtime.transcript_rows` (C8), and `runtime.workspace_file_reads` (C9); both
+clients adopted them in G7 and T2. `CORE_CLIENT_VERSION` is
+`env!("CARGO_PKG_VERSION")`, so `crates/core/Cargo.toml` moved with the
+manifest and `local_core_handshake().core_version` answers `0.3.7`.
+
+Two properties are worth stating rather than assuming. The nine frozen
+`frontend-contract-v1` base fixtures are byte-identical to
+`git show 25072a0a:<path>` — the whole increment is additive, and C5's separate
+`ui.layout_preferences` record exists precisely so that no `RuntimeSnapshot`
+field moved a recorded digest. And the checkpoint names a commit on a **local
+integration branch**: if `claude/int-0.3.4` is rebased before it merges, this
+checkpoint must be re-declared against the new SHA rather than assumed to have
+survived. Declaring it here rather than per batch is deliberate; a checkpoint
+named while the contract is still moving names a contract that does not exist.
+
+This declaration is about the contract, not about distribution. Nothing in this
+document authorizes a tag, a push, a publish, or a Homebrew change.
+
+
 Open follow-ups recorded 2026-09-10. Each was confirmed during the `0.3.3`
 batches and deliberately left out of them, so none is rediscovered later as a
 new finding:
@@ -1400,7 +1440,7 @@ Its reconnect test deliberately observes a cursor gap, replays the missing
 contiguous batch, and proves that the normalized final `RuntimeViewState`,
 cursor, and digest equal uninterrupted replay. The manifest at
 `crates/core/release-manifest.toml` records both fixture payloads and the Core
-0.3.3 contract implementation checkpoint; it does not authorize a tag.
+0.3.7 contract implementation checkpoint; it does not authorize a tag.
 
 Each JSON fixture envelope contains:
 

@@ -2,8 +2,9 @@
 
 English version: [core-0.3-compatibility.md](core-0.3-compatibility.md)
 
-本文是冻结的 Core 0.3.0 `frontend-contract-v1` payload 及其向后兼容 Core 0.3.3
-extension candidate 的人类可读兼容清单，记录前端 schema、handshake capabilities、
+本文是冻结的 Core 0.3.0 `frontend-contract-v1` payload 及其向后兼容扩展线的人类
+可读兼容清单 —— 该扩展线当前的不可变声明是下文的 Core 0.3.7
+checkpoint —— 记录前端 schema、handshake capabilities、
 migration 顺序、确定性 fixture corpus、UI 偏好契约和设计入口层级。
 
 ## 冻结状态
@@ -807,6 +808,43 @@ check run 是它自己的一行，而不是套了标签的 tool result，并且�
 fixture；九个冻结基线 fixture 的字节未变，`scripts/tui-regression.sh` 中的能力计数门
 由 28 移到 29。两个客户端都尚未采纳：GUI 的有序转录行属于 G7，TUI 的转录透镜属于 T2。
 
+### Core 0.3.7 契约 checkpoint
+
+由 `0.3.4` 发布步骤（E2）在 2026-09-12 一次性声明，时间点是该增量的所有 Core 与
+客户端批次都已落地之后：
+
+```text
+component = viden-core
+component_version = 0.3.7
+status = immutable_checkpoint
+supported_schema_versions = [1]
+active_schema_version = 1
+base_contract_checkpoint = 5bd2b80b0953f4194d082940a7b9164c7231ca2d
+contract_implementation_checkpoint = 39ed155dcc1847b915965f49626e6779b8b538d7
+capabilities = 15 个冻结基础 + 29 个扩展
+```
+
+它冻结的 payload 是 schema-1 协议，加上 29 个对外通告的能力，以及
+`crates/core/release-manifest.toml` 记录的 fixture 摘要。该增量新增的六个能力是
+`runtime.workspace_owner` 与 `ui.layout_preferences`（C5）、
+`runtime.turn_lifecycle`（C6）、`runtime.durable_work_evidence`（C7）、
+`runtime.transcript_rows`（C8）以及 `runtime.workspace_file_reads`（C9）；两个客户端
+分别在 G7 与 T2 中完成采纳。`CORE_CLIENT_VERSION` 是
+`env!("CARGO_PKG_VERSION")`，因此 `crates/core/Cargo.toml` 与清单一同移动，
+`local_core_handshake().core_version` 回答 `0.3.7`。
+
+有两条性质值得明说而不是默认。九个冻结的 `frontend-contract-v1` 基础 fixture 与
+`git show 25072a0a:<path>` 逐字节一致 —— 整个增量都是增量式的，而 C5 之所以采用独立的
+`ui.layout_preferences` 记录，正是为了不让任何 `RuntimeSnapshot` 字段移动已记录的
+摘要。另外，这个 checkpoint 指名的是一个**本地集成分支**上的提交：如果
+`claude/int-0.3.4` 在合并前被 rebase，这个 checkpoint 必须针对新的 SHA 重新声明，而
+不能假定它自动存续。在这里声明而不是逐批声明是刻意的；在契约还在移动时命名一个
+checkpoint，命名的是一个并不存在的契约。
+
+这项声明关乎契约，不关乎分发。本文中的任何内容都不授权创建 tag、推送、发布或改动
+Homebrew。
+
+
 2026-09-10 记录的未决跟进项。每一条都是在 `0.3.3` 各批次中确认、并被刻意留在
 批次之外的，因此它们不会日后被当作新发现重新提出：
 
@@ -1053,7 +1091,7 @@ optional event 只推进 cursor，不修改该 state。
 交互闭环 fixture 包含 18 个有序 event，并只使用 locale-neutral fact key。重连测试会
 刻意观察一次 cursor gap，重放缺失的连续 batch，并证明 normalized final
 `RuntimeViewState`、cursor 与 digest 和不中断 replay 完全一致。
-`crates/core/release-manifest.toml` 记录两份 fixture payload 与 Core 0.3.3 contract
+`crates/core/release-manifest.toml` 记录两份 fixture payload 与 Core 0.3.7 contract
 implementation checkpoint，但不授权创建 tag。
 
 每个 JSON fixture envelope 包含：
