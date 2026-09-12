@@ -1544,17 +1544,19 @@ async function renderState(): Promise<void> {
     }
 
     case "lane-rail": {
-      // The rail auto-hides, so the capture pins it open. It must show the
-      // one `.wsroot` project group Core supervises, its Lanes nested beneath,
-      // and the `＋ Add project…` footer — with no fabricated second group and
-      // no "Global" section.
+      // `D-SIDEBAR` pinned mode: the sidebar as a real layout column, which is
+      // the half of the decision the floating capture cannot show. It must
+      // show the one `.wsroot` project group Core supervises, its Lanes nested
+      // beneath, and the `＋ Add project…` footer — with no fabricated second
+      // group and no "Global" section — and the rail's pin marked pressed.
       mountCockpit({
         projection: d1Base(),
         preferencesAvailable: true,
         projectPicker: true,
+        laneSidebarMode: "pinned",
       });
-      click("[data-lanes-toggle]");
       await waitFor("#d1-lane-rail[data-open='true']");
+      await waitFor("[data-lane-sidebar-pin='pinned']");
       await waitFor("[data-add-project]");
       return;
     }
@@ -2174,16 +2176,13 @@ async function renderState(): Promise<void> {
     }
 
     case "nav-sidebar-floating-peek": {
-      // `D-SIDEBAR` floating mode: the sidebar is hidden and the 12px hot zone
-      // with its `.edgehint` cue sits against the activity rail. The capture
-      // pins the peek open through the keyboard path — the Lanes rail slot —
-      // so it shows the overlay above the transcript rather than a layout
-      // column, with the header's pin control in its unpinned state.
-      mountCockpit({
-        projection: d1Base(),
-        preferencesAvailable: true,
-        laneSidebarMode: "floating",
-      });
+      // `D-SIDEBAR` floating mode, which is the decision's default: the
+      // sidebar is hidden and the 12px hot zone with its `.edgehint` cue sits
+      // against the activity rail. The capture pins the peek open through the
+      // keyboard path — the Lanes rail slot — so it shows the overlay *above*
+      // the transcript rather than a layout column, with the rail's own pin
+      // (above the settings gear) in its unpinned state.
+      mountCockpit({ projection: d1Base(), preferencesAvailable: true });
       click("[data-lanes-toggle]");
       await waitFor("[data-lane-edge][data-peek='true']");
       await waitFor("[data-lane-sidebar-pin='floating']");

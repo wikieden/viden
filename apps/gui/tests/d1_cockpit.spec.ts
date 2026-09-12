@@ -782,6 +782,8 @@ describe("D1 canonical streaming cockpit", () => {
       "Integration gate",
       "Fleet board",
       "Audit timeline — falls back to raw event replay when Core publishes no runtime.audit",
+      // `D-SIDEBAR`'s single pin entry sits between the spacer and the gear.
+      "Pin the Lane sidebar",
       "Settings",
     ]);
   });

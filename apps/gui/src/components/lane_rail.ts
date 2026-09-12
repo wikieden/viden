@@ -1,4 +1,3 @@
-import { createCanonicalGuiIcon } from "./activity_rail";
 import { translate, type Locale } from "../i18n/catalog";
 import { currentProjectLabel, type D1CockpitProjection } from "../models/workspace";
 
@@ -30,11 +29,13 @@ export function adjacentLaneId(
 /**
  * The two `D-SIDEBAR` modes.
  *
- * `pinned` keeps the rail a surface the operator opens and leaves open;
- * `floating` gives the horizontal space back to the transcript and reveals the
- * same component as an overlay from the activity rail's right edge. The
- * component is identical in both — only its host changes, which is the
- * decision's own rule ("两态内容/结构零分叉").
+ * `float` is the decision's default: the sidebar gives its horizontal space to
+ * the transcript and peeks out of a hot zone on the activity rail's right edge.
+ * `pinned` gives it a real layout column. The component is identical in both —
+ * only its host changes, which is the decision's own rule ("两态内容/结构零分叉")
+ * — and the single toggle entry is the activity rail's pin button above the
+ * settings gear, not a second control in this header (the decision records
+ * that entry as dead CSS, removed 2026-07-02).
  */
 export type LaneSidebarMode = "pinned" | "floating";
 
@@ -49,8 +50,6 @@ export interface LaneRailOptions {
    * `d1_cockpit.ts`.
    */
   mode?: LaneSidebarMode;
-  /** Switches modes from the header's pin control. Absent leaves it out. */
-  onToggleMode?: () => void;
   /**
    * Whether the project group is collapsed. Purely local presentation state,
    * owned by the cockpit so an ordered Core refresh cannot silently re-expand
@@ -95,31 +94,12 @@ export function renderLaneRail(options: LaneRailOptions): HTMLElement {
     options.onDismiss();
   };
 
-  const mode: LaneSidebarMode = options.mode ?? "pinned";
+  const mode: LaneSidebarMode = options.mode ?? "floating";
   lanes.dataset.sidebarMode = mode;
 
-  const header = document.createElement("div");
-  header.className = "d1-lane-header";
   const laneTitle = document.createElement("h2");
   laneTitle.textContent = translate(locale, "d1.lanes", {});
-  header.append(laneTitle);
-  if (options.onToggleMode) {
-    // `D-SIDEBAR`'s pin/unpin. The state it reports is the *current* mode, so
-    // a screen reader hears "pinned, pressed" rather than the verb it would
-    // perform, which is what `aria-pressed` means on a toggle.
-    const pin = document.createElement("button");
-    pin.type = "button";
-    pin.className = "d1-action d1-lane-pin";
-    pin.dataset.laneSidebarPin = mode;
-    pin.setAttribute("aria-pressed", String(mode === "pinned"));
-    const label = translate(locale, mode === "pinned" ? "d1.lanes.unpin" : "d1.lanes.pin", {});
-    pin.title = label;
-    pin.setAttribute("aria-label", label);
-    pin.append(createCanonicalGuiIcon("pin"));
-    pin.addEventListener("click", () => options.onToggleMode?.());
-    header.append(pin);
-  }
-  lanes.append(header);
+  lanes.append(laneTitle);
 
   const scroll = document.createElement("div");
   scroll.className = "wsscroll d1-lane-scroll";

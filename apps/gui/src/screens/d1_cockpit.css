@@ -232,7 +232,6 @@ button.d1-topbar-project[aria-expanded="true"] {
     visibility var(--motion-fast) var(--ease);
 }
 
-.d1-activity:hover + .d1-lanes,
 .d1-lanes:hover,
 .d1-lanes:focus-within,
 .d1-lanes[data-open="true"] {
@@ -242,7 +241,45 @@ button.d1-topbar-project[aria-expanded="true"] {
 }
 
 /*
- * `D-SIDEBAR` floating mode.
+ * `D-SIDEBAR` pinned mode: a real layout column, not an overlay.
+ *
+ * The decision is explicit that pinned "占布局列" — the sidebar takes width from
+ * the transcript rather than covering it — so the body grows a fourth track and
+ * the rail stops being absolutely positioned. The width is the design's own
+ * default, `--rail-left` (218px). The 176–360 drag the token documents is not
+ * built in this batch; it is the second field of the same `C5` preference seam
+ * that owns the mode (see `D1RenderOptions.laneSidebarMode`).
+ *
+ * Scoped to the desktop layout on purpose: below 1100px the shell already
+ * collapses to two tracks and every rail is an overlay, and a pinned column
+ * there would take width the transcript does not have.
+ */
+.d1-body[data-cockpit-layout="desktop"][data-lane-column="true"] {
+  grid-template-columns:
+    var(--rail-act)
+    var(--rail-left)
+    minmax(22rem, 1fr)
+    clamp(15rem, var(--rail-right), 30rem);
+}
+
+.d1-body[data-cockpit-layout="desktop"][data-lane-sidebar-mode="pinned"] .side.d1-lanes {
+  position: static;
+  width: auto;
+  opacity: 1;
+  transform: none;
+  visibility: visible;
+  box-shadow: none;
+  transition: none;
+}
+
+/* Unpinned-but-pinned-mode: the column is gone, so the rail is too. */
+.d1-body[data-cockpit-layout="desktop"][data-lane-sidebar-mode="pinned"]
+  .side.d1-lanes[data-open="false"] {
+  display: none;
+}
+
+/*
+ * `D-SIDEBAR` floating mode (the decision's default).
  *
  * The sidebar gives its horizontal space back to the transcript and is revealed
  * from the design's `.edgewrap.l` hot zone against the activity rail. The hot

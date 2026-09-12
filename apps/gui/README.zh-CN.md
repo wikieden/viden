@@ -404,12 +404,24 @@ Close 控件；再次按下同一个 rail 槽位同样返回转录。`⌘G` / `�
    Work 条上的取消——位于转录内部，因此二者实际上从不冲突；
 5. 最后才是中央视图的返回路径。
 
-**Lane 侧栏双模式（`D-SIDEBAR`）。** `pinned` 是默认值，也是此前已交付的行为：Lane 槽位切换
-侧栏，activity rail 的 hover 会将其显示。`floating` 隐藏侧栏并把横向空间还给转录；设计中
-12px 的热区连同 `.edgehint` 提示条贴在 activity rail 右缘，指针移入即滑出，移出后按设计的
-约 700ms 延时收起。选中 Lane 会立即收起——它已经完成了任务——`Esc` 亦然。键盘路径是 Lane
-rail 槽位，它切换 peek。侧栏头部的 pin/unpin 控件切换模式。两种模式下组件是同一个节点，
-只有宿主不同，这正是该决策自身的规则。
+**Lane 侧栏双模式（`D-SIDEBAR`）。** `floating` 是该决策的默认值，也是驾驶舱的默认值：侧栏
+把横向空间让给转录，藏在贴着 activity rail 右缘、带 `.edgehint` 提示条的 12px 热区之后。
+指针移入即滑出，移出后按决策的约 700ms 延时收起。选中 Lane 会立即收起——它已经完成了
+任务——`Esc` 亦然。键盘路径是 Lane rail 槽位，它切换 peek，因为 12px 的窄条并非人人都能
+命中的指针目标。
+
+`pinned` 是**真正的布局列**，而不是同一个浮层加一个标志位：驾驶舱主体增加第四条
+网格轨道，宽度取设计默认值 `--rail-left`（218px），侧栏不再绝对定位。在该模式下 Lane 槽位
+切换的是这一列本身——这是不离开该模式又把宽度还回去的唯一办法——而 `Esc` 不动它：`Esc`
+属于那个短暂的 peek。宽度不大于 1100px 时外壳本就塌缩为两条轨道，因此 pinned 在那里回退为浮层，
+而不是去占转录没有的宽度。
+
+唯一的切换入口是 activity rail 底部、设置齿轮正上方的 pin 按钮，正是 `D-SIDEBAR` 指定的
+位置；其 `aria-pressed` 报告的是当前模式而不是它将执行的动作。这里刻意没有第二个入口：
+设计稿曾画过的侧栏顶部 `.pinbtn` 从未被渲染，其 CSS 已于 2026-07-02 删除。两种模式下
+侧栏组件是同一个节点，只有宿主不同，这正是该决策自身的规则。
+
+Token 中记录的 176–360px 拖宽**未**实现；本批次 pinned 列固定为 218px。
 
 **状态栏配置齿轮（`D-STATUSBAR`）。** 状态栏起始端的齿轮打开设计的 `.sbcfg` 弹层，列出六个
 **环境**段——`CONTEXT`、`EVENTS`、`LATENCY`、`TOKENS`、`DIAG`、`REQ`——各带一个勾选框。被钉住
@@ -420,9 +432,9 @@ rail 槽位，它切换 peek。侧栏头部的 pin/unpin 控件切换模式。�
 **两处内存接缝。** Lane 侧栏模式与状态栏环境段可见性是本批次保存在内存中的呈现状态，并且
 **刻意不做持久化**。前端契约规定 Core 是唯一的偏好权威，因此设计原型的 `localStorage` 键
 （`vd-leftmode`、`vd-leftw`）就是契约禁止的第二套偏好模型。Core 批次 `C5` 会加入
-`UiPreferences.lane_sidebar_mode`；届时 G7 从已解析的偏好投影读取它，并用 `SetUiPreferences`
-写回，`D1RenderOptions.laneSidebarMode` 也从调用方默认值变为 Core 的取值。两处接缝在代码里
-都带有该注释。
+`UiLayoutPreferences.lane_sidebar_mode`；届时 G7 从已解析的偏好投影读取它并写回，
+`D1RenderOptions.laneSidebarMode` 也从调用方默认值变为 Core 的取值。pinned 列的宽度——
+token 记录的 176–360 拖宽——是同一条记录的第二个字段。两处接缝在代码里都带有该注释。
 
 ## 项目、最近工作与分组侧栏
 

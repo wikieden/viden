@@ -407,50 +407,97 @@ describe("the return path", () => {
   });
 });
 
-describe("the Lane sidebar has a pinned and a floating mode (D-SIDEBAR)", () => {
+describe("the Lane sidebar has a floating and a pinned mode (D-SIDEBAR)", () => {
   beforeEach(() => {
     document.body.innerHTML = "";
   });
 
-  test("pinned is the mode the cockpit opens in and keeps today's toggle", () => {
+  test("floating is the mode the cockpit opens in", () => {
     const { root, controller } = mount();
     const body = root.querySelector<HTMLElement>("[data-cockpit-grid]")!;
 
-    expect(body.dataset.laneSidebarMode).toBe("pinned");
-    expect(root.querySelector("[data-lane-edge]")).toBeNull();
-    root.querySelector<HTMLButtonElement>("[data-lanes-toggle]")!.click();
-    expect(root.querySelector("#d1-lane-rail")?.getAttribute("data-open")).toBe("true");
-    controller.dispose();
-  });
-
-  test("the sidebar header pin control switches modes", () => {
-    const { root, controller } = mount();
-
-    root.querySelector<HTMLButtonElement>("[data-lanes-toggle]")!.click();
-    const pin = root.querySelector<HTMLButtonElement>("[data-lane-sidebar-pin]")!;
-    expect(pin.getAttribute("aria-pressed")).toBe("true");
-
-    pin.click();
-    const body = root.querySelector<HTMLElement>("[data-cockpit-grid]")!;
+    // `D-SIDEBAR` makes float the default: the horizontal space belongs to the
+    // transcript until the operator asks for the sidebar.
     expect(body.dataset.laneSidebarMode).toBe("floating");
-    expect(
-      root.querySelector<HTMLButtonElement>("[data-lane-sidebar-pin]")?.getAttribute("aria-pressed"),
-    ).toBe("false");
+    expect(body.dataset.laneColumn).toBe("false");
+    expect(root.querySelector("[data-lane-edge]")).not.toBeNull();
+    expect(root.querySelector<HTMLElement>("[data-lane-edge]")?.dataset.peek).toBe("false");
+    expect(root.querySelector("#d1-lane-rail")?.getAttribute("data-open")).toBe("false");
     controller.dispose();
   });
 
-  test("floating hides the rail behind a hot zone that peeks and hides again", () => {
-    const { root, controller } = mount({ laneSidebarMode: "floating" });
+  test("the single toggle entry is the rail pin, directly above the settings gear", () => {
+    const { root, controller } = mount();
+    const rail = root.querySelector<HTMLElement>('[data-shell-landmark="activity-rail"]')!;
+    const buttons = Array.from(rail.querySelectorAll<HTMLButtonElement>("button"));
+    const pin = rail.querySelector<HTMLButtonElement>("[data-lane-sidebar-pin]")!;
+    const gear = rail.querySelector<HTMLButtonElement>("[data-settings-toggle]")!;
+
+    expect(buttons.indexOf(pin)).toBe(buttons.indexOf(gear) - 1);
+    // The design records the sidebar-header entry as dead CSS; one entry only.
+    expect(root.querySelector("#d1-lane-rail [data-lane-sidebar-pin]")).toBeNull();
+    // It reports the current mode, not the verb it would perform.
+    expect(pin.getAttribute("aria-pressed")).toBe("false");
+    expect(pin.getAttribute("aria-label")).toBe("Pin the Lane sidebar");
+    controller.dispose();
+  });
+
+  test("the rail pin switches floating to a real layout column and back", () => {
+    const { root, controller } = mount();
+    const body = (): HTMLElement => root.querySelector<HTMLElement>("[data-cockpit-grid]")!;
+
+    root.querySelector<HTMLButtonElement>("[data-lane-sidebar-pin]")!.click();
+
+    expect(body().dataset.laneSidebarMode).toBe("pinned");
+    // Pinned is a column in the grid, not an overlay: the hot zone is gone and
+    // the rail is a direct child of the body rather than a floating panel.
+    expect(body().dataset.laneColumn).toBe("true");
+    expect(root.querySelector("[data-lane-edge]")).toBeNull();
+    const rail = root.querySelector<HTMLElement>("#d1-lane-rail")!;
+    expect(rail.parentElement).toBe(body());
+    expect(rail.dataset.open).toBe("true");
+    expect(
+      root.querySelector("[data-lane-sidebar-pin]")?.getAttribute("aria-pressed"),
+    ).toBe("true");
+    expect(
+      root.querySelector("[data-lane-sidebar-pin]")?.getAttribute("aria-label"),
+    ).toBe("Unpin the Lane sidebar");
+
+    root.querySelector<HTMLButtonElement>("[data-lane-sidebar-pin]")!.click();
+    expect(body().dataset.laneSidebarMode).toBe("floating");
+    expect(root.querySelector("[data-lane-edge]")).not.toBeNull();
+    controller.dispose();
+  });
+
+  test("the Lanes slot toggles the peek while floating and the column while pinned", () => {
+    const { root, controller } = mount();
+    const body = (): HTMLElement => root.querySelector<HTMLElement>("[data-cockpit-grid]")!;
+    const peek = (): string | undefined =>
+      root.querySelector<HTMLElement>("[data-lane-edge]")?.dataset.peek;
+
+    root.querySelector<HTMLButtonElement>("[data-lanes-toggle]")!.click();
+    expect(peek()).toBe("true");
+    expect(root.querySelector("#d1-lane-rail")?.getAttribute("data-open")).toBe("true");
+    root.querySelector<HTMLButtonElement>("[data-lanes-toggle]")!.click();
+    expect(peek()).toBe("false");
+
+    root.querySelector<HTMLButtonElement>("[data-lane-sidebar-pin]")!.click();
+    expect(body().dataset.laneColumn).toBe("true");
+    root.querySelector<HTMLButtonElement>("[data-lanes-toggle]")!.click();
+    // Pinned, the slot takes the column away and gives the width back.
+    expect(body().dataset.laneColumn).toBe("false");
+    expect(root.querySelector("#d1-lane-rail")?.getAttribute("data-open")).toBe("false");
+    root.querySelector<HTMLButtonElement>("[data-lanes-toggle]")!.click();
+    expect(body().dataset.laneColumn).toBe("true");
+    controller.dispose();
+  });
+
+  test("the hot zone peeks on pointer enter and collapses after the design's delay", () => {
+    const { root, controller } = mount();
 
     const edge = root.querySelector<HTMLElement>("[data-lane-edge]")!;
-    expect(edge.dataset.peek).toBe("false");
-    expect(root.querySelector("#d1-lane-rail")?.getAttribute("data-open")).toBe("false");
-
     edge.dispatchEvent(new MouseEvent("pointerenter", { bubbles: false }));
-    expect(
-      root.querySelector<HTMLElement>("[data-lane-edge]")?.dataset.peek,
-    ).toBe("true");
-    expect(root.querySelector("#d1-lane-rail")?.getAttribute("data-open")).toBe("true");
+    expect(root.querySelector<HTMLElement>("[data-lane-edge]")?.dataset.peek).toBe("true");
 
     vi.useFakeTimers();
     root
@@ -466,7 +513,7 @@ describe("the Lane sidebar has a pinned and a floating mode (D-SIDEBAR)", () => 
   });
 
   test("selecting a Lane and Esc both hide the floating peek", () => {
-    const { root, controller } = mount({ laneSidebarMode: "floating" });
+    const { root, controller } = mount();
 
     root.querySelector<HTMLButtonElement>("[data-lanes-toggle]")!.click();
     expect(root.querySelector<HTMLElement>("[data-lane-edge]")?.dataset.peek).toBe("true");
@@ -478,6 +525,28 @@ describe("the Lane sidebar has a pinned and a floating mode (D-SIDEBAR)", () => 
     expect(root.querySelector<HTMLElement>("[data-lane-edge]")?.dataset.peek).toBe("true");
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     expect(root.querySelector<HTMLElement>("[data-lane-edge]")?.dataset.peek).toBe("false");
+    controller.dispose();
+  });
+
+  test("a pinned column is not hidden by Esc, which belongs to the transient peek", () => {
+    const { root, controller } = mount();
+    root.querySelector<HTMLButtonElement>("[data-lane-sidebar-pin]")!.click();
+
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+
+    expect(
+      root.querySelector<HTMLElement>("[data-cockpit-grid]")?.dataset.laneColumn,
+    ).toBe("true");
+    controller.dispose();
+  });
+
+  test("the caller may open the cockpit pinned, which is the C5 seam's shape", () => {
+    const { root, controller } = mount({ laneSidebarMode: "pinned" });
+    const body = root.querySelector<HTMLElement>("[data-cockpit-grid]")!;
+
+    expect(body.dataset.laneSidebarMode).toBe("pinned");
+    expect(body.dataset.laneColumn).toBe("true");
+    expect(root.querySelector("[data-lane-edge]")).toBeNull();
     controller.dispose();
   });
 });

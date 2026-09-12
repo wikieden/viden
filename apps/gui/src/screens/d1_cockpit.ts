@@ -337,15 +337,19 @@ export interface D1RenderOptions {
     ) => void | Promise<void>;
   };
   /**
-   * The Lane sidebar's `D-SIDEBAR` mode at mount.
+   * The Lane sidebar's `D-SIDEBAR` mode at mount. Defaults to the decision's
+   * own default, `floating`.
    *
    * **Seam.** This is presentation state held in memory for this batch and
    * deliberately not persisted: the frontend contract makes Core the single
    * preference authority, so a `localStorage` key here (which the design
    * prototype uses as `vd-leftmode`) would be the second preference model the
-   * contract forbids. Core batch `C5` adds `UiPreferences.lane_sidebar_mode`;
-   * G7 then reads it here and writes it through `SetUiPreferences`, and this
-   * option becomes the resolved Core value rather than a caller default.
+   * contract forbids. Core batch `C5` adds
+   * `UiLayoutPreferences.lane_sidebar_mode`; G7 then reads it here and writes
+   * it through the preference command, and this option becomes the resolved
+   * Core value rather than a caller default. The pinned column's width is
+   * fixed at the design's default (`--rail-left`, 218px) for this batch; the
+   * 176–360 drag the token documents is the same seam's second field.
    */
   laneSidebarMode?: LaneSidebarMode;
   /** Opens D14 scoped to one audit object, for EvidenceView's footer. */
@@ -668,7 +672,7 @@ export function renderD1Cockpit(
    * The Lane sidebar mode (`D-SIDEBAR`). In-memory for this batch; the
    * persistence seam is documented on `D1RenderOptions.laneSidebarMode`.
    */
-  let laneSidebarMode: LaneSidebarMode = options.laneSidebarMode ?? "pinned";
+  let laneSidebarMode: LaneSidebarMode = options.laneSidebarMode ?? "floating";
   /** True while the floating sidebar is peeked open. */
   let laneRailPeek = false;
   /** The design's ~700 ms peek delay, so a pointer crossing it does not slam. */
@@ -678,7 +682,8 @@ export function renderD1Cockpit(
    *
    * **Seam.** In memory, like `laneSidebarMode` and for the same reason: the
    * GUI must not own a second preference authority. When Core publishes a
-   * statusbar preference this map becomes its resolved value.
+   * statusbar preference — the same `UiLayoutPreferences` record `C5` adds —
+   * this map becomes its resolved value.
    */
   let statusbarAmbient: StatusbarAmbientVisibility = { ...ALL_STATUSBAR_AMBIENT_VISIBLE };
   let statusbarConfigOpen = false;
@@ -768,7 +773,12 @@ export function renderD1Cockpit(
    */
   let pushAfterCommit = false;
   let commitPairStopped = false;
-  let laneRailOpen = false;
+  /**
+   * Whether the pinned column is showing. Pinned opens with it: a mode whose
+   * whole point is a permanent column would be a strange thing to switch into
+   * and see nothing. Floating tracks `laneRailPeek` instead.
+   */
+  let laneRailOpen = options.laneSidebarMode === "pinned";
   let laneRailFocusTarget: "rail" | "toggle" | null = null;
   let menuController: AgentMenuController | null = null;
   // Composer-control selector state. The popover DOM is rebuilt every render,
@@ -1202,9 +1212,10 @@ export function renderD1Cockpit(
       }
       if (pendingLaneStart && result.projection.permissionDock.request) {
         // The pre-registration Lane approval belongs to the center dock. Keep
-        // its primary actions mouse-operable by dismissing the floating rail
-        // that launched the New Lane overlay.
+        // its primary actions mouse-operable by dismissing the sidebar that
+        // launched the New Lane overlay — in whichever mode it is showing.
         laneRailOpen = false;
+        laneRailPeek = false;
         laneRailFocusTarget = null;
       }
       const discoveryChanged = observeAgentDiscoveryResult(result);
@@ -1888,10 +1899,12 @@ export function renderD1Cockpit(
   const setLaneSidebarMode = (next: LaneSidebarMode): void => {
     if (laneSidebarMode === next) return;
     laneSidebarMode = next;
-    // The two modes are two hosts for one component, so the state that means
-    // "visible" moves with it rather than carrying over as a stale flag.
+    // The two modes are two hosts for one component, so the flag that means
+    // "visible" is reset rather than carried across as a stale value: pinning
+    // shows the column (that is what the operator asked for) and unpinning
+    // returns the width to the transcript until the hot zone is used.
     laneRailPeek = false;
-    laneRailOpen = next === "pinned" ? laneRailOpen : false;
+    laneRailOpen = next === "pinned";
     render(false);
   };
 
@@ -2862,6 +2875,9 @@ export function renderD1Cockpit(
     body.dataset.cockpitGrid = "true";
     body.dataset.cockpitLayout = window.innerWidth <= 1100 ? "narrow" : "desktop";
     body.dataset.laneSidebarMode = laneSidebarMode;
+    // Whether the pinned column is currently taking a grid track. Floating
+    // never does: its host is an overlay, so the transcript keeps the width.
+    body.dataset.laneColumn = String(laneSidebarMode === "pinned" && laneRailOpen);
     if (showWelcome) body.classList.add("d1-body-welcome");
 
     const activity = renderActivityRail(locale, {
@@ -2881,10 +2897,12 @@ export function renderD1Cockpit(
             root.querySelector<HTMLTextAreaElement>("[data-composer]")?.focus();
           },
       onToggleLanes: () => {
-        // One slot, two hosts. Pinned toggles the docked rail; floating
-        // toggles the same component's overlay peek, which is the keyboard
-        // path `D-SIDEBAR` gives an operator who cannot reach the hot zone.
+        // One slot, two hosts. Floating toggles the overlay peek — the
+        // keyboard path `D-SIDEBAR` owes an operator who cannot land a pointer
+        // on a 12px strip; pinned toggles the column itself, which is the only
+        // way to give that width back without leaving the mode.
         if (laneSidebarMode === "floating") {
+          laneRailFocusTarget = laneRailPeek ? "toggle" : "rail";
           if (laneRailPeek) hideLanePeek();
           else showLanePeek();
           return;
@@ -2893,6 +2911,10 @@ export function renderD1Cockpit(
         laneRailFocusTarget = laneRailOpen ? "rail" : "toggle";
         render(false);
       },
+      // `D-SIDEBAR`'s single toggle entry, above the gear.
+      laneSidebarMode,
+      onToggleLaneSidebarMode: () =>
+        setLaneSidebarMode(laneSidebarMode === "pinned" ? "floating" : "pinned"),
       settingsOpen,
       onOpenSettings: !options.preferences
         ? undefined
@@ -2911,19 +2933,19 @@ export function renderD1Cockpit(
       open: laneRailVisible,
       selectedLaneId,
       mode: laneSidebarMode,
-      onToggleMode: () =>
-        setLaneSidebarMode(laneSidebarMode === "pinned" ? "floating" : "pinned"),
       onCreateLane: () => {
         if (options.onCreateLane) options.onCreateLane();
         else void openAgentMenu();
       },
       onDismiss: () => {
+        // The rail's own `Escape`. Focus goes back to the control that opened
+        // it in both modes; only what is being closed differs.
+        laneRailFocusTarget = "toggle";
         if (laneSidebarMode === "floating") {
           hideLanePeek();
           return;
         }
         laneRailOpen = false;
-        laneRailFocusTarget = "toggle";
         render(false);
       },
       onSelectLane: (laneId) => {
@@ -2957,6 +2979,11 @@ export function renderD1Cockpit(
       const edge = document.createElement("div");
       edge.className = "edgewrap l d1-lane-edge";
       edge.dataset.laneEdge = "true";
+      // The host is what occupies the sidebar's place among the body's grid
+      // children, so it carries the role in floating mode; the rail inside it
+      // keeps its own `lane-rail` landmark, which is what everything else
+      // queries.
+      edge.dataset.cockpitRole = "lanes";
       edge.dataset.peek = String(laneRailPeek);
       const hint = document.createElement("span");
       hint.className = "edgehint";
@@ -3493,6 +3520,10 @@ export function renderD1Cockpit(
       currentFrame.dataset.centerView = frame.dataset.centerView ?? "transcript";
       currentBody.className = body.className;
       currentBody.dataset.cockpitLayout = body.dataset.cockpitLayout;
+      // The mode itself cannot change on this path (a mode switch rebuilds the
+      // frame), but whether the pinned column takes a track can, so the flag
+      // the grid reads is written rather than left on the discarded node.
+      currentBody.dataset.laneColumn = body.dataset.laneColumn ?? "false";
       // The hot zone itself persists with its pointer listeners; only the peek
       // state it renders moves, so it is written rather than rebuilt.
       const currentEdge = currentBody.querySelector<HTMLElement>("[data-lane-edge]");

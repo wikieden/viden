@@ -665,7 +665,8 @@ describe("activity rail navigation", () => {
       if (control.disabled) continue;
       const actionable = control.dataset.railRoute
         ?? control.dataset.lanesToggle
-        ?? control.dataset.railFocusWork;
+        ?? control.dataset.railFocusWork
+        ?? control.dataset.laneSidebarPin;
       expect(actionable, control.getAttribute("aria-label") ?? "").toBeDefined();
     }
   });

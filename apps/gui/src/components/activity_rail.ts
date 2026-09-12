@@ -1,3 +1,4 @@
+import type { LaneSidebarMode } from "./lane_rail";
 import { translate, type Locale, type MessageKey } from "../i18n/catalog";
 
 /**
@@ -251,6 +252,16 @@ export interface ActivityRailOptions {
    */
   onOpenSettings?: () => void;
   settingsOpen?: boolean;
+  /**
+   * `D-SIDEBAR`'s single toggle entry: the pin button the decision places at
+   * the bottom of the activity rail, directly above the settings gear. There
+   * is deliberately no second entry — the sidebar-header `.pinbtn` the design
+   * once drew was never rendered and its CSS was deleted (2026-07-02).
+   *
+   * Absent leaves the control out rather than rendering it inert.
+   */
+  laneSidebarMode?: LaneSidebarMode;
+  onToggleLaneSidebarMode?: () => void;
 }
 
 export function renderActivityRail(
@@ -340,6 +351,25 @@ export function renderActivityRail(
   spacer.className = "actspacer";
   spacer.ariaHidden = "true";
   activity.append(spacer);
+
+  // `D-SIDEBAR`'s pin, between the spacer and the gear. `aria-pressed` reports
+  // the *current* mode rather than the verb the button performs, which is what
+  // the state means on a toggle: a screen reader hears "pinned, pressed".
+  if (options.onToggleLaneSidebarMode) {
+    const mode: LaneSidebarMode = options.laneSidebarMode ?? "floating";
+    const pin = document.createElement("button");
+    pin.type = "button";
+    pin.className = "actbtn d1-action";
+    pin.dataset.laneSidebarPin = mode;
+    pin.setAttribute("aria-pressed", String(mode === "pinned"));
+    const label = translate(locale, mode === "pinned" ? "d1.lanes.unpin" : "d1.lanes.pin", {});
+    pin.title = label;
+    pin.setAttribute("aria-label", label);
+    pin.classList.toggle("on", mode === "pinned");
+    pin.append(createCanonicalGuiIcon("pin"));
+    pin.addEventListener("click", () => options.onToggleLaneSidebarMode?.());
+    activity.append(pin);
+  }
 
   // The cockpit prototype puts ⚙ below the rail spacer; the accepted design
   // component is `GUI/gui-settings.jsx`.

@@ -531,16 +531,34 @@ order, because the order *is* the contract:
    transcript, so in practice the two never contend;
 5. the centre view's return path, and only then.
 
-**Lane sidebar modes (`D-SIDEBAR`).** `pinned` is the default and is the
-behaviour that shipped before: the Lanes slot toggles the rail and the activity
-rail's hover reveals it. `floating` hides it and gives the horizontal space back
-to the transcript; the design's 12 px hot zone with its `.edgehint` cue sits
-against the activity rail, a pointer entering it peeks the sidebar open, and
-leaving hides it after the design's ~700 ms delay. Selecting a Lane hides it
-immediately — it has done its job — and so does `Esc`. The keyboard path is the
-Lanes rail slot, which toggles the peek. The pin/unpin control in the sidebar
-header switches modes. The component is the same node in both modes; only its
-host changes, which is the decision's own rule.
+**Lane sidebar modes (`D-SIDEBAR`).** `floating` is the decision's default and
+the cockpit's: the sidebar gives its horizontal space to the transcript and
+lives behind the design's 12 px hot zone with its `.edgehint` cue against the
+activity rail. A pointer entering the strip peeks it open; leaving hides it
+after the decision's ~700 ms delay. Selecting a Lane hides it immediately — it
+has done its job — and so does `Esc`. The keyboard path is the Lanes rail slot,
+which toggles the peek, because a 12 px strip is not a pointer target everyone
+can hit.
+
+`pinned` is a **real layout column**, not the same overlay with a
+flag: the cockpit body grows a fourth grid track at the design's default width,
+`--rail-left` (218 px), and the rail stops being absolutely positioned. In that
+mode the Lanes slot toggles the column itself, which is the only way to give
+that width back without leaving the mode, and `Esc` leaves it alone — `Esc`
+belongs to the transient peek. At 1100 px or below the shell already collapses
+to two tracks, so pinned falls back to the overlay there rather than taking
+width the transcript does not have.
+
+The single toggle entry is the pin button at the bottom of the activity rail,
+directly above the Settings gear, exactly where `D-SIDEBAR` puts it; its
+`aria-pressed` reports the current mode rather than the verb it performs. There
+is deliberately no second entry: the sidebar-header `.pinbtn` the design once
+drew was never rendered and its CSS was deleted on 2026-07-02. The rail
+component is the same node in both modes — only its host changes, which is the
+decision's own rule.
+
+The token's documented 176–360 px drag is **not** implemented; the pinned
+column is fixed at 218 px for this batch.
 
 **Statusbar config gear (`D-STATUSBAR`).** A gear at the leading edge of the bar
 opens the design's `.sbcfg` popover listing the six *ambient* segments —
@@ -555,10 +573,11 @@ visibility are presentation state held in memory for this batch and
 deliberately **not** persisted. The frontend contract makes Core the single
 preference authority, so the design prototype's `localStorage` keys
 (`vd-leftmode`, `vd-leftw`) would be the second preference model the contract
-forbids. Core batch `C5` adds `UiPreferences.lane_sidebar_mode`; G7 then reads
-it through the resolved preference projection and writes it with
-`SetUiPreferences`, and `D1RenderOptions.laneSidebarMode` becomes Core's value
-rather than a caller default. Both seams carry that note in the code.
+forbids. Core batch `C5` adds `UiLayoutPreferences.lane_sidebar_mode`; G7 then
+reads it through the resolved preference projection and writes it back, and
+`D1RenderOptions.laneSidebarMode` becomes Core's value rather than a caller
+default. The pinned column's width — the token's 176–360 drag — is the same
+record's second field. Both seams carry that note in the code.
 
 ## Projects, recent work, and the grouped rail
 
