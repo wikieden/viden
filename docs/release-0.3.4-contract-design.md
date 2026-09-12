@@ -572,3 +572,23 @@ marked; this section is what shipped.
 - **A drained turn hitting the context hard limit answers with `Error`, not
   `CommandRejected`.** It has no command in flight, and rejecting the
   original command id would settle a request the client already saw accepted.
+
+### C9 `runtime.workspace_file_reads` (accepted on review, 2026-09-12)
+
+- **`ReadWorkspaceFile { query }` carries no `command_id` field.** Same
+  convention as C5: the id lives on the envelope and
+  `WorkspaceFileLoaded { command_id, file }` repeats it.
+- **`size` and `sha256` are `Option`s, omitted on `Unavailable`.** A missing
+  file has no length and no digest; `0` and `""` would be fabricated values,
+  which the Shared Rules forbid.
+- **The permission gate receives the lexically joined absolute path, not the
+  canonical one.** The permission engine's scope check is lexical against the
+  working directory, so a canonical path would refuse every workspace whose
+  own path runs through a symlink. Containment is checked separately against
+  the canonical root, after the gate and before any byte is read.
+- **The query's path is normalized (`./` and empty segments dropped) and the
+  answer echoes the normalized spelling.** `..` is refused before
+  normalization, so this never legalizes a traversal.
+- **Known cost:** `sha256` covers the whole file, streamed in 64 KiB chunks,
+  so a very large file is bounded in memory but not in time. A NUL first
+  appearing after the 8 KiB sniff window is not caught by the sniff.
