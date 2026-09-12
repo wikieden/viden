@@ -38,6 +38,7 @@ mod session_lifecycle;
 mod test_commands;
 mod trust_loop;
 mod web_commands;
+mod work_evidence;
 mod workflow_commands;
 mod workspace_owner;
 
@@ -377,6 +378,13 @@ pub struct SessionEngine {
     credential_handles: Vec<viden_types::CredentialHandle>,
     credential_backend: Arc<dyn CredentialBackend>,
     queued_runtime_inputs: Vec<runtime_contract::QueuedRuntimeInput>,
+    /// The native turn currently running, when one is
+    /// (`runtime.durable_work_evidence`). It carries the owner an applied
+    /// mutation's archived `patch` row is attributed to and the slot the
+    /// approval that allowed the running tool call writes its audit id into.
+    /// `None` means no turn is open, and a tool call then archives nothing:
+    /// unattributed evidence is exactly what the archive must not hold.
+    active_native_turn: Option<work_evidence::NativeTurnContext>,
     runtime_event_sink: Option<RuntimeEventSink>,
     provider_telemetry: ProviderTelemetry,
     provider_cost_usage: Vec<CostUsageRecord>,
@@ -540,6 +548,7 @@ impl SessionEngine {
             credential_handles: Vec::new(),
             credential_backend: Arc::new(project_runtime::UnavailableCredentialBackend),
             queued_runtime_inputs: Vec::new(),
+            active_native_turn: None,
             runtime_event_sink: None,
             provider_telemetry: ProviderTelemetry::default(),
             provider_cost_usage: Vec::new(),

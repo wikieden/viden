@@ -7,6 +7,7 @@ use viden_types::{ModelEvent, ModelRequest, fresh_id};
 
 mod audit_runtime_tests;
 mod decide_review_tests;
+mod durable_work_evidence_tests;
 mod evidence_reads_tests;
 mod frontend_services_tests;
 mod git_command_tests;

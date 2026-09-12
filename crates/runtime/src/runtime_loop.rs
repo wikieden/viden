@@ -79,13 +79,33 @@ impl EngineTurnProgress {
     }
 }
 
-fn record_completed_tool(progress: &mut EngineTurnProgress, call: &ToolCall, result: &ToolResult) {
+/// Publishes the facts one completed tool call produces.
+///
+/// A method rather than a free function since `runtime.durable_work_evidence`:
+/// the archived `patch` row an applied mutation produces needs the turn's owner,
+/// the canonical store, and the approval receipt, none of which the tool loop
+/// carries as parameters.
+///
+/// Order is the contract. The live `WorkspaceChangeUpdated` comes first because
+/// it is what a cockpit renders immediately, and the archived `EvidenceRecorded`
+/// follows it describing the same change; a client that received them the other
+/// way round would show a reviewable artifact before the change it belongs to.
+fn record_completed_tool(
+    engine: &crate::SessionEngine,
+    progress: &mut EngineTurnProgress,
+    call: &ToolCall,
+    result: &ToolResult,
+) {
     progress.engine_events.push(EngineEvent::ToolResult {
         output: result.output.clone(),
         success: result.success,
         exit_code: result.exit_code,
     });
     let after_engine_event_index = progress.engine_events.len() - 1;
+    // Consumed for every completed tool call, not only a mutating one, so an
+    // approval that allowed a `shell` command cannot be claimed as the receipt
+    // for an unapproved `edit_file` that runs after it.
+    let permission_snapshot_id = engine.take_permission_receipt();
     let unbound_owner = viden_types::RuntimeOwner::default();
     let mut cockpit_facts =
         crate::frontend_status::workspace_changes_from_tool_result(call, result, &unbound_owner)
@@ -97,6 +117,11 @@ fn record_completed_tool(progress: &mut EngineTurnProgress, call: &ToolCall, res
                 )
             })
             .collect::<Vec<_>>();
+    // The archived row carries the turn owner verbatim and is therefore not
+    // rebound at emission the way the cockpit facts above are: the command's
+    // owner names no turn, and an evidence row that lost its `turn_id` could no
+    // longer be joined to the audit record for the approval that allowed it.
+    cockpit_facts.extend(engine.native_patch_evidence_events(call, result, permission_snapshot_id));
     if let Some(check) =
         crate::frontend_status::check_run_from_tool_result(call, result, &unbound_owner)
     {
@@ -647,7 +672,7 @@ impl SessionEngine {
                 } else {
                     None
                 };
-                record_completed_tool(progress, &call, &result);
+                record_completed_tool(self, progress, &call, &result);
                 progress.carry(self.persist_tool_result(&result))?;
                 task.status = if result.success {
                     AgentTaskStatus::Done
@@ -708,7 +733,7 @@ impl SessionEngine {
                     success: false,
                     exit_code: None,
                 };
-                record_completed_tool(progress, &call, &result);
+                record_completed_tool(self, progress, &call, &result);
                 progress.carry(self.persist_tool_result(&result))?;
                 let system_message = Message::new(Role::System, rendered_denial.clone());
                 self.messages.push(system_message.clone());

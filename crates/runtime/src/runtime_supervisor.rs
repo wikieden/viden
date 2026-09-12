@@ -2780,6 +2780,7 @@ fn run_supervised_agent_session(
         session_owner.clone(),
         session_id.clone(),
         active_control,
+        engine.context_engine_root().to_path_buf(),
     );
 
     if let Err(error) = start_typed_agent_session(
@@ -2885,15 +2886,28 @@ fn supervised_agent_session_approver(
     })
 }
 
+/// The runtime's ingestion point for an external Agent's facts.
+///
+/// Also where an adapter-reported patch is canonicalized
+/// (`runtime.durable_work_evidence`, C7). `viden-agents` is a leaf below the
+/// runtime with no ContextStore of its own, so it publishes a `patch` fact with
+/// `canonical: None` and the diff carried in the fact's `metadata`; the bytes
+/// become canonical evidence here, on the runtime side of that boundary, before
+/// the batch reaches the bus. Doing it here rather than in the adapter is what
+/// keeps the dependency direction: the store stays runtime-owned and the
+/// adapter keeps reporting rather than persisting.
 fn supervised_agent_session_sink(
     event_bus: &RuntimeEventBus,
     owner: RuntimeOwner,
     session_id: String,
     active_control: &ActiveControlRegistry,
+    context_engine_root: PathBuf,
 ) -> RuntimeEventSink {
     let sink_bus = event_bus.clone();
     let sink_active = Arc::clone(active_control);
     Arc::new(move |events: Vec<RuntimeEvent>| {
+        let mut events = events;
+        crate::work_evidence::canonicalize_agent_patch_evidence(&context_engine_root, &mut events);
         let terminal = events.iter().any(|event| {
             matches!(
                 event.kind,
@@ -3046,8 +3060,13 @@ fn run_supervised_agent_session_continuation(
         permission_control,
         approval_ttl_secs,
     );
-    let runtime_event_sink =
-        supervised_agent_session_sink(event_bus, owner.clone(), session_id.clone(), active_control);
+    let runtime_event_sink = supervised_agent_session_sink(
+        event_bus,
+        owner.clone(),
+        session_id.clone(),
+        active_control,
+        engine.context_engine_root().to_path_buf(),
+    );
     let result = if let Some(content) = content {
         resume_typed_agent_session(
             engine.cwd(),
@@ -3485,6 +3504,11 @@ fn run_one_supervised_native_turn(
         turn_id: Some(turn_id.clone()),
         ..owner.clone()
     };
+    // The attribution window for this turn's archived work
+    // (`runtime.durable_work_evidence`): every `patch` row a tool call in it
+    // produces is owned by this turn, and the slot below is where the approval
+    // that allowed a mutating tool leaves its audit id.
+    let permission_receipt = engine.begin_native_turn(turn_owner.clone());
     emit_event(
         event_bus,
         turn_owner.clone(),
@@ -3538,11 +3562,21 @@ fn run_one_supervised_native_turn(
             pending_approvals,
             approval_timers,
         );
-        approval_receiver
+        let response = approval_receiver
             .recv()
             .unwrap_or(ApprovalResponse::deny(Some(
                 "approval response channel closed".to_string(),
-            )))
+            )));
+        // The receipt the tool call about to run may claim. Written only for an
+        // allowed decision, because a denied approval permits nothing and a
+        // patch row naming it as its permission snapshot would be a receipt for
+        // a mutation that was refused.
+        if response.is_allowed()
+            && let Ok(mut slot) = permission_receipt.lock()
+        {
+            *slot = Some(approval.audit_id.clone());
+        }
+        response
     };
 
     let mut emit_completed = |events| emit_events(event_bus, owner.clone(), events);
@@ -3573,6 +3607,7 @@ fn run_one_supervised_native_turn(
             }
         }
     };
+    engine.end_native_turn();
     // The last fact of the turn on every exit, after the error a failure
     // publishes and after the trailing snapshot a completion publishes.
     emit_event(

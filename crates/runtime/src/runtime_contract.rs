@@ -428,6 +428,13 @@ impl SessionEngine {
             let typed = matches!(source, TurnSource::UserInput);
             let turn_id = fresh_id("turn");
             let owner = self.native_turn_owner(&turn_id);
+            // The attribution window for this turn's archived patch rows
+            // (`runtime.durable_work_evidence`). The direct path has no
+            // supervisor approval queue, so the receipt slot it opens is never
+            // written and a mutation approved by this path's inline approver
+            // archives no permission snapshot — which is the truth, since no
+            // audited approval row exists for it.
+            self.begin_native_turn(owner.clone());
             events.push(RuntimeEvent::new(
                 next_sequence(events),
                 RuntimeEventKind::TurnStarted {
@@ -477,6 +484,7 @@ impl SessionEngine {
                     TurnOutcome::failed(failure.message)
                 }
             };
+            self.end_native_turn();
             let drains = outcome.drains_queue();
             events.push(RuntimeEvent::new(
                 next_sequence(events),
@@ -4642,6 +4650,36 @@ fn role_file_score(role: AgentRole, file: &str) -> u8 {
 struct MergeGateValidationFacts {
     context_engine_root: PathBuf,
     context_bundles: Vec<viden_types::ContextBundleSummaryRecord>,
+}
+
+/// Reduces one gate against one evidence set, for the merge-gate rule tests.
+///
+/// Exposed because `reduce_merge_gate_status` and `MergeGateValidationFacts`
+/// are private and the rule they encode — a `patch` row counts only when its
+/// producer names the gate's own task — is a contract claim that needs a test
+/// of its own rather than only the end-to-end paths that happen to exercise it.
+#[cfg(test)]
+pub(crate) fn merge_gate_report_for_test(
+    context_engine_root: &Path,
+    gate: &MergeGateRecord,
+    bundle_ids: &[&str],
+    evidence: &[EvidenceView],
+) -> EvidenceCanonicalStatusReport {
+    let mut gate = gate.clone();
+    gate.evidence_ids = evidence.iter().map(|entry| entry.id.clone()).collect();
+    let facts = MergeGateValidationFacts {
+        context_engine_root: context_engine_root.to_path_buf(),
+        context_bundles: bundle_ids
+            .iter()
+            .map(|bundle_id| viden_types::ContextBundleSummaryRecord {
+                bundle_id: (*bundle_id).to_string(),
+                scope: ContextScope::Task(gate.task_id.clone()),
+                handle_ids: Vec::new(),
+                estimated_tokens: 0,
+            })
+            .collect(),
+    };
+    reduce_merge_gate_status(&gate, evidence, &facts)
 }
 
 fn reduce_merge_gate_status(

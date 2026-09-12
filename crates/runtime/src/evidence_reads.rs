@@ -31,12 +31,7 @@ use viden_types::{
     EvidenceView, MAX_EVIDENCE_CONTENT_BYTES,
 };
 
-/// Evidence kind whose canonical bytes are a unified diff.
-///
-/// Named here rather than inlined because it is the same string the merge gate
-/// reduces required evidence on, and the same one the design's "Open in
-/// review" affordance keys off.
-const PATCH_EVIDENCE_KIND: &str = "patch";
+use crate::work_evidence::PATCH_EVIDENCE_KIND;
 
 /// Filters, orders, then cuts one oldest-first page of the archive.
 ///
