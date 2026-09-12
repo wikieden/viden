@@ -33,6 +33,14 @@ pub struct D13NodeProjection {
     pub progress: Option<u8>,
     pub blocked: bool,
     pub blockers: Vec<D13BlockerProjection>,
+    /// Every Lane whose Core record names this task, in Core's own lane order.
+    ///
+    /// Core publishes no node-to-Lane edge; it publishes `AgentLaneRecord::
+    /// task_id`, and this is the join over it. The list is deliberately not an
+    /// `Option`: zero, one, and several bound Lanes are three different facts,
+    /// and collapsing them would make the screen guess which Lane a node drills
+    /// into.
+    pub lane_ids: Vec<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]

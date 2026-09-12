@@ -27,6 +27,15 @@ export interface D13Node {
   progress: number | null;
   blocked: boolean;
   blockers: D13Blocker[];
+  /**
+   * Every Lane Core bound to this task, in the projection's own order.
+   *
+   * Core publishes no "node -> Lane" edge; it publishes each Lane's own
+   * `task_id`, and the GUI projection joins on it. The list is what Core said,
+   * not a choice: zero, one, and several are three different facts and the
+   * screen answers each of them differently.
+   */
+  laneIds: string[];
 }
 
 export interface D13Workflow {
@@ -68,6 +77,11 @@ const COPY: Record<Locale, Copy> = {
     evidence: "required evidence",
     handoffs: "Handoffs",
     noHandoff: "Core recorded no handoff.",
+    openLane: "Open Lane",
+    noLane: "Core bound no Lane to this task, so there is nothing to open.",
+    ambiguousLane:
+      "Core bound more than one Lane to this task; the client will not choose one.",
+    laneUnavailable: "No host is bound, so this node cannot open a Lane.",
   },
   "zh-CN": {
     title: "Fleet 编排与 Workflow",
@@ -78,6 +92,10 @@ const COPY: Record<Locale, Copy> = {
     evidence: "必需证据",
     handoffs: "交接",
     noHandoff: "Core 未记录任何交接。",
+    openLane: "打开 Lane",
+    noLane: "Core 未为该任务绑定任何 Lane，没有可打开的对象。",
+    ambiguousLane: "Core 为该任务绑定了多个 Lane；客户端不会替你选择其中之一。",
+    laneUnavailable: "未绑定宿主，该节点无法打开 Lane。",
   },
 };
 
@@ -85,9 +103,25 @@ export function renderD13FleetWorkflow(
   root: HTMLElement,
   initial: D13FleetWorkflowProjection,
   locale: Locale,
+  /**
+   * Selects the Lane a node's task is bound to and returns the cockpit to the
+   * transcript — the same selection path the Lane rail and the tab strip take.
+   * Absent while no host is bound, which states the node as non-navigating
+   * rather than leaving a card that looks clickable and does nothing.
+   */
+  onOpenLane?: (laneId: string) => void,
 ): D13Controller {
   let projection = initial;
   const copy = COPY[locale];
+
+  /** One muted line saying why this node opens nothing. Absence, not error. */
+  const drillNote = (text: string): HTMLElement => {
+    const note = document.createElement("p");
+    note.className = "d13-muted";
+    note.dataset.d13DrillNote = "true";
+    note.textContent = text;
+    return note;
+  };
 
   const node = (item: D13Node): HTMLElement => {
     const card = document.createElement("article");
@@ -144,6 +178,36 @@ export function renderD13FleetWorkflow(
       fill.style.width = `${item.progress}%`;
       progress.append(fill);
       card.append(progress);
+    }
+
+    // The drill. Exactly one bound Lane is a destination; anything else is a
+    // stated fact, because a node that cannot be opened must say so rather
+    // than look like one that can.
+    if (!onOpenLane) {
+      card.dataset.d13Drill = "unavailable";
+      card.append(drillNote(copy.laneUnavailable));
+    } else if (item.laneIds.length === 0) {
+      card.dataset.d13Drill = "none";
+      card.append(drillNote(copy.noLane));
+    } else if (item.laneIds.length > 1) {
+      card.dataset.d13Drill = "ambiguous";
+      card.append(drillNote(`${copy.ambiguousLane} ${item.laneIds.join(", ")}`));
+    } else {
+      const laneId = item.laneIds[0];
+      card.dataset.d13Drill = laneId;
+      card.setAttribute("role", "button");
+      card.tabIndex = 0;
+      const name = `${copy.openLane} ${laneId}`;
+      card.title = name;
+      card.setAttribute("aria-label", `${item.title} — ${name}`);
+      card.addEventListener("click", () => onOpenLane(laneId));
+      card.addEventListener("keydown", (event) => {
+        // Enter only: Space is the webview's own scroll on a non-button
+        // element, and taking it would cost more than the chord is worth.
+        if (event.key !== "Enter") return;
+        event.preventDefault();
+        onOpenLane(laneId);
+      });
     }
     return card;
   };

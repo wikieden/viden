@@ -485,8 +485,35 @@ export async function hydrateShellFromCore(
         if (!projection) {
           throw new Error("Core did not provide the D10 lane monitor projection");
         }
-        const controller = renderD10LaneMonitor(container, projection, locale, () =>
-          activeD1?.openCenterView("d2"),
+        const controller = renderD10LaneMonitor(
+          container,
+          projection,
+          locale,
+          () => activeD1?.openCenterView("d2"),
+          null,
+          {
+            // Attach is the cockpit's own Lane hand-off, not a Core command:
+            // it selects the Lane through the shared selection path and
+            // returns the centre pane to the conversation.
+            attach: (laneId) => activeD1?.selectLane(laneId),
+            // Stop is Core's `CancelAgentSession`, correlated by this command
+            // id and reported from the answering event — never from the click.
+            stop: async (laneId, sessionId) => {
+              let result = await core.d1SendIntent(`gui-d10-stop-${crypto.randomUUID()}`, {
+                type: "cancel_agent_session",
+                laneId,
+                sessionId,
+              });
+              for (
+                let attempt = 0;
+                attempt < 4 && result.outcome.state === "pending";
+                attempt += 1
+              ) {
+                result = await core.d1Poll(laneId, true);
+              }
+              return result.outcome;
+            },
+          },
         );
         // The event ticker is a Core audit read, so it resolves after the
         // cards mount rather than blocking them. A refusal degrades the strip
@@ -602,7 +629,11 @@ export async function hydrateShellFromCore(
         if (!projection) {
           throw new Error("Core did not provide the D13 fleet projection");
         }
-        renderD13FleetWorkflow(container, projection, locale);
+        // A node's drill is the same Lane hand-off D10's Attach performs, so a
+        // node and a card leave the cockpit in exactly one state.
+        renderD13FleetWorkflow(container, projection, locale, (laneId) =>
+          activeD1?.selectLane(laneId),
+        );
       };
 
       /**

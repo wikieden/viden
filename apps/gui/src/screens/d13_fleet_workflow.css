@@ -132,3 +132,18 @@
   color: var(--fg-secondary);
   font: var(--fs-xs)/var(--lh-ui) var(--font-mono);
 }
+
+/* A node that opens a Lane is a control; one that does not keeps the card's
+   own affordance and states the reason instead of hinting at a click. */
+.d13-node[role="button"] {
+  cursor: pointer;
+}
+
+.d13-node[role="button"]:hover {
+  border-color: var(--accent-dim, var(--border));
+}
+
+.d13-node[role="button"]:focus-visible {
+  outline: 2px solid var(--accent-bright, var(--accent));
+  outline-offset: 2px;
+}

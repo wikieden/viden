@@ -250,3 +250,24 @@
 .d10-toutcome[data-d10-outcome="failed"] {
   color: var(--warning);
 }
+
+/* The card's supervision action row (Attach / Stop / Pause / Kill).
+   A control with no Core command behind it stays visible and disabled, so the
+   row reads as "this exists and cannot be done" rather than as a shorter set. */
+.d10-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin-top: 8px;
+}
+
+.d10-action[data-d10-action-disabled="true"] {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.d10-actions .d10-muted {
+  flex-basis: 100%;
+  margin: 2px 0 0;
+}

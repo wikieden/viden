@@ -10,24 +10,47 @@ use support::TestCoreClient;
 
 const DAG_FIXTURE: &str =
     include_str!("../../../crates/types/tests/fixtures/frontend-contract-v1/dag-blocker.json");
+/// The lane-bearing fixture. `dag-blocker` publishes a workflow and no Lane, so
+/// the node-to-Lane join is exercised by lending it this fixture's real Lane
+/// records rather than by hand-building one the contract never emitted.
+const LANE_FIXTURE: &str =
+    include_str!("../../../crates/types/tests/fixtures/frontend-contract-v1/multi-lane.json");
 
-fn dag_view() -> RuntimeViewState {
+fn replay(fixture: &str) -> RuntimeViewState {
     #[derive(serde::Deserialize)]
     struct Fixture {
         initial_snapshot: RuntimeSnapshot,
         events: Vec<viden_core::RuntimeEventEnvelope>,
     }
-    let fixture: Fixture = serde_json::from_str(DAG_FIXTURE).unwrap();
+    let fixture: Fixture = serde_json::from_str(fixture).unwrap();
     let mut view = RuntimeViewState::new(fixture.initial_snapshot);
     for envelope in fixture.events {
         if let viden_core::RuntimeWireEvent::Known(event) = envelope.event {
             view.apply_event(&event);
         }
     }
+    view
+}
+
+fn dag_view() -> RuntimeViewState {
+    let view = replay(DAG_FIXTURE);
     assert!(
         !view.agent_dags.is_empty(),
         "the dag fixture must publish a workflow"
     );
+    view
+}
+
+/// A workflow view that also carries Core's own Lane records, so the join the
+/// D13 drill reads is exercised against published Lanes rather than a stub.
+fn dag_view_with_lanes() -> RuntimeViewState {
+    let mut view = dag_view();
+    let lanes = replay(LANE_FIXTURE).lanes;
+    assert!(
+        lanes.len() >= 2,
+        "the lane fixture must publish more than one Lane"
+    );
+    view.lanes = lanes;
     view
 }
 
@@ -114,4 +137,70 @@ fn d13_lists_handoffs_between_lanes_without_inventing_a_route() {
     // The fixture declares no handoff; the screen shows none rather than
     // deriving one from the dependency edges.
     assert!(projection.handoffs.is_empty());
+}
+
+/// D13's node drill reads one Core fact: the Lane's own `task_id`.
+///
+/// Core publishes no node-to-Lane edge, so the projection joins on the binding
+/// Core does publish. Zero, one, and several bound Lanes are three different
+/// facts and the projection carries them all rather than collapsing them into
+/// an `Option` the screen would have to guess at.
+#[test]
+fn d13_binds_each_node_to_every_lane_core_gave_that_task() {
+    let mut view = dag_view_with_lanes();
+    let task = view.agent_dags[0].tasks[0].task_id.clone();
+    view.lanes[0].task_id = Some(task.clone());
+    let bound_lane = view.lanes[0].id.clone();
+    // The second Lane keeps whatever binding the fixture gave it, which is a
+    // different task, so it must not appear on this node.
+    assert_ne!(view.lanes[1].task_id.as_deref(), Some(task.as_str()));
+
+    let projection = connected(view).d13_fleet_workflow().unwrap();
+    let node = projection.workflows[0]
+        .nodes
+        .iter()
+        .find(|node| node.task_id == task)
+        .expect("the bound node");
+
+    assert_eq!(node.lane_ids, vec![bound_lane]);
+}
+
+#[test]
+fn d13_reports_no_lane_for_a_task_core_bound_none_to() {
+    let mut view = dag_view_with_lanes();
+    for lane in &mut view.lanes {
+        lane.task_id = None;
+    }
+
+    let projection = connected(view).d13_fleet_workflow().unwrap();
+    for node in &projection.workflows[0].nodes {
+        // Absence is absence: an unbound node carries an empty list, never a
+        // Lane id borrowed from somewhere else in the view.
+        assert!(
+            node.lane_ids.is_empty(),
+            "{} must bind no Lane",
+            node.task_id
+        );
+    }
+}
+
+#[test]
+fn d13_keeps_every_lane_when_core_bound_more_than_one_to_a_task() {
+    let mut view = dag_view_with_lanes();
+    let task = view.agent_dags[0].tasks[0].task_id.clone();
+    for lane in &mut view.lanes {
+        lane.task_id = Some(task.clone());
+    }
+    let expected: Vec<String> = view.lanes.iter().map(|lane| lane.id.clone()).collect();
+
+    let projection = connected(view).d13_fleet_workflow().unwrap();
+    let node = projection.workflows[0]
+        .nodes
+        .iter()
+        .find(|node| node.task_id == task)
+        .expect("the bound node");
+
+    // The projection does not pick one. Choosing for the operator is exactly
+    // the decision the screen refuses to make.
+    assert_eq!(node.lane_ids, expected);
 }

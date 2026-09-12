@@ -701,6 +701,16 @@ impl RuntimeProjection {
                             progress: live.map(|task| task.progress),
                             blocked: !blockers.is_empty(),
                             blockers,
+                            // The node-to-Lane join D13's drill reads. It is
+                            // Core's own `task_id` binding and nothing else:
+                            // no fallback to the dag owner, no nearest-Lane
+                            // guess, no ordering heuristic.
+                            lane_ids: view
+                                .lanes
+                                .iter()
+                                .filter(|lane| lane.task_id.as_ref() == Some(&spec.task_id))
+                                .map(|lane| lane.id.clone())
+                                .collect(),
                         }
                     })
                     .collect(),

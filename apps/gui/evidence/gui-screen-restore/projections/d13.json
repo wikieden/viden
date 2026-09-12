@@ -30,7 +30,8 @@
               "auditId": "audit-dependency-1",
               "updatedAt": 1700000400
             }
-          ]
+          ],
+          "laneIds": []
         }
       ]
     }

@@ -28,6 +28,7 @@ const PROJECTION: D13FleetWorkflowProjection = {
           progress: 40,
           blocked: false,
           blockers: [],
+          laneIds: [],
         },
         {
           taskId: "task-2",
@@ -40,6 +41,7 @@ const PROJECTION: D13FleetWorkflowProjection = {
           status: null,
           progress: null,
           blocked: true,
+          laneIds: [],
           blockers: [
             {
               dependencyId: "dependency-1",

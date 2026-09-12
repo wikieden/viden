@@ -92,6 +92,39 @@ export interface D10Controller {
   applyEvents: (events: D10Events) => void;
 }
 
+/// What Core answered a supervision command with, carried back verbatim.
+export interface D10ActionOutcome {
+  state: string;
+  reason: string | null;
+}
+
+/**
+ * The card's supervision actions (`D10` design, "Attach / Pause / Kill").
+ *
+ * Only two of the design's four controls exist on this contract, and the split
+ * is deliberate rather than cosmetic:
+ *
+ * - **Attach** is not a Core command at all. It is the cockpit's own Lane
+ *   selection — the same path the Lane rail and the tab strip take — followed
+ *   by a return to the transcript, so "attach" means "put my conversation on
+ *   that Lane" and nothing is sent to Core.
+ * - **Stop** is `RuntimeCommand::CancelAgentSession` for the Lane's own Agent
+ *   session, correlated by command id and reported from the answering event.
+ * - **Pause** and **Kill** have no Core command. They render disabled and say
+ *   so; hiding them would erase a designed control, and wiring either to
+ *   `CancelAgentSession` would make one verb answer for three different
+ *   promises.
+ *
+ * Absent while no host is bound, which disables the whole row rather than
+ * offering controls that cannot reach Core.
+ */
+export interface D10LaneActions {
+  /** Selects the Lane in the cockpit and returns to the transcript. */
+  attach: (laneId: string) => void;
+  /** Sends one `CancelAgentSession` for that Lane's Agent session. */
+  stop: (laneId: string, sessionId: string) => Promise<D10ActionOutcome>;
+}
+
 type Copy = Record<string, string>;
 
 /// Gate strength glyphs are the registered design marks for the three Core
@@ -129,6 +162,22 @@ const COPY: Record<Locale, Copy> = {
     eventsPending: "Reading the Core audit timeline\u2026",
     eventsEmpty: "Core published no audited event yet.",
     eventsUnavailable: "Core publishes no audit timeline, so the event stream is unavailable.",
+    attach: "Attach",
+    attachHint: "Selects this Lane in the cockpit and returns to the conversation.",
+    stop: "Stop",
+    stopHint: "Sends Core's CancelAgentSession for this Lane's Agent session.",
+    pause: "Pause",
+    kill: "Kill",
+    pauseUnavailable: "Core publishes no pause command for an Agent session.",
+    killUnavailable:
+      "Core publishes no kill command for an Agent session; Stop cancels it through CancelAgentSession.",
+    actionsUnavailable: "No host is bound, so no Lane command can be sent.",
+    stopNoSession: "Core published no Agent session for this Lane, so there is nothing to stop.",
+    stopAmbiguous:
+      "Core published more than one Agent session for this Lane; the client will not choose one.",
+    stopPending: "Waiting for Core to answer the stop command\u2026",
+    stopAccepted: "Core accepted the stop command.",
+    stopRejected: "Core refused the stop command.",
   },
   "zh-CN": {
     title: "Lane 监视器",
@@ -155,6 +204,20 @@ const COPY: Record<Locale, Copy> = {
     eventsPending: "正在读取 Core 审计时间线…",
     eventsEmpty: "Core 尚未发布任何审计事件。",
     eventsUnavailable: "Core 未发布审计时间线，事件流不可用。",
+    attach: "接管",
+    attachHint: "在驾驶舱中选中该 Lane 并返回对话。",
+    stop: "停止",
+    stopHint: "为该 Lane 的 Agent 会话发送 Core 的 CancelAgentSession。",
+    pause: "暂停",
+    kill: "终止",
+    pauseUnavailable: "Core 未发布针对 Agent 会话的暂停命令。",
+    killUnavailable: "Core 未发布针对 Agent 会话的终止命令；“停止”通过 CancelAgentSession 取消会话。",
+    actionsUnavailable: "未绑定宿主，无法发送任何 Lane 命令。",
+    stopNoSession: "Core 未为该 Lane 发布 Agent 会话，没有可停止的对象。",
+    stopAmbiguous: "Core 为该 Lane 发布了多个 Agent 会话；客户端不会替你选择其中之一。",
+    stopPending: "等待 Core 回应停止命令…",
+    stopAccepted: "Core 已接受停止命令。",
+    stopRejected: "Core 拒绝了停止命令。",
   },
 };
 
@@ -168,11 +231,144 @@ export function renderD10LaneMonitor(
   locale: Locale,
   openDecisionCenter?: () => void,
   initialEvents: D10Events | null = null,
+  actions?: D10LaneActions,
 ): D10Controller {
   let projection = initial;
   let events = initialEvents;
   let filter = "all";
+  /**
+   * The last stop outcome per Lane, keyed by Lane id. Presentation state only:
+   * the durable fact is Core's own event, which the next projection carries.
+   */
+  const stopState = new Map<string, { state: string; reason: string | null }>();
   const copy = COPY[locale];
+
+  /**
+   * Which Agent session `Stop` would cancel, or why it would not.
+   *
+   * Cardinality is decided fail-closed, the way the cockpit decides its owner
+   * binding: exactly one published session is a target, zero is nothing to
+   * stop, and more than one is a choice the client refuses to make on the
+   * operator's behalf.
+   */
+  const stopTarget = (
+    lane: D10Lane,
+  ): { sessionId: string } | { sessionId: null; reasonKey: string } => {
+    if (!actions) return { sessionId: null, reasonKey: "actionsUnavailable" };
+    if (lane.agents.length === 0) return { sessionId: null, reasonKey: "stopNoSession" };
+    if (lane.agents.length > 1) return { sessionId: null, reasonKey: "stopAmbiguous" };
+    return { sessionId: lane.agents[0].sessionId };
+  };
+
+  /**
+   * One action button. A control with nothing behind it is rendered disabled
+   * and carries the reason in the name a screen reader announces, never hidden
+   * and never left enabled and inert.
+   */
+  const actionButton = (
+    kind: string,
+    label: string,
+    reason: string | null,
+    onClick?: () => void,
+  ): HTMLButtonElement => {
+    const element = document.createElement("button");
+    element.type = "button";
+    element.className = "d10-action";
+    element.dataset.d10Action = kind;
+    element.textContent = label;
+    const name = reason ? `${label} — ${reason}` : label;
+    element.title = name;
+    element.setAttribute("aria-label", name);
+    if (reason || !onClick) {
+      element.disabled = true;
+      element.dataset.d10ActionDisabled = "true";
+      return element;
+    }
+    element.addEventListener("click", onClick);
+    return element;
+  };
+
+  /**
+   * The design's card action row, with the two controls this contract has and
+   * the two it does not.
+   */
+  const actionRow = (lane: D10Lane): HTMLElement => {
+    const row = document.createElement("div");
+    row.className = "d10-actions";
+    row.dataset.d10Actions = lane.id;
+
+    row.append(
+      actionButton(
+        "attach",
+        copy.attach,
+        actions ? null : copy.actionsUnavailable,
+        actions ? () => actions.attach(lane.id) : undefined,
+      ),
+    );
+
+    const target = stopTarget(lane);
+    if (target.sessionId === null) {
+      row.append(actionButton("stop", copy.stop, label(copy, target.reasonKey)));
+    } else {
+      const sessionId = target.sessionId;
+      const pending = stopState.get(lane.id)?.state === "pending";
+      const stop = actionButton(
+        "stop",
+        copy.stop,
+        pending ? copy.stopPending : null,
+        pending
+          ? undefined
+          : () => {
+              if (!actions) return;
+              // The command id is minted by the host; the screen only reports
+              // what the answering event said about it.
+              stopState.set(lane.id, { state: "pending", reason: null });
+              render();
+              void actions
+                .stop(lane.id, sessionId)
+                .then((outcome) => {
+                  stopState.set(lane.id, {
+                    state: outcome.state,
+                    reason: outcome.reason,
+                  });
+                })
+                .catch((error: unknown) => {
+                  // A host failure is reported as a refusal with its own
+                  // words, never as a silent success.
+                  stopState.set(lane.id, {
+                    state: "rejected",
+                    reason: error instanceof Error ? error.message : String(error),
+                  });
+                })
+                .finally(render);
+            },
+      );
+      if (!pending) stop.dataset.d10StopSession = sessionId;
+      row.append(stop);
+    }
+
+    // Both are registered design controls with no Core command behind them.
+    row.append(actionButton("pause", copy.pause, copy.pauseUnavailable));
+    row.append(actionButton("kill", copy.kill, copy.killUnavailable));
+
+    const outcome = stopState.get(lane.id);
+    if (outcome) {
+      const note = document.createElement("p");
+      note.className = "d10-muted";
+      note.dataset.d10StopOutcome = outcome.state;
+      note.setAttribute("role", "status");
+      const headline =
+        outcome.state === "pending"
+          ? copy.stopPending
+          : outcome.state === "rejected"
+            ? copy.stopRejected
+            : copy.stopAccepted;
+      // Core's own words for a refusal; the client composes no reason of its own.
+      note.textContent = outcome.reason ? `${headline} ${outcome.reason}` : headline;
+      row.append(note);
+    }
+    return row;
+  };
 
   const laneCard = (lane: D10Lane): HTMLElement => {
     const card = document.createElement("article");
@@ -281,6 +477,8 @@ export function renderD10LaneMonitor(
       row.textContent = `${entry.kind} · ${entry.summary}`;
       card.append(row);
     }
+
+    card.append(actionRow(lane));
 
     if (lane.awaitsHuman && openDecisionCenter) {
       const action = document.createElement("button");

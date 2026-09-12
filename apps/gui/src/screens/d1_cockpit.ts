@@ -164,6 +164,16 @@ export interface D1Controller {
   openCenterView: (view: D1CenterView, arg?: string) => void;
   /** Returns the centre pane to the transcript. */
   closeCenterView: () => void;
+  /**
+   * Selects one Lane and returns the centre pane to the conversation.
+   *
+   * The single Lane hand-off a centre view has: D10's `Attach` and D13's node
+   * drill both land here, and it goes through the same `selectLane` the Lane
+   * rail, the tab strip and `⌃⇥` use, followed by the router's own
+   * `conversation` route. A second selection path is how two surfaces start
+   * disagreeing about which Lane the composer is addressing.
+   */
+  selectLane: (laneId: string) => void;
   dispose: () => void;
 }
 
@@ -1302,6 +1312,11 @@ export function renderD1Cockpit(
       if (disposed) return;
       openCenterView(view, arg);
     },
+    selectLane: (laneId) => {
+      if (disposed) return;
+      selectLane(laneId);
+      navigate("conversation");
+    },
     closeCenterView: () => {
       if (disposed) return;
       closeCenterView();
@@ -1974,6 +1989,13 @@ export function renderD1Cockpit(
    * window route, which is what `?screen=d4` and `?screen=d11` still are.
    */
   const navigate = (route: string, arg?: string): void => {
+    // The rail's home slot is a route like any other, so a screen that wants
+    // the operator back in the conversation names it rather than reaching for
+    // the close control.
+    if (route === "conversation" || route === "transcript") {
+      closeCenterView();
+      return;
+    }
     if (route === "review" || route === "evidence") {
       openCenterView(route);
       return;
