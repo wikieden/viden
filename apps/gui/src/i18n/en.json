@@ -565,5 +565,6 @@
   "d1.checkRun.status": "status",
   "d1.checkRun.failing": "failing",
   "d1.checkRun.result": "result",
-  "d1.focus": "Focus mode"
+  "d1.focus": "Focus mode",
+  "d1.activity.queueUnknown": "Core published no decision count, so this carries no badge; an empty badge is not an empty queue."
 }

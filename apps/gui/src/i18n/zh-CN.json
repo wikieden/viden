@@ -565,5 +565,6 @@
   "d1.checkRun.status": "状态",
   "d1.checkRun.failing": "失败位置",
   "d1.checkRun.result": "结果",
-  "d1.focus": "专注模式"
+  "d1.focus": "专注模式",
+  "d1.activity.queueUnknown": "Core 未发布决策计数，因此此处不显示计数气泡；没有气泡并不等于队列为空。"
 }

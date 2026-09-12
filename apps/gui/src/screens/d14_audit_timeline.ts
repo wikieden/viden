@@ -125,6 +125,19 @@ const COPY: Record<Locale, Copy> = {
       "Core did not publish {capability}; the audit trail is unavailable and this is the raw event replay instead.",
     scopePrefix: "Scoped to",
     scopeClear: "Remove scope",
+    filterNote:
+      "Actor and time filters run over the loaded page only: AuditQuery carries no actor or time range (GUI-CORE-024), so a chip narrows what is here and says nothing about the rest of the audit store.",
+    actorAll: "All actors",
+    timeAll: "All time",
+    timeToday: "Today (UTC)",
+    time24h: "Last 24 hours",
+    time7d: "Last 7 days",
+    rollupLoaded: "Outcomes on the loaded page",
+    rollupFiltered: "Outcomes on the loaded page, filtered",
+    noMatch: "No row on the loaded page matches these filters.",
+    export: "Export",
+    exportUnavailable:
+      "Core publishes no audit export on this contract (GUI-CORE-024), so the trail is read-only here.",
   },
   "zh-CN": {
     title: "原始事件回放（诊断）",
@@ -145,6 +158,18 @@ const COPY: Record<Locale, Copy> = {
     auditUnavailable: "Core 未发布 {capability}，审计轨迹不可用，此处显示的是原始事件回放。",
     scopePrefix: "范围",
     scopeClear: "移除范围",
+    filterNote:
+      "执行者与时间筛选只作用于已加载的这一页：AuditQuery 不携带执行者或时间区间（GUI-CORE-024），因此选中某个条件只会收窄此处内容，并不代表整个审计库的情况。",
+    actorAll: "全部执行者",
+    timeAll: "全部时间",
+    timeToday: "今天（UTC）",
+    time24h: "近 24 小时",
+    time7d: "近 7 天",
+    rollupLoaded: "已加载页的结果分布",
+    rollupFiltered: "已加载页（已筛选）的结果分布",
+    noMatch: "已加载页中没有符合这些筛选条件的记录。",
+    export: "导出",
+    exportUnavailable: "本契约上 Core 未发布审计导出（GUI-CORE-024），此处的轨迹只读。",
   },
 };
 
@@ -297,6 +322,54 @@ export function formatAuditTimestamp(unixSeconds: number): string {
   return `${iso.slice(0, 10)} ${iso.slice(11, 19)} UTC`;
 }
 
+/// The time ranges D14 offers, and the seconds each one reaches back.
+///
+/// `today` is the current UTC calendar day rather than a rolling 24 hours,
+/// because the rows print a UTC clock and two readers comparing evidence must
+/// mean the same day by it. `null` is "no cut".
+export type D14TimeFilter = "all" | "today" | "24h" | "7d";
+
+/** The neutral actor value: every actor kind on the loaded page. */
+const ACTOR_ALL = "all";
+
+/**
+ * The earliest Core timestamp a range admits, in unix seconds, or `null` for
+ * no cut. `now` is injected so the cut is a function of one clock read per
+ * render rather than of when each row happened to be tested.
+ */
+function timeFloor(filter: D14TimeFilter, nowMs: number): number | null {
+  if (filter === "all") return null;
+  if (filter === "24h") return Math.floor(nowMs / 1000) - 24 * 3600;
+  if (filter === "7d") return Math.floor(nowMs / 1000) - 7 * 24 * 3600;
+  const midnight = Date.UTC(
+    new Date(nowMs).getUTCFullYear(),
+    new Date(nowMs).getUTCMonth(),
+    new Date(nowMs).getUTCDate(),
+  );
+  return Math.floor(midnight / 1000);
+}
+
+/**
+ * Applies the client-side filters to one loaded page.
+ *
+ * Exported for the sake of being testable in isolation: the rule is the whole
+ * honesty claim of the filter bar, and it is one pure function over rows Core
+ * already published — never a second query, never a cursor guess.
+ */
+export function filterAuditRows(
+  rows: D14AuditRow[],
+  actor: string,
+  time: D14TimeFilter,
+  nowMs: number,
+): D14AuditRow[] {
+  const floor = timeFloor(time, nowMs);
+  return rows.filter(
+    (row) =>
+      (actor === ACTOR_ALL || row.actorKind === actor) &&
+      (floor === null || row.timestamp >= floor),
+  );
+}
+
 /// Renders one audit-mode view into `root`.
 ///
 /// Every value here is Core's: `action`, object kinds and ids, argument keys
@@ -310,6 +383,10 @@ function renderAuditMode(
     onLoadOlder: () => void;
     onClearScope: () => void;
     busy: boolean;
+    /** The client-side cut this frame draws, and how a chip changes it. */
+    filters: { actor: string; time: D14TimeFilter };
+    onSetActor: (actor: string) => void;
+    onSetTime: (time: D14TimeFilter) => void;
   },
 ): void {
   const stage = document.createElement("section");
@@ -354,6 +431,119 @@ function renderAuditMode(
     stage.append(error);
   }
 
+  // The client-side cut. `AuditQuery` has neither filter, so this narrows the
+  // page the client is holding and every label here says which.
+  const visible = filterAuditRows(
+    projection.rows,
+    handlers.filters.actor,
+    handlers.filters.time,
+    Date.now(),
+  );
+  const filtered =
+    handlers.filters.actor !== ACTOR_ALL || handlers.filters.time !== "all";
+
+  const chip = (
+    marker: "actor" | "time",
+    value: string,
+    label: string,
+    pressed: boolean,
+    onClick: () => void,
+  ): HTMLButtonElement => {
+    const element = document.createElement("button");
+    element.type = "button";
+    element.className = "d14-fchip";
+    if (marker === "actor") element.dataset.d14ActorFilter = value;
+    else element.dataset.d14TimeFilter = value;
+    element.setAttribute("aria-pressed", String(pressed));
+    element.disabled = handlers.busy;
+    element.textContent = label;
+    element.addEventListener("click", onClick);
+    return element;
+  };
+
+  const bar = document.createElement("div");
+  bar.className = "d14-fbar";
+  bar.dataset.d14Filters = "true";
+  // Actor values come from the page, not from a list of kinds this build knows:
+  // a chip that could only ever filter to nothing misstates what is loaded.
+  const actors = [...new Set(projection.rows.map((row) => row.actorKind))];
+  bar.append(
+    chip("actor", ACTOR_ALL, copy.actorAll, handlers.filters.actor === ACTOR_ALL, () =>
+      handlers.onSetActor(ACTOR_ALL),
+    ),
+  );
+  for (const actor of actors) {
+    // Core's own actor word, raw — localizing it would make two readers of the
+    // same trail disagree about who acted.
+    bar.append(
+      chip("actor", actor, actor, handlers.filters.actor === actor, () =>
+        handlers.onSetActor(actor),
+      ),
+    );
+  }
+  const divider = document.createElement("span");
+  divider.className = "d14-fdiv";
+  divider.ariaHidden = "true";
+  bar.append(divider);
+  for (const [value, label] of [
+    ["all", copy.timeAll],
+    ["today", copy.timeToday],
+    ["24h", copy.time24h],
+    ["7d", copy.time7d],
+  ] as [D14TimeFilter, string][]) {
+    bar.append(
+      chip("time", value, label, handlers.filters.time === value, () =>
+        handlers.onSetTime(value),
+      ),
+    );
+  }
+
+  // Registered in the design's filter bar, with no command behind it: disabled
+  // and labelled rather than hidden, so the gap is visible where it was drawn.
+  const exportButton = document.createElement("button");
+  exportButton.type = "button";
+  exportButton.className = "d14-more";
+  exportButton.dataset.d14Export = "unavailable";
+  exportButton.disabled = true;
+  exportButton.textContent = copy.export;
+  exportButton.title = `${copy.export} — ${copy.exportUnavailable}`;
+  exportButton.setAttribute("aria-label", `${copy.export} — ${copy.exportUnavailable}`);
+  bar.append(exportButton);
+  stage.append(bar);
+
+  const scopeNote = document.createElement("p");
+  scopeNote.className = "d14-muted";
+  scopeNote.dataset.d14FilterNote = "loaded-page";
+  scopeNote.textContent = copy.filterNote;
+  stage.append(scopeNote);
+
+  // The rollup is a count of what is drawn below it, labelled as the loaded
+  // page. It is deliberately never a total: the audit store is larger than any
+  // page, and a number that reads as a total would be the one lie this screen
+  // exists to avoid.
+  if (projection.rows.length > 0) {
+    const rollup = document.createElement("div");
+    rollup.className = "d14-rollup";
+    rollup.dataset.d14Rollup = filtered ? "filtered" : "page";
+    const caption = document.createElement("span");
+    caption.className = "d14-muted";
+    caption.textContent = filtered
+      ? `${copy.rollupFiltered} · ${visible.length} of ${projection.rows.length}`
+      : `${copy.rollupLoaded} · ${projection.rows.length}`;
+    rollup.append(caption);
+    const counts = new Map<string, number>();
+    for (const row of visible) counts.set(row.outcome, (counts.get(row.outcome) ?? 0) + 1);
+    for (const [outcome, count] of counts) {
+      const segment = document.createElement("span");
+      segment.className = "d14-rollup-seg";
+      segment.dataset.d14RollupOutcome = outcome;
+      segment.dataset.d14RollupCount = String(count);
+      segment.textContent = `${outcome} ${count}`;
+      rollup.append(segment);
+    }
+    stage.append(rollup);
+  }
+
   const list = document.createElement("ol");
   list.className = "d14-list";
   // Emptiness is only claimed once a page actually arrived; a read that has not
@@ -370,8 +560,16 @@ function renderAuditMode(
       note.textContent = copy.auditLoading;
       list.append(note);
     }
+  } else if (visible.length === 0) {
+    // A page that arrived and a filter that matched nothing are two different
+    // facts, and they never share a sentence.
+    const note = document.createElement("li");
+    note.className = "d14-muted";
+    note.dataset.d14NoMatch = "true";
+    note.textContent = copy.noMatch;
+    list.append(note);
   }
-  for (const row of projection.rows) {
+  for (const row of visible) {
     const item = document.createElement("li");
     item.className = "d14-arow";
     item.dataset.d14AuditId = row.auditId;
@@ -468,6 +666,15 @@ export function renderD14(
   let raw = initialRaw;
   let mode: D14Mode = audit.capabilityAvailable ? "audit" : "raw";
   let busy = false;
+  /**
+   * The client-side cut, held for this mount only.
+   *
+   * Presentation state on purpose: Core is the single preference authority, so
+   * a filter that survived navigation would be a second persisted model the
+   * contract forbids — and a remembered filter is also how an operator returns
+   * to a trail that silently hides half of it.
+   */
+  let filters: { actor: string; time: D14TimeFilter } = { actor: ACTOR_ALL, time: "all" };
 
   const stage = document.createElement("section");
   stage.className = "d14-shell";
@@ -563,6 +770,16 @@ export function renderD14(
       busy,
       onLoadOlder: () => run(() => ports.loadOlderAudit()),
       onClearScope: () => run(() => ports.queryAudit(null)),
+      filters,
+      // A chip is a local redraw, never a Core read: the page is already here.
+      onSetActor: (actor) => {
+        filters = { ...filters, actor };
+        render();
+      },
+      onSetTime: (time) => {
+        filters = { ...filters, time };
+        render();
+      },
     });
   }
 

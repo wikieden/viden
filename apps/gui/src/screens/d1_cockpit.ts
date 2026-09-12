@@ -1925,6 +1925,12 @@ export function renderD1Cockpit(
     // in raw event replay, which is a different view of the same question and
     // must be said up front rather than discovered after the click.
     if (destination === "d14") return translate(locale, "d1.activity.auditFallback", {});
+    // The queue badge is absent in two different situations and only one of
+    // them is "nothing waiting". No published count says so in the name, so
+    // the missing badge is never read as an empty queue.
+    if (destination === "d2" && projection.statusbar.pendingGateCount === null) {
+      return translate(locale, "d1.activity.queueUnknown", {});
+    }
     return undefined;
   };
 
@@ -1942,6 +1948,14 @@ export function renderD1Cockpit(
         // The only count Core already publishes for a rail destination. D2 is
         // the decision queue and `pendingGateCount` is its size; nothing else
         // gets a badge, because nothing else has a Core-published number.
+        //
+        // It is the same number the statusbar's `⏸` segment prints, on purpose:
+        // two counts on one screen for one queue is how they start disagreeing.
+        // Note that the D2 view's own `pendingTotal` is a *different* sum —
+        // approvals plus pending reviews, where this is approvals plus open
+        // non-dormant merge gates — so the badge and the view's header can
+        // legitimately differ. Reconciling them is a projection question for
+        // the owning batch, not something to hide by counting twice here.
         badge: destination === "d2" ? projection.statusbar.pendingGateCount : null,
       };
     }

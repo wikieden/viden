@@ -223,3 +223,78 @@
 .d14-a-arg {
   color: var(--fg-muted);
 }
+
+/* The client-side filter bar, the design's `.fbar`. Every control in it acts on
+   the loaded page, which the note beneath it states in words. */
+.d14-fbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.d14-fchip {
+  font: inherit;
+  font-size: 11px;
+  color: var(--fg-tertiary, var(--fg-secondary));
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 9px;
+  cursor: pointer;
+}
+
+.d14-fchip[aria-pressed="true"] {
+  color: var(--accent-bright, var(--accent));
+  border-color: var(--accent-dim, var(--accent));
+}
+
+.d14-fchip:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.d14-fchip:focus-visible {
+  outline: 2px solid var(--accent-bright, var(--accent));
+  outline-offset: 2px;
+}
+
+.d14-fdiv {
+  width: 1px;
+  align-self: stretch;
+  background: var(--border);
+  margin: 0 4px;
+}
+
+.d14-fbar .d14-more {
+  margin-left: auto;
+}
+
+.d14-audit [data-d14-filter-note] {
+  margin: 8px 14px 0;
+  font-size: 10.5px;
+  line-height: 1.5;
+}
+
+/* The outcome rollup. Its caption always names the loaded page, so the counts
+   can never be read as a total over the audit store. */
+.d14-rollup {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: baseline;
+  padding: 8px 14px;
+}
+
+.d14-rollup-seg {
+  font-family: var(--mono, monospace);
+  font-size: 10.5px;
+  color: var(--fg-secondary);
+}
+
+.d14-rollup-seg[data-d14-rollup-outcome="denied"],
+.d14-rollup-seg[data-d14-rollup-outcome="failed"] {
+  color: var(--warn, var(--fg-primary));
+}

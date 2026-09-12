@@ -573,6 +573,8 @@ export const MESSAGE_ARGUMENT_NAMES = {
   "d1.checkRun.failing": [],
   "d1.checkRun.result": [],
   "d1.focus": [],
+  // G6 secondary views
+  "d1.activity.queueUnknown": [],
 } as const;
 
 export type MessageKey = keyof typeof MESSAGE_ARGUMENT_NAMES;

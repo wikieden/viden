@@ -139,7 +139,8 @@ function shellProjection(
       tokens: null,
       diagnosticsCount: 0,
       requests: null,
-      pendingGateCount: 0,
+      // No Core count yet. `0` would read as an empty decision queue.
+      pendingGateCount: null,
     },
     permissionDock: { workMode: "—", permissionLevel: "—", request: null },
     recovery: {

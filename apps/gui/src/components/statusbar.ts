@@ -251,7 +251,9 @@ export function renderStatusbar(
     }
   }
 
-  if (statusbar.pendingGateCount > 0) {
+  // An absent count omits the segment for the same reason a zero does: neither
+  // is a decision waiting on the operator, and only one of them is a number.
+  if (statusbar.pendingGateCount !== null && statusbar.pendingGateCount > 0) {
     // The only interactive segment: it opens the D2 decision queue where the
     // waiting gates are actually decided.
     const gate = document.createElement("button");

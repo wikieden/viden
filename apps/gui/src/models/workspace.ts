@@ -234,7 +234,16 @@ export interface D1StatusbarProjection {
   tokens: { inputTokens: number; outputTokens: number } | null;
   diagnosticsCount: number;
   requests: { requestCount: number; errorCount: number } | null;
-  pendingGateCount: number;
+  /**
+   * Decisions Core is holding for a human — the number behind the statusbar's
+   * `⏸` segment and the activity rail's D2 badge.
+   *
+   * `null` is "Core published no count", which the shell's pre-connection
+   * placeholder projection carries. It is deliberately distinct from `0`
+   * ("nothing is waiting"): rendering the placeholder as a zero would tell the
+   * operator their queue is empty before anything has been counted.
+   */
+  pendingGateCount: number | null;
 }
 
 export interface D1CockpitProjection {
