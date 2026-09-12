@@ -57,6 +57,7 @@ function model(overrides: Partial<CommandPaletteModel> = {}): CommandPaletteMode
     query: "",
     crossLane: CROSS_LANE,
     files: FILES,
+    laneCreation: { available: true, reason: null },
     canNavigate: true,
     canOpenSettings: true,
     canFocusComposer: true,

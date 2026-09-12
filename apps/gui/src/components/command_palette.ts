@@ -163,6 +163,13 @@ export interface CommandPaletteModel {
   /** False while the shell has bound no router, which omits the screen rows. */
   canNavigate: boolean;
   canOpenSettings: boolean;
+  /**
+   * Whether Core says this workspace can carry a new Lane
+   * (`workspaceEligibility.canCreateLane`), and Core's own reason when it
+   * cannot. `null` eligibility is a third state — Core published none — and
+   * gets its own sentence rather than being folded into "no".
+   */
+  laneCreation: { available: boolean; reason: string | null };
   canFocusComposer: boolean;
   canCancelTurn: boolean;
   /** False while no host is bound, which omits the review row entirely. */
@@ -197,6 +204,8 @@ export interface CommandPaletteHandlers {
   onOpenSettings?: () => void;
   onFocusComposer?: () => void;
   onCancelTurn?: () => void;
+  /** Opens the New Lane popover, the one creation surface the cockpit has. */
+  onCreateLane?: () => void;
   /** Opens the DiffReview view in the cockpit's centre pane. */
   onOpenReview?: () => void;
   /** Opens the EvidenceView in the cockpit's centre pane. */
@@ -275,6 +284,46 @@ export function paletteItems(
         icon: "chat",
         activate: () => handlers.onFocusComposer?.(),
       }),
+    );
+  }
+  if (handlers.onCreateLane) {
+    // The design's own row and label: "Delegate task to new worktree… ⌘L".
+    // Creating a Lane *is* delegating a task to a fresh worktree, which is why
+    // the design names it that way; the row opens the same New Lane popover
+    // the Lane rail's and the tab strip's `＋` open rather than being a second
+    // creation path.
+    const title = translate(locale, "d1.palette.action.newLane", {});
+    const keywords = "lane delegate worktree new create task";
+    items.push(
+      model.laneCreation.available
+        ? enabled({
+            kind: "command",
+            section: "actions",
+            id: "action:new-lane",
+            title,
+            context: "",
+            keywords,
+            hint: "⌘L",
+            icon: "lanes",
+            activate: () => handlers.onCreateLane?.(),
+          })
+        : disabled(
+            {
+              kind: "command",
+              section: "actions",
+              id: "action:new-lane",
+              title,
+              context: "",
+              keywords,
+              hint: null,
+              icon: "lanes",
+            },
+            // Core's own diagnostic when it gave one; otherwise the fact that
+            // it published no eligibility at all, which is not the same as a
+            // refusal and must not be worded like one.
+            model.laneCreation.reason ??
+              translate(locale, "d1.palette.action.newLane.unknown", {}),
+          ),
     );
   }
   if (model.canCancelTurn && handlers.onCancelTurn) {

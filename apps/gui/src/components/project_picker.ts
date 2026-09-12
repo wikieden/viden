@@ -49,6 +49,17 @@ export interface ProjectPickerHandlers {
   onPickDirectory: () => Promise<string | null>;
   /** Replaces the open workspace with `root`. Only the confirmation calls this. */
   onSwitchWorkspace: (root: string) => Promise<void>;
+  /**
+   * Opens D11 project intake for the workspace already open.
+   *
+   * D11 configures a *project* — probe, `viden.toml` confirmation, credential
+   * handles, starter Lanes. This picker is the project surface, so it is where
+   * that flow belongs; it used to hang off the New Lane popover's "Full
+   * setup…", which asked the operator to configure the project in order to
+   * make one Lane. Absent while no host is bound, which leaves the row out
+   * rather than rendering one that opens nothing.
+   */
+  onConfigureProject?: () => void;
   onClose: () => void;
 }
 
@@ -381,6 +392,28 @@ export function renderProjectPicker(
     );
     currentRow.append(dot, labelled(current.displayName, current.canonicalRoot), lanes);
     workspace.append(currentRow);
+
+    if (handlers.onConfigureProject) {
+      const configure = row("pprow ppadd");
+      configure.dataset.pickerConfigure = "true";
+      const icon = document.createElement("span");
+      icon.className = "i";
+      icon.setAttribute("aria-hidden", "true");
+      icon.textContent = "⛭";
+      configure.append(
+        icon,
+        labelled(
+          translate(locale, "d1.picker.configure", {}),
+          translate(locale, "d1.picker.configureHint", {}),
+        ),
+      );
+      configure.addEventListener("click", () => {
+        handlers.onConfigureProject?.();
+        // D11 replaces the window, so the popover must not outlive it.
+        controller.close();
+      });
+      workspace.append(configure);
+    }
 
     const recent = document.createElement("section");
     recent.className = "ppcol";

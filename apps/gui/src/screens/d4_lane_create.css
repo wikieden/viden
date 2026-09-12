@@ -141,11 +141,103 @@
   border-radius: var(--r-md);
 }
 
+/*
+ * The four step bodies. The design's `.shead` lead sentence, `.sec` section
+ * rules, `.fields` read-only rows and `.srcnote` source note, expressed with
+ * shared tokens; the wizard's own layout grid already carries the columns.
+ */
+.d4-step-body {
+  display: grid;
+  align-content: start;
+  gap: var(--sp-4);
+}
+
+.d4-step-lead {
+  margin: 0;
+  color: var(--fg-secondary);
+}
+
+.d4-step-note {
+  margin: 0;
+  padding: var(--sp-3);
+  color: var(--fg-muted);
+  background: var(--bg-panel);
+  border-inline-start: 2px solid var(--border);
+  border-radius: var(--r-sm);
+}
+
+.d4-readonly {
+  display: grid;
+  grid-template-columns: minmax(9rem, 0.7fr) 1fr;
+  gap: var(--sp-2) var(--sp-4);
+  margin: 0;
+}
+
+.d4-readonly-key {
+  color: var(--fg-muted);
+}
+
+.d4-readonly-value {
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+.d4-agent-list {
+  display: grid;
+  gap: var(--sp-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.d4-agent {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--sp-3);
+  padding: var(--sp-3);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--bg-panel);
+}
+
+.d4-agent small {
+  color: var(--fg-muted);
+  font-family: var(--font-mono);
+}
+
+.d4-agent[data-d4-agent-chosen="true"] {
+  border-color: var(--accent);
+  background: var(--bg-sel);
+}
+
+.d4-agent em {
+  margin-inline-start: auto;
+  color: var(--accent);
+  font-style: normal;
+}
+
+.d4-step-body [data-d4-unavailable] {
+  margin: 0;
+  padding: var(--sp-4);
+  color: var(--fg-muted);
+  border: 1px dashed var(--border);
+  border-radius: var(--r-md);
+}
+
 .d4-footer {
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: var(--sp-2);
+}
+
+.d4-progress {
+  margin: 0;
+  margin-inline-end: auto;
+  color: var(--fg-muted);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs, 0.75rem);
 }
 
 .d4-frame :focus-visible {

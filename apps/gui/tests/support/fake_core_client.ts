@@ -9,6 +9,7 @@
 
 import type { CoreClient } from "../../src/host/core_client";
 import type { D11IntakeProjection, D11IntentResult } from "../../src/screens/d11_intake";
+import type { D4IntentResult } from "../../src/screens/d4_lane_create";
 import { D1_PROJECTION } from "./d1_projection";
 
 const PREFERENCES = {
@@ -50,6 +51,30 @@ const D11_PROJECTION: D11IntakeProjection = {
 
 export const D11_RESULT: D11IntentResult = {
   projection: D11_PROJECTION,
+  pendingCommandId: null,
+  pendingIntent: null,
+};
+
+/**
+ * The D4 wizard's entry state: the capability advertised, nothing previewed
+ * yet. It is what `d4_poll` answers on a fresh entry, which is the state the
+ * "Full setup…" route lands in.
+ */
+export const D4_RESULT: D4IntentResult = {
+  projection: {
+    availability: {
+      available: true,
+      capability: "runtime.starter_lane_preview",
+      message: "Reviewed starter Lane creation is available.",
+    },
+    workMode: "build",
+    canCreate: false,
+    preview: null,
+    receipt: null,
+    pendingApproval: null,
+    outcome: { state: "idle", reason: null, requiresRepreview: false },
+    navigationLaneId: null,
+  },
   pendingCommandId: null,
   pendingIntent: null,
 };

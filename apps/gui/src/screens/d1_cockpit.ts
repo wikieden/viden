@@ -178,10 +178,35 @@ function refreshPersistentRail(current: HTMLElement, next: HTMLElement): void {
   current.onkeydown = next.onkeydown;
 }
 
+/**
+ * The New Lane popover's draft: the agent the operator picked (`null` is the
+ * built-in runtime, which is the popover's own default) and the task they
+ * typed. Presentation state the cockpit owns, handed across the D4 round trip.
+ */
+export interface NewLaneDraft {
+  agentId: string | null;
+  task: string;
+}
+
 export interface D1RenderOptions {
   onOpenProject?: () => void | Promise<void>;
   onCreateLane?: () => void;
-  onFullSetup?: () => void;
+  /**
+   * Opens the full Lane wizard (D4) on the popover's current draft.
+   *
+   * The draft travels because the operator already typed it: "Full setup…" is
+   * the same intention with more steps, not a restart. Core's
+   * `StarterLaneRequest` carries neither an agent binding nor a task, so what
+   * D4 can do with the draft is presentation — the seam and its contract gap
+   * are documented on the wizard's own seed.
+   */
+  onFullSetup?: (draft: NewLaneDraft) => void;
+  /**
+   * Reopens the New Lane popover on a draft the caller is returning with —
+   * the D4 wizard's Cancel, which must not silently throw away what the
+   * operator typed before they went looking for the full form.
+   */
+  newLaneDraft?: NewLaneDraft;
   /**
    * Opens a restored screen from the activity rail, the status bar, or the
    * command palette. `arg` preselects one exact Core id (a D12 gate, a D2
@@ -839,8 +864,12 @@ export function renderD1Cockpit(
   let remountingAgentMenu = false;
   let agentMenuComposing = false;
   let agentMenuRefreshDeferred = false;
-  let newLaneSelection: AgentMenuSelection | undefined;
-  let pendingAgentTaskDraft = "";
+  let newLaneSelection: AgentMenuSelection | undefined = options.newLaneDraft
+    ? options.newLaneDraft.agentId === null
+      ? { kind: "native" }
+      : { kind: "acp", agentId: options.newLaneDraft.agentId }
+    : undefined;
+  let pendingAgentTaskDraft = options.newLaneDraft?.task ?? "";
   let creatingLane = false;
   const commandSlotWaiters: Array<() => void> = [];
   let pendingLaneStart:
@@ -939,6 +968,58 @@ export function renderD1Cockpit(
     if (centerView === "transcript") return;
     event.preventDefault();
     closeCenterView();
+  };
+
+  /**
+   * What Core says about carrying another Lane in this workspace.
+   *
+   * Three states, not two: Core said yes, Core said no and gave a reason, and
+   * Core published no eligibility at all. The last is not a refusal, so it is
+   * never worded as one.
+   */
+  function laneCreationState(): { available: boolean; reason: string | null } {
+    const eligibility = projection.workspaceEligibility;
+    if (!eligibility) return { available: false, reason: null };
+    return {
+      available: eligibility.canCreateLane,
+      reason: eligibility.canCreateLane ? null : eligibility.diagnostic,
+    };
+  }
+
+  /**
+   * `⌘L` / `⌃L` opens the New Lane popover.
+   *
+   * The design's keyboard registry binds "New lane / delegate" to `⌘L`, and
+   * the workspace rail's `＋` carries `⌘L` in its own tooltip. The chord was
+   * unbound in this shell.
+   *
+   * It stands down while a modal popover owns focus — the same guard the
+   * palette, review and evidence chords use — and while Core says this
+   * workspace cannot carry a Lane, which is the condition the palette row
+   * fails closed on with Core's own sentence. Failing closed here rather than
+   * opening a popover whose Create button is already disabled keeps one answer
+   * to "can I make a Lane" instead of two.
+   */
+  const handleNewLaneShortcut = (event: KeyboardEvent): void => {
+    if (event.repeat || composing) return;
+    if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return;
+    if (event.key.toLowerCase() !== "l") return;
+    const active = document.activeElement;
+    if (
+      active instanceof HTMLElement &&
+      active.closest(
+        "[data-settings-panel], [data-new-lane-popover], [data-control-popover], [data-command-palette], [data-project-picker], [data-permission-dock]",
+      )
+    ) {
+      return;
+    }
+    if (!laneCreationState().available) return;
+    event.preventDefault();
+    if (options.onCreateLane) {
+      options.onCreateLane();
+      return;
+    }
+    openAgentMenu("tabs");
   };
 
   /**
@@ -1108,6 +1189,7 @@ export function renderD1Cockpit(
   };
   window.addEventListener("keydown", handleEscape);
   window.addEventListener("keydown", handleLaneCycleShortcut);
+  window.addEventListener("keydown", handleNewLaneShortcut);
   window.addEventListener("keydown", handleDecisionsShortcut);
   window.addEventListener("keydown", handleWindowKeydown);
   window.addEventListener("keydown", handlePaletteShortcut);
@@ -1297,6 +1379,7 @@ export function renderD1Cockpit(
       window.removeEventListener("keydown", handleWindowKeydown);
       window.removeEventListener("keydown", handleEscape);
       window.removeEventListener("keydown", handleLaneCycleShortcut);
+      window.removeEventListener("keydown", handleNewLaneShortcut);
       window.removeEventListener("keydown", handleDecisionsShortcut);
       window.removeEventListener("keydown", handlePaletteShortcut);
       window.removeEventListener("keydown", handleReviewShortcut);
@@ -2422,6 +2505,9 @@ export function renderD1Cockpit(
         onSwitchWorkspace: async (nextRoot) => {
           await options.onOpenWorkspace?.(nextRoot);
         },
+        // D11 is project intake and this is the project surface. It replaces
+        // the window, so it goes through the shell's own route.
+        onConfigureProject: options.onNavigate ? () => options.onNavigate?.("d11") : undefined,
         onClose: () => {
           pickerController = null;
           // A remount closes the old controller on purpose; only an operator
@@ -2493,6 +2579,7 @@ export function renderD1Cockpit(
         files: paletteFiles,
         canNavigate: Boolean(options.onNavigate),
         canOpenSettings: Boolean(options.preferences),
+        laneCreation: laneCreationState(),
         canFocusComposer: Boolean(root.querySelector("[data-composer]")),
         canCancelTurn: Boolean(root.querySelector("[data-work-cancel]")),
         // A bound host always gets the row; an absent capability renders it
@@ -2519,6 +2606,13 @@ export function renderD1Cockpit(
           root.querySelector<HTMLTextAreaElement>("[data-composer]")?.focus();
         },
         onCancelTurn: () => cancelActiveTurn(),
+        // One creation surface. The palette closes and the popover opens
+        // against the tab strip's `＋`, which is on screen in both sidebar
+        // modes — the rail's is not, in the default floating one.
+        onCreateLane: () => {
+          closePalette();
+          openAgentMenu("tabs");
+        },
         onOpenReview: () => openReview(),
         onOpenEvidence: () => openEvidence(),
         onQueryChange: (next) => {
@@ -2683,7 +2777,10 @@ export function renderD1Cockpit(
         pendingAgentTaskDraft = task;
       },
       () => {
-        options.onFullSetup?.();
+        options.onFullSetup?.({
+          agentId: newLaneSelection?.kind === "acp" ? newLaneSelection.agentId : null,
+          task: pendingAgentTaskDraft,
+        });
       },
       (isComposing, task) => {
         agentMenuComposing = isComposing;
@@ -3704,6 +3801,10 @@ export function renderD1Cockpit(
   };
 
   render(true);
+  // A returning draft reopens the popover where the operator left it. This is
+  // the D4 Cancel path: the wizard was a detour, and the compact creator is
+  // still the surface they were using.
+  if (options.newLaneDraft) openAgentMenu("tabs");
   // One no-traffic read at mount, so the review entry points know whether Core
   // publishes structured diff rows before anyone clicks one. It sends no Core
   // command, so it costs nothing on a Core that does not have the capability.

@@ -7,6 +7,7 @@ import {
   type D4Intent,
   type D4IntentResult,
   type D4LaneCreateProjection,
+  type D4QueueState,
   type D4StarterSeed,
 } from "../src/screens/d4_lane_create";
 
@@ -78,6 +79,7 @@ function setup(
   initial = result(),
   queue: readonly D4StarterSeed[] = SEEDS,
   queueIndex = 0,
+  queueExtras: Partial<D4QueueState> = {},
 ) {
   document.body.innerHTML = '<main id="app"></main>';
   const root = document.querySelector<HTMLElement>("#app");
@@ -92,6 +94,7 @@ function setup(
     completedLaneIds: [],
     onCancel,
     onNavigateToD1,
+    ...queueExtras,
   });
   return { root, send, poll, onCancel, onNavigateToD1, controller };
 }
@@ -303,5 +306,94 @@ describe("D4 reviewed starter Lane", () => {
       "base_revision_changed",
     );
     expect(invalid.root.querySelector("[data-repreview-required]")).not.toBeNull();
+  });
+});
+
+// The design's own four steps (`GUI/pages/Viden - D4 Lane创建流程 (GUI).html`
+// `STEPS`): role & workstation, agent, skill pack, gates & target. Each is
+// drawn within what Core models — and what Core does not model is stated on
+// the step rather than filled in.
+describe("D4 design steps", () => {
+  beforeEach(() => {
+    document.documentElement.lang = "en";
+  });
+
+  test("names the design's four steps and reports the position", () => {
+    const { root } = setup();
+    const steps = Array.from(
+      root.querySelectorAll<HTMLButtonElement>("[data-d4-step]"),
+      (button) => button.textContent,
+    );
+    expect(steps).toEqual([
+      "1. Role and workstation",
+      "2. Choose agent",
+      "3. Skill pack",
+      "4. Gates and target",
+    ]);
+    expect(root.querySelector("[data-d4-progress]")?.textContent).toBe(
+      "Step 1 of 4 · Role and workstation",
+    );
+    expect(root.querySelector('[data-d4-step-body="role"]')).not.toBeNull();
+    expect(root.querySelector('[data-d4-step-body="agent"]')).toBeNull();
+  });
+
+  test("lists the agents Core published and marks the one the popover chose", () => {
+    const { root } = setup(result(), SEEDS, 0, {
+      seed: { agentId: "codex-acp", task: "Refactor the config loader" },
+      agents: [
+        { agentId: "codex-acp", displayName: "Codex", startability: "ready" },
+        { agentId: "claude-acp", displayName: "Claude", startability: "probe_required" },
+      ],
+    });
+    root.querySelector<HTMLButtonElement>('[data-d4-step="1"]')!.click();
+
+    const rows = Array.from(root.querySelectorAll<HTMLElement>("[data-d4-agent]"));
+    expect(rows.map((row) => row.dataset.d4Agent)).toEqual(["codex-acp", "claude-acp"]);
+    expect(rows[0]!.dataset.d4AgentChosen).toBe("true");
+    expect(rows[1]!.dataset.d4AgentChosen).toBeUndefined();
+    // The step says plainly that creating the Lane does not start the agent.
+    expect(root.querySelector("[data-d4-agent-note]")?.textContent).toContain(
+      "carries no agent",
+    );
+  });
+
+  test("states the skill-pack step as unavailable instead of inventing one", () => {
+    const { root } = setup();
+    root.querySelector<HTMLButtonElement>('[data-d4-step="2"]')!.click();
+
+    const note = root.querySelector<HTMLElement>('[data-d4-unavailable="skills"]')!;
+    expect(note.textContent).toContain("Core publishes no skill pack");
+    expect(note.textContent).toContain("GUI-CORE-030");
+    // Nothing selectable, because nothing here could reach Core.
+    expect(root.querySelector('[data-d4-step-body="skills"] input')).toBeNull();
+    expect(root.querySelector('[data-d4-step-body="skills"] button')).toBeNull();
+  });
+
+  test("shows the Core-resolved mutation policy and the one execution target", () => {
+    const { root } = setup(result({ ...EMPTY_PROJECTION, canCreate: true, preview: PREVIEW }));
+    root.querySelector<HTMLButtonElement>('[data-d4-step="3"]')!.click();
+
+    expect(root.querySelector("[data-resolved-mutation-policy]")?.textContent).toBe(
+      "propose_only",
+    );
+    expect(root.querySelector("[data-d4-target-note]")?.textContent).toContain("local");
+    expect(root.querySelector("[data-d4-target-note]")?.textContent).toContain("D9");
+    expect(root.querySelector('[data-d4-step-body="gates"] select')).toBeNull();
+  });
+
+  test("names the Lane after the task the popover carried, and shows the task", () => {
+    const { root, controller } = setup(result(), [], 0, {
+      seed: { agentId: null, task: "Refactor the config loader" },
+    });
+
+    expect(controller.state.draft.laneId).toBe("refactor-the-config-loader");
+    expect(controller.state.draft.branch).toBe("vd/refactor-the-config-loader");
+    expect(root.querySelector("[data-seed-task]")?.textContent).toBe(
+      "Refactor the config loader",
+    );
+    // The create command cannot carry the task; the step says so.
+    expect(root.querySelector("[data-seed-note]")?.textContent).toContain(
+      "not part of the create command",
+    );
   });
 });

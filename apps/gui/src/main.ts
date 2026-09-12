@@ -19,6 +19,7 @@ import {
   type D1CockpitProjection,
   type D1Intent,
   type D1IntentResult,
+  type NewLaneDraft,
 } from "./screens/d1_cockpit";
 import {
   renderD10LaneMonitor,
@@ -261,13 +262,28 @@ export async function hydrateShellFromCore(
           ),
       };
       let activeD1: D1Controller | null = null;
+      /**
+       * The agent adapters the last cockpit projection carried, for D4's agent
+       * step. Kept here rather than re-read: the wizard is entered from a
+       * cockpit that already holds Core's answer, and a second
+       * `query_agent_adapters` on the way into a form would be traffic for a
+       * fact this shell just had.
+       */
+      let lastAgentAdapters: Array<{
+        agentId: string;
+        displayName: string;
+        startability: string;
+      }> = [];
       const onCoreWake = core.onCoreWake;
 
       // Content Core persisted lives in the workspace, which the webview
       // cannot open. The host reads it and returns an inline data URL.
       const resolveContent = async (reference: string) => await core.agentContent(reference);
 
-      const showD1 = async (laneId?: string): Promise<D1Controller | null> => {
+      const showD1 = async (
+        laneId?: string,
+        newLaneDraft?: NewLaneDraft,
+      ): Promise<D1Controller | null> => {
         const projection = await core.d1Cockpit(laneId ?? null);
         if (!projection || (laneId && projection.selectedLaneId !== laneId)) {
           throw new Error(
@@ -289,6 +305,11 @@ export async function hydrateShellFromCore(
         } else {
           delete root.dataset.focusLaneId;
         }
+        lastAgentAdapters = projection.agentAdapters.map((adapter) => ({
+          agentId: adapter.agentId,
+          displayName: adapter.displayName,
+          startability: adapter.startability,
+        }));
         activeD1 = renderD1Cockpit(
           root,
           projection,
@@ -297,10 +318,16 @@ export async function hydrateShellFromCore(
           sendPermission,
           recoverD6,
           {
-            // "Full setup" is the designed D11 intake flow, not the D4 Lane
-            // form: D4 creates one Lane, D11 walks project probe, config
-            // confirmation, and the starter Lanes it then hands to D4.
-            onFullSetup: () => void showD11(),
+            // "Full setup…" is the *Lane* wizard, which is what the popover it
+            // sits in is creating. D11 is project intake — probe, config
+            // confirmation, credentials — and reaching it from a Lane creator
+            // asked the operator to configure the project to make one Lane.
+            // It stays reachable from the project surfaces: the project
+            // picker's `Configure this project…` row and `?screen=d11`.
+            onFullSetup: (draft) => void showD4([], draft),
+            // A draft the D4 wizard is handing back on Cancel reopens the
+            // popover where the operator left it.
+            newLaneDraft,
             onCoreWake,
             resolveContent,
             sendD6Intent,
@@ -372,7 +399,7 @@ export async function hydrateShellFromCore(
         );
       };
 
-      const showD4 = async (queue: D4StarterSeed[] = []) => {
+      const showD4 = async (queue: D4StarterSeed[] = [], seed?: NewLaneDraft) => {
         activeD1?.dispose();
         activeD1 = null;
         const d4Result = await pollD4();
@@ -381,7 +408,12 @@ export async function hydrateShellFromCore(
           queue,
           queueIndex: 0,
           completedLaneIds: [],
-          onCancel: () => void showD1(),
+          seed,
+          agents: lastAgentAdapters,
+          // Cancel returns to the cockpit carrying the draft the wizard was
+          // entered with, so a detour through the full form never costs the
+          // operator what they had already typed.
+          onCancel: () => void showD1(undefined, seed),
           onNavigateToD1: (laneId) => {
             // D4 supplies only the exact Core receipt Lane id; D1 then
             // re-reads the canonical view before it renders or sends.
