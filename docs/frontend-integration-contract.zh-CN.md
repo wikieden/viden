@@ -133,6 +133,7 @@ payload SHA。Payload commit 内没有猜测或写入自引用 SHA。
 | 操作者源码控制 | DiffReview 提交栏、标题栏同步控件 | `OperatorGitAction`、`OperatorGitOutcome`、`OperatorGitFailureClass`、`OperatorGitActionFinished`，以及其后的 `WorkspaceSourceUpdated` | `RunOperatorGitAction` | Core `0.3.6` extension `runtime.operator_git`；每个动作在其映射到的**既有 agent** 工具 spec 下过门禁并执行，因此同一套规则同时约束操作者与 agent，失败分类是类型化的，客户端永不解析 git 输出 |
 | 冲突内容 | DiffReview 冲突面板、决策浮层的冲突详情 | `ConflictContent`、`ConflictBaseline`、`ConflictFile`、`ConflictHunk`、`ConflictHunkReason`、`ConflictBounce.content`、`LaneConflictView.content`、`LaneConflictDetected.content` | 无；内容搭载在失败应用本就会发布的事件上 | Core `0.3.6` extension `runtime.conflict_content`；两侧加上补丁原像，绝不是三方合并，带有指名的基线，且只列出严格应用真正拒绝掉的 hunk |
 | 证据归档读取 | EvidenceView 按天分组列表、行详情，以及行背后的内容 | `EvidenceQuery`、`EvidencePage`、`EvidenceCursor`、`EvidenceContent`、`EvidenceUnavailableReason`、`EvidencePageLoaded`、`EvidenceContentLoaded` | `QueryEvidence`、`ReadEvidenceContent` | Core `0.3.6` extension `runtime.evidence_reads`；读取的是持久归档而不是近期窗口 `latest_evidence`，按 `(timestamp, id)` 升序、未标注时间的行排最前，cursor 不透明，过滤在切页之前应用，内容只从与该行自身 `source_hash` 校验通过的 canonical 字节提供。门禁姿态与 `QueryAudit` 一致而非 `QueryWorkspaceFiles`：有界且带 owner 作用域、绝不由工具门禁把关，因为归档是 Viden 自己的状态而不是操作者的工作树 |
+| 持久工作证据 | 已应用工作的 EvidenceView 行、D14 审批行、权限面板的「审计」链接 | 一次被应用的变更所发布的 `patch` `EvidenceView`、它的 `CanonicalEvidenceReference`、`EvidenceCanonicalized`，以及审批决定的 `AuditRecord` | 无；这些事实随回合发布，读取用 `QueryEvidence`、`ReadEvidenceContent`、`QueryAudit` | Core `0.3.7` extension `runtime.durable_work_evidence`；不新增类型、也不新增事件，改变的是哪些事实会进入持久归档与审计日志。一次被应用的 `write_file`/`edit_file` 会在实时 `WorkspaceChangeUpdated` 之侧归档一条带规范字节的 `patch` 行；适配器上报的补丁由运行时的摄取补全，因为 `viden-agents` 自身没有存储；每个受监督回合批次都会被吸收进归档据以重建的 `runtime_projection` 行；审批决定成为一条持久审计行，其 id 正是请求已公布的那一个。`WorkspaceChangeUpdated` 与 `CheckRunUpdated` 保持仅实时 |
 | 工作区文件清单 | 当前工作区的有序路径列表 | `WorkspaceFileEntry`、`WorkspaceFileKind`、`WorkspaceFilePage`、`WorkspaceFilesLoaded` | `QueryWorkspaceFiles` | Core `0.3.5` extension `runtime.workspace_files`；在读取任何目录项之前先过权限门禁，工具名为非变更的 `workspace_file_inventory`，输入路径为工作区根。deny 与未解决的 ask 都以 `CommandRejected` 返回，指名这次确切的读取并携带拒绝原因——绝不发布空 page，也绝不发送不带 command id 的裸 `Error`（那会让有读取在途的客户端把无关失败误认成自己这次读取的拒绝）。该工具不产生变更，因此 plan mode 仍可回答。遍历遵循 gitignore，并无条件排除 `.git/`、`.viden/`、`.omx/`、`.worktrees/`、`.ref/`。条目按字典序排列；prefix 过滤、排他的 `after` 游标与 `1..=500` 的 limit 钳制都作用在该顺序之上，因此 `complete` 与 `next_after` 描述的是过滤后的有序清单。`WorkspaceFilesLoaded.command_id` 为必填，因此不像 audit page 那样存在无法关联的情形。客户端不得自行遍历文件系统 |
 
 Core `0.3.4` 中，续聊与 retry 保持逻辑 session id 和精确 `RuntimeOwner` 不变。
@@ -303,8 +304,9 @@ flowchart LR
 | 取消当前工作 | 携带所选 Lane 精确 bound envelope owner 的 `CancelActiveTurn`，或 `CancelAgentTask` | 精确 owner 校验、request cancellation、task/Lane state，以及一条不释放其后任何排队项的 `TurnFinished { Cancelled }` |
 | 启动受监督 workflow | `StartAgentDag` 然后 `StartAgentTask` | DAG validation、dependencies、workflow events |
 | 修改 mode/permissions | `SetWorkMode`、`SetPermissionLevel` | permission mode mapping 和 policy enforcement |
-| 批准或拒绝 tool | `RespondToApproval` | decision recording 和 gated execution |
+| 批准或拒绝 tool | `RespondToApproval` | decision recording 和 gated execution，外加该决定的持久 `AuditRecord`：写在 `ApprovalResolved` 之前，使用请求早已公布的那个 `audit_id`（`runtime.durable_work_evidence`） |
 | 记录 gate evidence | `RecordAgentEvidence` | evidence validation、`EvidenceRecorded`、gate reducer、workflow event |
+| 归档回合已应用的工作 | 无；这些事实随回合发布 | 一次被应用的 `write_file`/`edit_file` 产出的 `patch` 行、它的 canonical ContextStore 字节与 `source_hash`、合并闸门检查的 producer 与审批凭据、适配器上报补丁的规范化，以及每个受监督回合批次被吸收进的持久投影（`runtime.durable_work_evidence`） |
 | 审核 merge gate | merge/artifact commands | gate state、workflow events、patch application |
 | 协调跨 Lane trust | handoff/review/contract/dependency commands | typed owner/audit facts、dependency state、validator policy 与 replay |
 | 恢复 apply | `BounceMergeConflict`、revalidated evidence、`RevertAppliedChange` | 回到原 Lane、workflow write-ahead fact、byte rollback 与 typed recovery |
@@ -863,8 +865,49 @@ active job，因此 `CancelActiveTurn` 能停下它；它经由同一条路径�
 
 ### 持久工作证据（C7）
 
-尚未交付。`runtime.durable_work_evidence` 的设计见
-`docs/release-0.3.4-contract-design.md` 第 4 节，将在 C7 批次落地；届时再写本节。
+能力 `runtime.durable_work_evidence`。不新增类型、也不新增事件：改变的是哪些事实
+会进入持久归档与审计日志。它仍然需要门控，因为客户端在一次已应用的编辑之后翻阅
+证据归档时，必须能区分「这个 Core 不归档已应用的工作」与「本次会话什么都没改」，
+而在本能力之前，两者是同一个空页面 —— `runtime.evidence_reads` 在 `0.3.3` 中交付
+时，其所读的归档从未被任何已应用的变更写入过。
+
+前端必须遵守的规则：
+
+- **复核已应用的工作看归档，而不是 `latest_evidence`。** 一次被应用的
+  `write_file`/`edit_file` 会发布一条 kind 为 `patch`、id 为
+  `patch-<tool_call_id>`、归属于该回合的 `EvidenceRecorded`，且该行是持久的：重启
+  之后 `QueryEvidence` 仍会返回它，`ReadEvidenceContent` 仍会提供它的字节。
+  `RuntimeViewState.latest_evidence` 仍然只是该客户端所收到流的近窗投影，不是归档。
+- **实时变更在先，且两者是同一次改动。** 一次变更的 `WorkspaceChangeUpdated` 发布
+  在描述它的 `EvidenceRecorded` 之前。请把它们在转录里渲染成同一个事件，而不是一次
+  变更后面跟着一个不相干的产物。
+- **`patch` 行上的 `canonical: None` 是一个明示事实。** 它表示 Core 没有可提供的
+  字节 —— diff 超过 `MAX_EVIDENCE_CONTENT_BYTES`，或存储写入失败 —— 而该行的
+  `summary` 会说明是哪一种。请连同原因渲染「无规范字节」；绝不要把它渲染成仅摘要
+  证据，也不要渲染成空 diff。
+- **`permission_snapshot_id` 是审批凭据，且可能缺席。** 存在时，它是放行了那一次
+  工具调用的审批的 `audit_id`，并且可解析：`QueryAudit` 会返回该 id 下的一行。缺席
+  时，说明并没有操作者审批放行这次调用 —— 是某条规则放行的，或者补丁由外部适配器
+  上报。不要把缺席的凭据呈现为「已批准」。
+- **`producer.task_id` 是合并闸门检查的对象。** 闸门只在 `patch` 行的 producer
+  指名闸门自身的任务时才接受它。Lane 的原生回合指名该 Lane 的任务；会话作用域的
+  输入框回合指名的是它自己的回合，永远无法满足某个 Lane 的闸门，闸门会以
+  `MissingProducer` 拒绝它。请渲染闸门给出的理由，而不要暗示证据缺失。
+- **`EvidenceCanonicalized` 紧跟它补全的那一行。** 它携带 `evidence_id`、`item_id`
+  与 `content_sha256`，并紧接在其字节所属的 `EvidenceRecorded` 之后到达 —— 外部
+  Agent 的补丁也一样：适配器以 `canonical: None` 上报，由运行时在摄取时补全。
+
+**审批审计行。** `RespondToApproval` 会在宣告它的 `ApprovalResolved` 之前追加一条
+`AuditRecord`，使用 `ApprovalRequestView` 早已公布的那个 `audit_id`：actor 为
+`Operator`，action 为 `approval.<allow_once|allow_session|allow_repo|deny>`，
+`args.scope` 为同一个键，objects 指名该审批请求（`permission`）、工具（`tool`）与该
+决定释放的作业（`job`）。因此驾驶舱里审批的「审计」链接可以通过 `QueryAudit` 解析。
+如果追加失败，该决定仍会送达，Core 会发布一条 `Error` 说明它未被审计；客户端不得把
+这条 `Error` 当成审批本身失败。
+
+**仅实时的事实仍然只在实时流中。** `WorkspaceChangeUpdated` 与 `CheckRunUpdated`
+不持久化，重启后不会重现：它们是对工作树的视图，每次连接都会重新采样。需要在重启
+之后查看该改动的客户端，应读取归档的 `patch` 行，而不是驾驶舱事实。
 
 ### 工作区文件读取（`runtime.workspace_file_reads`）
 

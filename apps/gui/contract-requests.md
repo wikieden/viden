@@ -48,6 +48,15 @@ register is 009, 013, 018, 019, 021, 023, 026, and 028. These entries are
 recorded against the `claude/int-0.3.4` integration branch; nothing here is on
 `main` until that branch is merged.
 
+Status note 2026-09-12 (C7): GUI-CORE-028 is closed **on the Core side** —
+`runtime.durable_work_evidence` archives an applied native mutation and an
+adapter-reported patch as `patch` rows with canonical bytes, persists every
+supervised turn batch into the projection the archive is rebuilt from, and
+writes the approval decision as a durable audit row — and stays open as a client
+adoption item until the GUI renders the archive rows and the D14 approval rows
+(G7) and the TUI's evidence inspector shows archived patches (T2). The open
+register is 009, 013, 018, 019, 021, 023, and 026.
+
 ## GUI-CORE-008: Selected-Lane context scope — CLOSED
 
 History: Core `0.3.5` exposed `RuntimeViewState.context_budgets`, but the
@@ -915,7 +924,7 @@ condition in batch T2. Neither should enable anything on a Core that publishes
 no `runtime.workspace_owner`: absence is a real answer, and the existing
 refusal text is the right one for it.
 
-## GUI-CORE-028: Durable evidence for supervisor-driven work
+## GUI-CORE-028: Durable evidence for supervisor-driven work — CLOSED (Core side, 2026-09-12)
 
 Opened 2026-09-10 by the E1 release-evidence pass, after the C5 adjudication of
 the same day deferred it out of `0.3.3`. Scheduled for `0.3.4`.
@@ -959,6 +968,49 @@ rebuilds from, with a `frontend-contract-v1` fixture covering both. The
 live-event addition must be checked against the nine frozen base fixtures — they
 are static JSON, so only regeneration can move them; the check is that no
 regeneration is needed, not that the bytes happen to survive a code change.
+
+Core status: delivered 2026-09-12 by batch C7 of the `0.3.4` contract increment
+(capability `runtime.durable_work_evidence`), against each of the three causes
+this entry names. An applied `write_file`/`edit_file` now publishes an
+`EvidenceRecorded` of kind `patch`, id `patch-<tool_call_id>`, owned by the
+turn, immediately after the live `WorkspaceChangeUpdated` that describes the
+same change; its canonical bytes are the unified diff the tool produced, stored
+in the ContextStore and re-read and re-hashed before the row claims `Verified`,
+so `ReadEvidenceContent` serves and verifies them. An ACP patch keeps
+`canonical: None` at construction — `viden-agents` owns no store — and the
+runtime's ingestion of the batch stores the bytes it carries in `metadata` and
+publishes `EvidenceCanonicalized` immediately after the row it completes. And
+the supervisor hands every terminal native turn batch to the new
+`SessionEngine::absorb_supervised_events`, which applies the existing
+`is_durable_runtime_domain_event` and persists through
+`persist_workflow_runtime_projection_batch`, so those rows reach the projection
+the archive is rebuilt from; a restart test replays the row and serves its
+verified bytes. `WorkspaceChangeUpdated` and `CheckRunUpdated` stay live-only,
+because they are a view of the working tree that is re-sampled at every connect.
+
+The second consequence this entry names is closed with a rule rather than by
+accident. A `patch` row's `producer.task_id` is the owner's task when the turn
+is bound to one, so a Lane's native turn now satisfies that Lane's
+`patch`-required merge gate; a session-scoped composer turn names its turn
+instead and is refused with `MissingProducer`, which is the honest answer rather
+than a silent pass. The approval half is closed too: `RespondToApproval` appends
+one `AuditRecord` before `ApprovalResolved`, under the pre-minted `audit_id` the
+request already showed the operator, so a permission dock's "audit" link
+resolves through `QueryAudit` instead of naming a row that was never written.
+
+The `durable-work-evidence` fixture is the canonical evidence: the approval, its
+audit row, the archived patch with canonical bytes beside the live change, the
+archive page and the content read that both answer it under the hash the row
+published, and the agent patch the runtime's ingestion completes. The nine
+frozen `frontend-contract-v1` base fixtures are byte-identical to their bytes at
+`main` `25072a0a`, verified by digest per file; no regeneration was needed, and
+this batch adds no `RuntimeViewState` field.
+
+Clients have not adopted it yet. The GUI renders EvidenceView archive rows for
+applied work and the D14 approval rows in batch G7; the TUI's evidence inspector
+detail gains live content in batch T2. Neither should present an absent
+`permission_snapshot_id` as approved, or a `canonical: None` row as
+display-only evidence: both are stated facts with their own copy.
 
 ## Retired pre-register codes
 

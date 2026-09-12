@@ -85,6 +85,7 @@ runtime.cockpit_context_v1
 runtime.conflict_content
 runtime.credential_handles
 runtime.credential_staging
+runtime.durable_work_evidence
 runtime.evidence_reads
 runtime.lane_lifecycle
 runtime.lane_owner_projection
@@ -550,6 +551,7 @@ registered schema-1 extension fixtures are:
 | `ui-layout-preferences` | The snapshot prefix's copy with no command id, a stored record Core applied but could not write (pinned, the non-default mode, so a stored choice is distinguishable from an absent one), an over-bound hidden-segment list refused by command id before anything was written, and a reset landing back on the floating default (`D-SIDEBAR`) — with an unrecognized segment name kept verbatim | `9b5f05de93a51ba44a96b969a23868e0ae70e2237c6314fb0c0f6762cbd2316d` | `d5a0c1c647107ecb9e6b05fa5aafa828fc889a981415337e9d81d1db31cb000b` |
 | `turn-lifecycle` | Five turns over one session-scoped owner, each opened once and closed once: a typed turn whose streamed reply is settled by its own end rather than left as residue, a second typed turn that two prompts are queued behind and which drains both on completing — announced oldest first, each drained turn naming the queue entry it came from — and a turn the operator cancels, which leaves the prompt queued behind it exactly where it is | `946f68640b6a299b35c00c9bef105ea3b64ee7b642e47d26ac003078b48f4603` | `fb40f5de446bce9c0bf81e2e6b56a75e6e7b59ac7c787570bebab971fdb9b9db` |
 | `workspace-file-reads` | Seven single-file reads over one session-scoped owner: two outstanding at once and answered out of order, one whole text, one cut on a character boundary with the whole file's length and digest beside it, one binary with no payload under a Lane target, one path that is not there, one directory, plus a path that leaves the target and a `read_file` deny rule answered by `CommandRejected` with no body at all | `1b5ffcffebfeabecf9c79967ca7d84b912d510e7c9f2003012a1e48d0184304e` | `98bd938eb1f2fe6cffe106b1e5d5bbeaa1106663592b1aa5e0dfbd069654255f` |
+| `durable-work-evidence` | An approved `edit_file` whose decision becomes a durable audit row under the exact id the request published, the applied mutation's archived `patch` row carrying canonical bytes beside the live workspace change it describes, the archive page and the content read that both answer it with the hash the row published, and an agent adapter's patch fact completed by the runtime's ingestion because the adapter owns no store | `b2719e73785bc9e3a71b459e3eb83ae3a551ac62aa61f8a7c3807e2f883c6f45` | `457c0879ad5e7475b3d79c29dd47af4feaa84d8f95f3317c4335cb04d38a27b5` |
 
 Semantics fix 2026-09-07 (review finding 4): `RuntimeViewState.assistant_stream`
 had no lifecycle — it was append-only for the life of the view, so startup
@@ -845,14 +847,95 @@ decision are `CommandRejected`. The answer is a query result and is never folded
 into `RuntimeViewState`, so publishing one moves no snapshot digest.
 
 0.3.4 contract increment, batch C9, landed 2026-09-12 on
-`claude/core-workspace-file-reads`. `runtime.workspace_file_reads` moves the
-advertised extension set from 26 to 27 and adds the `workspace-file-reads`
-fixture listed in the corpus table, with the nine frozen base fixtures
-byte-unchanged and the capability count gate in `scripts/tui-regression.sh`
-moved 26 -> 27; batch C7 adds `runtime.durable_work_evidence` on a concurrent
-branch, so the integrator reconciles the count to 28. No client has adopted it
+`claude/core-workspace-file-reads`. `runtime.workspace_file_reads` adds one capability and the
+`workspace-file-reads` fixture listed in the corpus table, with the nine frozen
+base fixtures byte-unchanged; it landed beside batch C7's
+`runtime.durable_work_evidence` from a concurrent branch, and the integrator
+reconciled the advertised extension set and the capability count gate in
+`scripts/tui-regression.sh` from 26 to 28. No client has adopted it
 yet: the GUI Files tab content, palette file rows, and Code tab are G7, and the
 TUI has no parity minimum here because it registers no file viewer.
+
+`runtime.durable_work_evidence` makes applied work reviewable. It adds no type
+and no event; what it changes is which facts reach the durable archive and the
+audit log, which is exactly why it is still capability-gated. A client that
+pages the evidence archive after an applied edit has to be able to tell "this
+Core does not archive applied work" from "this session changed nothing", and
+before this capability those were the same empty page.
+
+Three gaps produced that empty page and all three are closed. First, nothing
+built a `patch` row for a native tool call at all: an applied
+`write_file`/`edit_file` now publishes an `EvidenceRecorded` of kind `patch`,
+id `patch-<tool_call_id>`, owned by the turn, immediately after the live
+`WorkspaceChangeUpdated` that describes the same change — that order is the
+contract, because a reviewable artifact arriving before the change it belongs to
+is unrenderable. Its canonical bytes are the unified diff the tool itself
+produced, stored in the canonical ContextStore and re-read and re-hashed before
+the row claims `Verified`, so `source_hash` names content `ReadEvidenceContent`
+can serve and verify. The 64 KiB cockpit patch bound does not apply here: that
+bound keeps a live event small, while the archive's job is to hold the whole
+change a reviewer has to read. A diff over `MAX_EVIDENCE_CONTENT_BYTES`, or a
+store that refuses the write, still publishes the row — with `canonical: None`
+and a summary naming which of the two happened, because a silently dropped
+canonical reference is indistinguishable from display-only evidence, which the
+merge gate treats differently.
+
+`producer.task_id` is the owner's task when the turn is bound to one, else the
+turn, else the tool call, and that one rule is the merge-gate contract: a gate
+accepts a `patch` row only when its producer names the gate's own task, so a
+Lane's native turn satisfies its Lane's gate while a session-scoped composer
+edit — which names a turn and never a task — is refused with `MissingProducer`
+and the gate says which reason blocked it. `permission_snapshot_id` is the audit
+id of the approval that actually allowed that tool call and is `None` otherwise;
+the receipt is consumed per completed tool call rather than read, because an
+`allow_session` or `allow_repo` scope lets later calls run unprompted and a
+receipt left behind would attach the first approval's id to every mutation after
+it. Naming a receipt that does not exist would let a merge gate accept a
+mutation nobody approved.
+
+Second, the external Agent adapters cannot store bytes. `viden-agents` is a leaf
+below the runtime with no ContextStore, so it reports a patch with
+`canonical: None` and the diff inside the fact's `metadata`; the runtime's
+ingestion of that batch stores the bytes and publishes the existing
+`EvidenceCanonicalized` immediately after the row it completes, never at the end
+of the batch, so a client is never handed an announcement for a row it has not
+seen. The producer task is read from the `MergeGateUpdated` the same batch
+carries — the gate the evidence was just attached to — and a batch Core cannot
+attribute is left uncanonicalized rather than stored under an invented task.
+
+Third, supervised work never reached the durable projection. Only
+`handle_runtime_command` persisted its domain facts, so every fact a turn driven
+by `RuntimeSupervisor` produced — the whole path a cockpit uses — was live-only.
+The supervisor now hands each terminal native turn batch to
+`SessionEngine::absorb_supervised_events`, including a failed turn's completed
+tool facts, because an archive that dropped those would tell a reviewer the
+files were never touched. What is durable stays decided by
+`is_durable_runtime_domain_event`, so the supervised path and the command path
+archive exactly the same set: `EvidenceRecorded` and `EvidenceCanonicalized` are
+in it, while `WorkspaceChangeUpdated` and `CheckRunUpdated` stay live-only —
+they are a cockpit's view of the working tree, re-sampled at every connect, and
+persisting them would replay a stale tree as fact.
+
+`RespondToApproval` now appends one `AuditRecord` before the `ApprovalResolved`
+that announces it, under the pre-minted `audit_id` the request already showed
+the operator, as actor `Operator`, action
+`approval.<allow_once|allow_session|allow_repo|deny>`, the scope as an argument,
+and objects naming the approval request, the tool that was allowed, and the job
+the decision released. That id was published on two facts and written nowhere
+before this, which is what made every cockpit "audit" link for an approval
+resolve to nothing. The write is fail-open on the decision and fail-loud on the
+audit: refusing to deliver an answer the operator has already given because a
+log append failed would leave a tool call blocked forever, so an append failure
+is published as an `Error` instead.
+
+0.3.4 contract increment, batch C7, landed 2026-09-12 on `claude/int-0.3.4`.
+`runtime.durable_work_evidence` adds one capability and the
+`durable-work-evidence` fixture listed in the corpus table, with the nine frozen
+base fixtures byte-unchanged; together with batch C9's concurrent
+`runtime.workspace_file_reads` the integrator reconciled the advertised extension
+set and the capability count gate in `scripts/tui-regression.sh` from 26 to 28. Neither client has adopted it yet:
+the GUI's EvidenceView archive rows and D14 approval rows are G7, and the TUI's
+evidence inspector detail is T2.
 
 Open follow-ups recorded 2026-09-10. Each was confirmed during the `0.3.3`
 batches and deliberately left out of them, so none is rediscovered later as a
@@ -878,22 +961,20 @@ new finding:
    than a client-side guess. The TUI adopts `active_turns` in T2 and the GUI in
    G7.
 4. **The durable evidence archive is empty in an offline native session**
-   (found during T1b). **Decided 2026-09-10 and deferred to `0.3.4` as
-   GUI-CORE-028**; the E1 release-evidence run reproduced it against a real
-   repository. Nothing driven through `RuntimeSupervisor` — a native Lane turn,
-   an ACP session — reaches the `EvidenceRecorded` arm of the engine reduction
-   (`crates/runtime/src/session_lifecycle.rs:860`) that is the archive's only
-   writer, so a native tool mutation records transcript facts, a live
+   (found during T1b). **Closed 2026-09-12 by C7.** Nothing driven through
+   `RuntimeSupervisor` — a native Lane turn, an ACP session — reached the
+   `EvidenceRecorded` arm of the engine reduction that is the archive's only
+   writer, so a native tool mutation recorded transcript facts, a live
    `WorkspaceChangeUpdated`, and a transient `tool_result` row, and no archived
-   `patch` evidence at all. `runtime.evidence_reads` therefore answers correctly
-   and answers an empty archive for a session whose transcript is full of
-   evidence, and both clients render that honestly. The decision is that this is
-   a Core persistence gap rather than a contract-wording or `latest_evidence`
-   scoping problem, and that the wiring across `runtime_loop` /
-   `runtime_supervisor` / `session_lifecycle` is outside the `0.3.3` risk
-   budget. The full statement, the per-producer citations, and the close
-   condition are `apps/gui/contract-requests.md`, GUI-CORE-028. Nothing was
-   changed in `0.3.3`.
+   `patch` evidence at all; `runtime.evidence_reads` answered correctly and
+   answered an empty archive for a session whose transcript was full of
+   evidence. `runtime.durable_work_evidence` closes all three causes: an applied
+   native mutation produces a `patch` row with canonical bytes, an adapter's
+   patch is canonicalized by the runtime's ingestion, and the supervisor hands
+   every terminal turn batch to `SessionEngine::absorb_supervised_events` so
+   those facts reach the `runtime_projection` rows the archive is rebuilt from.
+   A restart test replays the row and serves its verified bytes. The clients
+   adopt it in G7 and T2.
 
 Open follow-ups added 2026-09-10 by the E1 release-evidence run, which drove one
 real task through the TUI against a temporary Git repository with the `fallback`

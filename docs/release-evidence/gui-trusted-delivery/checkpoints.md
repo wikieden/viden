@@ -218,12 +218,23 @@ written into `docs/core-0.3-compatibility.md` as a numbered open follow-up.
    overlay to reach the composer — where `/git` is typed — clears it. Combined
    with GUI-CORE-027, `runtime.operator_git` is unreachable from the TUI in
    practice.
-4. **An approval's audit id is not a durable audit record** (Core). The durable
-   timeline is appended only by trust-loop and operator-git actions, so an
-   approved and applied native tool mutation leaves no audit row while showing
-   an audit id on screen.
+4. **An approval's audit id is not a durable audit record** (Core).
+   **Fixed by C7 (Core), 2026-09-12; clients adopt in G7/T2.** The durable
+   timeline was appended only by trust-loop and operator-git actions, so an
+   approved and applied native tool mutation left no audit row while showing an
+   audit id on screen. `RespondToApproval` now appends one `AuditRecord` before
+   `ApprovalResolved`, under that exact pre-minted id, as actor `Operator` with
+   action `approval.<allow_once|allow_session|allow_repo|deny>` and objects
+   naming the approval request, the tool, and the job the decision released, so
+   `QueryAudit` resolves the id a client was already being shown.
 5. **The durable evidence archive is empty for supervisor-driven work** (Core).
-   Decided and deferred to `0.3.4` as **GUI-CORE-028**.
+   **Fixed by C7 (Core), 2026-09-12; clients adopt in G7/T2.** Recorded as
+   **GUI-CORE-028**, now closed on the Core side. An applied native mutation
+   archives a `patch` row with canonical ContextStore bytes, an adapter-reported
+   patch is canonicalized by the runtime's ingestion, and the supervisor hands
+   every terminal turn batch to `SessionEngine::absorb_supervised_events`, so
+   the rows reach the `runtime_projection` the archive is rebuilt from. A
+   restart test replays the row and serves its verified bytes.
 6. **The EvidenceView report can state `verified` beside a content answer of
    `HashMismatch`** (GUI, cosmetic but misleading). Two different facts, no
    sentence relating them.
@@ -239,8 +250,10 @@ evidence recorded". The honest statement is:
   through the TUI rather than the GUI.
 - **Not met** for the committed change: `runtime.operator_git` was refused
   before any command was sent.
-- **Not met** for archived evidence (GUI-CORE-028) or for a durable audit record
-  of the mutation (defect 4).
+- **Not met at the time** for archived evidence (GUI-CORE-028) or for a durable
+  audit record of the mutation (defect 4). Both Core halves were fixed by C7 on
+  2026-09-12; the goal itself is re-evidenced by E2, because neither client has
+  adopted them yet.
 - **Not attempted** through the native GUI window, because the host's screen was
   locked.
 

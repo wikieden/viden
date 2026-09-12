@@ -198,11 +198,20 @@ fixture 现在会让发布记录失败。
 3. **TUI 的 `/git` 选择器只可能到达工作区目标**（TUI）。Lane 的选中态绑定在 lane
    详情浮层的焦点上，而为了到达输入框（`/git` 在那里键入）离开该浮层就会清空它。
    结合 GUI-CORE-027，`runtime.operator_git` 在 TUI 上实际不可达。
-4. **审批上的 audit id 不是一条持久审计记录**（Core）。持久时间线只由 trust loop
-   与 operator git 动作追加，因此一次被批准并已应用的原生工具变更不会留下审计行，
-   而屏幕上却显示了一个 audit id。
-5. **由 supervisor 驱动的工作在持久证据归档中为空**（Core）。已决策并作为
-   **GUI-CORE-028** 推迟到 `0.3.4`。
+4. **审批上的 audit id 不是一条持久审计记录**（Core）。**已由 C7（Core）于
+   2026-09-12 修复；客户端在 G7/T2 中采纳。** 持久时间线此前只由 trust loop 与
+   operator git 动作追加，因此一次被批准并已应用的原生工具变更不会留下审计行，
+   而屏幕上却显示了一个 audit id。`RespondToApproval` 现在会在 `ApprovalResolved`
+   之前追加一条 `AuditRecord`，使用的正是那个预铸 id，actor 为 `Operator`，action
+   为 `approval.<allow_once|allow_session|allow_repo|deny>`，objects 指名该审批
+   请求、工具，以及该决定释放的作业，因此 `QueryAudit` 能解析客户端早已被展示的
+   那个 id。
+5. **由 supervisor 驱动的工作在持久证据归档中为空**（Core）。**已由 C7（Core）于
+   2026-09-12 修复；客户端在 G7/T2 中采纳。** 记录为 **GUI-CORE-028**，现已在
+   Core 侧关闭。一次被应用的原生变更会归档一条带规范 ContextStore 字节的 `patch`
+   行，适配器上报的补丁由运行时的摄取完成规范化，监督者把每个终结回合批次交给
+   `SessionEngine::absorb_supervised_events`，使这些行进入归档据以重建的
+   `runtime_projection`。一个重启测试重放了该行并提供了它校验通过的字节。
 6. **EvidenceView 的报告可能在内容答案为 `HashMismatch` 的同时显示「已校验」**
    （GUI，表述问题但会误导）。两个不同的事实，界面没有一句话说明两者关系。
 
@@ -214,7 +223,9 @@ fixture 现在会让发布记录失败。
 - 接入、在 Core 审批下创建 Lane、以及在 Core 的类型化决策上下文之上批准并应用一次
   对真实文件的变更——**已达成**，但走的是 TUI 而不是 GUI。
 - 已提交的变更——**未达成**：`runtime.operator_git` 在任何命令被发出之前就被拒绝。
-- 归档证据（GUI-CORE-028）与该次变更的持久审计记录（缺陷 4）——**未达成**。
+- 归档证据（GUI-CORE-028）与该次变更的持久审计记录（缺陷 4）——**当时未达成**。
+  两处 Core 侧的问题均已于 2026-09-12 由 C7 修复；目标本身由 E2 重新取证，因为
+  两个客户端都尚未采纳。
 - 通过原生 GUI 窗口——**未尝试**，因为宿主屏幕处于锁定状态。
 
 ## 原生 GUI 运行 —— 2026-09-10

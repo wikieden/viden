@@ -39,6 +39,13 @@
 009、013、018、019、021、023、026、028。这些条目记录在 `claude/int-0.3.4`
 集成分支上；在该分支合并之前，此处内容尚未进入 `main`。
 
+状态注记 2026-09-12（C7）：GUI-CORE-028 已在 **Core 侧**关闭 ——
+`runtime.durable_work_evidence` 把一次已应用的原生变更与一条适配器上报的补丁都归档为
+带规范字节的 `patch` 行，把每个受监督回合批次持久化进归档据以重建的投影，并把审批
+决定写成一条持久审计行 —— 并作为客户端采纳项继续开放，直到 GUI 渲染归档行与 D14
+审批行（G7）、TUI 的证据检视显示归档补丁（T2）。当前开放的登记项为
+009、013、018、019、021、023、026。
+
 ## GUI-CORE-008：所选 Lane 的上下文作用域 — 已关闭
 
 历史：Core `0.3.5` 已暴露 `RuntimeViewState.context_budgets`，但 frontend-neutral
@@ -692,7 +699,7 @@ DiffReview 提交栏与标题栏同步控件；TUI 将在 T2 批次以同样条�
 工作区行。对于不发布 `runtime.workspace_owner` 的 Core，两端都不应启用任何
 东西：缺席是一个真实的答案，既有的拒绝文案正是它对应的答案。
 
-## GUI-CORE-028：由 supervisor 驱动的工作缺少持久证据
+## GUI-CORE-028：由 supervisor 驱动的工作缺少持久证据 — 已关闭（Core 侧，2026-09-12）
 
 由 2026-09-10 的 E1 发布证据回合开立；同日的 C5 裁定已把它移出 `0.3.3`。排入
 `0.3.4`。
@@ -733,6 +740,40 @@ ContextStore 字节与 `source_hash`、并通过归档赖以重建的同一批 `
 行持久化，且有覆盖两者的 `frontend-contract-v1` fixture 时，关闭此请求。新增的实时
 事件必须对照九个冻结的基线 fixture 检查——它们是静态 JSON，只有重新生成才会让它们
 变化；要检查的是「不需要重新生成」，而不是「字节碰巧没变」。
+
+Core 状态：已于 2026-09-12 由 `0.3.4` 契约增量的 C7 批次交付（能力
+`runtime.durable_work_evidence`），针对本条目点名的三处成因逐一封闭。一次被应用的
+`write_file`/`edit_file` 现在会紧跟在描述同一次改动的实时 `WorkspaceChangeUpdated`
+之后，发布一条 kind 为 `patch`、id 为 `patch-<tool_call_id>`、归属于该回合的
+`EvidenceRecorded`；它的规范字节就是工具产出的 unified diff，写入 ContextStore，并在
+该行声称 `Verified` 之前重新读取并重新哈希，因此 `ReadEvidenceContent` 能提供并校验
+它们。ACP 补丁在构造时仍为 `canonical: None` —— `viden-agents` 自身没有存储 ——
+由运行时对该批次的摄取负责存储它在 `metadata` 中携带的字节，并在它补全的那一行之后
+立即发布 `EvidenceCanonicalized`。监督者则把每个终结的原生回合批次交给新增的
+`SessionEngine::absorb_supervised_events`，后者套用既有的
+`is_durable_runtime_domain_event` 并经 `persist_workflow_runtime_projection_batch`
+持久化，使这些行进入归档据以重建的投影；一个重启测试重放了该行并提供了它校验通过的
+字节。`WorkspaceChangeUpdated` 与 `CheckRunUpdated` 保持仅实时，因为它们是对工作树
+的视图，每次连接都会重新采样。
+
+本条目点名的第二件后果，是用规则而不是靠巧合封闭的。`patch` 行的
+`producer.task_id` 在回合绑定到任务时取 owner 的任务，因此 Lane 的原生回合现在能
+满足该 Lane 要求 `patch` 的合并闸门；会话作用域的输入框回合指名的是它自己的回合，
+会被以 `MissingProducer` 拒绝 —— 这是诚实的答案，而不是静默放行。审批那一半也已
+封闭：`RespondToApproval` 会在 `ApprovalResolved` 之前追加一条 `AuditRecord`，使用
+请求早已向操作者展示的那个预铸 `audit_id`，因此权限面板的「审计」链接可以通过
+`QueryAudit` 解析，而不再指向一条从未被写入的行。
+
+`durable-work-evidence` fixture 是其规范证据：审批、它的审计行、与实时变更并列的
+带规范字节的归档补丁、用该行公布的哈希回答它的归档分页与内容读取，以及由运行时摄取
+补全的 Agent 补丁。九个冻结的 `frontend-contract-v1` 基线 fixture 与它们在 `main`
+`25072a0a` 处的字节逐个摘要一致；不需要任何重新生成，本批次也没有新增
+`RuntimeViewState` 字段。
+
+客户端尚未采纳。GUI 在 G7 批次渲染已应用工作的 EvidenceView 归档行与 D14 审批行；
+TUI 的证据检视详情在 T2 批次获得实时内容。两者都不得把缺席的
+`permission_snapshot_id` 呈现为「已批准」，也不得把 `canonical: None` 的行呈现为
+仅摘要证据：两者都是有各自文案的明示事实。
 
 ## 已退役的前登记编码
 

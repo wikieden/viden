@@ -139,6 +139,7 @@ self-referential inside the payload commit.
 | Operator source control | DiffReview commit bar, titlebar sync control | `OperatorGitAction`, `OperatorGitOutcome`, `OperatorGitFailureClass`, `OperatorGitActionFinished`, the `WorkspaceSourceUpdated` that follows it | `RunOperatorGitAction` | Core `0.3.6` extension `runtime.operator_git`; each action is gated and executed under the *existing agent* tool spec it maps to, so one rule set governs an operator and an agent, and the failure taxonomy is typed so no client parses git output |
 | Conflict content | DiffReview conflict pane, decisions overlay conflict detail | `ConflictContent`, `ConflictBaseline`, `ConflictFile`, `ConflictHunk`, `ConflictHunkReason`, `ConflictBounce.content`, `LaneConflictView.content`, `LaneConflictDetected.content` | none; the content rides the events a failed apply already publishes | Core `0.3.6` extension `runtime.conflict_content`; two sides plus the patch preimage, never a three-way merge, with a named baseline and only hunks the strict apply actually rejected |
 | Evidence archive reads | EvidenceView day-grouped list, row detail, and the content behind a row | `EvidenceQuery`, `EvidencePage`, `EvidenceCursor`, `EvidenceContent`, `EvidenceUnavailableReason`, `EvidencePageLoaded`, `EvidenceContentLoaded` | `QueryEvidence`, `ReadEvidenceContent` | Core `0.3.6` extension `runtime.evidence_reads`; the durable archive rather than the recent-window `latest_evidence`, ordered ascending on `(timestamp, id)` with undated rows first, an opaque cursor, filters applied before the page is cut, and content served only from canonical bytes that verified against the row's own `source_hash`. Gate posture is `QueryAudit`'s, not `QueryWorkspaceFiles`': bounded and owner-scoped, never tool-gated, because the archive is Viden's own state rather than the operator's tree |
+| Durable work evidence | EvidenceView rows for applied work, D14 approval rows, the permission dock's "audit" link | the `patch` `EvidenceView` an applied mutation publishes, its `CanonicalEvidenceReference`, `EvidenceCanonicalized`, and the `AuditRecord` for an approval decision | none; the facts ride the turn, and the reads are `QueryEvidence`, `ReadEvidenceContent`, `QueryAudit` | Core `0.3.7` extension `runtime.durable_work_evidence`; adds no type and no event, and changes which facts reach the durable archive and the audit log. An applied `write_file`/`edit_file` archives a `patch` row with canonical bytes beside the live `WorkspaceChangeUpdated`; an adapter-reported patch is completed by the runtime's ingestion because `viden-agents` owns no store; every supervised turn batch is absorbed into the `runtime_projection` rows the archive is rebuilt from; and an approval decision is a durable audit row under the id the request published. `WorkspaceChangeUpdated` and `CheckRunUpdated` stay live-only |
 | Workspace file inventory | the ordered path list of the open workspace | `WorkspaceFileEntry`, `WorkspaceFileKind`, `WorkspaceFilePage`, `WorkspaceFilesLoaded` | `QueryWorkspaceFiles` | Core `0.3.5` extension `runtime.workspace_files`; permission-gated before any directory is read, under the non-mutating tool `workspace_file_inventory` with the workspace root as the input path. A deny, and an unresolved ask, both come back as `CommandRejected` naming this exact read and carrying the refusal — never an empty page, and never a bare `Error`, which has no command id and would let a client with a read outstanding mistake an unrelated failure for its own refusal. Plan mode still answers, because the tool mutates nothing. The walk is gitignore-aware and unconditionally excludes `.git/`, `.viden/`, `.omx/`, `.worktrees/`, `.ref/`. Entries are lexicographic; the prefix filter, the exclusive `after` cursor, and the `1..=500` limit clamp are applied to that order, so `complete` and `next_after` describe the filtered ordered inventory. `WorkspaceFilesLoaded.command_id` is required, so unlike an audit page there is no uncorrelated case. A client must never walk the filesystem itself |
 
 For Core `0.3.4`, follow-up and retry preserve the logical session id and exact
@@ -349,8 +350,9 @@ a contract change, not a refactor.
 | Cancel current work | `CancelActiveTurn` with the selected Lane's exact bound envelope owner, or `CancelAgentTask` | exact owner validation, request cancellation, task/Lane state, and a `TurnFinished { Cancelled }` that releases nothing queued behind it |
 | Start supervised workflow | `StartAgentDag` then `StartAgentTask` | DAG validation, dependencies, workflow events |
 | Change mode/permissions | `SetWorkMode`, `SetPermissionLevel` | permission mode mapping and policy enforcement |
-| Approve or deny a tool | `RespondToApproval` | decision recording and gated execution |
+| Approve or deny a tool | `RespondToApproval` | decision recording and gated execution, plus the durable `AuditRecord` for the decision, written before `ApprovalResolved` under the `audit_id` the request already published (`runtime.durable_work_evidence`) |
 | Record evidence for a gate | `RecordAgentEvidence` | evidence validation, `EvidenceRecorded`, gate reducer, workflow event |
+| Archive the work a turn applied | none; the facts ride the turn | the `patch` row an applied `write_file`/`edit_file` produces, its canonical ContextStore bytes and `source_hash`, the producer and approval receipt a merge gate checks, the canonicalization of an adapter-reported patch, and the durable projection every supervised turn batch is absorbed into (`runtime.durable_work_evidence`) |
 | Review a merge gate | merge/artifact commands | gate state, workflow events, patch application |
 | Coordinate cross-lane trust | handoff/review/contract/dependency commands | typed owner/audit facts, dependency state, validator policy, replay |
 | Recover an apply | `BounceMergeConflict`, revalidated evidence, `RevertAppliedChange` | originating-lane bounce, write-ahead workflow fact, byte rollback, typed recovery |
@@ -1048,9 +1050,60 @@ the turns Core is running now, and a queue it can inspect.
 
 ### Durable work evidence (C7)
 
-Not delivered. `runtime.durable_work_evidence` is designed in
-`docs/release-0.3.4-contract-design.md` section 4 and lands in batch C7; this
-section is written when it does.
+Capability `runtime.durable_work_evidence`. No new type and no new event: what
+it changes is which facts reach the durable archive and the audit log. It is
+still gated, because a client that pages the evidence archive after an applied
+edit has to be able to tell "this Core does not archive applied work" from "this
+session changed nothing", and before this capability those were the same empty
+page — `runtime.evidence_reads` shipped in `0.3.3` over an archive no applied
+mutation ever reached.
+
+Rules a frontend must honor:
+
+- **The archive is where applied work is reviewed, not `latest_evidence`.** An
+  applied `write_file`/`edit_file` publishes an `EvidenceRecorded` of kind
+  `patch`, id `patch-<tool_call_id>`, owned by the turn, and that row is durable:
+  `QueryEvidence` returns it after a restart and `ReadEvidenceContent` serves its
+  bytes. `RuntimeViewState.latest_evidence` remains a recent-window projection of
+  whatever stream that client received and is not the archive.
+- **The live change comes first, and they are one change.** The
+  `WorkspaceChangeUpdated` for a mutation is published before the
+  `EvidenceRecorded` that describes it. Render them as one event in the
+  transcript rather than as a change followed by an unrelated artifact.
+- **`canonical: None` on a `patch` row is a stated fact.** It means Core holds no
+  servable bytes — a diff over `MAX_EVIDENCE_CONTENT_BYTES`, or a store write
+  that failed — and the row's `summary` says which. Render "no canonical bytes"
+  with that reason; never render it as display-only evidence or as an empty diff.
+- **`permission_snapshot_id` is the approval receipt and may be absent.** When
+  present it is the `audit_id` of the approval that allowed exactly that tool
+  call, and it resolves: `QueryAudit` returns a row under it. When absent, no
+  operator approval allowed the call — a rule did, or an external adapter
+  reported the patch. Do not present an absent receipt as approved.
+- **`producer.task_id` is what a merge gate checks.** A gate accepts a `patch`
+  row only when its producer names the gate's own task. A Lane's native turn
+  names the Lane's task; a session-scoped composer turn names its turn and can
+  never satisfy a Lane's gate, which refuses it with `MissingProducer`. Render
+  the gate's reason rather than implying the evidence is missing.
+- **`EvidenceCanonicalized` follows the row it completes.** It carries
+  `evidence_id`, `item_id`, and `content_sha256`, and arrives immediately after
+  the `EvidenceRecorded` whose bytes it announces — including for an external
+  Agent's patch, which the adapter reports with `canonical: None` and the
+  runtime completes on ingestion.
+
+**The approval audit row.** `RespondToApproval` appends one `AuditRecord` before
+the `ApprovalResolved` that announces it, under the `audit_id` the
+`ApprovalRequestView` already published: actor `Operator`, action
+`approval.<allow_once|allow_session|allow_repo|deny>`, `args.scope` the same key,
+and objects naming the approval request (`permission`), the tool (`tool`), and
+the job the decision released (`job`). A cockpit's "audit" link for an approval
+therefore resolves through `QueryAudit`. If the append fails, the decision is
+still delivered and Core publishes an `Error` saying it was not audited; a
+client must not treat that `Error` as the approval having failed.
+
+**Live-only facts stay live-only.** `WorkspaceChangeUpdated` and
+`CheckRunUpdated` are not persisted and do not reappear after a restart: they are
+a view of the working tree, re-sampled at every connect. A client that needs the
+change after a restart reads the archived `patch` row, not the cockpit fact.
 
 ### Workspace file reads (`runtime.workspace_file_reads`)
 

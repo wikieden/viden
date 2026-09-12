@@ -77,6 +77,7 @@ runtime.cockpit_context_v1
 runtime.conflict_content
 runtime.credential_handles
 runtime.credential_staging
+runtime.durable_work_evidence
 runtime.evidence_reads
 runtime.lane_lifecycle
 runtime.lane_owner_projection
@@ -419,6 +420,7 @@ Fixture 文件位于 `crates/types/tests/fixtures/frontend-contract-v1/`。下�
 | `ui-layout-preferences` | 快照前缀的副本不带 command id；一条 Core 已应用但写入失败的记录（pinned，即非默认模式，因此已存选择与记录缺席可以区分）；一次越界的隐藏段列表在写入任何内容之前按 command id 被拒；一次 reset 落回 floating 默认值（`D-SIDEBAR`） —— 其中一个无法识别的段名被原样保留 | `9b5f05de93a51ba44a96b969a23868e0ae70e2237c6314fb0c0f6762cbd2316d` | `d5a0c1c647107ecb9e6b05fa5aafa828fc889a981415337e9d81d1db31cb000b` |
 | `turn-lifecycle` | 同一个会话作用域 owner 下的五次回合，每一次都只开启一次、只关闭一次：一次键入的回合，其流式回复由回合自身的结束来结算，而不是留作残留；第二次键入的回合背后排了两条提示，它完成时把两条都排空 —— 按最旧优先宣告，每一次被排空的回合都指名它来自哪一条队列条目 —— 以及一次被操作者取消的回合，它背后排队的提示原样留在队列里 | `946f68640b6a299b35c00c9bef105ea3b64ee7b642e47d26ac003078b48f4603` | `fb40f5de446bce9c0bf81e2e6b56a75e6e7b59ac7c787570bebab971fdb9b9db` |
 | `workspace-file-reads` | 同一个会话作用域 owner 下的七次单文件读取：两次同时在途且乱序作答；一次完整文本；一次在字符边界上被截断，旁边仍带着整个文件的长度与摘要；一次 Lane 目标下的二进制、不带任何载荷；一次路径并不存在；一次是目录；另有一次离开目标的路径与一条 `read_file` deny 规则，以 `CommandRejected` 作答且完全不发布 body | `1b5ffcffebfeabecf9c79967ca7d84b912d510e7c9f2003012a1e48d0184304e` | `98bd938eb1f2fe6cffe106b1e5d5bbeaa1106663592b1aa5e0dfbd069654255f` |
+| `durable-work-evidence` | 一次被批准的 `edit_file`：该决定成为一条持久审计行，其 id 正是请求已经公布的那一个；随后被应用的变更留下一条归档 `patch` 行，带有规范字节，与描述同一次改动的实时工作区变更并列；归档分页与内容读取都用该行公布的哈希回答它；最后是一条外部 Agent 适配器的补丁事实，由运行时的摄取补全 —— 因为适配器自身没有存储 | `b2719e73785bc9e3a71b459e3eb83ae3a551ac62aa61f8a7c3807e2f883c6f45` | `457c0879ad5e7475b3d79c29dd47af4feaa84d8f95f3317c4335cb04d38a27b5` |
 
 2026-09-07 语义修正（评审发现 4）：`RuntimeViewState.assistant_stream` 此前没有生命
 周期——它在整个 view 生命期内只追加，因此启动重放会把每个历史会话的回复串接成一整块
@@ -638,12 +640,71 @@ Files 与 Code 页签以及命令面板的文件行渲染的是 Core 事实，�
 永不归约进 `RuntimeViewState`，因此发布一次不会移动任何快照摘要。
 
 0.3.4 契约增量的 C9 批次已于 2026-09-12 落到 `claude/core-workspace-file-reads`。
-`runtime.workspace_file_reads` 把对外通告的扩展集合从 26 项推到 27 项，并新增语料表中
-列出的 `workspace-file-reads` fixture；九个冻结基线 fixture 的字节未变，
-`scripts/tui-regression.sh` 中的能力计数门由 26 移到 27；C7 批次在并行分支上新增
-`runtime.durable_work_evidence`，因此该计数由集成者调和为 28。尚无客户端采纳：GUI 的
+`runtime.workspace_file_reads` 新增一项能力以及语料表中列出的
+`workspace-file-reads` fixture；九个冻结基线 fixture 的字节未变。它与并行分支上 C7
+批次的 `runtime.durable_work_evidence` 一同落地，集成者把对外通告的扩展集合与
+`scripts/tui-regression.sh` 中的能力计数门由 26 调和为 28。尚无客户端采纳：GUI 的
 Files 页签内容、命令面板文件行与 Code 页签属于 G7；TUI 在此没有对等下限，因为它没有
 注册任何文件查看器。
+
+`runtime.durable_work_evidence` 让已应用的工作变得可复核。它不新增类型、也不新增
+事件；改变的是哪些事实会进入持久归档与审计日志 —— 这正是它仍然需要能力门控的
+原因。客户端在一次已应用的编辑之后翻阅证据归档时，必须能区分「这个 Core 不归档
+已应用的工作」与「本次会话什么都没改」，而在本能力之前，两者是同一个空页面。
+
+造成那个空页面的有三处缺口，现已全部封闭。其一，原生工具调用根本没有人为它构建
+`patch` 行：一次被应用的 `write_file`/`edit_file` 现在会发布一条 kind 为 `patch`、
+id 为 `patch-<tool_call_id>`、归属于该回合的 `EvidenceRecorded`，紧跟在描述同一次
+改动的实时 `WorkspaceChangeUpdated` 之后 —— 这个顺序就是契约：可复核的产物先于它
+所属的改动到达是无法渲染的。它的规范字节就是工具本身产出的 unified diff，写入规范
+ContextStore，并在该行声称 `Verified` 之前重新读取并重新哈希，因此 `source_hash`
+指向的是 `ReadEvidenceContent` 能够提供并校验的内容。64 KiB 的驾驶舱补丁上界在此
+不适用：那个上界是为了让实时事件保持小巧，而归档的职责是保存复核者必须读完的整个
+改动。超过 `MAX_EVIDENCE_CONTENT_BYTES` 的 diff，或存储拒绝写入时，该行仍会发布 ——
+`canonical` 为 `None`，并在摘要中指明是两者中的哪一种；静默丢弃规范引用与「仅摘要
+证据」无法区分，而合并闸门对后者的处理是不同的。
+
+`producer.task_id` 在回合绑定到任务时取 owner 的任务，否则取该回合，再否则取该工具
+调用；这一条规则就是合并闸门契约：闸门只在 `patch` 行的 producer 指名闸门自身的
+任务时才接受它，因此 Lane 的原生回合能满足该 Lane 的闸门，而会话作用域的输入框编辑
+—— 它指名的是回合、永远不是任务 —— 会以 `MissingProducer` 被拒绝，并由闸门说明是
+哪一条理由挡住了它。`permission_snapshot_id` 是真正放行该次工具调用的那条审批的
+审计 id，否则为 `None`；该凭据是按「每个完成的工具调用」消费而不是读取的，因为
+`allow_session` 或 `allow_repo` 作用域会让后续调用不再提示，留在槽里的凭据会被贴到
+其后的每一次变更上。指名一个并不存在的凭据，会让合并闸门接受无人批准的变更。
+
+其二，外部 Agent 适配器无法存储字节。`viden-agents` 是运行时之下的叶子模块，没有
+自己的 ContextStore，因此它以 `canonical: None` 上报补丁，并把 diff 放在事实的
+`metadata` 里；运行时对该批次的摄取负责存储这些字节，并在它补全的那一行之后立即
+发布既有的 `EvidenceCanonicalized`，而不是放到批次末尾，这样客户端永远不会先拿到
+一条它尚未见过的行的告示。producer 的任务取自同一批次携带的 `MergeGateUpdated`
+—— 也就是该证据刚刚挂上的那道闸门；Core 无法归属的批次会被保留为未规范化，而不是
+以一个虚构的任务存入。
+
+其三，受监督的工作从未到达持久投影。只有 `handle_runtime_command` 会持久化自己的
+域事实，因此由 `RuntimeSupervisor` 驱动的回合所产生的一切事实 —— 也就是驾驶舱使用
+的整条路径 —— 都只存在于实时流中。监督者现在会把每个终结的原生回合批次交给
+`SessionEngine::absorb_supervised_events`，包括失败回合已完成的工具事实：丢弃它们的
+归档等于告诉复核者这些文件从未被改动过。哪些事实是持久的仍由
+`is_durable_runtime_domain_event` 决定，因此受监督路径与命令路径归档完全相同的集合：
+`EvidenceRecorded` 与 `EvidenceCanonicalized` 在其中，而 `WorkspaceChangeUpdated`
+与 `CheckRunUpdated` 保持仅实时 —— 它们是驾驶舱对工作树的视图，每次连接都会重新
+采样，持久化它们会把一棵过期的树当作事实重放。
+
+`RespondToApproval` 现在会在宣告它的 `ApprovalResolved` 之前追加一条 `AuditRecord`，
+使用请求早已向操作者展示的那个预铸 `audit_id`，actor 为 `Operator`，action 为
+`approval.<allow_once|allow_session|allow_repo|deny>`，作用域作为参数，objects 指名
+该审批请求、被放行的工具，以及该决定释放的作业。在此之前，那个 id 被发布在两个事实
+上却从未写入任何地方，这正是驾驶舱里每一个审批「审计」链接都解析不到内容的原因。
+该写入对决定是「失败放行」、对审计是「失败发声」：因为一次日志追加失败就拒绝送达
+操作者已经给出的答复，会让工具调用被永久阻塞，因此追加失败会以 `Error` 发布。
+
+0.3.4 契约增量的 C7 批次已于 2026-09-12 落到 `claude/int-0.3.4`。
+`runtime.durable_work_evidence` 新增一项能力以及语料表中列出的
+`durable-work-evidence` fixture；九个冻结基线 fixture 的字节未变。与 C9 批次并行的
+`runtime.workspace_file_reads` 一起，集成者把对外通告的扩展集合与
+`scripts/tui-regression.sh` 中的能力计数门由 26 调和为 28。两个客户端都尚未采纳：
+GUI 的 EvidenceView 归档行与 D14 审批行属于 G7，TUI 的证据检视详情属于 T2。
 
 2026-09-10 记录的未决跟进项。每一条都是在 `0.3.3` 各批次中确认、并被刻意留在
 批次之外的，因此它们不会日后被当作新发现重新提出：
@@ -663,19 +724,17 @@ Files 页签内容、命令面板文件行与 Code 页签属于 G7；TUI 在此�
    一种原生出口发布 `TurnStarted`/`TurnFinished`，并在会话作用域的结束处结算无
    作用域的流，因此该判定成为 Core 的事实，而不再是客户端的猜测。TUI 在 T2、GUI
    在 G7 中采纳 `active_turns`。
-4. **离线原生会话中的持久证据归档为空**（T1b 期间发现）。**已于 2026-09-10
-   决策，作为 GUI-CORE-028 推迟到 `0.3.4`**；E1 发布证据回合在真实仓库上复现了
-   它。任何经 `RuntimeSupervisor` 驱动的工作 —— 原生 Lane 回合、ACP 会话 ——
-   都到不了 engine 归约中的 `EvidenceRecorded` 分支
-   （`crates/runtime/src/session_lifecycle.rs:860`），而那是该归档唯一的写入点；
-   因此一次原生工具变更只记录转录事实、一条实时 `WorkspaceChangeUpdated` 和一条
-   瞬态 `tool_result` 行，完全没有归档的 `patch` 证据。于是对于一个记录里满是
-   证据的会话，`runtime.evidence_reads` 会正确地回答一个空归档，两个客户端也
-   如实渲染。决策是：这是 Core 的持久化缺口，而不是契约措辞或 `latest_evidence`
-   作用域问题；跨 `runtime_loop` / `runtime_supervisor` / `session_lifecycle` 的
-   接线超出 `0.3.3` 的风险预算。完整陈述、逐个生产者的引用与关闭条件见
-   `apps/gui/contract-requests.zh-CN.md` 的 GUI-CORE-028。`0.3.3` 中未作任何
-   改动。
+4. **离线原生会话中的持久证据归档为空**（T1b 期间发现）。**已于 2026-09-12
+   由 C7 关闭。** 任何经 `RuntimeSupervisor` 驱动的工作 —— 原生 Lane 回合、ACP
+   会话 —— 都到不了 engine 归约中的 `EvidenceRecorded` 分支，而那是该归档唯一的
+   写入点；因此一次原生工具变更只记录转录事实、一条实时 `WorkspaceChangeUpdated`
+   和一条瞬态 `tool_result` 行，完全没有归档的 `patch` 证据；于是对于一个记录里
+   满是证据的会话，`runtime.evidence_reads` 会正确地回答一个空归档。
+   `runtime.durable_work_evidence` 封闭了全部三处成因：被应用的原生变更产出带规范
+   字节的 `patch` 行，适配器的补丁由运行时的摄取完成规范化，监督者把每个终结回合
+   批次交给 `SessionEngine::absorb_supervised_events`，使这些事实进入归档据以重建的
+   `runtime_projection` 行。一个重启测试重放了该行并提供了它校验通过的字节。
+   客户端在 G7 与 T2 中采纳。
 
 2026-09-10 由 E1 发布证据回合新增的开放后续项。该回合在一个临时 Git 仓库上、
 使用 `fallback` provider，通过 TUI 跑了一次真实任务。每一条都是复现出来的，不是
