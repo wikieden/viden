@@ -133,11 +133,12 @@ describe("D10 lane monitor", () => {
 
   test("the ticker renders Core audit rows, ordered as Core delivered them", () => {
     const { root, controller } = setup();
-    // Nothing has been read yet, so the strip says it is reading — not that
-    // there are no events.
-    expect(
-      root.querySelector<HTMLElement>("[data-d10-ticker-state]")?.dataset.d10TickerState,
-    ).toBe("unavailable");
+    // H2 hygiene (compatibility follow-up 2): nothing has been read yet, which
+    // is not the same fact as Core offering no timeline. The strip says so and
+    // must never claim Core publishes nothing.
+    const notRead = root.querySelector<HTMLElement>("[data-d10-ticker-state]");
+    expect(notRead?.dataset.d10TickerState).toBe("not-read");
+    expect(notRead?.textContent).not.toContain("runtime.audit");
 
     controller.applyEvents({
       capabilityAvailable: true,
@@ -301,5 +302,59 @@ describe("D10 cost meterability", () => {
     const card = root.querySelector<HTMLElement>("[data-d10-lane='lane-1']")!;
     expect(card.querySelector("[data-d10-meterability]")).toBeNull();
     expect(card.querySelectorAll("[data-d10-run-fact]")).toHaveLength(0);
+  });
+});
+
+/*
+ * H2 hygiene — compatibility follow-up 2.
+ *
+ * "Not offered" and "not read yet" are two different facts and had one
+ * sentence between them, which read as the first for both: a page nobody had
+ * loaded reported that Core publishes no audit timeline. The gate for the
+ * first is the capability, and nothing else.
+ */
+describe("D10 event stream: not offered versus not read yet", () => {
+  test("no read issued yet says exactly that, and names no capability gap", () => {
+    const { root } = setup();
+    const note = root.querySelector<HTMLElement>("[data-d10-ticker-state]");
+    expect(note?.dataset.d10TickerState).toBe("not-read");
+    expect(note?.textContent).toContain("has not been read yet");
+    expect(note?.textContent).not.toContain("runtime.audit");
+  });
+
+  test("an absent capability is the only state that says Core offers no timeline", () => {
+    const { root, controller } = setup();
+    controller.applyEvents({
+      capabilityAvailable: false,
+      loaded: false,
+      outcome: { state: "idle", reason: null },
+      rows: [],
+    });
+    const note = root.querySelector<HTMLElement>("[data-d10-ticker-state]");
+    expect(note?.dataset.d10TickerState).toBe("unavailable");
+    // Gated on the capability and checkable against Core's handshake.
+    expect(note?.textContent).toContain("runtime.audit");
+  });
+
+  test("the two states never share a sentence, in either language", () => {
+    // Rendered directly rather than through `setup`, which is fixed to `en`.
+    for (const locale of ["en", "zh-CN"] as const) {
+      document.body.innerHTML = '<div id="h1"></div><div id="h2"></div>';
+      const first = document.querySelector<HTMLElement>("#h1")!;
+      renderD10LaneMonitor(first, PROJECTION, locale);
+      const second = document.querySelector<HTMLElement>("#h2")!;
+      renderD10LaneMonitor(second, PROJECTION, locale, undefined, {
+        capabilityAvailable: false,
+        loaded: false,
+        outcome: { state: "idle", reason: null },
+        rows: [],
+      });
+      const notRead = first.querySelector<HTMLElement>("[data-d10-ticker-state]");
+      const notOffered = second.querySelector<HTMLElement>("[data-d10-ticker-state]");
+      expect(notRead?.dataset.d10TickerState).toBe("not-read");
+      expect(notOffered?.dataset.d10TickerState).toBe("unavailable");
+      expect(notRead?.textContent).toBeTruthy();
+      expect(notRead?.textContent).not.toBe(notOffered?.textContent);
+    }
   });
 });

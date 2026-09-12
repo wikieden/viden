@@ -166,11 +166,36 @@ function shellProjection(
   };
 }
 
+/**
+ * The cockpit controller that currently owns the root, or `null`.
+ *
+ * `renderD1Cockpit` registers its chords — `⌘K`, `⌘L`, `⌘.`, `⌘G`, `⌘E`,
+ * `⌘R`, `⌘O`, `Escape` — on `window`, and holds them until it is disposed.
+ * Mounting a second cockpit over the first therefore leaves *two* sets of
+ * handlers listening: the pre-hydration shell answers `⌘K` alongside the live
+ * cockpit, opens a second command palette, and re-renders its own
+ * `connecting` projection into the same root — which is E1 defect 7's visible
+ * half, the bound cockpit falling back to `Core connection pending` with the
+ * titlebar project chip at `—`. Whichever handler runs last wins the paint, so
+ * the symptom is a race and was seen once in three launches.
+ *
+ * Every mount of a cockpit into the root goes through `claimRoot`, so exactly
+ * one controller ever holds the chords.
+ */
+let rootOwner: D1Controller | null = null;
+
+/// Disposes whatever cockpit owns the root, then records the new owner.
+function claimRoot(owner: D1Controller | null): D1Controller | null {
+  if (rootOwner && rootOwner !== owner) rootOwner.dispose();
+  rootOwner = owner;
+  return owner;
+}
+
 export function bootstrapShell(
   root: HTMLElement,
   preferences?: ResolvedPreferences,
   connectionState: "connecting" | "disconnected" = "connecting",
-): void {
+): D1Controller {
   const locale = preferences?.locale ?? "en";
   if (preferences) {
     document.documentElement.lang = locale;
@@ -182,7 +207,8 @@ export function bootstrapShell(
   const projection = shellProjection(preferences, connectionState);
   root.dataset.clientState = connectionState;
   root.dataset.route = "d1";
-  renderD1Cockpit(
+  claimRoot(null);
+  const controller = renderD1Cockpit(
     root,
     projection,
     async () => {
@@ -197,6 +223,8 @@ export function bootstrapShell(
     undefined,
     { poll: false },
   );
+  claimRoot(controller);
+  return controller;
 }
 
 export async function hydrateShellFromCore(
@@ -294,6 +322,9 @@ export async function hydrateShellFromCore(
           );
         }
         activeD1?.dispose();
+        // Includes the pre-hydration shell: its window chords would otherwise
+        // keep answering alongside this cockpit's (E1 defect 7).
+        claimRoot(null);
         root.dataset.route = "d1";
         root.dataset.clientState = "connected";
         document.documentElement.lang = projection.preferences.locale;
@@ -360,6 +391,7 @@ export async function hydrateShellFromCore(
             },
           },
         );
+        claimRoot(activeD1);
         return activeD1;
       };
 
@@ -372,6 +404,7 @@ export async function hydrateShellFromCore(
       // into D11 on its own.
       const showD11 = async () => {
         activeD1?.dispose();
+        claimRoot(null);
         activeD1 = null;
         // `d11_poll` is the entry read as well as the wait: it drains the
         // ordered events already queued and reports any command still awaiting
@@ -402,6 +435,7 @@ export async function hydrateShellFromCore(
 
       const showD4 = async (queue: D4StarterSeed[] = [], seed?: NewLaneDraft) => {
         activeD1?.dispose();
+        claimRoot(null);
         activeD1 = null;
         const d4Result = await pollD4();
         root.dataset.route = "d4";
@@ -809,6 +843,7 @@ export async function hydrateShellFromCore(
         root.dataset.clientState = "empty";
         root.dataset.route = "d1";
         const projection = shellProjection(resolvedPreferences, "empty");
+        claimRoot(null);
         activeD1 = renderD1Cockpit(
           root,
           projection,
@@ -837,6 +872,7 @@ export async function hydrateShellFromCore(
             preferences: preferencePort,
           },
         );
+        claimRoot(activeD1);
       }
   } catch {
     // Keep the D1 shell visible and make the failed Core bootstrap explicit.

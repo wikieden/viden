@@ -61,3 +61,59 @@ fn incompatible_schema_and_transport_disconnect_remain_explicit_non_live_states(
     assert_eq!(adapter.d6_recovery().state, D6State::Disconnected);
     assert!(adapter.d6_recovery().business_success_blocked);
 }
+
+/*
+ * H2 hygiene — E1 defect 7, the adapter-drop seam.
+ *
+ * The run saw the cockpit fall back to `Core connection pending` and the
+ * process disappear about ten seconds later, with no crash report. The claim
+ * under test is the one the report implies and the code must not contain: that
+ * losing the transport costs the operator the session.
+ *
+ * At this seam a dropped transport is a *state change*, not a teardown. The
+ * adapter keeps the last view Core published, classifies the drop, and offers
+ * the reconnect the D6 contract already models; nothing here — and nothing
+ * above it in `apps/gui/src-tauri/src/lib.rs` — terminates anything. The event
+ * pump's only escape is a poisoned lock, and it ends its own thread; the
+ * process outlives it.
+ */
+#[test]
+fn a_dropped_transport_keeps_the_published_view_and_offers_a_reconnect() {
+    let dropped = TestCoreClient::new(view(), Arc::new(Mutex::new(Vec::new())))
+        .with_recv_error(CoreClientError::Transport("bridge dropped".into()));
+    let mut adapter = GuiCoreAdapter::new(Box::new(dropped));
+    adapter.connect().unwrap();
+    let bound = adapter
+        .d1_cockpit(None)
+        .expect("a connected adapter publishes the cockpit");
+
+    // The drop, then fifteen more drains: a client that polls every 250ms for
+    // the ten seconds the run measured must not find a different answer, and
+    // must not panic on any of them.
+    for _ in 0..16 {
+        adapter.pump_events(Duration::ZERO);
+    }
+
+    let after = adapter
+        .d1_cockpit(None)
+        .expect("the last view Core published survives the drop");
+    // The facts are the ones Core published, unchanged: the client neither
+    // invents newer state nor throws the old away.
+    assert_eq!(after.lanes.len(), bound.lanes.len());
+    assert_eq!(after.transcript.len(), bound.transcript.len());
+
+    let recovery = adapter.d6_recovery();
+    assert_eq!(recovery.connection, D6ConnectionState::Disconnected);
+    assert_eq!(recovery.state, D6State::Disconnected);
+    // Business success is blocked and a reconnect is offered: the two halves of
+    // "keep the session, stop trusting it".
+    assert!(recovery.business_success_blocked);
+    assert!(
+        recovery
+            .actions
+            .iter()
+            .any(|action| action.kind == "reconnect" && action.available),
+        "a disconnected adapter must offer the reconnect the D6 contract models: {:?}",
+        recovery.actions
+    );
+}

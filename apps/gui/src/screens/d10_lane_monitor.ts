@@ -161,7 +161,12 @@ const COPY: Record<Locale, Copy> = {
     events: "Event stream",
     eventsPending: "Reading the Core audit timeline\u2026",
     eventsEmpty: "Core published no audited event yet.",
-    eventsUnavailable: "Core publishes no audit timeline, so the event stream is unavailable.",
+    // H2 hygiene (compatibility follow-up 2): two facts, two sentences. The
+    // first is gated on Core's handshake and names the capability so the gap is
+    // checkable; the second is about this page and says nothing about Core.
+    eventsUnavailable:
+      "Core's handshake published no runtime.audit capability, so there is no event stream to read.",
+    eventsNotRead: "The Core audit timeline has not been read yet.",
     attach: "Attach",
     attachHint: "Selects this Lane in the cockpit and returns to the conversation.",
     stop: "Stop",
@@ -203,7 +208,8 @@ const COPY: Record<Locale, Copy> = {
     events: "事件流",
     eventsPending: "正在读取 Core 审计时间线…",
     eventsEmpty: "Core 尚未发布任何审计事件。",
-    eventsUnavailable: "Core 未发布审计时间线，事件流不可用。",
+    eventsUnavailable: "Core 握手未声明 runtime.audit 能力，因此没有可读取的事件流。",
+    eventsNotRead: "尚未读取 Core 审计时间线。",
     attach: "接管",
     attachHint: "在驾驶舱中选中该 Lane 并返回对话。",
     stop: "停止",
@@ -517,13 +523,23 @@ export function renderD10LaneMonitor(
       line.textContent = text;
       return line;
     };
-    if (!events || !events.capabilityAvailable) {
+    // "Not read yet" is this page's own state and precedes every question
+    // about Core: no read has been issued, so nothing is known about the
+    // timeline — including whether Core offers one.
+    if (!events) {
+      section.append(note(copy.eventsNotRead, "not-read"));
+      return section;
+    }
+    if (!events.capabilityAvailable) {
       section.append(note(copy.eventsUnavailable, "unavailable"));
       return section;
     }
     if (events.outcome.state === "rejected") {
       // Core's own words for the refusal, never a client paraphrase.
-      section.append(note(events.outcome.reason ?? copy.eventsUnavailable, "rejected"));
+      // A refusal Core gave no words for still says nothing about whether Core
+      // offers a timeline, so it falls back to the read's own state rather
+      // than to the capability sentence.
+      section.append(note(events.outcome.reason ?? copy.eventsNotRead, "rejected"));
       return section;
     }
     if (!events.loaded) {
