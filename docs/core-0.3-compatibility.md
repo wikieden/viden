@@ -1319,6 +1319,15 @@ provider. Each was reproduced, not inferred; none was fixed in E1.
    (`crates/runtime/src/tests/transcript_rows_tests.rs:698`) instead of the
    ASCII stand-in it had to use. Read side only: no on-disk change, no
    migration, and no capability, fixture, or count change.
+13. **The `interaction-closed-loop` fixture's generator and committed bytes
+   have drifted** (Core, pre-existing, found during C11, 2026-09-12). Commit
+   `2d88628e` extended the generator's `required_capabilities` literal by three
+   names (`runtime.agent_conversation`, `runtime.agent_session_input`,
+   `runtime.workspace_eligibility`) without refreshing the committed file, so
+   the ignored refresh test rewrites it (`a6f1c436…` → `c2ea4647…`) while the
+   replay test, which hashes the file, still passes. The committed bytes stay
+   canonical for 0.3.4; refreshing them and the corpus digest is a 0.3.5
+   bookkeeping item, decided rather than done inside a fix batch.
 
 
 The `context-budgets` fixture backs the frontend-neutral facade export of

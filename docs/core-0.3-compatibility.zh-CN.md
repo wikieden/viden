@@ -999,6 +999,12 @@ fixture；九个冻结基线 fixture 的字节未变，`scripts/tui-regression.s
    （`crates/session/src/tests.rs:533`）；C8 的字符边界裁剪测试现在裁剪真正的多字节正文
    （`crates/runtime/src/tests/transcript_rows_tests.rs:698`），不再使用它当时只能使用的
    ASCII 替身。只改读取侧：磁盘格式不变、无需迁移，也没有 capability、fixture 或计数变化。
+13. **`interaction-closed-loop` fixture 的生成器与已提交字节已漂移**（Core，既有，
+   C11 期间发现，2026-09-12）。提交 `2d88628e` 给生成器的 `required_capabilities`
+   字面量增加了三个名字（`runtime.agent_conversation`、`runtime.agent_session_input`、
+   `runtime.workspace_eligibility`）却未刷新已提交文件，因此被忽略的刷新测试会重写它
+   （`a6f1c436…` → `c2ea4647…`），而对文件做哈希的重放测试仍然通过。0.3.4 以已提交
+   字节为准；刷新它与语料摘要是 0.3.5 的簿记项，由决定而非在修复批次内顺手完成。
 
 `context-budgets` fixture 为 `ContextScope` 与 `ContextBudgetRecord` 的 frontend-neutral
 facade 导出提供依据。Budget 只能通过该 Lane 精确绑定的 runtime owner 所指名的 typed task
