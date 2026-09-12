@@ -1,0 +1,128 @@
+/*
+ * The transcript's tool blocks.
+ *
+ * The `.tool` / `.th` / `.tb` / `.testrow` family is the flagship's own
+ * (`docs/viden-design/Viden/GUI/Viden - 桌面驾驶舱 (GUI).html`), written here
+ * with shared tokens for the same reason the Lane tab strip's family is:
+ * `gui-kit.css` has not promoted it yet, and promoting it is a design-package
+ * change that belongs to the package's owner. The `.diffbody > .dl` rows
+ * inside the body come from the kit through `diff_rows.css`, which is already
+ * the one hunk renderer.
+ */
+
+.d1-tool {
+  margin: 0 0 15px 26px;
+  border: 1px solid var(--border-soft);
+  border-radius: 9px;
+  overflow: hidden;
+  background: var(--bg-panel);
+  font-family: var(--mono);
+}
+
+.d1-tool-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  inline-size: 100%;
+  padding: 8px 12px;
+  font: inherit;
+  font-size: 11.5px;
+  color: inherit;
+  text-align: start;
+  background: var(--bg-void);
+  border: 0;
+  border-block-end: 1px solid var(--border-soft);
+}
+
+button.d1-tool-head {
+  cursor: pointer;
+}
+
+button.d1-tool-head:hover {
+  background: var(--bg-base);
+}
+
+button.d1-tool-head:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* The design's disclosure marker, drawn from the button's own state. */
+button.d1-tool-head::before {
+  content: "▸";
+  color: var(--fg-faint);
+  flex: none;
+}
+
+button.d1-tool-head[aria-expanded="true"]::before {
+  content: "▾";
+}
+
+.d1-tool-head .nm {
+  color: var(--accent);
+  font-weight: 600;
+  flex: none;
+}
+
+.d1-tool-head .pa {
+  color: var(--fg-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-inline-size: 0;
+}
+
+.d1-tool-head .d1-work-card-meta {
+  color: var(--fg-muted);
+  flex: none;
+}
+
+.d1-tool-head .gate {
+  margin-inline-start: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  flex: none;
+}
+
+.d1-tool-head .gate[data-tool-gate="waiting"] {
+  color: var(--gold);
+}
+
+.d1-tool-head .gate[data-tool-gate="failed"] {
+  color: var(--error);
+}
+
+.d1-tool-head .gate[data-tool-gate="passed"] {
+  color: var(--success);
+}
+
+.d1-tool-head .gate[data-tool-gate="neutral"] {
+  color: var(--fg-muted);
+}
+
+.d1-tool-body {
+  padding: 9px 12px;
+  font-size: 12px;
+  overflow-x: auto;
+}
+
+.d1-tool-body > pre {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.d1-check-row {
+  display: flex;
+  gap: var(--sp-3);
+  margin: 0;
+  font-size: 11.5px;
+}
+
+.d1-check-row .k {
+  inline-size: 5rem;
+  flex: none;
+  color: var(--fg-faint);
+}

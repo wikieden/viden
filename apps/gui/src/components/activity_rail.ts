@@ -93,7 +93,8 @@ export type CanonicalGuiIcon =
   | "decide"
   | "pin"
   | "palette"
-  | "panel";
+  | "panel"
+  | "focus";
 
 const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
 
@@ -185,6 +186,13 @@ export function createCanonicalGuiIcon(name: CanonicalGuiIcon): SVGSVGElement {
     svg.append(
       svgNode("path", {
         d: "M9 6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3z",
+      }),
+    );
+  } else if (name === "focus") {
+    // The registered `IFocus` glyph: four corner brackets closing in.
+    svg.append(
+      svgNode("path", {
+        d: "M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3",
       }),
     );
   } else if (name === "settings") {

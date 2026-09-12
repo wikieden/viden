@@ -699,8 +699,27 @@ export function renderD1Cockpit(
    * persistence seam is documented on `D1RenderOptions.laneSidebarMode`.
    */
   let laneSidebarMode: LaneSidebarMode = options.laneSidebarMode ?? "floating";
+  /**
+   * Focus mode (`⌘.`).
+   *
+   * `D-SIDEBAR` gives it its meaning: "focus 专注模式覆盖此偏好 → 两侧强制
+   * hover 浮窗(退出恢复)" — focus overrides the sidebar preference, both sides
+   * become hover panels, and leaving restores what the operator had. So this
+   * flag never *writes* `laneSidebarMode`: it shadows it for as long as it is
+   * on, which is why exiting needs no saved copy.
+   *
+   * In memory, like the sidebar mode and the statusbar's ambient set, and for
+   * the same reason: the frontend contract makes Core the single preference
+   * authority. Unlike those two it is also not a preference — it is a posture
+   * the operator takes for a few minutes — so it is not part of the `C5`
+   * `UiLayoutPreferences` seam.
+   */
+  let focusMode = false;
   /** True while the floating sidebar is peeked open. */
   let laneRailPeek = false;
+  /** The same peek, for the context dock's right-edge zone under focus mode. */
+  let dockPeek = false;
+  let dockPeekTimer: number | null = null;
   /** The design's ~700 ms peek delay, so a pointer crossing it does not slam. */
   let lanePeekTimer: number | null = null;
   /**
@@ -965,9 +984,35 @@ export function renderD1Cockpit(
       cancelActiveTurn();
       return;
     }
-    if (centerView === "transcript") return;
+    if (centerView !== "transcript") {
+      event.preventDefault();
+      closeCenterView();
+      return;
+    }
+    // 6. focus mode, last of all: it hides no decision and interrupts no work,
+    //    so every surface above owns the key first.
+    if (!focusMode) return;
     event.preventDefault();
-    closeCenterView();
+    setFocusMode(false);
+  };
+
+  /**
+   * `⌘.` / `⌃.` toggles focus mode.
+   *
+   * The design's own binding, in both the keyboard registry ("Focus mode ⌘.")
+   * and the titlebar control's tooltip. It stands down while a modal popover
+   * owns focus, exactly as the other view chords do — changing the layout out
+   * from under an open dialog would move the thing the operator is reading.
+   */
+  const handleFocusShortcut = (event: KeyboardEvent): void => {
+    if (event.repeat || composing) return;
+    if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return;
+    if (event.key !== ".") return;
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && active.closest(ESCAPE_OWNERS)) return;
+    if (paletteOpen || settingsOpen || pickerOpen || agentMenuOpen || openControl !== null) return;
+    event.preventDefault();
+    setFocusMode(!focusMode);
   };
 
   /**
@@ -1190,6 +1235,7 @@ export function renderD1Cockpit(
   window.addEventListener("keydown", handleEscape);
   window.addEventListener("keydown", handleLaneCycleShortcut);
   window.addEventListener("keydown", handleNewLaneShortcut);
+  window.addEventListener("keydown", handleFocusShortcut);
   window.addEventListener("keydown", handleDecisionsShortcut);
   window.addEventListener("keydown", handleWindowKeydown);
   window.addEventListener("keydown", handlePaletteShortcut);
@@ -1380,6 +1426,7 @@ export function renderD1Cockpit(
       window.removeEventListener("keydown", handleEscape);
       window.removeEventListener("keydown", handleLaneCycleShortcut);
       window.removeEventListener("keydown", handleNewLaneShortcut);
+      window.removeEventListener("keydown", handleFocusShortcut);
       window.removeEventListener("keydown", handleDecisionsShortcut);
       window.removeEventListener("keydown", handlePaletteShortcut);
       window.removeEventListener("keydown", handleReviewShortcut);
@@ -1387,6 +1434,7 @@ export function renderD1Cockpit(
       window.removeEventListener("keydown", handleEvidenceSearchShortcut);
       if (reviewStaleTimer !== null) window.clearTimeout(reviewStaleTimer);
       if (lanePeekTimer !== null) window.clearTimeout(lanePeekTimer);
+      if (dockPeekTimer !== null) window.clearTimeout(dockPeekTimer);
       reviewStaleTimer = null;
       // The content cache is view-scoped on purpose: a body that outlived the
       // view could be rendered against an archive that has since moved.
@@ -1991,6 +2039,22 @@ export function renderD1Cockpit(
     render(true);
   };
 
+  /**
+   * The sidebar mode this frame actually draws. Focus forces `floating`
+   * without touching the operator's own choice.
+   */
+  const effectiveLaneSidebarMode = (): LaneSidebarMode =>
+    focusMode ? "floating" : laneSidebarMode;
+
+  /** Turns focus mode on or off and redraws the shell around it. */
+  const setFocusMode = (next: boolean): void => {
+    if (focusMode === next) return;
+    focusMode = next;
+    // A peek that was open belongs to the layout that is going away.
+    hideLanePeek(false);
+    render(false);
+  };
+
   /** Hides the floating sidebar peek and cancels any pending delay. */
   const hideLanePeek = (rerender = true): void => {
     if (lanePeekTimer !== null) {
@@ -2000,6 +2064,35 @@ export function renderD1Cockpit(
     if (!laneRailPeek) return;
     laneRailPeek = false;
     if (rerender) render(false);
+  };
+
+  /** The dock's mirror of the sidebar peek, with the same ~700 ms delay. */
+  const hideDockPeek = (rerender = true): void => {
+    if (dockPeekTimer !== null) {
+      window.clearTimeout(dockPeekTimer);
+      dockPeekTimer = null;
+    }
+    if (!dockPeek) return;
+    dockPeek = false;
+    if (rerender) render(false);
+  };
+
+  const showDockPeek = (): void => {
+    if (dockPeekTimer !== null) {
+      window.clearTimeout(dockPeekTimer);
+      dockPeekTimer = null;
+    }
+    if (dockPeek) return;
+    dockPeek = true;
+    render(false);
+  };
+
+  const scheduleDockPeekClose = (): void => {
+    if (dockPeekTimer !== null) window.clearTimeout(dockPeekTimer);
+    dockPeekTimer = window.setTimeout(() => {
+      dockPeekTimer = null;
+      hideDockPeek();
+    }, LANE_PEEK_CLOSE_MS);
   };
 
   const showLanePeek = (): void => {
@@ -2989,6 +3082,8 @@ export function renderD1Cockpit(
       navigate(route, arg), {
       onToggleCommandPalette: () => togglePalette(""),
       commandPaletteOpen: paletteOpen,
+      onToggleFocus: () => setFocusMode(!focusMode),
+      focusMode,
       // The titlebar's dirty marker is the changes chip the design puts on the
       // source block, so it is the review's natural entry: it appears exactly
       // when Core reports uncommitted work. A bound host always gets the
@@ -3020,15 +3115,19 @@ export function renderD1Cockpit(
     body.className = "d1-body";
     body.dataset.cockpitGrid = "true";
     body.dataset.cockpitLayout = window.innerWidth <= 1100 ? "narrow" : "desktop";
-    body.dataset.laneSidebarMode = laneSidebarMode;
+    const sidebarMode = effectiveLaneSidebarMode();
+    body.dataset.laneSidebarMode = sidebarMode;
     // Whether the pinned column is currently taking a grid track. Floating
     // never does: its host is an overlay, so the transcript keeps the width.
-    body.dataset.laneColumn = String(laneSidebarMode === "pinned" && laneRailOpen);
+    body.dataset.laneColumn = String(sidebarMode === "pinned" && laneRailOpen);
+    // `D-SIDEBAR`'s focus override, read by the grid: two tracks, both side
+    // panels behind their own hot zones.
+    body.dataset.focusMode = String(focusMode);
     if (showWelcome) body.classList.add("d1-body-welcome");
 
     const activity = renderActivityRail(locale, {
       lanesAvailable: !showWelcome,
-      lanesOpen: laneSidebarMode === "pinned" ? laneRailOpen : laneRailPeek,
+      lanesOpen: sidebarMode === "pinned" ? laneRailOpen : laneRailPeek,
       conversationCurrent: centerView === "transcript",
       destinations: showWelcome ? {} : railDestinations(),
       onOpenDestination: (destination) => openCenterView(destination),
@@ -3047,7 +3146,7 @@ export function renderD1Cockpit(
         // keyboard path `D-SIDEBAR` owes an operator who cannot land a pointer
         // on a 12px strip; pinned toggles the column itself, which is the only
         // way to give that width back without leaving the mode.
-        if (laneSidebarMode === "floating") {
+        if (sidebarMode === "floating") {
           laneRailFocusTarget = laneRailPeek ? "toggle" : "rail";
           if (laneRailPeek) hideLanePeek();
           else showLanePeek();
@@ -3057,7 +3156,9 @@ export function renderD1Cockpit(
         laneRailFocusTarget = laneRailOpen ? "rail" : "toggle";
         render(false);
       },
-      // `D-SIDEBAR`'s single toggle entry, above the gear.
+      // `D-SIDEBAR`'s single toggle entry, above the gear. It reports the
+      // operator's own mode even under focus, because that is the preference
+      // focus is temporarily overriding — not replacing.
       laneSidebarMode,
       onToggleLaneSidebarMode: () =>
         setLaneSidebarMode(laneSidebarMode === "pinned" ? "floating" : "pinned"),
@@ -3072,13 +3173,13 @@ export function renderD1Cockpit(
             void openSettingsPanel();
           },
     });
-    const laneRailVisible = laneSidebarMode === "pinned" ? laneRailOpen : laneRailPeek;
+    const laneRailVisible = sidebarMode === "pinned" ? laneRailOpen : laneRailPeek;
     const lanes = renderLaneRail({
       projection,
       locale,
       open: laneRailVisible,
       selectedLaneId,
-      mode: laneSidebarMode,
+      mode: sidebarMode,
       onCreateLane: () => {
         if (options.onCreateLane) options.onCreateLane();
         else openAgentMenu("rail");
@@ -3087,7 +3188,7 @@ export function renderD1Cockpit(
         // The rail's own `Escape`. Focus goes back to the control that opened
         // it in both modes; only what is being closed differs.
         laneRailFocusTarget = "toggle";
-        if (laneSidebarMode === "floating") {
+        if (sidebarMode === "floating") {
           hideLanePeek();
           return;
         }
@@ -3097,7 +3198,7 @@ export function renderD1Cockpit(
       onSelectLane: (laneId) => {
         // A floating sidebar has done its job once a Lane is chosen; it gives
         // the horizontal space straight back to the transcript.
-        if (laneSidebarMode === "floating") hideLanePeek(false);
+        if (sidebarMode === "floating") hideLanePeek(false);
         selectLane(laneId);
       },
       onRetryAgent: (sessionId, laneId) => {
@@ -3121,7 +3222,7 @@ export function renderD1Cockpit(
      * so the component is identical in both modes and only its host changes.
      */
     const laneHost = ((): HTMLElement => {
-      if (laneSidebarMode === "pinned") return lanes;
+      if (sidebarMode === "pinned") return lanes;
       const edge = document.createElement("div");
       edge.className = "edgewrap l d1-lane-edge";
       edge.dataset.laneEdge = "true";
@@ -3414,7 +3515,12 @@ export function renderD1Cockpit(
         focusedAcp ? transcriptAgent(projection, focusedAcp) : undefined,
       );
       if (projectionMatchesSelectedLane) {
-        appendTypedWorkCards(transcriptRegion, projection.contextDock.checklist, locale);
+        appendTypedWorkCards(
+          transcriptRegion,
+          projection.contextDock.checklist,
+          locale,
+          projection.permissionDock,
+        );
       }
       if (!projectionMatchesSelectedLane) {
         const switching = document.createElement("p");
@@ -3612,6 +3718,34 @@ export function renderD1Cockpit(
     topbar.contextDrawerToggle.setAttribute("aria-expanded", String(contextDrawerOpen));
     right.tabIndex = -1;
 
+    /**
+     * The dock's host.
+     *
+     * Outside focus it is the body's own third grid track. Under focus it
+     * moves into the design's `.edgewrap.r` hot zone — the mirror of the Lane
+     * sidebar's — so the dock is one pointer move away rather than gone, which
+     * is what `D-SIDEBAR`'s "两侧强制 hover 浮窗" says. The component is the
+     * same node in both; only its host changes, exactly as the sidebar's does.
+     */
+    const dockHost = ((): HTMLElement => {
+      if (!focusMode) return right;
+      const edge = document.createElement("div");
+      edge.className = "edgewrap r d1-dock-edge";
+      edge.dataset.dockEdge = "true";
+      edge.dataset.peek = String(dockPeek);
+      const hint = document.createElement("span");
+      hint.className = "edgehint";
+      hint.setAttribute("aria-hidden", "true");
+      edge.append(hint);
+      const panel = document.createElement("div");
+      panel.className = "floatpanel d1-dock-float";
+      panel.append(right);
+      edge.append(panel);
+      edge.addEventListener("pointerenter", () => showDockPeek());
+      edge.addEventListener("pointerleave", () => scheduleDockPeekClose());
+      return edge;
+    })();
+
     const status = renderStatusbar(
       projection.statusbar,
       locale,
@@ -3651,9 +3785,15 @@ export function renderD1Cockpit(
     const currentMain = currentBody?.querySelector<HTMLElement>(
       ':scope > [data-shell-landmark="lane-work-surface"]',
     );
+    // Resolved by landmark, because under focus the dock lives inside the
+    // right-edge hot zone rather than directly in the body.
     const currentRight = currentBody?.querySelector<HTMLElement>(
-      ':scope > [data-shell-landmark="context-dock"]',
+      '[data-shell-landmark="context-dock"]',
     );
+    // A focus switch changes the dock's *host*, not its contents, so the
+    // in-place refresh cannot express it: rebuild the frame instead. Same rule
+    // as the sidebar's mode switch above.
+    const dockHostUnchanged = currentBody?.dataset.focusMode === String(focusMode);
     const currentStatus = currentFrame?.querySelector<HTMLElement>(
       ':scope > [data-shell-landmark="statusbar"]',
     );
@@ -3664,6 +3804,7 @@ export function renderD1Cockpit(
       currentActivity &&
       currentLanes &&
       sidebarHostUnchanged &&
+      dockHostUnchanged &&
       currentTopbar &&
       currentMain &&
       currentRight &&
@@ -3689,13 +3830,16 @@ export function renderD1Cockpit(
       // frame), but whether the pinned column takes a track can, so the flag
       // the grid reads is written rather than left on the discarded node.
       currentBody.dataset.laneColumn = body.dataset.laneColumn ?? "false";
+      currentBody.dataset.focusMode = body.dataset.focusMode ?? "false";
+      const currentDockEdge = currentBody.querySelector<HTMLElement>("[data-dock-edge]");
+      if (currentDockEdge) currentDockEdge.dataset.peek = String(dockPeek);
       // The hot zone itself persists with its pointer listeners; only the peek
       // state it renders moves, so it is written rather than rebuilt.
       const currentEdge = currentBody.querySelector<HTMLElement>("[data-lane-edge]");
       if (currentEdge) currentEdge.dataset.peek = String(laneRailPeek);
     } else {
       if (showWelcome) body.append(activity, main);
-      else body.append(activity, laneHost, main, right);
+      else body.append(activity, laneHost, main, dockHost);
       frame.append(titlebar, body, status);
       root.replaceChildren(frame);
       regionSignatures.set("topbar", titlebar.outerHTML);

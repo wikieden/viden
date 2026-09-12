@@ -28,11 +28,22 @@ export interface CockpitTopbar {
   commandPaletteToggle: HTMLButtonElement;
 }
 
+/** Registered `IFocus` glyph, added to the canonical set for this control. */
+
 export interface CockpitTopbarOptions {
   /// Opens a restored screen, optionally preselecting one Core id.
   onNavigate?: (route: string, arg?: string) => void;
   onToggleCommandPalette?: () => void;
   commandPaletteOpen?: boolean;
+  /**
+   * Toggles focus mode (`⌘.`). The design puts this control between the
+   * palette and the pop-out in `.tbtools`, and `D-SIDEBAR` gives it its
+   * meaning: both side panels are forced to hover panels and restored on exit.
+   * Absent while no cockpit handler is bound, which disables it rather than
+   * rendering a control with nothing behind it.
+   */
+  onToggleFocus?: () => void;
+  focusMode?: boolean;
   /**
    * Opens the project picker from the `.projsel` selector. Absent while no
    * host is bound and on the no-project Welcome, where there is no workspace
@@ -351,9 +362,26 @@ export function renderCockpitTopbar(
   }
   commandPaletteToggle.append(createCanonicalGuiIcon("palette"));
 
+  // The design's focus control sits directly after the palette in `.tbtools`.
+  const focusToggle = document.createElement("button");
+  focusToggle.type = "button";
+  focusToggle.className = "tbtbtn d1-focus-toggle";
+  focusToggle.dataset.focusToggle = "true";
+  const focusLabel = `${translate(locale, "d1.focus", {})} ${formatShortcut("⌘.")}`;
+  focusToggle.title = focusLabel;
+  focusToggle.setAttribute("aria-label", focusLabel);
+  focusToggle.setAttribute("aria-pressed", String(options.focusMode === true));
+  focusToggle.disabled = !options.onToggleFocus;
+  focusToggle.hidden = showWelcome;
+  if (options.focusMode) focusToggle.classList.add("on");
+  if (options.onToggleFocus) {
+    focusToggle.addEventListener("click", () => options.onToggleFocus?.());
+  }
+  focusToggle.append(createCanonicalGuiIcon("focus"));
+
   const tools = document.createElement("span");
   tools.className = "tbtools";
-  tools.append(commandPaletteToggle, contextDrawerToggle);
+  tools.append(commandPaletteToggle, focusToggle, contextDrawerToggle);
   if (!nativeShell) titlebar.append(lights);
   titlebar.append(brand, project);
   if (reviewEntry) titlebar.append(reviewEntry);

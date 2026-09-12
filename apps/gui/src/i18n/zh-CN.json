@@ -559,5 +559,11 @@
   "d4.target.localOnly": "执行目标为 local：Core 将每条 starter Lane 都解析到其运行所在机器，请求也不携带目标。远程目标在 D9 中设计，不在本契约内。",
   "d4.progress": "第 {step} / {total} 步 · {name}",
   "d1.picker.configure": "配置此项目…",
-  "d1.picker.configureHint": "项目接入：探测、viden.toml、凭据、starter Lane"
+  "d1.picker.configureHint": "项目接入：探测、viden.toml、凭据、starter Lane",
+  "d1.tool.expand": "展开改动行",
+  "d1.tool.gateWaiting": "⏸ 闸：等待中",
+  "d1.checkRun.status": "状态",
+  "d1.checkRun.failing": "失败位置",
+  "d1.checkRun.result": "结果",
+  "d1.focus": "专注模式"
 }

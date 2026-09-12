@@ -315,6 +315,38 @@ button.d1-topbar-project[aria-expanded="true"] {
   pointer-events: auto;
 }
 
+/*
+ * Focus mode (`⌘.`), as `D-SIDEBAR` defines it: "focus 专注模式覆盖此偏好 →
+ * 两侧强制 hover 浮窗(退出恢复)". The body keeps the activity rail — it is the
+ * cockpit's router, and a router that disappears is a dead end — and gives
+ * every remaining pixel to the transcript. Both side panels move behind their
+ * own 12 px hot zones, which are the kit's registered `.edgewrap` family.
+ */
+.d1-body[data-focus-mode="true"] {
+  grid-template-columns: var(--rail-act) minmax(0, 1fr);
+}
+
+.d1-body[data-cockpit-layout="desktop"][data-focus-mode="true"] {
+  grid-template-columns: var(--rail-act) minmax(0, 1fr);
+}
+
+.d1-body .d1-dock-edge.r .floatpanel {
+  pointer-events: none;
+  /* The dock is a full panel, so its float is wider than the sidebar's. */
+  width: clamp(15rem, var(--rail-right), 30rem);
+}
+
+.d1-body .d1-dock-edge.r[data-peek="true"] .floatpanel {
+  transform: translateX(0);
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.d1-body .d1-dock-float > .d1-right {
+  block-size: 100%;
+  border-inline-end: 0;
+}
+
 .d1-lane-edge[data-peek="true"] .edgehint {
   opacity: 1;
   background: var(--accent);

@@ -567,6 +567,12 @@ export const MESSAGE_ARGUMENT_NAMES = {
   "d4.progress": ["name", "step", "total"],
   "d1.picker.configure": [],
   "d1.picker.configureHint": [],
+  "d1.tool.expand": [],
+  "d1.tool.gateWaiting": [],
+  "d1.checkRun.status": [],
+  "d1.checkRun.failing": [],
+  "d1.checkRun.result": [],
+  "d1.focus": [],
 } as const;
 
 export type MessageKey = keyof typeof MESSAGE_ARGUMENT_NAMES;

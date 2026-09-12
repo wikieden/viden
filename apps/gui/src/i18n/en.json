@@ -559,5 +559,11 @@
   "d4.target.localOnly": "Execution target is local: Core resolves every starter Lane to the machine it runs on, and the request carries no target. Remote targets are designed in D9 and are not on this contract.",
   "d4.progress": "Step {step} of {total} · {name}",
   "d1.picker.configure": "Configure this project…",
-  "d1.picker.configureHint": "Project intake: probe, viden.toml, credentials, starter Lanes"
+  "d1.picker.configureHint": "Project intake: probe, viden.toml, credentials, starter Lanes",
+  "d1.tool.expand": "show the changed lines",
+  "d1.tool.gateWaiting": "⏸ gate: waiting",
+  "d1.checkRun.status": "status",
+  "d1.checkRun.failing": "failing",
+  "d1.checkRun.result": "result",
+  "d1.focus": "Focus mode"
 }
