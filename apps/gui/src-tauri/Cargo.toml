@@ -168,3 +168,7 @@ path = "../tests/workspace_owner.rs"
 [[test]]
 name = "turn_lifecycle"
 path = "../tests/turn_lifecycle.rs"
+
+[[test]]
+name = "transcript_rows"
+path = "../tests/transcript_rows.rs"

@@ -638,6 +638,7 @@ pub struct D1IntentResult {
 pub(crate) fn unavailable_features(
     structured_diff: bool,
     operator_git: bool,
+    transcript_rows: bool,
 ) -> Vec<D1UnavailableFeatureProjection> {
     let mut features = Vec::new();
     // `diff` was unconditional until Core published `runtime.structured_diff`.
@@ -669,6 +670,27 @@ pub(crate) fn unavailable_features(
                       `runtime.operator_git`.",
         });
     }
+    // Both transcript rows were unconditional under GUI-CORE-009 until Core
+    // published `runtime.transcript_rows`. They were claims about Core — "no
+    // ordered owner-scoped row exists" — so they are dropped the moment that
+    // stops being true, and they survive for a Core build that really
+    // publishes none. The cockpit then draws Core's own page instead.
+    if !transcript_rows {
+        features.extend([
+            D1UnavailableFeatureProjection {
+                id: "transcript_user",
+                available: false,
+                code: "GUI-CORE-009",
+                message: "Typed user prompt rows are unavailable.",
+            },
+            D1UnavailableFeatureProjection {
+                id: "transcript_assistant",
+                available: false,
+                code: "GUI-CORE-009",
+                message: "Owner-scoped assistant rows are unavailable.",
+            },
+        ]);
+    }
     features.extend([
         // `audit` was here under GUI-CORE-004 until Core published the
         // append-only audit timeline (`QueryAudit` -> `AuditPageLoaded`,
@@ -685,18 +707,6 @@ pub(crate) fn unavailable_features(
             // (contract request GUI-CORE-018).
             code: "GUI-CORE-003",
             message: "Checkpoint capture and restore are unavailable.",
-        },
-        D1UnavailableFeatureProjection {
-            id: "transcript_user",
-            available: false,
-            code: "GUI-CORE-009",
-            message: "Typed user prompt rows are unavailable.",
-        },
-        D1UnavailableFeatureProjection {
-            id: "transcript_assistant",
-            available: false,
-            code: "GUI-CORE-009",
-            message: "Owner-scoped assistant rows are unavailable.",
         },
         // `live_work_scope` was here under GUI-CORE-010 until Core published a
         // `RuntimeOwner` on each live-work fact. D1 now scopes tasks, tool

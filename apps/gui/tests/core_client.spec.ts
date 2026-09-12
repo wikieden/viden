@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 import { hydrateShellFromCore } from "../src/main";
 import type { CoreClient } from "../src/host/core_client";
 import { IDLE_LAYOUT_PREFERENCES } from "../src/models/layout_preferences";
+import { IDLE_TRANSCRIPT_ROWS } from "../src/models/transcript_rows";
 import { D1_PROJECTION } from "./support/d1_projection";
 
 const PREFERENCES = {
@@ -29,6 +30,12 @@ function fakeCoreClient(overrides: Partial<CoreClient> = {}): CoreClient {
     preferencesSave: unreachable("preferences_save"),
     preferencesRestore: unreachable("preferences_restore"),
     preferencesPoll: unreachable("preferences_poll"),
+    // The ordered transcript answers with the honest absence: a shell route
+    // spec must not depend on a Core that publishes one.
+    queryTranscriptRows: unreachable("query_transcript_rows"),
+    transcriptRowsLoadOlder: unreachable("transcript_rows_load_older"),
+    transcriptRowsPoll: unreachable("transcript_rows_poll"),
+    transcriptRows: async () => IDLE_TRANSCRIPT_ROWS,
     layoutPreferences: async () => IDLE_LAYOUT_PREFERENCES,
     layoutPreferencesSet: unreachable("layout_preferences_set"),
     layoutPreferencesReset: unreachable("layout_preferences_reset"),

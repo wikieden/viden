@@ -12,9 +12,9 @@ use viden_core::{
     ReplayBatch, ReplayRequest, ReviewRequestStatus, RuntimeCommand, RuntimeCommandEnvelope,
     RuntimeEventEnvelope, RuntimeEventKind, RuntimeOwner, RuntimeSnapshotEnvelope,
     RuntimeWireEvent, StarterLanePreset, StarterLaneRequest, TranscriptPage, TranscriptPageRequest,
-    TurnOutcome, UiColorMode, UiDensity, UiLayoutPreferencePatch, UiMotion, UiPreferencePatch,
-    UiPreferences, UiSkin, WorkMode, WorkspaceFileEntry, WorkspaceFileKind, WorkspaceFilesQuery,
-    WorkspaceOpenRequest,
+    TranscriptRowsQuery, TurnOutcome, UiColorMode, UiDensity, UiLayoutPreferencePatch, UiMotion,
+    UiPreferencePatch, UiPreferences, UiSkin, WorkMode, WorkspaceFileEntry, WorkspaceFileKind,
+    WorkspaceFilesQuery, WorkspaceOpenRequest,
 };
 use viden_core::{EvidenceQuery, SourceTarget, WorkspaceDiffQuery, WorkspaceDiffScope};
 use viden_core::{RecentProjectSummary, RecentSessionSummary, RecentWorkQuery};
@@ -48,11 +48,15 @@ use crate::projection::{
     PreferenceDiagnosticProjection, ResolvedPreferencesProjection, awaits_operator_git_approval,
     evidence_content_projection, evidence_row_projection, exact_terminal_agent_session,
     lane_sidebar_mode_name, operator_git_action, operator_git_result_projection,
-    preference_diagnostic_projection, target_lane_id, typed_lane_sidebar_mode,
-    workspace_diff_entry_projection, workspace_diff_source_projection,
+    preference_diagnostic_projection, target_lane_id, transcript_row_projection,
+    typed_lane_sidebar_mode, workspace_diff_entry_projection, workspace_diff_source_projection,
 };
 use crate::recent_work::{
     RECENT_WORK_CAPABILITY, RecentProjectProjection, RecentSessionProjection, RecentWorkResult,
+};
+use crate::transcript_rows::{
+    TRANSCRIPT_ROWS_CAPABILITY, TRANSCRIPT_ROWS_NO_OWNER_CODE, TRANSCRIPT_ROWS_PAGE_LIMIT,
+    TranscriptRowProjection, TranscriptRowsProjection,
 };
 use crate::ui_preferences::{
     PreferenceIntent, PreferenceIntentResult, PreferencePatchInput,
@@ -118,6 +122,15 @@ pub struct GuiCoreAdapter {
     /// keeps the receipt's replace/append decision unambiguous and keeps the
     /// screen from paging two lists into one. See [`PendingAuditPage`].
     pending_audit: Option<PendingAuditPage>,
+    /// One transcript read at a time. `TranscriptRowsLoaded` names the exact
+    /// read it answers, so a page belonging to another read is dropped rather
+    /// than appended to this owner's conversation.
+    pending_transcript_rows: Option<PendingTranscriptRows>,
+    transcript_rows_outcome: D1OutcomeProjection,
+    transcript_rows_receipt: TranscriptRowsReceipt,
+    /// The Lane the held rows were read for. A Lane switch drops them rather
+    /// than rendering one Lane's conversation under another Lane's name.
+    transcript_rows_scope: Option<String>,
     /// The last turn Core ended without completing it
     /// (`runtime.turn_lifecycle`, C6).
     ///
@@ -856,6 +869,58 @@ impl PendingPreference {
     }
 }
 
+/// One in-flight `QueryTranscriptRows` awaiting its ordered Core answer.
+///
+/// `TranscriptRowsLoaded` carries the answering `command_id` as a required
+/// field, so this correlates on the id alone: there is no acceptance-gated
+/// fallback to write, and a page naming another read never settles this one.
+struct PendingTranscriptRows {
+    command_id: String,
+    /// Whether this read is a backwards page. An older page is prepended to
+    /// the rows already held; a first page replaces them.
+    older: bool,
+}
+
+/// What Core published for the transcript reads answered so far.
+#[derive(Default)]
+struct TranscriptRowsReceipt {
+    rows: Vec<TranscriptRowProjection>,
+    /// Core's opaque cursor for the page above `rows`, carried back verbatim.
+    older: Option<String>,
+    complete: bool,
+    /// Whether any page has been answered for the current scope. Distinct from
+    /// an empty `rows`: "not read yet" and "this owner has no rows" are
+    /// different facts.
+    loaded: bool,
+}
+
+enum TranscriptRowsObservation {
+    Continue,
+    Loaded,
+    Rejected(String),
+}
+
+impl PendingTranscriptRows {
+    fn observe(&self, envelope: &RuntimeEventEnvelope) -> TranscriptRowsObservation {
+        let RuntimeWireEvent::Known(event) = &envelope.event else {
+            return TranscriptRowsObservation::Continue;
+        };
+        match &event.kind {
+            RuntimeEventKind::CommandRejected { command_id, reason }
+                if command_id == &self.command_id =>
+            {
+                TranscriptRowsObservation::Rejected(reason.clone())
+            }
+            RuntimeEventKind::TranscriptRowsLoaded { command_id, .. }
+                if command_id == &self.command_id =>
+            {
+                TranscriptRowsObservation::Loaded
+            }
+            _ => TranscriptRowsObservation::Continue,
+        }
+    }
+}
+
 /// One in-flight layout-preference command awaiting its ordered Core answer.
 ///
 /// Simpler than [`PendingPreference`] on purpose: `UiLayoutPreferencesUpdated`
@@ -1583,6 +1648,10 @@ impl GuiCoreAdapter {
             pending_d2_review: None,
             pending_audit: None,
             turn_failure: None,
+            pending_transcript_rows: None,
+            transcript_rows_outcome: D1OutcomeProjection::idle(),
+            transcript_rows_receipt: TranscriptRowsReceipt::default(),
+            transcript_rows_scope: None,
             pending_layout_preference: None,
             layout_preference_outcome: D1OutcomeProjection::idle(),
             layout_preference_receipt: None,
@@ -4304,6 +4373,215 @@ impl GuiCoreAdapter {
         }
     }
 
+    /// Whether Core's handshake published ordered transcript rows.
+    ///
+    /// The transcript reads this before it asks: an absent capability keeps
+    /// the two `transcript_user` / `transcript_assistant` unavailable rows,
+    /// which is what GUI-CORE-009 reported, rather than showing an empty
+    /// conversation.
+    pub fn supports_transcript_rows(&self) -> bool {
+        self.supports(TRANSCRIPT_ROWS_CAPABILITY)
+    }
+
+    /// The exact Core owner one Lane's transcript is scoped by.
+    ///
+    /// The evidence archive's rule, reused rather than reimplemented: narrowed
+    /// to workspace/project/Lane and deliberately *not* carrying Core's turn
+    /// binding, which would answer "this turn's rows" for a question about the
+    /// Lane. `None` (no Lane selected) reads unscoped, exactly as the archive
+    /// does — the contract's prefix matcher has no way to say "no Lane", so a
+    /// scope that tried to would silently match every Lane instead, and the
+    /// transcript states the scope it actually read.
+    fn transcript_rows_owner(&self, lane_id: Option<&str>) -> Result<RuntimeOwner, String> {
+        let Some(lane_id) = lane_id else {
+            return Ok(RuntimeOwner::default());
+        };
+        let owner = self
+            .exact_lane_owner(lane_id, "transcript rows")
+            .map_err(|error| format!("{TRANSCRIPT_ROWS_NO_OWNER_CODE}: {error}"))?;
+        Ok(RuntimeOwner {
+            workspace_id: owner.workspace_id,
+            project_id: owner.project_id,
+            lane_id: Some(lane_id.to_string()),
+            session_id: None,
+            task_id: None,
+            turn_id: None,
+        })
+    }
+
+    /// The transcript rows with no Core traffic.
+    pub fn transcript_rows(&self) -> TranscriptRowsProjection {
+        TranscriptRowsProjection {
+            outcome: self.transcript_rows_outcome.clone(),
+            pending_command_id: self
+                .pending_transcript_rows
+                .as_ref()
+                .map(|pending| pending.command_id.clone()),
+            capability_available: self.supports_transcript_rows(),
+            loaded: self.transcript_rows_receipt.loaded,
+            rows: self.transcript_rows_receipt.rows.clone(),
+            older: self.transcript_rows_receipt.older.clone(),
+            complete: self.transcript_rows_receipt.complete,
+            scope_lane_id: self.transcript_rows_scope.clone(),
+        }
+    }
+
+    /// Sends one `QueryTranscriptRows` for the newest page and waits for Core.
+    ///
+    /// `before` is Core's own cursor or `None` for the newest page. A missing
+    /// capability is not an error: it returns the honest projection with
+    /// `capability_available == false` and sends nothing.
+    pub fn query_transcript_rows_and_wait(
+        &mut self,
+        command_id: &str,
+        lane_id: Option<&str>,
+        before: Option<&str>,
+        event_timeout: Duration,
+    ) -> Result<TranscriptRowsProjection, String> {
+        if !self.supports_transcript_rows() {
+            return Ok(self.transcript_rows());
+        }
+        if let Some(pending) = &self.pending_transcript_rows {
+            return Err(format!(
+                "transcript rows query `{}` is still pending",
+                pending.command_id
+            ));
+        }
+        let owner = self.transcript_rows_owner(lane_id)?;
+        let older = before.is_some();
+        self.client
+            .send(RuntimeCommandEnvelope {
+                schema_version: FRONTEND_SCHEMA_V1,
+                client_id: "viden-gui".to_string(),
+                command_id: command_id.to_string(),
+                // The scope is named in the query; the envelope owner is not
+                // an actor here, because the read mutates nothing.
+                owner: RuntimeOwner::default(),
+                command: RuntimeCommand::QueryTranscriptRows {
+                    query: TranscriptRowsQuery {
+                        owner,
+                        before: before.map(str::to_string),
+                        limit: Some(TRANSCRIPT_ROWS_PAGE_LIMIT),
+                    },
+                },
+            })
+            .map_err(|error| error.to_string())?;
+        self.pending_transcript_rows = Some(PendingTranscriptRows {
+            command_id: command_id.to_string(),
+            older,
+        });
+        self.transcript_rows_outcome = D1OutcomeProjection::pending();
+        if !older {
+            // A first page for a scope replaces what was held: the previous
+            // Lane's rows are that Lane's conversation, and leaving them
+            // visible under a new selection is the one thing owner scoping
+            // exists to prevent.
+            self.transcript_rows_receipt = TranscriptRowsReceipt::default();
+            self.transcript_rows_scope = lane_id.map(str::to_string);
+        }
+        self.poll_transcript_rows(event_timeout)
+    }
+
+    /// Sends one more `QueryTranscriptRows` through Core's own `older` cursor.
+    ///
+    /// The cursor travels back verbatim. A scope Core published no cursor for
+    /// is refused rather than read from the newest end again, which would
+    /// re-deliver a page the client already rendered.
+    pub fn load_older_transcript_rows_and_wait(
+        &mut self,
+        command_id: &str,
+        lane_id: Option<&str>,
+        event_timeout: Duration,
+    ) -> Result<TranscriptRowsProjection, String> {
+        let Some(cursor) = self.transcript_rows_receipt.older.clone() else {
+            return Err("Core published no older transcript cursor".to_string());
+        };
+        self.query_transcript_rows_and_wait(command_id, lane_id, Some(&cursor), event_timeout)
+    }
+
+    /// Drains ordered Core events for a transcript read still in flight.
+    pub fn poll_transcript_rows(
+        &mut self,
+        event_timeout: Duration,
+    ) -> Result<TranscriptRowsProjection, String> {
+        let mut received = false;
+        let mut receive_failed = false;
+        for _ in 0..8 {
+            let event = match self.receive_event_until(event_timeout) {
+                Ok(Some(event)) => event,
+                Ok(None) => break,
+                Err(_) => {
+                    receive_failed = true;
+                    break;
+                }
+            };
+            received = true;
+            if self.observe_pending_transcript_rows(&event) {
+                break;
+            }
+        }
+        if received && !receive_failed {
+            self.refresh_projection()
+                .map_err(|error| error.to_string())?;
+        }
+        Ok(self.transcript_rows())
+    }
+
+    /// Reconciles one ordered event against the in-flight transcript read.
+    ///
+    /// Returns whether the read reached a terminal outcome. The desktop event
+    /// pump calls this too, so a background drain cannot swallow the only page
+    /// the transcript is waiting for.
+    pub(crate) fn observe_pending_transcript_rows(&mut self, event: &RuntimeEventEnvelope) -> bool {
+        let observation = self
+            .pending_transcript_rows
+            .as_ref()
+            .map_or(TranscriptRowsObservation::Continue, |pending| {
+                pending.observe(event)
+            });
+        match observation {
+            TranscriptRowsObservation::Continue => false,
+            TranscriptRowsObservation::Loaded => {
+                let older = self
+                    .pending_transcript_rows
+                    .as_ref()
+                    .is_some_and(|pending| pending.older);
+                self.pending_transcript_rows = None;
+                self.transcript_rows_outcome = D1OutcomeProjection::confirmed();
+                if let RuntimeWireEvent::Known(known) = &event.event
+                    && let RuntimeEventKind::TranscriptRowsLoaded { page, .. } = &known.kind
+                {
+                    let rows: Vec<TranscriptRowProjection> =
+                        page.rows.iter().map(transcript_row_projection).collect();
+                    if older {
+                        // Core pages backwards and each page reads oldest
+                        // first, so an older page goes *above* what is already
+                        // held. The existing rows keep their order.
+                        let mut merged = rows;
+                        merged.extend(self.transcript_rows_receipt.rows.drain(..));
+                        self.transcript_rows_receipt.rows = merged;
+                    } else {
+                        self.transcript_rows_receipt.rows = rows;
+                    }
+                    // Both come from the page that reached the *oldest* end,
+                    // which is the page just answered in either direction.
+                    self.transcript_rows_receipt.older = page.older.clone();
+                    self.transcript_rows_receipt.complete = page.complete;
+                    self.transcript_rows_receipt.loaded = true;
+                }
+                true
+            }
+            TranscriptRowsObservation::Rejected(reason) => {
+                self.pending_transcript_rows = None;
+                self.transcript_rows_outcome = D1OutcomeProjection::rejected(reason);
+                // A refusal loads nothing. The rows already held are not
+                // discarded: they are pages Core answered, and dropping them
+                // would turn one bad cursor into an empty conversation.
+                true
+            }
+        }
+    }
+
     /// Whether Core's handshake published the cockpit layout record.
     ///
     /// The rail pin and the statusbar gear read this: an absent capability
@@ -4922,6 +5200,7 @@ impl GuiCoreAdapter {
             self.observe_pending_permission(&event);
             self.observe_pending_preference(&event);
             self.observe_pending_layout_preference(&event);
+            self.observe_pending_transcript_rows(&event);
             self.observe_pending_recent_work(&event);
             self.observe_pending_audit(&event);
             self.observe_pending_workspace_files(&event);

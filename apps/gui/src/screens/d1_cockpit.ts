@@ -41,6 +41,12 @@ import {
   type DockTab,
 } from "../components/context_dock";
 import { renderLaneRail, type LaneSidebarMode } from "../components/lane_rail";
+import { appendOrderedTranscriptRows } from "../components/transcript_rows";
+import {
+  IDLE_TRANSCRIPT_ROWS,
+  TRANSCRIPT_ROWS_CAPABILITY,
+  type TranscriptRowsProjection,
+} from "../models/transcript_rows";
 import {
   LAYOUT_PREFERENCES_CAPABILITY,
   IDLE_LAYOUT_PREFERENCES,
@@ -405,6 +411,21 @@ export interface D1RenderOptions {
    * record's second field and is not implemented.
    */
   laneSidebarMode?: LaneSidebarMode;
+  /**
+   * The ordered owner-scoped transcript (`runtime.transcript_rows`, C8,
+   * GUI-CORE-009).
+   *
+   * `read` is the no-traffic projection the transcript reads for the
+   * capability and for the rows it already holds; `query` reads the newest
+   * page for one scope; `loadOlder` pages backwards through Core's own cursor.
+   * Absent while no host is bound, which keeps the two unavailable rows the
+   * cockpit has always drawn rather than showing an empty conversation.
+   */
+  transcriptRows?: {
+    read: () => Promise<TranscriptRowsProjection>;
+    query: (laneId: string | null) => Promise<TranscriptRowsProjection>;
+    loadOlder: (laneId: string | null) => Promise<TranscriptRowsProjection>;
+  };
   /**
    * The Core-owned cockpit layout record (`ui.layout_preferences`, C5).
    *
@@ -771,6 +792,19 @@ export function renderD1Cockpit(
    * the whole session on a Core that publishes no layout record.
    */
   let laneSidebarMode: LaneSidebarMode = options.laneSidebarMode ?? "floating";
+  /** Core's last transcript answer, or the idle projection before the first. */
+  let transcriptRowsProjection: TranscriptRowsProjection = IDLE_TRANSCRIPT_ROWS;
+  /** True while a transcript read is out, so a wake cannot stack reads. */
+  let transcriptRowsInFlight = false;
+  /**
+   * The scope the last transcript read was *issued* for.
+   *
+   * Tracked here rather than read back from the projection's `scopeLaneId`,
+   * which is the host's echo of what it read: a client must not depend on an
+   * echo to decide whether it has already asked. `undefined` means nothing has
+   * been asked yet, which differs from "asked unscoped" (`null`).
+   */
+  let transcriptRowsScope: string | null | undefined = undefined;
   /**
    * The layout record exactly as Core last published it.
    *
@@ -2462,6 +2496,92 @@ export function renderD1Cockpit(
   };
 
   /**
+   * Reads the newest page of the selected scope's ordered transcript.
+   *
+   * One read in flight, and the scope is re-read whenever the selection moves:
+   * a Lane's conversation belongs to that Lane, so rows read for the previous
+   * selection are dropped by the host rather than left on screen under a new
+   * Lane's name.
+   */
+  const readTranscriptRows = (): void => {
+    if (!options.transcriptRows || transcriptRowsInFlight) return;
+    if (transcriptRowsProjection.capabilityAvailable === false) return;
+    const laneId = selectedLaneId;
+    transcriptRowsInFlight = true;
+    transcriptRowsScope = laneId;
+    void options.transcriptRows
+      .query(laneId)
+      .then((projection) => {
+        if (disposed) return;
+        transcriptRowsProjection = projection;
+      })
+      .catch((error: unknown) => {
+        if (disposed) return;
+        // A transport failure is this client's own, so it is reported as such
+        // rather than dressed up as a Core refusal.
+        transcriptRowsProjection = {
+          ...transcriptRowsProjection,
+          outcome: { state: "rejected", reason: String(error) },
+          loaded: false,
+        };
+      })
+      .finally(() => {
+        transcriptRowsInFlight = false;
+        if (!disposed) render(false);
+      });
+  };
+
+  /**
+   * Pages backwards through Core's own cursor.
+   *
+   * Bound to the scroll-top of the transcript and to the explicit control, so
+   * a keyboard-only operator reaches the same page. Core published no cursor
+   * means the scope is exhausted and nothing is sent.
+   */
+  const loadOlderTranscriptRows = (): void => {
+    if (!options.transcriptRows || transcriptRowsInFlight) return;
+    if (!transcriptRowsProjection.older) return;
+    const laneId = selectedLaneId;
+    transcriptRowsInFlight = true;
+    void options.transcriptRows
+      .loadOlder(laneId)
+      .then((projection) => {
+        if (disposed) return;
+        transcriptRowsProjection = projection;
+      })
+      .catch((error: unknown) => {
+        if (disposed) return;
+        transcriptRowsProjection = {
+          ...transcriptRowsProjection,
+          outcome: { state: "rejected", reason: String(error) },
+        };
+      })
+      .finally(() => {
+        transcriptRowsInFlight = false;
+        if (!disposed) render(false);
+      });
+  };
+
+  /// One no-traffic read for the capability, before anything is asked for.
+  const ensureTranscriptRows = (): void => {
+    if (!options.transcriptRows) return;
+    void options.transcriptRows
+      .read()
+      .then((projection) => {
+        if (disposed) return;
+        transcriptRowsProjection = projection;
+        // A Core that publishes the capability gets the first page asked for
+        // immediately; one that does not is left alone, and the transcript
+        // keeps its named unavailable rows.
+        if (projection.capabilityAvailable) readTranscriptRows();
+        else render(false);
+      })
+      .catch(() => {
+        /* the capability stays unknown; the transcript says nothing new. */
+      });
+  };
+
+  /**
    * The rail pin's action.
    *
    * With the capability the mode is Core's, so the patch goes out and the
@@ -3094,6 +3214,9 @@ export function renderD1Cockpit(
     // previous Lane's availability — and, worse, could look enabled for a Lane
     // Core published no binding for.
     readOperatorGit();
+    // The ordered transcript is owner-scoped, so a selection change is a
+    // different conversation and is re-read rather than filtered locally.
+    readTranscriptRows();
     render(false);
   }
 
@@ -3928,6 +4051,75 @@ export function renderD1Cockpit(
         ? transcript.visible(transcriptRegion.clientHeight || 720, 36)
         : [];
       const acpKinds = new Set<"user" | "assistant">();
+      // C8: Core's own ordered rows for this scope. They are drawn first,
+      // because they are the durable conversation and everything after them —
+      // the live ACP pair, the live stream — is what has happened *since* the
+      // page was read. Rows read for another scope are not drawn at all.
+      const orderedRows =
+        transcriptRowsProjection.loaded &&
+        (transcriptRowsProjection.scopeLaneId ?? null) === selectedLaneId
+          ? transcriptRowsProjection.rows
+          : [];
+      if (orderedRows.length > 0) {
+        // The read answered with rows, so the two unavailable placeholders
+        // that stood in for them retire: `transcript_user` and
+        // `transcript_assistant` were claims about Core, and this is Core
+        // answering (GUI-CORE-009).
+        acpKinds.add("user");
+        acpKinds.add("assistant");
+        if (transcriptRowsProjection.older) {
+          // Paging backwards is offered as a control as well as on scroll-top,
+          // so a keyboard-only operator reaches the same page.
+          const older = button(translate(locale, "d1.transcript.loadOlder", {}), "loadOlder");
+          older.dataset.transcriptLoadOlder = "true";
+          older.disabled = transcriptRowsInFlight;
+          older.addEventListener("click", () => loadOlderTranscriptRows());
+          transcriptRegion.append(older);
+        } else if (transcriptRowsProjection.complete) {
+          // Core's own statement, rather than the absence of a button.
+          const complete = document.createElement("p");
+          complete.className = "d1-empty";
+          complete.dataset.transcriptComplete = "true";
+          complete.textContent = translate(locale, "d1.transcript.rowsComplete", {});
+          transcriptRegion.append(complete);
+        }
+        appendOrderedTranscriptRows(transcriptRegion, orderedRows, {
+          locale,
+          agent: focusedAcp ? transcriptAgent(projection, focusedAcp) : undefined,
+          onOpenEvidence: options.onNavigate ? () => navigate("evidence") : undefined,
+          // `D-AUDIT`'s one-way link: an audit row names a permission object,
+          // so the trail is opened by that object and never by an audit id the
+          // client would have to construct.
+          onOpenAudit: options.onNavigate
+            ? (requestId) => navigate("d14", `permission:${requestId}`)
+            : undefined,
+        });
+      } else if (
+        transcriptRowsProjection.capabilityAvailable &&
+        (transcriptRowsProjection.scopeLaneId ?? null) === selectedLaneId
+      ) {
+        // The capability exists and this scope produced no rows. Four states,
+        // four sentences: Core refused, the read is out, Core answered with
+        // nothing, or nothing has been asked for yet.
+        const note = document.createElement("p");
+        note.className = "d1-empty";
+        if (transcriptRowsProjection.outcome.state === "rejected") {
+          note.dataset.transcriptRowsState = "rejected";
+          note.setAttribute("role", "alert");
+          note.textContent = translate(locale, "d1.transcript.rowsRejected", {
+            reason: transcriptRowsProjection.outcome.reason ?? "",
+          });
+        } else if (transcriptRowsProjection.loaded) {
+          note.dataset.transcriptRowsState = "empty";
+          note.textContent = translate(locale, "d1.transcript.rowsEmpty", {});
+          acpKinds.add("user");
+          acpKinds.add("assistant");
+        } else {
+          note.dataset.transcriptRowsState = "pending";
+          note.textContent = translate(locale, "d1.transcript.rowsPending", {});
+        }
+        transcriptRegion.append(note);
+      }
       if (focusedAcp) {
         acpKinds.add("user");
         acpKinds.add("assistant");
@@ -4017,6 +4209,12 @@ export function renderD1Cockpit(
       );
       transcriptRegion.append(workStatusStrip.element);
       transcriptRegion.addEventListener("scroll", () => {
+        // Reaching the top is the design's own "read further back" gesture.
+        // Guarded on Core having published a cursor, so a scope Core says is
+        // complete sends nothing.
+        if (transcriptRegion.scrollTop <= 0 && transcriptRowsProjection.older) {
+          loadOlderTranscriptRows();
+        }
         const atBottom = transcriptAtBottom(transcriptRegion);
         const first = transcriptRegion.querySelector<HTMLElement>("[data-row-id]")?.dataset.rowId;
         transcript.setFollowLatest(atBottom, first);
@@ -4045,6 +4243,10 @@ export function renderD1Cockpit(
         projection.permissionDock,
         dispatchPermission,
         locale,
+        // C7 made the decision a durable audit row, so the id the dock prints
+        // now resolves. The route is the cockpit's own, which lands D14 in the
+        // centre pane rather than replacing the window.
+        options.onNavigate ? (scope) => navigate("d14", `${scope.kind}:${scope.id}`) : undefined,
       );
     }
 
@@ -4512,6 +4714,10 @@ export function renderD1Cockpit(
   // and the titlebar sync chip know whether they may act before anyone presses
   // one of them.
   readOperatorGit();
+  // The ordered conversation, read once the capability is known. A Core
+  // without it keeps the two named unavailable rows rather than an empty
+  // transcript, which is what GUI-CORE-009 reported.
+  ensureTranscriptRows();
   // The layout record, read before anything is drawn twice: the operator's
   // sidebar mode and hidden statusbar segments are Core's facts, so the first
   // frame that can carry them does.

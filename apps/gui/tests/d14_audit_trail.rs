@@ -504,6 +504,78 @@ fn a_scoped_query_passes_the_exact_object_through_and_reports_the_scope() {
 }
 
 #[test]
+fn an_approval_decision_row_keeps_cores_operator_actor_action_and_every_object() {
+    // The C7 row (`runtime.durable_work_evidence`): `RespondToApproval` now
+    // appends the record whose id the request already showed the operator, so
+    // the permission dock's audit affordance resolves to a row instead of to
+    // nothing (E1 defect 4). Nothing about the row is client-derived: the
+    // action key, the operator actor, and all three objects are Core's, and
+    // `scope` travels as an argument rather than as a second action.
+    let approval = AuditRecord {
+        audit_id: "audit_durable_work_approval".to_string(),
+        timestamp: 1_700_006_006,
+        owner: RuntimeOwner::default(),
+        actor: AuditActor::Operator,
+        action: "approval.allow_once".to_string(),
+        objects: vec![
+            AuditObjectRef::new(AuditObjectRef::KIND_PERMISSION, "approval_durable_work"),
+            AuditObjectRef::new("tool", "edit_file"),
+            AuditObjectRef::new("job", "cmd_durable_work_submit"),
+        ],
+        outcome: AuditOutcome::Success,
+        args: BTreeMap::from([("scope".to_string(), "allow_once".to_string())]),
+    };
+    let mut harness = harness(
+        vec![
+            accepted(1, "gui-audit-1"),
+            loaded(2, "gui-audit-1", page(vec![approval], None)),
+        ],
+        true,
+    );
+    let projection = harness
+        .adapter
+        .query_audit_and_wait(
+            "gui-audit-1",
+            Some(D14AuditScopeInput {
+                kind: AuditObjectRef::KIND_PERMISSION.to_string(),
+                id: "approval_durable_work".to_string(),
+            }),
+            TIMEOUT,
+        )
+        .expect("query");
+
+    let row = projection.rows.first().expect("the approval row");
+    assert_eq!(row.audit_id, "audit_durable_work_approval");
+    assert_eq!(row.action, "approval.allow_once");
+    assert_eq!(row.actor_kind, "operator");
+    assert_eq!(row.agent_id, None, "an operator decision names no agent");
+    // A denial is a decision that was carried out, so Core records it as a
+    // success; rendering it as a failure would read as the runtime refusing
+    // the operator.
+    assert_eq!(row.outcome, "success");
+    assert_eq!(
+        row.objects
+            .iter()
+            .map(|object| (object.kind.as_str(), object.id.as_str()))
+            .collect::<Vec<_>>(),
+        vec![
+            ("permission", "approval_durable_work"),
+            ("tool", "edit_file"),
+            ("job", "cmd_durable_work_submit"),
+        ]
+    );
+    assert_eq!(row.args[0].key, "scope");
+    assert_eq!(row.args[0].value, "allow_once");
+
+    // The dock links by the object, which is the query Core answers.
+    let queries = audit_queries(&harness.sent);
+    assert_eq!(
+        queries[0].object,
+        Some(AuditObjectRef::new("permission", "approval_durable_work"))
+    );
+}
+
+#[test]
 fn dropping_the_scope_requeries_unscoped_and_discards_the_scoped_rows() {
     let mut harness = harness(
         vec![

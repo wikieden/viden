@@ -18,6 +18,7 @@ mod permission;
 mod presentation;
 mod projection;
 mod recent_work;
+mod transcript_rows;
 mod ui_preferences;
 mod workspace_files;
 
@@ -107,6 +108,10 @@ pub use projection::{
 };
 pub use recent_work::{
     RECENT_WORK_CAPABILITY, RecentProjectProjection, RecentSessionProjection, RecentWorkResult,
+};
+pub use transcript_rows::{
+    TRANSCRIPT_ROWS_CAPABILITY, TRANSCRIPT_ROWS_NO_OWNER_CODE, TRANSCRIPT_ROWS_PAGE_LIMIT,
+    TranscriptRowProjection, TranscriptRowsProjection,
 };
 pub use ui_preferences::{
     PreferenceIntent, PreferenceIntentResult, PreferencePatchInput,
@@ -264,6 +269,83 @@ fn recent_work_poll(state: tauri::State<'_, DesktopState>) -> Result<RecentWorkR
         .as_mut()
         .ok_or_else(|| "Core adapter is not connected".to_string())?
         .poll_recent_work(Duration::from_millis(250))
+}
+
+/// Sends one `QueryTranscriptRows` for the newest page and waits briefly.
+///
+/// `laneId` is the scope: the exact owner Core bound to that Lane, or an
+/// unscoped read when `null`. The read is bounded and owner-scoped rather than
+/// tool-gated, so it stays answerable in Plan mode.
+#[tauri::command]
+fn query_transcript_rows(
+    command_id: String,
+    lane_id: Option<String>,
+    state: tauri::State<'_, DesktopState>,
+) -> Result<TranscriptRowsProjection, String> {
+    state
+        .adapter
+        .lock()
+        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?
+        .as_mut()
+        .ok_or_else(|| "Core adapter is not connected".to_string())?
+        .query_transcript_rows_and_wait(
+            &command_id,
+            lane_id.as_deref(),
+            None,
+            Duration::from_millis(250),
+        )
+}
+
+/// Sends one more `QueryTranscriptRows` through Core's own `older` cursor.
+#[tauri::command]
+fn transcript_rows_load_older(
+    command_id: String,
+    lane_id: Option<String>,
+    state: tauri::State<'_, DesktopState>,
+) -> Result<TranscriptRowsProjection, String> {
+    state
+        .adapter
+        .lock()
+        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?
+        .as_mut()
+        .ok_or_else(|| "Core adapter is not connected".to_string())?
+        .load_older_transcript_rows_and_wait(
+            &command_id,
+            lane_id.as_deref(),
+            Duration::from_millis(250),
+        )
+}
+
+/// Drains ordered Core events for a transcript read still in flight.
+#[tauri::command]
+fn transcript_rows_poll(
+    state: tauri::State<'_, DesktopState>,
+) -> Result<TranscriptRowsProjection, String> {
+    state
+        .adapter
+        .lock()
+        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?
+        .as_mut()
+        .ok_or_else(|| "Core adapter is not connected".to_string())?
+        .poll_transcript_rows(Duration::from_millis(250))
+}
+
+/// The held transcript rows with no Core traffic.
+///
+/// The transcript reads this for the capability before it asks for a page, so
+/// an absent `runtime.transcript_rows` keeps its named unavailable rows rather
+/// than showing an empty conversation.
+#[tauri::command]
+fn transcript_rows(
+    state: tauri::State<'_, DesktopState>,
+) -> Result<TranscriptRowsProjection, String> {
+    Ok(state
+        .adapter
+        .lock()
+        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?
+        .as_ref()
+        .ok_or_else(|| "Core adapter is not connected".to_string())?
+        .transcript_rows())
 }
 
 /// The cockpit layout record with no Core traffic (`ui.layout_preferences`).
@@ -1088,6 +1170,10 @@ pub fn run_with_adapter(adapter: Option<GuiCoreAdapter>) {
             preferences_poll,
             query_recent_work,
             recent_work_poll,
+            query_transcript_rows,
+            transcript_rows_load_older,
+            transcript_rows_poll,
+            transcript_rows,
             layout_preferences,
             layout_preferences_set,
             layout_preferences_reset,

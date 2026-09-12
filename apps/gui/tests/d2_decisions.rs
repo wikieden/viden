@@ -752,7 +752,10 @@ fn d2_offers_no_audit_scope_for_a_tool_approval_core_links_no_object_for() {
         .expect("approval projection")
         .detail
         .expect("approval detail");
-    // The runtime emits no audit object for a tool approval, so an affordance
-    // here would open an empty timeline and claim it was the decision's trail.
+    // C7 appends the durable row when the decision is *applied*, keyed by the
+    // permission object. This item is still pending, so no row exists yet and
+    // an affordance here would open an empty timeline and claim it was the
+    // decision's trail. The trail is offered where the decision exists: the
+    // permission rows in the dock and in the ordered transcript.
     assert_eq!(detail.audit_scope, None);
 }

@@ -57,6 +57,20 @@ function host(): { adapterGone: () => void } {
         return bound();
       case "d1_poll":
         return { projection: bound(), pendingCommandId: null, outcome: { state: "idle", reason: null } };
+      case "transcript_rows":
+      case "transcript_rows_poll":
+        // Shaped like the host's own answer: an absent capability still comes
+        // back as a projection, never as `null`.
+        return {
+          outcome: { state: "idle", reason: null },
+          pendingCommandId: null,
+          capabilityAvailable: false,
+          loaded: false,
+          rows: [],
+          older: null,
+          complete: false,
+          scopeLaneId: null,
+        };
       case "layout_preferences":
       case "layout_preferences_poll":
         // Shaped like the host's own answer for the same reason as below: a

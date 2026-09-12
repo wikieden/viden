@@ -4,16 +4,17 @@ use serde::Serialize;
 use serde_json::Value;
 use viden_core::{
     AgentConversationRole, AgentDagStatus, AgentLaneRecord, AgentRole, AgentRoute,
-    AgentSessionStatus, AgentStartability, AgentTaskStatus, ApprovalDefaultAction,
-    ApprovalRequestView, ApprovalRisk, ApprovalScope, AuditObjectRef, COCKPIT_CONTEXT_CAPABILITY,
-    CheckRunStatus, ConflictBaseline, ConflictBounceStatus, ConflictContent, ConflictFile,
-    ConflictHunk, ConflictHunkReason, ContextScope, ContractDecision, ContractRecord,
-    CostMeterability, CredentialHandle, DecisionContext, DependencyState, DiffDocument, DiffFile,
-    DiffHunk, DiffLine, DiffLineKind, EventCursor, GateStrength, LaneSidebarMode, LaneStatus,
-    LocaleId, MergeGateRecord, MergeGateStatus, MergeGateType, MutationPolicy, OperatorGitAction,
-    OperatorGitFailureClass, OperatorGitOutcome, ProjectConfigPreview, ProjectProbe,
-    ProviderHealthView, ReviewRequestRecord, ReviewRequestStatus, RuntimeOwner, RuntimeServiceKind,
-    RuntimeServiceStatus, RuntimeSnapshotEnvelope, RuntimeViewState, SourceTarget, TurnSource,
+    AgentSessionStatus, AgentStartability, AgentTaskStatus, ApprovalDecision,
+    ApprovalDefaultAction, ApprovalRequestView, ApprovalRisk, ApprovalScope, AuditObjectRef,
+    COCKPIT_CONTEXT_CAPABILITY, CheckRunStatus, ConflictBaseline, ConflictBounceStatus,
+    ConflictContent, ConflictFile, ConflictHunk, ConflictHunkReason, ContextScope,
+    ContractDecision, ContractRecord, CostMeterability, CredentialHandle, DecisionContext,
+    DependencyState, DiffDocument, DiffFile, DiffHunk, DiffLine, DiffLineKind, EventCursor,
+    GateStrength, LaneSidebarMode, LaneStatus, LocaleId, MergeGateRecord, MergeGateStatus,
+    MergeGateType, MutationPolicy, OperatorGitAction, OperatorGitFailureClass, OperatorGitOutcome,
+    ProjectConfigPreview, ProjectProbe, ProviderHealthView, ReviewRequestRecord,
+    ReviewRequestStatus, RuntimeOwner, RuntimeServiceKind, RuntimeServiceStatus,
+    RuntimeSnapshotEnvelope, RuntimeViewState, SourceTarget, TranscriptRowContent, TurnSource,
     UiColorMode, UiDensity, UiMotion, UiSkin, WorkMode, WorkspaceChangeKind, WorkspaceDiffEntry,
     WorkspaceSourceStatus, WorkspaceSourceView,
 };
@@ -60,6 +61,7 @@ use crate::evidence_view::{
     EvidenceRowProjection,
 };
 use crate::operator_git::OperatorGitResultProjection;
+use crate::transcript_rows::TranscriptRowProjection;
 use crate::{
     D6ActionProjection, D6ConnectionState, D6RecoveryProjection, D6State,
     PermissionActionProjection, PermissionDockProjection, PermissionRequestProjection,
@@ -509,9 +511,15 @@ impl RuntimeProjection {
                 lane_id: approval.owner.lane_id.clone(),
                 task_id: approval.owner.task_id.clone(),
                 audit_id: approval.audit_id.clone(),
-                // The runtime emits no audit object for a tool approval
-                // (`AuditObjectRef::KIND_PERMISSION` has no emission site), so
-                // there is nothing to scope a trail by and none is offered.
+                // C7 gave `RespondToApproval` a durable audit record keyed by
+                // the permission object, so a *decided* approval has a trail.
+                // This item is a pending one — the row is appended when the
+                // decision is applied — so the scope stays absent here: an
+                // affordance would open an empty timeline and call it the
+                // decision's trail, which is E1 defect 4 in the other
+                // direction. The resolved trail is reachable where the decision
+                // exists: the permission row in the dock and in the ordered
+                // transcript, both of which open D14 by this same object.
                 audit_scope: None,
                 policy_reason_key: Some(approval.policy_reason_key.clone()),
                 blocked_by_plan,
@@ -1285,6 +1293,10 @@ impl RuntimeProjection {
             .capabilities
             .iter()
             .any(|capability| capability.0 == crate::OPERATOR_GIT_CAPABILITY);
+        let supports_transcript_rows = confirmed
+            .capabilities
+            .iter()
+            .any(|capability| capability.0 == crate::TRANSCRIPT_ROWS_CAPABILITY);
         // C6: liveness is Core's own bracketed fact. `active_turns` carries
         // every turn Core is running, so the composer gates on an entry whose
         // owner names its target — the Lane for a Lane composer, no Lane for
@@ -1805,6 +1817,7 @@ impl RuntimeProjection {
             unavailable_features: unavailable_features(
                 supports_structured_diff,
                 supports_operator_git,
+                supports_transcript_rows,
             ),
         })
     }
@@ -2140,6 +2153,121 @@ pub(crate) fn is_dormant_gate(view: &RuntimeViewState, gate: &MergeGateRecord) -
                     | AgentSessionStatus::Cancelled
             )
     })
+}
+
+/// Flattens one ordered transcript row for the cockpit
+/// (`runtime.transcript_rows`, C8).
+///
+/// Every field is one Core published. A content shape this build cannot draw
+/// keeps its row, labelled `unknown`: `TranscriptRowContent` is
+/// `#[non_exhaustive]`, and dropping the row would silently shorten a
+/// conversation, which is worse than an unnamed one.
+pub(crate) fn transcript_row_projection(
+    row: &viden_core::OwnedTranscriptRow,
+) -> TranscriptRowProjection {
+    let mut projection = TranscriptRowProjection {
+        id: row.id.clone(),
+        kind: "unknown",
+        lane_id: row.owner.lane_id.clone(),
+        sequence: row.sequence,
+        timestamp: row.timestamp,
+        text: None,
+        truncated: false,
+        evidence_id: None,
+        tool_call_id: None,
+        tool_name: None,
+        input_preview: None,
+        success: None,
+        summary: None,
+        check_id: None,
+        label: None,
+        command: None,
+        status: None,
+        failing_location: None,
+        request_id: None,
+        decision: None,
+        audit_id: None,
+    };
+    match &row.content {
+        TranscriptRowContent::User { text, truncated } => {
+            projection.kind = "user";
+            projection.text = Some(text.clone());
+            projection.truncated = *truncated;
+        }
+        TranscriptRowContent::Assistant {
+            text,
+            truncated,
+            evidence_id,
+        } => {
+            projection.kind = "assistant";
+            projection.text = Some(text.clone());
+            projection.truncated = *truncated;
+            projection.evidence_id = evidence_id.clone();
+        }
+        TranscriptRowContent::ToolCall { call } => {
+            projection.kind = "tool_call";
+            projection.tool_call_id = Some(call.tool_call_id.clone());
+            projection.tool_name = Some(call.name.clone());
+            projection.input_preview = Some(call.input_preview.clone());
+        }
+        TranscriptRowContent::ToolResult {
+            tool_call_id,
+            success,
+            summary,
+            evidence_id,
+        } => {
+            projection.kind = "tool_result";
+            projection.tool_call_id = Some(tool_call_id.clone());
+            projection.success = Some(*success);
+            projection.summary = Some(summary.clone());
+            projection.evidence_id = evidence_id.clone();
+        }
+        TranscriptRowContent::CheckRun { check } => {
+            projection.kind = "check_run";
+            projection.check_id = Some(check.id.clone());
+            projection.label = Some(check.label.clone());
+            projection.command = Some(check.command.clone());
+            projection.status = Some(check_run_status(check.status));
+            projection.summary = Some(check.summary.clone());
+            projection.failing_location = check.failing_location.clone();
+        }
+        TranscriptRowContent::Permission {
+            request_id,
+            decision,
+            audit_id,
+        } => {
+            projection.kind = "permission";
+            projection.request_id = Some(request_id.clone());
+            // `None` stays `None`: the durable audit row keeps no payload for
+            // a scoped allow, and publishing `allow_once` for one would
+            // misreport the operator's decision.
+            projection.decision = decision.as_ref().map(approval_decision_key);
+            projection.audit_id = Some(audit_id.clone());
+        }
+        _ => {}
+    }
+    projection
+}
+
+/// Core's own scope key for one approval decision.
+///
+/// The same four words Core audits the decision under
+/// (`approval.<allow_once|allow_session|allow_repo|deny>`), so a transcript
+/// row and an audit row name one decision the same way.
+fn approval_decision_key(decision: &ApprovalDecision) -> String {
+    match decision {
+        ApprovalDecision::Allow {
+            scope: ApprovalScope::Once,
+        } => "allow_once",
+        ApprovalDecision::Allow {
+            scope: ApprovalScope::Session { .. },
+        } => "allow_session",
+        ApprovalDecision::Allow {
+            scope: ApprovalScope::RepoAllowlist { .. },
+        } => "allow_repo",
+        ApprovalDecision::Deny => "deny",
+    }
+    .to_string()
 }
 
 /// Flattens one live turn for the cockpit (`runtime.turn_lifecycle`, C6).

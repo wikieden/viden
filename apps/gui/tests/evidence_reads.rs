@@ -754,6 +754,74 @@ fn patch_content_arrives_as_parsed_rows_rather_than_text() {
 }
 
 #[test]
+fn the_durable_work_fixture_projects_cores_own_patch_row_and_its_canonical_bytes() {
+    // Fixture truth rather than a hand-built row: C7
+    // (`runtime.durable_work_evidence`) is what makes a patch *exist* in the
+    // archive for a native tool edit and for an ACP patch, and this replays
+    // the page and content events Core committed for it. The archive read
+    // itself is unchanged — which is the point: the client needed no new
+    // vocabulary to show the rows the runtime started writing.
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../crates/types/tests/fixtures/frontend-contract-v1/durable-work-evidence.json"
+    ))
+    .expect("fixture json");
+    let envelopes: Vec<RuntimeEventEnvelope> =
+        serde_json::from_value(fixture["events"].clone()).expect("fixture events");
+    let reads: Vec<RuntimeEventEnvelope> = envelopes
+        .into_iter()
+        .filter(|envelope| match &envelope.event {
+            RuntimeWireEvent::Known(event) => matches!(
+                event.kind,
+                RuntimeEventKind::EvidencePageLoaded { .. }
+                    | RuntimeEventKind::EvidenceContentLoaded { .. }
+            ),
+            _ => false,
+        })
+        .collect();
+    assert_eq!(reads.len(), 2, "the fixture answers one page and one read");
+
+    let mut harness = harness(reads, true);
+    let projection = harness
+        .adapter
+        .query_evidence_and_wait(
+            "cmd_durable_work_page",
+            None,
+            vec!["patch".to_string()],
+            TIMEOUT,
+        )
+        .expect("the fixture's page");
+
+    let entry = projection.rows.first().expect("the patch row");
+    assert_eq!(entry.id, "patch-tool_durable_work_edit");
+    assert_eq!(entry.kind, "patch");
+    assert_eq!(
+        entry.path.as_deref(),
+        Some("crates/types/src/evidence_reads.rs")
+    );
+    // The row is archived work, so it carries the canonical reference the
+    // content read resolves; a client that showed the summary without it
+    // could not tell archived bytes from a display-only row.
+    let canonical = entry.canonical.as_ref().expect("canonical reference");
+    assert_eq!(canonical.item_id, "ctxi_durable_work_native");
+    assert_eq!(canonical.verification, "verified");
+
+    let content = harness
+        .adapter
+        .read_evidence_content_and_wait(
+            "cmd_durable_work_content",
+            "patch-tool_durable_work_edit",
+            TIMEOUT,
+        )
+        .expect("the fixture's bytes");
+    assert_eq!(content.kind, "diff");
+    let document = content.document.as_ref().expect("parsed diff rows");
+    assert_eq!(
+        document.files[0].path, "crates/types/src/evidence_reads.rs",
+        "the shared diff renderer draws Core's own rows"
+    );
+}
+
+#[test]
 fn every_unavailable_reason_keeps_its_own_name() {
     for (reason, expected) in [
         (EvidenceUnavailableReason::SummaryOnly, "summary_only"),

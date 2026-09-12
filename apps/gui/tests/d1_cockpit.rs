@@ -170,9 +170,13 @@ fn canonical_d1_projects_cockpit_regions_only_from_the_core_view() {
         // which this fixture's Core advertises: the commit bar and the titlebar
         // sync control now reach real `RunOperatorGitAction` commands, so a row
         // claiming operator source-control is unavailable would be a stale
-        // claim about Core. Every remaining code must name an open register
-        // entry or a documented client-local reason.
-        vec!["recovery", "transcript_user", "transcript_assistant"]
+        // claim about Core. Both `transcript_*` rows are absent as of
+        // `runtime.transcript_rows`, which this fixture's Core advertises:
+        // they said no ordered owner-scoped row existed, and C8 published one,
+        // so the transcript draws Core's page instead (GUI-CORE-009). Every
+        // remaining code must name an open register entry or a documented
+        // client-local reason.
+        vec!["recovery"]
     );
 }
 

@@ -60,7 +60,7 @@ function pendingApprovalFor(
  * the middle of it buries the conversation; a check run is not, because its
  * body is three lines and the failing one is the reason the block exists.
  */
-function toolBlock(
+export function toolBlock(
   locale: Locale,
   options: {
     name: string;
@@ -129,7 +129,7 @@ function toolBlock(
 }
 
 /** One `.testrow`: a key Core named and the value it reported for it. */
-function checkRow(host: HTMLElement, id: string, key: string, value: string): HTMLElement {
+export function checkRow(host: HTMLElement, id: string, key: string, value: string): HTMLElement {
   const row = document.createElement("p");
   row.className = "testrow d1-check-row";
   row.dataset.checkRow = id;

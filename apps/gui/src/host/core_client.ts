@@ -14,6 +14,7 @@ import type {
   LayoutPreferencesProjection,
 } from "../models/layout_preferences";
 import type { RecentWorkResult } from "../models/recent_work";
+import type { TranscriptRowsProjection } from "../models/transcript_rows";
 import type { D6Intent, D6IntentResult, D6RecoveryProjection } from "../models/workspace";
 import type {
   PreferenceIntentResult,
@@ -67,6 +68,42 @@ export interface CoreClient {
   preferencesRestore(commandId: string): Promise<PreferenceIntentResult>;
   /** Drains ordered Core events while a preference command is still pending. */
   preferencesPoll(): Promise<PreferenceIntentResult>;
+
+  /**
+   * Sends Core's read-only `QueryTranscriptRows` for the newest page and
+   * resolves with whatever the ordered `TranscriptRowsLoaded` published
+   * (`runtime.transcript_rows`, C8, GUI-CORE-009).
+   *
+   * Core owns the ordering, the owner scope, the 8 KiB row bound, the page
+   * clamp, and the opaque cursor. The frontend never reads a session file,
+   * never sorts, and never decides where a page ends.
+   *
+   * `laneId` scopes the read to the exact owner Core bound to that Lane;
+   * `null` reads unscoped, which is the evidence archive's own rule — the
+   * contract's prefix matcher cannot express "no Lane". A Lane Core published
+   * no owner for is refused by the host rather than read unscoped, which would
+   * show every Lane's conversation under one Lane's name.
+   */
+  queryTranscriptRows(
+    commandId: string,
+    laneId: string | null,
+  ): Promise<TranscriptRowsProjection>;
+  /**
+   * One more `QueryTranscriptRows` through Core's own `older` cursor, carried
+   * back verbatim. The client never parses or constructs one.
+   */
+  transcriptRowsLoadOlder(
+    commandId: string,
+    laneId: string | null,
+  ): Promise<TranscriptRowsProjection>;
+  /** Drains ordered Core events while a transcript read is still pending. */
+  transcriptRowsPoll(): Promise<TranscriptRowsProjection>;
+  /**
+   * The held rows with no Core traffic. The transcript reads it for the
+   * capability before it asks, so an absent one keeps its named unavailable
+   * rows instead of an empty conversation.
+   */
+  transcriptRows(): Promise<TranscriptRowsProjection>;
 
   /**
    * The cockpit layout record with no Core traffic (`ui.layout_preferences`).

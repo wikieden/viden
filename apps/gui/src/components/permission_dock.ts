@@ -85,6 +85,18 @@ export function renderPermissionDock(
   projection: PermissionDockProjection,
   send: (intent: PermissionIntent) => Promise<unknown>,
   locale: Locale,
+  /**
+   * Opens D14 scoped to the audit object this decision's record names
+   * (`runtime.durable_work_evidence`, C7).
+   *
+   * Before C7 the `audit_id` the dock printed was minted, published on two
+   * facts, and never written anywhere, so a link would have resolved to
+   * nothing — which is why this row was a fact and not a control. C7 appends
+   * the record under the permission object when the decision is applied, so
+   * the link resolves for every decided request. Absent while the caller
+   * cannot host D14, which leaves the row a fact rather than a dead control.
+   */
+  onOpenAuditTrail?: (scope: { kind: string; id: string }) => void,
 ): void {
   const request = projection.request;
   if (!request) {
@@ -139,6 +151,25 @@ export function renderPermissionDock(
     `${translate(locale, "d1.permission.audit", {})}: ${request.auditId}`,
   ].join(" · ");
   facts.append(factText);
+
+  if (onOpenAuditTrail) {
+    // `D-AUDIT`'s link runs one way: an audit row names a permission object,
+    // so the trail is opened by that object and never by the audit id, which
+    // the client would otherwise have to construct a query for.
+    const trail = document.createElement("button");
+    trail.type = "button";
+    trail.className = "d1-action";
+    trail.dataset.permissionAuditTrail = request.id;
+    trail.textContent = translate(locale, "d1.permission.auditTrail", {});
+    // The row is appended when the decision is *applied*, so while this
+    // request is still open the trail is a correct query with nothing in it
+    // yet. The control says so rather than implying a row already exists.
+    trail.title = translate(locale, "d1.permission.auditTrailPending", {});
+    facts.append(trail);
+    trail.addEventListener("click", () =>
+      onOpenAuditTrail({ kind: "permission", id: request.id }),
+    );
+  }
 
   // Core's structured decision context, when it published one (GUI-CORE-012).
   //

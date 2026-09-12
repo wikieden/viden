@@ -229,3 +229,32 @@ describe("operator source-control asks", () => {
     expect(facts).not.toContain("Unavailable");
   });
 });
+
+describe("the audit trail C7 made durable", () => {
+  test("the link opens D14 by the permission object, never by the audit id", () => {
+    const onOpenAuditTrail = vi.fn();
+    const root = document.createElement("div");
+    renderPermissionDock(root, PROJECTION, async () => undefined, "en", onOpenAuditTrail);
+    const trail = root.querySelector<HTMLButtonElement>(
+      "[data-permission-audit-trail='approval-shell']",
+    );
+    // `D-AUDIT` runs one way: a record names the object, so the trail is
+    // opened by the object. Querying by `audit-shell` would ask D14 for a row
+    // by id, which its filters do not express.
+    trail?.click();
+    expect(onOpenAuditTrail).toHaveBeenCalledExactlyOnceWith({
+      kind: "permission",
+      id: "approval-shell",
+    });
+    // The row exists once the decision is applied, and the control says so
+    // rather than implying this open request already has one.
+    expect(trail?.title).toContain("when your decision is applied");
+  });
+
+  test("with no host for D14 the audit id stays a fact and no control appears", () => {
+    const root = document.createElement("div");
+    renderPermissionDock(root, PROJECTION, async () => undefined, "en");
+    expect(root.querySelector("[data-permission-audit-trail]")).toBeNull();
+    expect(root.textContent).toContain("audit-shell");
+  });
+});

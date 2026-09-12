@@ -23,6 +23,13 @@ export function createTauriCoreClient(): CoreClient {
     preferencesRestore: (commandId) => invoke("preferences_restore", { commandId }),
     preferencesPoll: () => invoke("preferences_poll"),
 
+    queryTranscriptRows: (commandId, laneId) =>
+      invoke("query_transcript_rows", { commandId, laneId }),
+    transcriptRowsLoadOlder: (commandId, laneId) =>
+      invoke("transcript_rows_load_older", { commandId, laneId }),
+    transcriptRowsPoll: () => invoke("transcript_rows_poll"),
+    transcriptRows: () => invoke("transcript_rows"),
+
     layoutPreferences: () => invoke("layout_preferences"),
     layoutPreferencesSet: (commandId, patch) =>
       invoke("layout_preferences_set", { commandId, patch }),

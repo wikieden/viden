@@ -374,6 +374,7 @@ export async function hydrateShellFromCore(
             workspaceDiff: workspaceDiffPort,
             operatorGit: operatorGitPort,
             layout: layoutPort,
+            transcriptRows: transcriptRowsPort,
             evidence: evidencePort,
             // EvidenceView's footer opens the audit trail scoped to the
             // evidence object, the same one-way `D-AUDIT` link D12's baseline
@@ -735,6 +736,39 @@ export async function hydrateShellFromCore(
        * refusal in place of the section rather than showing an empty inventory
        * (GUI-CORE-022).
        */
+      /**
+       * The ordered transcript port (`runtime.transcript_rows`, C8,
+       * GUI-CORE-009).
+       *
+       * `read` is the no-traffic projection; `query` reads the newest page for
+       * one scope and `loadOlder` pages backwards through Core's own cursor.
+       * Core owns the ordering, the owner scope, the row bound and the cursor
+       * — the shell only names the scope and waits for the ordered answer.
+       */
+      const transcriptRowsPort = {
+        read: async () => await core.transcriptRows(),
+        query: async (laneId: string | null) => {
+          let result = await core.queryTranscriptRows(
+            `gui-rows-${crypto.randomUUID()}`,
+            laneId,
+          );
+          for (let attempt = 0; attempt < 4 && result.outcome.state === "pending"; attempt += 1) {
+            result = await core.transcriptRowsPoll();
+          }
+          return result;
+        },
+        loadOlder: async (laneId: string | null) => {
+          let result = await core.transcriptRowsLoadOlder(
+            `gui-rows-${crypto.randomUUID()}`,
+            laneId,
+          );
+          for (let attempt = 0; attempt < 4 && result.outcome.state === "pending"; attempt += 1) {
+            result = await core.transcriptRowsPoll();
+          }
+          return result;
+        },
+      };
+
       /**
        * The cockpit layout port (`ui.layout_preferences`, C5).
        *
