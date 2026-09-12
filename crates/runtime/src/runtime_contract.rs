@@ -725,6 +725,22 @@ impl SessionEngine {
                     Err(err) => return Ok(vec![command_rejected(command_id, err)]),
                 }
             }
+            // The third read of the same shape, and the strictest: it is the
+            // only one that publishes arbitrary operator bytes. `Err` is a
+            // malformed path, an unresolvable Lane, or a permission decision,
+            // and all three come back as `CommandRejected` naming this exact
+            // read. A missing file, a directory, and an unreadable one are
+            // *not* errors: they are typed `WorkspaceFileBody::Unavailable`
+            // answers, because they are facts about the tree a client renders
+            // rather than retries, and folding them into the refusal path
+            // would turn a policy decision about the operator and a property
+            // of their files into the same message.
+            RuntimeCommand::ReadWorkspaceFile { query } => {
+                match self.read_workspace_file(&command_id, query) {
+                    Ok(file_events) => append_resequenced(&mut events, file_events),
+                    Err(err) => return Ok(vec![command_rejected(command_id, err)]),
+                }
+            }
             // Dispatched beside the diff read because they share a target and
             // a resolution path, but this one mutates, so every `Err` below is
             // a *pre-effect* refusal — a malformed action, a path that leaves
@@ -1203,14 +1219,7 @@ impl SessionEngine {
                 )]);
             }
             RuntimeCommand::RetrieveContext { .. } => unreachable!("handled before acceptance"),
-            // The shapes land before the producer, as `runtime.turn_lifecycle`
-            // did: the command is declared and refused rather than silently
-            // accepted, so a client that sends one against this build gets a
-            // stated refusal carrying its own command id instead of an answer
-            // that never arrives.
-            RuntimeCommand::ReadWorkspaceFile { .. }
-            | RuntimeCommand::CancelActiveTurn
-            | RuntimeCommand::RespondToApproval { .. } => {
+            RuntimeCommand::CancelActiveTurn | RuntimeCommand::RespondToApproval { .. } => {
                 return Ok(vec![command_rejected(
                     command_id,
                     "runtime command is declared but not implemented in core yet".to_string(),

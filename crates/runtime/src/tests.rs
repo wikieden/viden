@@ -29,6 +29,7 @@ mod trust_loop_tests;
 mod turn_lifecycle_tests;
 mod ui_layout_tests;
 mod workflow_command_tests;
+mod workspace_file_reads_tests;
 mod workspace_files_tests;
 mod workspace_owner_tests;
 

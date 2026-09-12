@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use sha2::{Digest, Sha256};
 use viden_config::{
     default_user_config_path, preview_reset_user_ui_preferences_at, preview_user_ui_preferences_at,
     reset_user_ui_layout_preferences_at, reset_user_ui_preferences_at,
@@ -14,7 +15,8 @@ use viden_types::{
     RecentWorkQuery, RuntimeCommand, RuntimeEvent, RuntimeEventKind, SourceTarget, ToolInput,
     ToolSpec, UiLayoutPreferencePatch, UiLayoutPreferences, UiPreferencePatch, UiPreferences,
     WorkspaceChangeKind, WorkspaceDiffEntry, WorkspaceDiffPage, WorkspaceDiffQuery,
-    WorkspaceDiffScope, WorkspaceFileEntry, WorkspaceFileKind, WorkspaceFilePage,
+    WorkspaceDiffScope, WorkspaceFileBody, WorkspaceFileContent, WorkspaceFileEntry,
+    WorkspaceFileKind, WorkspaceFilePage, WorkspaceFileReadQuery, WorkspaceFileUnavailableReason,
     WorkspaceFilesQuery, resolve_ui_preferences,
 };
 
@@ -163,6 +165,66 @@ fn read_workspace_file_page(
         next_after,
         complete,
     })
+}
+
+/// Resolves one path inside `root` and reads what is there.
+///
+/// Every outcome is a typed [`WorkspaceFileContent`]; there is no error path,
+/// because by the time this runs the request was legal and the gate allowed
+/// it, so anything left is a fact about the tree rather than a refusal.
+///
+/// The containment check is the load-bearing step. `root` and the target are
+/// canonicalized independently and compared, so a symlink — at the leaf or at
+/// any parent — that resolves outside the target is [`Unreadable`] rather than
+/// followed. It runs *before* the file is opened, so bytes from outside the
+/// target are never read at all.
+///
+/// [`Unreadable`]: WorkspaceFileUnavailableReason::Unreadable
+fn read_workspace_file_content(
+    root: &Path,
+    absolute: &Path,
+    relative: String,
+    query: &WorkspaceFileReadQuery,
+) -> WorkspaceFileContent {
+    let Ok(canonical_root) = root.canonicalize() else {
+        // The target root itself is gone. Not "this file is missing": Core
+        // cannot say anything about a path inside a tree it cannot resolve.
+        return unavailable_workspace_file(relative, WorkspaceFileUnavailableReason::Unreadable);
+    };
+    let canonical = match absolute.canonicalize() {
+        Ok(canonical) => canonical,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return unavailable_workspace_file(relative, WorkspaceFileUnavailableReason::NotFound);
+        }
+        Err(_) => {
+            return unavailable_workspace_file(
+                relative,
+                WorkspaceFileUnavailableReason::Unreadable,
+            );
+        }
+    };
+    if !canonical.starts_with(&canonical_root) {
+        return unavailable_workspace_file(relative, WorkspaceFileUnavailableReason::Unreadable);
+    }
+    let Ok(metadata) = std::fs::metadata(&canonical) else {
+        return unavailable_workspace_file(relative, WorkspaceFileUnavailableReason::Unreadable);
+    };
+    if metadata.is_dir() {
+        // A directory's contents are the inventory read's answer, not this
+        // one's, so it is a typed navigation fact rather than a failure.
+        return unavailable_workspace_file(relative, WorkspaceFileUnavailableReason::Directory);
+    }
+    let Some((size, sha256, sniff, prefix)) =
+        stream_workspace_file(&canonical, query.clamped_byte_limit() as usize)
+    else {
+        return unavailable_workspace_file(relative, WorkspaceFileUnavailableReason::Unreadable);
+    };
+    WorkspaceFileContent {
+        path: relative,
+        size: Some(size),
+        sha256: Some(sha256),
+        content: classify_workspace_file_body(size, &sniff, prefix),
+    }
 }
 
 /// Whether a workspace-relative path is inside an excluded state directory.
@@ -435,6 +497,91 @@ impl SessionEngine {
         )])
     }
 
+    /// Reads the content of exactly one file in the workspace or one Lane
+    /// worktree (`runtime.workspace_file_reads`, C9).
+    ///
+    /// The third read written to this discipline, and the strictest, because
+    /// it is the only one that publishes arbitrary operator bytes:
+    ///
+    /// - **The path is refused, never repaired.** `query.validate()` runs
+    ///   first, before the target is resolved and before the gate. Normalizing
+    ///   `../../etc/passwd` into `etc/passwd` would serve a different file than
+    ///   the one asked for under the asked-for name, and answering it with
+    ///   `Unavailable { NotFound }` would claim the operator's own tree lacks a
+    ///   file that may well exist. A refusal is the only honest answer to
+    ///   either, and it travels as `CommandRejected` carrying the caller's own
+    ///   command id.
+    /// - **The target root and the path rule are the whole scope.**
+    ///   `read_file`'s own `resolve_path` scopes nothing — it will happily join
+    ///   an absolute path — so nothing below the validated relative path and
+    ///   [`Self::resolve_source_target_root`] keeps this read inside the tree
+    ///   the caller named. A symlink whose real location leaves the resolved
+    ///   root is refused as `Unreadable` rather than followed, because
+    ///   following it would serve a file from outside the tree the gate
+    ///   authorized.
+    /// - **The gate runs on the real registry spec, before any byte is read.**
+    ///   `self.tools.spec("read_file")` rather than a spec retyped here, so an
+    ///   operator opening a file and an agent reading it are governed by one
+    ///   `viden.toml` rule set and cannot drift apart. The input `path` is the
+    ///   resolved absolute path, so the engine's path-scope check covers
+    ///   exactly the file that will be opened.
+    /// - **A deny and an unresolved ask are both refusals.** This read answers
+    ///   a keystroke, not an interactive turn: parking a client's Code tab
+    ///   behind an approval modal would stall the cockpit, so the decision is
+    ///   non-interactive and `approver` is deliberately not consulted. Plan
+    ///   mode still answers, because `read_file` mutates nothing.
+    /// - **An absence is an answer, not a refusal.** A missing path, a
+    ///   directory, and an unreadable file are facts about the tree that a
+    ///   client renders rather than retries, so they are typed
+    ///   `WorkspaceFileBody::Unavailable` on a published event. Only a
+    ///   malformed request or a permission decision is a `CommandRejected`.
+    pub(crate) fn read_workspace_file(
+        &self,
+        command_id: &str,
+        query: WorkspaceFileReadQuery,
+    ) -> Result<Vec<RuntimeEvent>, String> {
+        query.validate()?;
+        let relative = query.normalized_path();
+        let root = self.resolve_source_target_root(&query.target)?;
+        // Lexically joined, not canonicalized: the permission engine's scope
+        // check is lexical against the working directory, so handing it a
+        // canonical path would refuse every workspace whose own path runs
+        // through a symlink. Containment against the *canonical* root is
+        // checked below, after the gate, where it belongs.
+        let absolute = root.join(&relative);
+
+        // The gate runs first: nothing below this point has opened a file.
+        let tool = self.tools.spec(WORKSPACE_FILE_READ_TOOL).ok_or_else(|| {
+            format!("tool `{WORKSPACE_FILE_READ_TOOL}` is not registered in this Core")
+        })?;
+        let mut input = ToolInput::new();
+        input.insert("path".to_string(), absolute.display().to_string());
+        match self.permissions.decide(&tool, &input) {
+            PermissionDecision::Allow(_) => {}
+            PermissionDecision::Deny(deny) => {
+                return Err(workspace_file_read_refusal(
+                    &format!("{:?}", deny.decision_reason),
+                    &deny.message,
+                ));
+            }
+            PermissionDecision::Ask(ask) => {
+                return Err(workspace_file_read_refusal(
+                    "RequiresApproval",
+                    &ask.message,
+                ));
+            }
+        }
+
+        let file = read_workspace_file_content(&root, &absolute, relative, &query);
+        Ok(vec![RuntimeEvent::new(
+            1,
+            RuntimeEventKind::WorkspaceFileLoaded {
+                command_id: command_id.to_string(),
+                file,
+            },
+        )])
+    }
+
     /// Resolves the root a source-control read or action runs in, from
     /// Core-owned records only.
     ///
@@ -697,6 +844,140 @@ pub(crate) const WORKSPACE_DIFF_TOOL: &str = "git_diff";
 /// 1 MiB maximum still gets a full answer for both the worktree and the index
 /// side before the page bound trims it.
 const MAX_DIFF_GIT_OUTPUT_BYTES: usize = 2 * 1024 * 1024;
+
+/// Permission tool the single-file read is gated under
+/// (`runtime.workspace_file_reads`).
+///
+/// The *agent's* own `read_file` rather than an operator-only name, the
+/// `git_diff` precedent one line down: one `viden.toml` allow/ask/deny rule set
+/// then governs an operator opening a file in the Code tab and an agent reading
+/// the same bytes mid-turn. The spec itself is taken from the live registry
+/// (`ToolRegistry::spec`), never retyped here, so a spec whose `is_mutating`
+/// flag or input shape changes cannot leave this path gating something
+/// different from what an agent call would gate.
+pub(crate) const WORKSPACE_FILE_READ_TOOL: &str = "read_file";
+
+/// Leading bytes inspected to decide whether a file is binary.
+///
+/// 8 KiB, the classic heuristic window. A NUL inside it means the file is not
+/// text, whatever the rest decodes to. Note the stated bound: a NUL that first
+/// appears *after* this window is not caught by the sniff, and such a file is
+/// classified by whether its published prefix decodes as UTF-8.
+const WORKSPACE_FILE_BINARY_SNIFF_BYTES: usize = 8 * 1024;
+
+/// Chunk size used to hash a file without holding all of it in memory.
+///
+/// `sha256` is over the whole file and `size` is its real length, so the read
+/// streams past its own published bound rather than hashing only what it
+/// publishes — a hash of the truncated prefix would make two different files
+/// with a common head indistinguishable.
+const WORKSPACE_FILE_READ_CHUNK_BYTES: usize = 64 * 1024;
+
+/// Builds the rejection reason for a refused file read.
+///
+/// Same shape and same reasoning as [`workspace_files_refusal`]: an `Err` so
+/// the dispatch publishes `CommandRejected` with the caller's own command id.
+/// It is deliberately never a `WorkspaceFileBody::Unavailable`, which is a fact
+/// about the *file* — a client renders it as "this file cannot be shown" and
+/// would silently turn a policy decision about the operator into a property of
+/// their tree.
+fn workspace_file_read_refusal(reason: &str, message: &str) -> String {
+    format!(
+        "{}\nhint: grant the `{WORKSPACE_FILE_READ_TOOL}` permission to open workspace files from \
+         this client",
+        render_permission_denial(WORKSPACE_FILE_READ_TOOL, reason, message)
+    )
+}
+
+/// Streams one file, returning its true length, its whole-file digest, the
+/// leading bytes used for the binary sniff, and the bounded prefix that will be
+/// published.
+///
+/// Returns `None` for any I/O failure after the file was opened; the caller
+/// turns that into [`WorkspaceFileUnavailableReason::Unreadable`], because a
+/// partially read file is not content Core may publish as though it were whole.
+fn stream_workspace_file(
+    path: &Path,
+    byte_limit: usize,
+) -> Option<(u64, String, Vec<u8>, Vec<u8>)> {
+    use std::io::Read;
+
+    let mut file = std::fs::File::open(path).ok()?;
+    let mut hasher = Sha256::new();
+    let mut size = 0u64;
+    let mut sniff = Vec::new();
+    let mut prefix = Vec::new();
+    let mut chunk = vec![0u8; WORKSPACE_FILE_READ_CHUNK_BYTES];
+    loop {
+        let read = file.read(&mut chunk).ok()?;
+        if read == 0 {
+            break;
+        }
+        let bytes = &chunk[..read];
+        hasher.update(bytes);
+        size += read as u64;
+        if sniff.len() < WORKSPACE_FILE_BINARY_SNIFF_BYTES {
+            let wanted = WORKSPACE_FILE_BINARY_SNIFF_BYTES - sniff.len();
+            sniff.extend_from_slice(&bytes[..read.min(wanted)]);
+        }
+        if prefix.len() < byte_limit {
+            let wanted = byte_limit - prefix.len();
+            prefix.extend_from_slice(&bytes[..read.min(wanted)]);
+        }
+    }
+    Some((size, format!("{:x}", hasher.finalize()), sniff, prefix))
+}
+
+/// Classifies the bytes of one file into the body the contract publishes.
+///
+/// `Binary` when the sniff window holds a NUL or the published prefix does not
+/// decode. The one subtlety is the difference between the two decode failures:
+/// an *incomplete* trailing sequence on a prefix the bound actually cut is a
+/// multi-byte character straddling the bound, so the text is cut at
+/// `valid_up_to()` — the character boundary — and marked truncated. The same
+/// incomplete sequence at the end of a file nothing cut is simply a file that
+/// is not UTF-8, and a genuine invalid sequence anywhere is too.
+fn classify_workspace_file_body(size: u64, sniff: &[u8], prefix: Vec<u8>) -> WorkspaceFileBody {
+    if sniff.contains(&0) {
+        return WorkspaceFileBody::Binary;
+    }
+    let cut_by_bound = size > prefix.len() as u64;
+    match String::from_utf8(prefix) {
+        Ok(text) => WorkspaceFileBody::Text {
+            text,
+            truncated: cut_by_bound,
+        },
+        Err(error) if cut_by_bound && error.utf8_error().error_len().is_none() => {
+            let boundary = error.utf8_error().valid_up_to();
+            let mut bytes = error.into_bytes();
+            bytes.truncate(boundary);
+            match String::from_utf8(bytes) {
+                Ok(text) => WorkspaceFileBody::Text {
+                    text,
+                    truncated: true,
+                },
+                // Unreachable: `valid_up_to` is by definition a valid prefix.
+                Err(_) => WorkspaceFileBody::Binary,
+            }
+        }
+        Err(_) => WorkspaceFileBody::Binary,
+    }
+}
+
+/// Builds the typed absence for a path Core resolved but has no bytes for.
+fn unavailable_workspace_file(
+    path: String,
+    reason: WorkspaceFileUnavailableReason,
+) -> WorkspaceFileContent {
+    WorkspaceFileContent {
+        path,
+        // Absent, not zero: "there is no file to measure" and "the file is
+        // empty" are different facts and a client renders them differently.
+        size: None,
+        sha256: None,
+        content: WorkspaceFileBody::Unavailable { reason },
+    }
+}
 
 /// Builds the rejection reason for a refused diff read.
 ///
