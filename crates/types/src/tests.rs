@@ -7145,3 +7145,476 @@ fn the_durable_work_evidence_facts_stay_known_wire_events() {
         }
     }
 }
+
+/// Builds one owner-scoped transcript row for the paging and scoping tests.
+fn transcript_row(
+    id: &str,
+    owner: RuntimeOwner,
+    sequence: u64,
+    content: TranscriptRowContent,
+) -> OwnedTranscriptRow {
+    OwnedTranscriptRow {
+        id: id.to_string(),
+        owner,
+        sequence,
+        timestamp: Some(1_700_000_000 + sequence),
+        content,
+    }
+}
+
+fn transcript_rows_owner(lane: Option<&str>, session: Option<&str>) -> RuntimeOwner {
+    RuntimeOwner {
+        workspace_id: "ws_rows".to_string(),
+        project_id: "prj_rows".to_string(),
+        lane_id: lane.map(ToString::to_string),
+        session_id: session.map(ToString::to_string),
+        task_id: None,
+        turn_id: None,
+    }
+}
+
+/// Every content variant has a stable tagged wire shape, because a client
+/// matches on `kind` and a renamed tag is a broken transcript surface.
+#[test]
+fn every_transcript_row_content_variant_has_a_stable_tag() {
+    let cases = [
+        (
+            TranscriptRowContent::User {
+                text: "ship it".to_string(),
+                truncated: false,
+            },
+            serde_json::json!({"kind": "user", "text": "ship it", "truncated": false}),
+        ),
+        (
+            TranscriptRowContent::Assistant {
+                text: "on it".to_string(),
+                truncated: true,
+                evidence_id: Some("assistant-body-1".to_string()),
+            },
+            serde_json::json!({
+                "kind": "assistant",
+                "text": "on it",
+                "truncated": true,
+                "evidence_id": "assistant-body-1"
+            }),
+        ),
+        (
+            TranscriptRowContent::ToolCall {
+                call: ToolCallView {
+                    tool_call_id: "call-1".to_string(),
+                    name: "edit_file".to_string(),
+                    input_preview: "path=src/lib.rs".to_string(),
+                    owner: None,
+                },
+            },
+            serde_json::json!({
+                "kind": "tool_call",
+                "call": {
+                    "tool_call_id": "call-1",
+                    "name": "edit_file",
+                    "input_preview": "path=src/lib.rs"
+                }
+            }),
+        ),
+        (
+            TranscriptRowContent::ToolResult {
+                tool_call_id: "call-1".to_string(),
+                success: true,
+                summary: "1 file changed".to_string(),
+                evidence_id: Some("patch-call-1".to_string()),
+            },
+            serde_json::json!({
+                "kind": "tool_result",
+                "tool_call_id": "call-1",
+                "success": true,
+                "summary": "1 file changed",
+                "evidence_id": "patch-call-1"
+            }),
+        ),
+        (
+            TranscriptRowContent::CheckRun {
+                check: CheckRunView {
+                    id: "call-2".to_string(),
+                    owner: transcript_rows_owner(Some("lane-a"), None),
+                    label: "cargo test".to_string(),
+                    command: "cargo test -p viden-types".to_string(),
+                    status: CheckRunStatus::Passed,
+                    summary: "passed".to_string(),
+                    failing_location: None,
+                },
+            },
+            serde_json::json!({
+                "kind": "check_run",
+                "check": {
+                    "id": "call-2",
+                    "owner": {
+                        "workspace_id": "ws_rows",
+                        "project_id": "prj_rows",
+                        "lane_id": "lane-a",
+                        "session_id": null,
+                        "task_id": null,
+                        "turn_id": null
+                    },
+                    "label": "cargo test",
+                    "command": "cargo test -p viden-types",
+                    "status": "passed",
+                    "summary": "passed",
+                    "failing_location": null
+                }
+            }),
+        ),
+        (
+            TranscriptRowContent::Permission {
+                request_id: "approval-1".to_string(),
+                decision: Some(ApprovalDecision::Deny),
+                audit_id: "audit-1".to_string(),
+            },
+            serde_json::json!({
+                "kind": "permission",
+                "request_id": "approval-1",
+                "decision": "deny",
+                "audit_id": "audit-1"
+            }),
+        ),
+    ];
+    for (content, expected) in cases {
+        let encoded = serde_json::to_value(&content).unwrap();
+        assert_eq!(encoded, expected, "row content wire shape moved");
+        let decoded: TranscriptRowContent = serde_json::from_value(encoded).unwrap();
+        assert_eq!(decoded, content);
+    }
+}
+
+/// An unknown decision is omitted rather than defaulted: the durable audit row
+/// does not keep a scoped allow's payload, and publishing a bare `allow_once`
+/// for an `allow_session` would misreport what the operator chose.
+#[test]
+fn a_permission_row_omits_a_decision_core_did_not_record() {
+    let encoded = serde_json::to_value(TranscriptRowContent::Permission {
+        request_id: "approval-2".to_string(),
+        decision: None,
+        audit_id: "audit-2".to_string(),
+    })
+    .unwrap();
+    assert_eq!(
+        encoded,
+        serde_json::json!({
+            "kind": "permission",
+            "request_id": "approval-2",
+            "audit_id": "audit-2"
+        })
+    );
+}
+
+/// The limit is clamped rather than rejected, the evidence-read precedent: a
+/// client asking for too many rows still means something answerable, while an
+/// unclamped `0` would answer every read with an empty page a client cannot
+/// tell apart from an exhausted transcript.
+#[test]
+fn a_transcript_rows_query_clamps_its_limit_and_defaults_when_absent() {
+    assert_eq!(MAX_TRANSCRIPT_ROWS_PAGE, 200);
+    assert_eq!(DEFAULT_TRANSCRIPT_ROWS_PAGE, 50);
+    assert_eq!(MAX_TRANSCRIPT_ROW_TEXT_BYTES, 8 * 1024);
+    assert_eq!(
+        TranscriptRowsQuery {
+            limit: Some(u16::MAX),
+            ..TranscriptRowsQuery::default()
+        }
+        .clamped_limit(),
+        MAX_TRANSCRIPT_ROWS_PAGE as usize
+    );
+    assert_eq!(
+        TranscriptRowsQuery {
+            limit: Some(0),
+            ..TranscriptRowsQuery::default()
+        }
+        .clamped_limit(),
+        1
+    );
+    assert_eq!(
+        TranscriptRowsQuery::default().clamped_limit(),
+        DEFAULT_TRANSCRIPT_ROWS_PAGE as usize
+    );
+}
+
+/// A cursor this build did not issue is refused, never reinterpreted. Reading
+/// from the newest end would re-deliver a page the client already rendered and
+/// reading from the oldest would look like an exhausted conversation.
+#[test]
+fn a_malformed_transcript_rows_cursor_is_refused() {
+    for raw in ["", "7", "t:7:row", "s:row", "s::row", "s:7:", "s:x:row"] {
+        let query = TranscriptRowsQuery {
+            before: Some(raw.to_string()),
+            ..TranscriptRowsQuery::default()
+        };
+        assert!(
+            query.validate().is_err(),
+            "cursor `{raw}` must be refused, not silently reinterpreted"
+        );
+    }
+    let cursor = TranscriptRowsCursor {
+        sequence: 7,
+        id: "row:with:colons".to_string(),
+    };
+    assert_eq!(cursor.encode(), "s:7:row:with:colons");
+    assert_eq!(
+        TranscriptRowsCursor::decode(&cursor.encode()).unwrap(),
+        cursor
+    );
+    assert!(
+        TranscriptRowsQuery {
+            before: Some(cursor.encode()),
+            ..TranscriptRowsQuery::default()
+        }
+        .validate()
+        .is_ok()
+    );
+}
+
+/// Paging walks backwards and a page reads forwards: `before` is exclusive,
+/// the page holds the newest rows below it, and `older` reaches the page above.
+#[test]
+fn transcript_row_paging_walks_backwards_and_tiles_without_repeating() {
+    let owner = transcript_rows_owner(None, Some("session-rows"));
+    let rows = (1..=5)
+        .map(|sequence| {
+            transcript_row(
+                &format!("row-{sequence}"),
+                owner.clone(),
+                sequence,
+                TranscriptRowContent::User {
+                    text: format!("line {sequence}"),
+                    truncated: false,
+                },
+            )
+        })
+        .collect::<Vec<_>>();
+
+    let newest = transcript_rows_page(
+        &rows,
+        &TranscriptRowsQuery {
+            limit: Some(2),
+            ..TranscriptRowsQuery::default()
+        },
+    );
+    assert_eq!(
+        newest
+            .rows
+            .iter()
+            .map(|row| row.sequence)
+            .collect::<Vec<_>>(),
+        vec![4, 5],
+        "a page must hold the newest rows, oldest first"
+    );
+    assert!(!newest.complete);
+    let older = newest
+        .older
+        .clone()
+        .expect("an incomplete page has a cursor");
+
+    let middle = transcript_rows_page(
+        &rows,
+        &TranscriptRowsQuery {
+            before: Some(older),
+            limit: Some(2),
+            ..TranscriptRowsQuery::default()
+        },
+    );
+    assert_eq!(
+        middle
+            .rows
+            .iter()
+            .map(|row| row.sequence)
+            .collect::<Vec<_>>(),
+        vec![2, 3],
+        "two adjacent pages must tile without repeating the boundary row"
+    );
+    assert!(!middle.complete);
+
+    let oldest = transcript_rows_page(
+        &rows,
+        &TranscriptRowsQuery {
+            before: middle.older.clone(),
+            limit: Some(2),
+            ..TranscriptRowsQuery::default()
+        },
+    );
+    assert_eq!(
+        oldest
+            .rows
+            .iter()
+            .map(|row| row.sequence)
+            .collect::<Vec<_>>(),
+        vec![1]
+    );
+    assert!(oldest.complete, "no older row matches the query");
+    assert!(oldest.older.is_none(), "a complete page carries no cursor");
+}
+
+/// The owner scope fails closed both ways, exactly as the evidence archive
+/// read does: a Lane-scoped query never sees the session's own rows, and a
+/// session-scoped query never sees a Lane's.
+#[test]
+fn transcript_row_owner_scoping_fails_closed_in_both_directions() {
+    let rows = vec![
+        transcript_row(
+            "row-session",
+            transcript_rows_owner(None, Some("session-rows")),
+            1,
+            TranscriptRowContent::User {
+                text: "composer".to_string(),
+                truncated: false,
+            },
+        ),
+        transcript_row(
+            "row-lane-a",
+            transcript_rows_owner(Some("lane-a"), Some("session-lane-a")),
+            2,
+            TranscriptRowContent::User {
+                text: "lane a".to_string(),
+                truncated: false,
+            },
+        ),
+        transcript_row(
+            "row-lane-b",
+            transcript_rows_owner(Some("lane-b"), Some("session-lane-b")),
+            3,
+            TranscriptRowContent::User {
+                text: "lane b".to_string(),
+                truncated: false,
+            },
+        ),
+    ];
+
+    for (scope, expected) in [
+        (
+            transcript_rows_owner(Some("lane-a"), None),
+            vec!["row-lane-a"],
+        ),
+        (
+            transcript_rows_owner(Some("lane-b"), None),
+            vec!["row-lane-b"],
+        ),
+        (
+            transcript_rows_owner(None, Some("session-rows")),
+            vec!["row-session"],
+        ),
+    ] {
+        let page = transcript_rows_page(
+            &rows,
+            &TranscriptRowsQuery {
+                owner: scope.clone(),
+                ..TranscriptRowsQuery::default()
+            },
+        );
+        assert_eq!(
+            page.rows
+                .iter()
+                .map(|row| row.id.as_str())
+                .collect::<Vec<_>>(),
+            expected,
+            "scope {scope:?} answered with a row it does not own"
+        );
+    }
+
+    // A query naming a task cannot be satisfied by a row that only knows its
+    // Lane: Core never attributed the row to that task.
+    let mut task_scope = transcript_rows_owner(Some("lane-a"), None);
+    task_scope.task_id = Some("task-1".to_string());
+    assert!(
+        transcript_rows_page(
+            &rows,
+            &TranscriptRowsQuery {
+                owner: task_scope,
+                ..TranscriptRowsQuery::default()
+            },
+        )
+        .rows
+        .is_empty()
+    );
+}
+
+/// Row text is cut on a character boundary and says so. A silent cut would let
+/// a reviewer read half an answer as the whole one.
+#[test]
+fn transcript_row_text_is_bounded_on_a_character_boundary() {
+    let (short, truncated) = bound_transcript_row_text("caf\u{e9}");
+    assert_eq!(short, "caf\u{e9}");
+    assert!(!truncated);
+
+    let limit = MAX_TRANSCRIPT_ROW_TEXT_BYTES as usize;
+    // One byte short of the bound, then a two-byte character straddling it.
+    let long = format!("{}\u{e9}{}", "a".repeat(limit - 1), "b".repeat(64));
+    let (cut, truncated) = bound_transcript_row_text(&long);
+    assert!(truncated);
+    assert_eq!(cut.len(), limit - 1, "the cut lands on a char boundary");
+    assert!(cut.chars().all(|ch| ch == 'a'));
+}
+
+/// One transcript rows page answers one read. Folding it into view state would
+/// put one owner's conversation into a view every client shares and let a
+/// scroll-up move the snapshot digest.
+#[test]
+fn a_transcript_rows_page_never_folds_into_the_view_state() {
+    let snapshot: RuntimeSnapshot = serde_json::from_value(runtime_snapshot_json()).unwrap();
+    let before = RuntimeViewState::new(snapshot.clone());
+    let mut after = RuntimeViewState::new(snapshot);
+    after.apply_event(&RuntimeEvent::new(
+        1,
+        RuntimeEventKind::TranscriptRowsLoaded {
+            command_id: "client-rows-1".to_string(),
+            page: TranscriptRowsPage {
+                rows: vec![transcript_row(
+                    "row-1",
+                    transcript_rows_owner(None, Some("session-rows")),
+                    1,
+                    TranscriptRowContent::User {
+                        text: "hello".to_string(),
+                        truncated: false,
+                    },
+                )],
+                older: None,
+                complete: true,
+            },
+        },
+    ));
+    assert_eq!(before, after);
+}
+
+/// The command id is required from day one, like `WorkspaceFileLoaded`: a page
+/// with no id is not one this build can attribute, and a client paging two
+/// owners must never guess which answer is which.
+#[test]
+fn a_transcript_rows_page_without_a_command_id_is_rejected() {
+    let idless = r#"{
+        "sequence": 1,
+        "timestamp": 1700000000,
+        "kind": {
+            "type": "transcript_rows_loaded",
+            "payload": {"page": {"rows": [], "complete": true}}
+        }
+    }"#;
+    let decoded: Result<RuntimeEvent, _> = serde_json::from_str(idless);
+    assert!(
+        decoded.is_err(),
+        "a transcript rows page must never decode without the read it answers"
+    );
+}
+
+/// `runtime.transcript_rows` is a post-checkpoint addition, so it belongs to
+/// the extension list and never to the frozen base capabilities, which still
+/// advertise the untouched `runtime.transcript_page`.
+#[test]
+fn the_transcript_rows_capability_is_an_advertised_extension() {
+    assert!(FRONTEND_V1_EXTENSION_CAPABILITIES.contains(&"runtime.transcript_rows"));
+    assert!(!FRONTEND_V1_CAPABILITIES.contains(&"runtime.transcript_rows"));
+    assert!(FRONTEND_V1_CAPABILITIES.contains(&"runtime.transcript_page"));
+    assert!(
+        FRONTEND_V1_EXTENSION_CAPABILITIES
+            .windows(2)
+            .all(|pair| pair[0] < pair[1]),
+        "extension capabilities must stay sorted and unique"
+    );
+    // The milestone's final count: C8 is the last Core batch of 0.3.4.
+    assert_eq!(FRONTEND_V1_EXTENSION_CAPABILITIES.len(), 29);
+}

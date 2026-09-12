@@ -17,6 +17,7 @@ mod protocol;
 mod runtime;
 mod source_control;
 mod transcript;
+mod transcript_rows;
 mod trust;
 mod turn_lifecycle;
 mod ui_preferences;
@@ -91,6 +92,11 @@ pub use transcript::{
     CommandLogEntry, PermissionLogEntry, SessionMetaEntry, TranscriptCursor, TranscriptEntry,
     TranscriptPage, TranscriptPageRequest, TranscriptRow, TranscriptRowId, TranscriptRowKind,
     transcript_entry_timestamp, transcript_entry_type,
+};
+pub use transcript_rows::{
+    DEFAULT_TRANSCRIPT_ROWS_PAGE, MAX_TRANSCRIPT_ROW_TEXT_BYTES, MAX_TRANSCRIPT_ROWS_PAGE,
+    OwnedTranscriptRow, TranscriptRowContent, TranscriptRowsCursor, TranscriptRowsPage,
+    TranscriptRowsQuery, bound_transcript_row_text, transcript_rows_page,
 };
 pub use trust::{
     ConflictBounce, ConflictBounceStatus, ContractDecision, ContractRecord, DependencyRecord,

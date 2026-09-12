@@ -16,11 +16,11 @@ use crate::{
     ReviewedEvidenceBinding, RuntimeOwner, RuntimeServiceHealthView, RuntimeSnapshot, SessionId,
     SourceTarget, StarterLanePreset, StarterLanePreview, StarterLanePreviewInvalidationReason,
     StarterLaneReceipt, StarterLaneRequest, ToolCallId, TranscriptPage, TranscriptPageRequest,
-    TurnOutcome, TurnView, UiLayoutPreferencePatch, UiLayoutPreferences, UiPreferenceDiagnostic,
-    UiPreferencePatch, UiPreferences, WorkMode, WorkspaceChangeView, WorkspaceDiffPage,
-    WorkspaceDiffQuery, WorkspaceEligibility, WorkspaceFileContent, WorkspaceFilePage,
-    WorkspaceFileReadQuery, WorkspaceFilesQuery, WorkspaceRuntimeOwnerBinding, WorkspaceSourceView,
-    now_timestamp,
+    TranscriptRowsPage, TranscriptRowsQuery, TurnOutcome, TurnView, UiLayoutPreferencePatch,
+    UiLayoutPreferences, UiPreferenceDiagnostic, UiPreferencePatch, UiPreferences, WorkMode,
+    WorkspaceChangeView, WorkspaceDiffPage, WorkspaceDiffQuery, WorkspaceEligibility,
+    WorkspaceFileContent, WorkspaceFilePage, WorkspaceFileReadQuery, WorkspaceFilesQuery,
+    WorkspaceRuntimeOwnerBinding, WorkspaceSourceView, now_timestamp,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -140,6 +140,20 @@ pub enum RuntimeCommand {
     /// target-relative and refused rather than repaired when it is not.
     ReadWorkspaceFile {
         query: WorkspaceFileReadQuery,
+    },
+    /// Read-only owner-scoped ordered transcript rows
+    /// (`runtime.transcript_rows`, C8, closes GUI-CORE-009).
+    ///
+    /// The typed sibling of `LoadTranscriptPage`, not a replacement for it:
+    /// that command pages one session's storage log in persisted entry shapes,
+    /// while this one answers what happened in one *owner's* conversation, in
+    /// the shapes a transcript surface renders. Rows come from durable facts
+    /// only, so a reconnect and a restart answer the same read the same way.
+    /// Not permission-gated — it publishes Viden's own recorded facts rather
+    /// than the operator's working tree — and bounded and owner-scoped
+    /// instead, which is what actually constrains it.
+    QueryTranscriptRows {
+        query: TranscriptRowsQuery,
     },
     /// One operator source-control action against the workspace or one Lane
     /// worktree (`runtime.operator_git`, GUI-CORE-020).
@@ -849,6 +863,20 @@ pub enum RuntimeEventKind {
         command_id: String,
         file: WorkspaceFileContent,
     },
+    /// Answer to `QueryTranscriptRows` (`runtime.transcript_rows`, C8).
+    ///
+    /// A query result like the pages above: bounded, owner-scoped, re-read on
+    /// demand, and deliberately never folded into `RuntimeViewState`. Folding
+    /// it would put one owner's conversation into a view every client shares
+    /// and make a scroll-up move the snapshot digest; re-reading is what keeps
+    /// the scope honest.
+    TranscriptRowsLoaded {
+        /// The exact `QueryTranscriptRows` command id this page answers.
+        /// Required, like `WorkspaceFileLoaded`: this event is new, so a client
+        /// paging two owners never attributes a page by arrival order.
+        command_id: String,
+        page: TranscriptRowsPage,
+    },
     /// The settled answer to a `RunOperatorGitAction`
     /// (`runtime.operator_git`, GUI-CORE-020).
     ///
@@ -1539,6 +1567,11 @@ impl RuntimeViewState {
             // it, for content that is only ever rendered once and that the
             // tree can change underneath.
             RuntimeEventKind::WorkspaceFileLoaded { .. } => {}
+            // And again for one owner's transcript rows. This one has a
+            // second reason: the page is *scoped*, so folding it in would let
+            // one Lane's conversation land in a view every client shares and
+            // let a scroll-up move the snapshot digest.
+            RuntimeEventKind::TranscriptRowsLoaded { .. } => {}
             // A settled operator action is an answer to one command, not a
             // fact about the workspace. The workspace fact it produced arrives
             // as the `WorkspaceSourceUpdated` below and *is* reduced; folding

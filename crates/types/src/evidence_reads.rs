@@ -169,7 +169,11 @@ impl EvidenceQuery {
 /// record that only knows its lane. Core did not record that the row belonged
 /// to that task, and a read that returned it anyway would let a client label
 /// evidence with a task it was never attributed to.
-fn owner_scope_matches(scope: &RuntimeOwner, owner: &RuntimeOwner) -> bool {
+///
+/// Shared with `runtime.transcript_rows` rather than reimplemented there, so
+/// the two owner-scoped reads narrow identically and a fix to one cannot leave
+/// the other answering a scope it should refuse.
+pub(crate) fn owner_scope_matches(scope: &RuntimeOwner, owner: &RuntimeOwner) -> bool {
     if !scope.workspace_id.is_empty() && scope.workspace_id != owner.workspace_id {
         return false;
     }

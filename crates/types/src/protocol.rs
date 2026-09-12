@@ -48,6 +48,7 @@ pub const FRONTEND_V1_EXTENSION_CAPABILITIES: &[&str] = &[
     "runtime.recent_work",
     "runtime.starter_lane_preview",
     "runtime.structured_diff",
+    "runtime.transcript_rows",
     "runtime.trust_loop",
     "runtime.turn_lifecycle",
     "runtime.workspace_eligibility",
@@ -358,6 +359,12 @@ fn is_known_runtime_event_type(event_type: &str) -> bool {
             // event that can honestly say "binary", "missing", or "not
             // readable" must never arrive as unknown.
             | "workspace_file_loaded"
+            // The answer to a `QueryTranscriptRows`
+            // (`runtime.transcript_rows`, C8). Quarantining it leaves a client
+            // that asked for one owner's conversation with no rows, and an
+            // empty transcript is indistinguishable from a session in which
+            // nothing was said — the fabricated absence GUI-CORE-009 is about.
+            | "transcript_rows_loaded"
             // The settled answer to a `RunOperatorGitAction`. Quarantining it
             // leaves a client that asked for a push with no answer at all, and
             // an operator reads "no answer" as "it worked" — the worst reading
