@@ -1277,6 +1277,15 @@ provider. Each was reproduced, not inferred; none was fixed in E1.
    `bootstrap_runtime*` so every embedder gets the identity — a Core or CLI
    change, not a client one. E2 needs this closed before it can evidence a
    commit with no Lane selected from the TUI.
+12. **Persisted transcript strings replay as Latin-1, not UTF-8** (Core,
+   pre-existing, found during C8, 2026-09-12). `parse_json_string_from` in
+   `crates/types/src/transcript.rs` decodes a JSON string byte by byte with
+   `bytes[index] as char`, so every byte at or above 0x80 is mapped as
+   Latin-1: `"café 你好"` is written correctly and reads back as mojibake.
+   Writing is correct and the bytes on disk are valid UTF-8, so the fix is
+   read-side only and needs no migration. It reaches session resume, the base
+   `runtime.transcript_page`, and `runtime.transcript_rows`. Batch C11 owns
+   the fix with replay coverage across all three readers.
 
 
 The `context-budgets` fixture backs the frontend-neutral facade export of

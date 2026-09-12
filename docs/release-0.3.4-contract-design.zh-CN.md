@@ -495,3 +495,20 @@ GUI：Files tab 内容与 Code tab，面板 `~` 行在 Code tab 中打开文件�
   `system`/`command` 证据行；超出上限的批次以 `Error` 浮现而非静默丢弃。
 - **经 `LaneSupervisor` 解决的 Lane 审批不由此句柄审计**；那是另一处接缝。
 - **E1 缺陷 5 与缺陷 4 一并关闭**：两者是同一项交付。
+
+### C8 `runtime.transcript_rows`（评审通过，2026-09-12）
+
+- **`Assistant` 行与 `ToolResult` 一样携带 `evidence_id: Option<String>`**，因为
+  设计自身的语义与 fixture 都要求被截断的助手正文能指名其规范行。附加式。
+- **`Permission` 行来自 C7 的持久 `approval.<scope>` 审计记录，而非持久化的权限日志
+  条目**——后者既无请求 id 也无审计 id；臆造的 id 会解析不到任何内容。
+  `allow_session`/`allow_repo` 的 `decision` 为 `None`，其审计行只保留作用域键。
+- **owner 归属新增一个持久的 `turn_owner` session-meta 括号**，由
+  `begin_native_turn`/`end_native_turn` 写入。session-meta 是旧版重放器会忽略而非隔离
+  的唯一持久化形状；追加失败绝不阻塞回合，括号之外的行只指名其会话（对 Lane 查询
+  失败关闭）。
+- **`sequence` 只排序不计数**：转录条目取 `2·序号 + 1`，审计派生行取 `2·序号`，因此
+  迟到的审计行不会给客户端已翻页的行重新编号。
+- **未归属于任何回合的行只携带其会话**，绝不是会回答任何会话查询的空 owner。
+- 预览（`input_preview`、`ToolResult.summary`）与实时对应物一样以 500 字节为界；
+  同一次调用的检查运行替代而非伴随工具结果行。

@@ -968,6 +968,12 @@ fixture；九个冻结基线 fixture 的字节未变，`scripts/tui-regression.s
    意味着让 CLI 走 `LocalCoreHost::open_workspace`，或在 `bootstrap_runtime*` 内部
    铸造以便每个嵌入方都获得该身份——这是 Core 或 CLI 的改动，不是客户端的改动。
    E2 需要先关闭它，才能在 TUI 上取到「未选中 Lane 时提交」的证据。
+12. **持久化的转录字符串以 Latin-1 而非 UTF-8 重放**（Core，既有缺陷，C8 期间发现，
+   2026-09-12）。`crates/types/src/transcript.rs` 中的 `parse_json_string_from` 按字节
+   用 `bytes[index] as char` 解码 JSON 字符串，因此每个 ≥ 0x80 的字节都被当作 Latin-1：
+   `"café 你好"` 写入正确，读回却是乱码。写入是正确的，磁盘上的字节是合法 UTF-8，因此修复
+   只在读取侧，无需迁移。它影响会话恢复、基线 `runtime.transcript_page` 与
+   `runtime.transcript_rows`。C11 批次负责修复并覆盖三条读取路径的重放。
 
 `context-budgets` fixture 为 `ContextScope` 与 `ContextBudgetRecord` 的 frontend-neutral
 facade 导出提供依据。Budget 只能通过该 Lane 精确绑定的 runtime owner 所指名的 typed task

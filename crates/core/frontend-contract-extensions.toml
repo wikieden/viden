@@ -230,7 +230,7 @@ vocabulary = "`hidden_statusbar_segments` names are kept verbatim, including one
 bounds = "at most 16 hidden segments and 64 bytes per name, refused rather than clamped: a clamped list silently keeps showing a segment the operator asked to hide and nothing on the stream would say so; an empty name and a control character are refused for the same reason a segment name is not free text"
 gate = "no permission prompt: the record grants nothing and arranges one client's own window, and prompting an operator to approve their own layout would train them to click through the prompts that matter; a refusal is always pre-write and is answered as a `command_rejected` naming the caller's command"
 patch = "`None` on a patch field means leave it, never reset it — a reset is its own command — so a client changing only the sidebar cannot accidentally unhide every segment the operator hid"
-defaults = "`pinned` is the default, which is what the D1 flagship shows and what an operator who never opened Settings should see; a record Core never published is absent rather than defaulted, so a client can tell `Core has no layout preference for you` from `Core says pinned`"
+defaults = "`floating` is the default, per design decision D-SIDEBAR (hover peek, horizontal space to the transcript), with `pinned` the alternative that takes a layout column; a record Core never published is absent rather than defaulted, so a client can tell `Core has no layout preference for you` from `Core says floating`"
 
 [runtime_turn_lifecycle]
 events = ["turn_started", "turn_finished"]

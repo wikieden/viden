@@ -151,8 +151,10 @@ plan; the additions are:
 - every in-cockpit view has a qa harness state, a PNG in both themes, and an
   `EVIDENCE.md` row; every rail destination has a test proving the chrome
   survives the switch and `Esc` returns;
-- the plugin-host crate's `context_reducer_process_*` tests are run serially
-  (`--test-threads=1`); they flake under any parallel run on this host.
+- the plugin-host crate's `context_reducer_process_*` tests and the agents
+  crate's ACP/Codex job timing tests are run serially (`--test-threads=1`);
+  both flake under any parallel run on this host (C8 proved the agents flake
+  pre-exists on the integration base).
 
 ## Exit Criteria
 

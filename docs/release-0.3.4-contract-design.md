@@ -618,3 +618,27 @@ marked; this section is what shipped.
 - **Lane approvals resolved through `LaneSupervisor` are not audited by this
   handle**; that is a separate seam.
 - **E1 defect 5 closed alongside defect 4**: both are the same delivery.
+
+### C8 `runtime.transcript_rows` (accepted on review, 2026-09-12)
+
+- **`Assistant` rows carry `evidence_id: Option<String>`** beside
+  `ToolResult`, because the design's own semantics and fixture require a
+  truncated assistant body to name its canonical row. Additive.
+- **`Permission` rows derive from C7's durable `approval.<scope>` audit
+  records, not from the persisted permission log entry**, which carries
+  neither the request id nor the audit id; a minted id would resolve to
+  nothing. `decision` is `None` for `allow_session`/`allow_repo`, whose
+  audit row keeps only the scope key.
+- **Owner attribution adds a durable `turn_owner` session-meta bracket**
+  written by `begin_native_turn`/`end_native_turn`. Session-meta is the one
+  persisted shape older replayers ignore rather than quarantine; an append
+  failure never blocks the turn, and rows outside a bracket name only their
+  session (fail-closed for Lane queries).
+- **`sequence` orders but does not count**: transcript entries get
+  `2·ordinal + 1`, audit-derived rows `2·ordinal`, so a late audit row cannot
+  renumber rows a client already paged.
+- **A row attributed to no turn carries only its session**, never an empty
+  owner that would answer any session's query.
+- Previews (`input_preview`, `ToolResult.summary`) are bounded at 500 bytes
+  like their live counterparts; a check run replaces, not accompanies, the
+  tool result row for the same call.

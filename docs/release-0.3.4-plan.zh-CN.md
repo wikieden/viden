@@ -123,8 +123,9 @@ D1 设计、以及设计包里已经做好的全部交互与跳转拉齐，并�
   29，附跟踪注释；
 - 每个驾驶舱内视图都有 qa harness 状态、双主题 PNG 与 `EVIDENCE.md` 行；每个 rail 目的地
   都有测试证明切换后 chrome 仍在且 `Esc` 返回；
-- plugin-host crate 的 `context_reducer_process_*` 测试串行运行（`--test-threads=1`）；
-  在本机任何并行运行下都会抖动。
+- plugin-host crate 的 `context_reducer_process_*` 测试与 agents crate 的 ACP/Codex 作业
+  计时测试串行运行（`--test-threads=1`）；两者在本机任何并行运行下都会抖动（C8 证明
+  agents 的抖动在集成基线上就已存在）。
 
 ## 完成判据
 
