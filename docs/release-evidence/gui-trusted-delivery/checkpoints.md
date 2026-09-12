@@ -204,7 +204,16 @@ written into `docs/core-0.3-compatibility.md` as a numbered open follow-up.
    cancelled turn keeps the queue. The GUI composer and the TUI's active-work
    predicate read `active_turns` instead of display residue in G7 and T2.
 2. **The TUI composer stops submitting for the rest of a session** (TUI,
-   blocking). `command_for_composer` queues whenever
+   blocking). **Fixed by T1c (2026-09-10) and completed by T2 (2026-09-12).**
+   T1c split the predicate and made routing owner-scoped, which removed all
+   three causes below; it still needed a client-side liveness window for the
+   native path, because Core published no terminal fact for one. T2 deletes that
+   window: `runtime.turn_lifecycle` (C6) brackets every turn, so
+   `state::composer_target_busy` reads `RuntimeViewState.active_turns` for the
+   scope the input addresses and this client holds no window at all. Both
+   scenarios are pinned by tests and were walked again live on 2026-09-12
+   (`docs/release-tui-0.3.4-source-control-parity.md`). The original finding
+   follows. `command_for_composer` queues whenever
    `state::runtime_has_active_work` is true, and that is true when a completed
    built-in turn's text still sits in `assistant_stream`, when any Lane is in
    `Draft` (which is where Core leaves a starter Lane), or when `queued_inputs`
@@ -213,7 +222,18 @@ written into `docs/core-0.3-compatibility.md` as a numbered open follow-up.
    is owner-scoped on `turn_id` and Agent-session status and deliberately
    excludes Lane lifecycle state, so the GUI is not affected by this half; the
    two clients disagree about what "busy" means.
-3. **The TUI `/git` picker can only ever reach the workspace target** (TUI). The
+3. **The TUI `/git` picker can only ever reach the workspace target** (TUI).
+   **Fixed by T1c (2026-09-10) and completed by C5 plus T2 (2026-09-12), with
+   one Core-side gap open.** T1c separated `lane_detail_open` from
+   `focused_lane`, added the `Esc` rung, and made `runtime.operator_git`
+   reachable for a Lane. T2 adopts `runtime.workspace_owner` (C5) so the
+   workspace target is sent under the owner Core publishes, and the picker's
+   TARGET row reads each target's own source. The gap: `apps/cli` bootstraps the
+   engine directly rather than through `LocalCoreHost::open_workspace`, the only
+   production caller of `SessionEngine::bind_workspace_owner`, so a `viden` TUI
+   session still sees `workspace_owner` absent and shows the refusal — recorded
+   as compatibility follow-up 11 and needed by E2. The GUI is unaffected,
+   because its adapter opens through the host. The original finding follows. The
    Lane selection is bound to the lane-detail overlay focus, and leaving that
    overlay to reach the composer — where `/git` is typed — clears it. Combined
    with GUI-CORE-027, `runtime.operator_git` is unreachable from the TUI in

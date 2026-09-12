@@ -556,11 +556,24 @@ Lane 会携带它们 —— 而客户端已经指名的 owner 永不改写，自
 `runtime.workspace_owner` 与 `ui.layout_preferences` 把对外通告的扩展集合从 23
 项推到 25 项，并新增语料表中列出的两个 fixture；九个冻结基线 fixture 的字节未变，
 `scripts/tui-regression.sh` 中的能力计数门由 23 移到 25。里程碑目标是 29 项；
-每个批次按其新增量移动该计数。两个客户端都尚未采纳这两项 —— GUI 的提交栏与同步
-芯片（G7）、TUI 的 `/git` 工作区行（T2）在 `0.3.4` 的后续批次 ——
+每个批次按其新增量移动该计数。GUI 的提交栏与同步芯片（G7）尚未采纳；
 `crates/core/release-manifest.toml` 保持其 `0.3.6` 的 `component_version` 与已
 记录的 checkpoint，因为 Core `0.3.7` 的 checkpoint 由发布步骤（E2）一次性声明，
 而不是逐批次声明。
+
+TUI 对等（批次 T2，2026-09-12）。`runtime.workspace_owner`：`/git` 选择器的工作区
+行从 `RuntimeViewState.workspace_owner` 原样取出 `command.owner` 与信封 owner，
+选择器的 TARGET 行对 Lane 目标读 `lane_sources[lane]`、对工作区读
+`workspace_source`。缺失仍然是拒绝，写作「Core published no workspace owner」而
+不再引用在此关闭的 GUI-CORE-027。一个 Core 侧缺口记为未决跟进项 11：
+`SessionEngine::bind_workspace_owner` 在生产代码中的唯一调用方是
+`LocalCoreHost::open_workspace`，而 `apps/cli` 不使用它，因此 `viden` 的 TUI 会话
+仍看到该字段缺失。`ui.layout_preferences`：**没有 TUI 对等最小集。** TUI 不渲染
+lane 侧栏——它的 Lane 界面是侧屏、lane 详情面板与 `/lane` 选择器，没有哪一个是
+可固定/可浮动的侧栏——那里也没有可由操作者隐藏的常驻状态栏段。`apps/tui/**` 中没有
+任何地方读取、持久化或镜像 `lane_sidebar_mode`，也没有任何地方发送
+`SetUiLayoutPreferences` 或 `ResetUiLayoutPreferences`；若 TUI 将来长出可隐藏的段，
+它会消费这条记录，而不是再加一套偏好模型。
 
 `runtime.turn_lifecycle` 让每条执行路径都有终结事实。在此之前，只有一种回合会发布
 终结事实：Agent session，它以 `AgentSessionCompleted`、`AgentSessionFailed` 或一条
@@ -600,9 +613,18 @@ Core 在凭空造活。owner 不指名任何 Lane 的 `TurnFinished` 会清空�
 0.3.4 契约增量的 C6 批次已于 2026-09-12 落到 `claude/int-0.3.4`。
 `runtime.turn_lifecycle` 把对外通告的扩展集合从 25 项推到 26 项，并新增语料表中
 列出的 `turn-lifecycle` fixture；九个冻结基线 fixture 的字节未变，
-`scripts/tui-regression.sh` 中的能力计数门由 25 移到 26。两个客户端都尚未采纳：
-GUI 输入框的 `active_turns` 判定与队列文案属于 G7，TUI 的 `native_turn` 残留窗口
-在 T2 中被替换。
+`scripts/tui-regression.sh` 中的能力计数门由 25 移到 26。GUI 输入框的
+`active_turns` 判定与队列文案属于 G7，尚未采纳。
+
+TUI 对等（批次 T2，2026-09-12）：已采纳。`state::composer_target_busy` 与
+`state::has_active_work` 读取 `active_turns`，按 owner 作用域匹配而绝不按
+`turn_id` 匹配；输入框的目标只解析一次，因此聚焦中的 Agent 会话按它自己 Lane 的
+回合判定，其余一切按会话作用域判定。跟进项 6 所描述的客户端侧窗口
+`apps/tui/src/tui/native_turn.rs` 已删除，两个判定都不读取 `assistant_stream`、
+`queued_inputs` 或 Lane 生命周期状态。队列文案说明 Core 正在作出哪一种承诺：只在
+会话作用域回合运行期间显示「当前回合结束后运行」，否则显示「等待下一个完成的
+回合」。没有该能力时 `active_turns` 为空，于是客户端直接提交，由 Core 用它自己的
+`CommandRejected` 作答。
 
 `runtime.workspace_file_reads` 补全了文件清单开的那一对。
 `runtime.workspace_files` 说的是某条路径是否存在；`ReadWorkspaceFile { query }`
@@ -703,8 +725,16 @@ ContextStore，并在该行声称 `Verified` 之前重新读取并重新哈希�
 `runtime.durable_work_evidence` 新增一项能力以及语料表中列出的
 `durable-work-evidence` fixture；九个冻结基线 fixture 的字节未变。与 C9 批次并行的
 `runtime.workspace_file_reads` 一起，集成者把对外通告的扩展集合与
-`scripts/tui-regression.sh` 中的能力计数门由 26 调和为 28。两个客户端都尚未采纳：
-GUI 的 EvidenceView 归档行与 D14 审批行属于 G7，TUI 的证据检视详情属于 T2。
+`scripts/tui-regression.sh` 中的能力计数门由 26 调和为 28。GUI 的 EvidenceView
+归档行与 D14 审批行属于 G7，尚未采纳。
+
+TUI 对等（批次 T2，2026-09-12）：已采纳。证据检视器的详情把规范内容部分拆成四行
+分别陈述——已存储的 item 与 bundle、`producer.task_id`（合并门要检查的东西）、审批
+凭据 `permission_snapshot_id`（其缺失自成一句），以及 Core 对该引用记录下的结论，
+后者刻意不与内容读取自身的哈希校验混为一谈。`patch` 行上的 `canonical: None`
+渲染为明确的「none」，原因由该行的摘要承载。审计视图不需要改代码，因为带点号的
+`action` 键是 Core 的稳定词汇表且原样渲染；两种行为都由回放
+`durable-work-evidence` fixture 的测试固定下来。
 
 2026-09-10 记录的未决跟进项。每一条都是在 `0.3.3` 各批次中确认、并被刻意留在
 批次之外的，因此它们不会日后被当作新发现重新提出：
@@ -772,7 +802,13 @@ GUI 的 EvidenceView 归档行与 D14 审批行属于 G7，TUI 的证据检视�
    `queued_inputs` 或 `assistant_stream`。第 5 条仍然开放，本客户端只是不再把一个
    Core 不会执行的队列当作回合的证据。
 
-   原生回合自身的活跃性窗口在 `apps/tui/src/tui/native_turn.rs`。它在输入框派发
+   **已于 2026-09-12 被 T2 取代。** 下文那个客户端侧窗口已删除：
+   `runtime.turn_lifecycle` 发布终结事实，因此 `state::composer_target_busy` 按
+   本次输入所指的作用域读取 `active_turns`，本客户端不再持有任何窗口。保留该段
+   是因为只有对照它才能看清替代方案，也因为它接受的提前关闭漏判正是那条 Core
+   事实所消除的失败。
+
+   原生回合自身的活跃性窗口曾在 `apps/tui/src/tui/native_turn.rs`。它在输入框派发
    `SubmitUserInput` 时打开，并在本命令的 `CommandRejected`、派发之后的第一条
    `SnapshotUpdated`（`runtime_events_for_streaming_output` 为原生回合发出的终结
    批次的首事件），或一次快照替换时关闭。`SnapshotUpdated` 不是回合活跃性事实
@@ -803,12 +839,20 @@ GUI 的 EvidenceView 归档行与 D14 审批行属于 G7，TUI 的证据检视�
    board 仍然优先，而按名字主动进入的视图不会被这一级动到。工作区目标的 027
    拒绝行为未变。
 
-   由此带来一条诚实性后果：`RuntimeViewState.workspace_source` 是单一的工作区
-   作用域视图，Core 不为每条 Lane 发布任何源状态，因此一个可达的 Lane 目标没有
-   分支、领先/落后或脏状态事实。选择器的 TARGET 行会点名该 Lane 并声明源状态未知，
-   而不是把工作区的数字印在 Lane 的名字旁边。按 Lane 的源视图是这个界面一旦存在
-   就会使用的 Core 事实；此处不提出该请求，因为 `0.3.3` 没有任何东西被它阻塞。
-8. **审批上的 audit id 不是一条持久审计记录**（Core）。`edit_file` 权限提示的
+   由此带来的一条诚实性后果，**已于 2026-09-12 由 C5 与 T2 关闭**：
+   `RuntimeViewState.workspace_source` 曾是单一的工作区作用域视图，Core 不为每条
+   Lane 发布任何源状态，因此一个可达的 Lane 目标没有分支、领先/落后或脏状态事实，
+   选择器的 TARGET 行只能声明源状态未知，而不是把工作区的数字印在 Lane 的名字
+   旁边。`runtime.workspace_owner` 新增了 `LaneSourceUpdated` 与
+   `RuntimeViewState.lane_sources`，该行现在读取 Lane 自己的条目；没有条目的 Lane
+   仍显示未知，因为它要么是直接使用工作区的 Lane，要么是 Core 尚未采样的 Lane。
+8. **审批上的 audit id 不是一条持久审计记录**（Core）。
+   **已于 2026-09-12 由 C7 关闭；TUI 在 T2 中采纳。** `RespondToApproval` 现在会
+   在 `ApprovalResolved` 之前、以提示早已展示过的预铸 id 追加一条 `AuditRecord`，
+   actor 为 `Operator`，action 为
+   `approval.<allow_once|allow_session|allow_repo|deny>`，因此 `QueryAudit` 能够
+   解析客户端早已被展示的那个 id。TUI 的审计视图不需要改代码——带点号的 action 键
+   原样渲染——该行由一次 fixture 回放固定下来。原始发现如下。`edit_file` 权限提示的
    固定审批面板会显示 `AUDIT audit_<id>`，但 `QueryAudit` 读取的持久时间线只由
    trust loop 与 operator git 动作追加
    （`crates/runtime/src/trust_loop.rs:1328`、
@@ -827,6 +871,21 @@ GUI 的 EvidenceView 归档行与 D14 审批行属于 G7，TUI 的证据检视�
    `EvidenceCanonicalized` 到达实时总线与 fixture。原生路径已完全持久化，这正是
    GUI-CORE-028 与 E2 所依赖的。封闭此项需要由摄取方拥有该产物写入，或把一个持久
    追加句柄穿过 agent 汇；这是 ACP 产物接缝所有者的后续项，而不是客户端的。
+11. **CLI 引导路径从不绑定工作区 owner**（Core 或 CLI，T2 期间发现，
+   2026-09-12）。`SessionEngine::bind_workspace_owner` 在生产代码中恰好只有一个
+   调用方：`LocalCoreHost::open_workspace`（`crates/core/src/host.rs`），它在
+   supervisor 启动之前铸造该身份，使第一个快照前缀就带上它。`apps/cli` 不使用该
+   host：它调用 `bootstrap_runtime_with_resolved_config`，自己启动
+   `RuntimeSupervisor`，再用 `LocalCoreTransport` 包装，因此绑定从未发生，整个会话
+   中 `RuntimeViewState.workspace_owner` 都是缺失的。已在 T2 的离线检查中复现：
+   一次 `viden --provider fallback` 的 TUI 会话把四行 `/git` 工作区行全部渲染为
+   置灰并标注「Core published no workspace owner」，且临时工作区里没有
+   `.viden/project.toml`，说明 project id 也从未被铸造。GUI 不受影响，因为
+   `apps/gui/src-tauri/src/adapter.rs` 经由 `LocalCoreHost` 打开工作区。
+   GUI-CORE-027 的客户端那一半在两侧都已完成；剩下的是一条共用的引导路径。关闭它
+   意味着让 CLI 走 `LocalCoreHost::open_workspace`，或在 `bootstrap_runtime*` 内部
+   铸造以便每个嵌入方都获得该身份——这是 Core 或 CLI 的改动，不是客户端的改动。
+   E2 需要先关闭它，才能在 TUI 上取到「未选中 Lane 时提交」的证据。
 
 `context-budgets` fixture 为 `ContextScope` 与 `ContextBudgetRecord` 的 frontend-neutral
 facade 导出提供依据。Budget 只能通过该 Lane 精确绑定的 runtime owner 所指名的 typed task

@@ -188,6 +188,14 @@ fixture 现在会让发布记录失败。
    作为自带起止括号的回合运行。失败或被取消的回合则保留队列。GUI 输入框与 TUI
    的活动工作判定将在 G7 与 T2 中改读 `active_turns`，而不再读显示残留。
 2. **TUI 的输入框在一次会话余下的时间里不再提交**（TUI，阻断级）。
+   **已由 T1c（2026-09-10）修复，并由 T2（2026-09-12）补全。** T1c 拆分了判定并
+   让路由以 owner 为作用域，消除了下述三个成因；但原生路径仍需要一个客户端侧的
+   活跃性窗口，因为 Core 当时不为它发布任何终结事实。T2 删除了那个窗口：
+   `runtime.turn_lifecycle`（C6）为每个回合加上起止括号，因此
+   `state::composer_target_busy` 按本次输入所指的作用域读取
+   `RuntimeViewState.active_turns`，本客户端不再持有任何窗口。两个情形都已固定为
+   测试，并于 2026-09-12 再次实机走通
+   （`docs/release-tui-0.3.4-source-control-parity.zh-CN.md`）。原始发现如下。
    `command_for_composer` 在 `state::runtime_has_active_work` 为真时一律入队，而
    该判定在以下情况为真：一次已完成的内置回合的文本仍留在 `assistant_stream` 中、
    任何 Lane 处于 `Draft`（Core 正是把 starter Lane 留在这个状态）、或
@@ -195,9 +203,19 @@ fixture 现在会让发布记录失败。
    fallback 回合之后，以及创建一条 Lane 之后。GUI 自己的输入框判定以 owner 为
    作用域、基于 `turn_id` 与 Agent session 状态，并刻意排除 Lane 生命周期状态，
    因此 GUI 不受这一半影响；两个客户端对「忙」的定义并不一致。
-3. **TUI 的 `/git` 选择器只可能到达工作区目标**（TUI）。Lane 的选中态绑定在 lane
-   详情浮层的焦点上，而为了到达输入框（`/git` 在那里键入）离开该浮层就会清空它。
-   结合 GUI-CORE-027，`runtime.operator_git` 在 TUI 上实际不可达。
+3. **TUI 的 `/git` 选择器只可能到达工作区目标**（TUI）。
+   **已由 T1c（2026-09-10）修复，并由 C5 加 T2（2026-09-12）补全，但留有一个
+   Core 侧缺口。** T1c 把 `lane_detail_open` 与 `focused_lane` 分离、增加了 `Esc`
+   回退级，使 `runtime.operator_git` 对 Lane 可达。T2 采纳
+   `runtime.workspace_owner`（C5），因此工作区目标在 Core 发布的 owner 之下发送，
+   选择器的 TARGET 行也读取各目标自己的源。缺口是：`apps/cli` 直接引导 engine，
+   而不经过 `LocalCoreHost::open_workspace`——它是
+   `SessionEngine::bind_workspace_owner` 在生产代码中的唯一调用方——所以 `viden`
+   的 TUI 会话仍看到 `workspace_owner` 缺失并显示拒绝；该项记为兼容性跟进项 11，
+   E2 需要它。GUI 不受影响，因为它的适配层经由该 host 打开工作区。原始发现如下。
+   Lane 的选中态绑定在 lane 详情浮层的焦点上，而为了到达输入框（`/git` 在那里
+   键入）离开该浮层就会清空它。结合 GUI-CORE-027，`runtime.operator_git` 在 TUI 上
+   实际不可达。
 4. **审批上的 audit id 不是一条持久审计记录**（Core）。**已由 C7（Core）于
    2026-09-12 修复；客户端在 G7/T2 中采纳。** 持久时间线此前只由 trust loop 与
    operator git 动作追加，因此一次被批准并已应用的原生工具变更不会留下审计行，

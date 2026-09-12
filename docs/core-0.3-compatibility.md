@@ -745,6 +745,24 @@ Neither client has adopted these two yet — the GUI commit bar and sync chip
 its recorded checkpoint, because the Core `0.3.7` checkpoint is declared once by
 the release step (E2) rather than per batch.
 
+TUI parity (batch T2, 2026-09-12). `runtime.workspace_owner`: the `/git`
+picker's workspace rows send `command.owner` and the envelope owner from
+`RuntimeViewState.workspace_owner`, copied verbatim, and the picker's TARGET row
+reads `lane_sources[lane]` for a Lane target and `workspace_source` for the
+workspace. Absence stays a refusal, stated as "Core published no workspace
+owner" rather than as GUI-CORE-027, which is closed here. One Core-side gap is
+recorded as open follow-up 11: the only production caller of
+`SessionEngine::bind_workspace_owner` is `LocalCoreHost::open_workspace`, which
+`apps/cli` does not use, so a `viden` TUI session still sees the field absent.
+`ui.layout_preferences`: **no TUI parity minimum.** The TUI renders no lane
+sidebar — its Lane surfaces are the side screens, the lane-detail panel, and the
+`/lane` selector, none of which is a pinned-or-floating sidebar — and no ambient
+statusbar segment is operator-hideable there. Nothing in `apps/tui/**` reads,
+persists, or mirrors `lane_sidebar_mode`, and nothing sends
+`SetUiLayoutPreferences` or `ResetUiLayoutPreferences`; a TUI that later grew a
+hideable segment would consume this record rather than add a second preference
+model.
+
 `runtime.turn_lifecycle` gives every execution path a terminal fact. Before it,
 exactly one kind of turn published one: an Agent session, which ends in
 `AgentSessionCompleted`, `AgentSessionFailed`, or a cancelled
@@ -796,9 +814,20 @@ the turns Core is running now and a queue it can inspect.
 `runtime.turn_lifecycle` moves the advertised extension set from 25 to 26 and
 adds the `turn-lifecycle` fixture listed in the corpus table, with the nine
 frozen base fixtures byte-unchanged and the capability count gate in
-`scripts/tui-regression.sh` moved 25 -> 26. Neither client has adopted it yet:
-the GUI composer's `active_turns` predicate and queue copy are G7, and the TUI's
-`native_turn` residue window is replaced in T2.
+`scripts/tui-regression.sh` moved 25 -> 26. The GUI composer's `active_turns`
+predicate and queue copy are G7 and not adopted yet.
+
+TUI parity (batch T2, 2026-09-12): adopted. `state::composer_target_busy` and
+`state::has_active_work` read `active_turns`, matched on the owner scope and
+never on `turn_id`; the composer's target is resolved once, so a focused Agent
+conversation is gated on its own Lane's turn and everything else on the session
+scope. `apps/tui/src/tui/native_turn.rs` — the client-side window follow-up 6
+describes — is deleted, and neither predicate reads `assistant_stream`,
+`queued_inputs`, or Lane lifecycle state. The queue copy states which promise
+Core is making: "runs after the current turn" only while a session-scoped turn
+is live, otherwise "waits for the next completed turn". Without the capability
+`active_turns` is empty, so the client submits and Core answers with its own
+`CommandRejected`.
 
 `runtime.workspace_file_reads` completes the pair the file inventory started.
 `runtime.workspace_files` says a path exists; `ReadWorkspaceFile { query }` ->
@@ -933,9 +962,20 @@ is published as an `Error` instead.
 `durable-work-evidence` fixture listed in the corpus table, with the nine frozen
 base fixtures byte-unchanged; together with batch C9's concurrent
 `runtime.workspace_file_reads` the integrator reconciled the advertised extension
-set and the capability count gate in `scripts/tui-regression.sh` from 26 to 28. Neither client has adopted it yet:
-the GUI's EvidenceView archive rows and D14 approval rows are G7, and the TUI's
-evidence inspector detail is T2.
+set and the capability count gate in `scripts/tui-regression.sh` from 26 to 28.
+The GUI's EvidenceView archive rows and D14 approval rows are G7 and not adopted
+yet.
+
+TUI parity (batch T2, 2026-09-12): adopted. The evidence inspector's detail
+states the canonical half as four separate rows — the stored item and bundle,
+`producer.task_id` (what a merge gate checks), the approval receipt
+`permission_snapshot_id` with its absence as its own sentence, and Core's
+recorded verdict on the reference, which is deliberately not conflated with the
+content read's own hash check. `canonical: None` on a `patch` row renders as a
+stated "none" with the row's summary carrying the reason. The audit lens needed
+no code change, because the dotted `action` key is Core's stable vocabulary and
+is rendered raw; both behaviours are pinned by tests that replay the
+`durable-work-evidence` fixture.
 
 Open follow-ups recorded 2026-09-10. Each was confirmed during the `0.3.3`
 batches and deliberately left out of them, so none is rediscovered later as a
@@ -1022,7 +1062,14 @@ provider. Each was reproduced, not inferred; none was fixed in E1.
    client simply stops treating a queue Core will not run as evidence of a
    turn.
 
-   The native turn's own liveness window is `apps/tui/src/tui/native_turn.rs`.
+   **Superseded 2026-09-12 by T2.** The client-side window below is deleted:
+   `runtime.turn_lifecycle` publishes the terminal fact, so
+   `state::composer_target_busy` reads `active_turns` for the scope the input
+   addresses and this client holds no window at all. The paragraph is kept
+   because the replacement is only legible against it, and because the
+   early-close miss it accepted is the exact failure the Core fact removes.
+
+   The native turn's own liveness window was `apps/tui/src/tui/native_turn.rs`.
    It opens when the composer dispatches `SubmitUserInput` and closes on this
    command's `CommandRejected`, on the first `SnapshotUpdated` after dispatch
    (the head of the terminal batch `runtime_events_for_streaming_output`
@@ -1063,14 +1110,23 @@ provider. Each was reproduced, not inferred; none was fixed in E1.
    the Lane, and a lens asked for by name is left alone. The 027 refusal for
    the workspace target is unchanged.
 
-   One honesty consequence: `RuntimeViewState.workspace_source` is a single
-   workspace-scoped view and Core publishes nothing per Lane, so a reachable
-   Lane target has no branch, ahead/behind or dirty facts. The picker's TARGET
-   row names the Lane and states the source as unknown rather than printing the
-   workspace's numbers beside a Lane's name. A per-Lane source view is a Core
-   fact this surface would use if it existed; it is not requested here because
-   nothing in `0.3.3` is blocked on it.
-8. **An approval's audit id is not a durable audit record** (Core). The pinned
+   One honesty consequence, **closed 2026-09-12 by C5 and T2**:
+   `RuntimeViewState.workspace_source` was a single workspace-scoped view with
+   nothing published per Lane, so a reachable Lane target had no branch,
+   ahead/behind, or dirty facts and the picker's TARGET row stated the source as
+   unknown rather than printing the workspace's numbers beside a Lane's name.
+   `runtime.workspace_owner` adds `LaneSourceUpdated` and
+   `RuntimeViewState.lane_sources`, and the row now reads the Lane's own entry;
+   a Lane with no entry still says unknown, because it is either a
+   direct-workspace Lane or one Core has not sampled.
+8. **An approval's audit id is not a durable audit record** (Core).
+   **Closed 2026-09-12 by C7; adopted by the TUI in T2.** `RespondToApproval`
+   now appends one `AuditRecord` before `ApprovalResolved` under the pre-minted
+   id the prompt already showed, as actor `Operator` with action
+   `approval.<allow_once|allow_session|allow_repo|deny>`, so `QueryAudit`
+   resolves the id a client was already being shown. The TUI's audit lens needed
+   no code change — the dotted action key is rendered raw — and the row is pinned
+   by a fixture replay. The original finding follows. The pinned
    approval panel shows `AUDIT audit_<id>` for an `edit_file` permission prompt,
    but the durable timeline `QueryAudit` reads is appended only by the trust
    loop and by operator git actions (`crates/runtime/src/trust_loop.rs:1328`,
@@ -1095,6 +1151,25 @@ provider. Each was reproduced, not inferred; none was fixed in E1.
    needs the ingestion to own that artifact write or a durable-append handle
    threaded through the agent sink; it is a follow-up for the ACP artifact
    seam's owner, not for a client.
+11. **The CLI bootstrap never binds the workspace owner** (Core or CLI, found
+   during T2, 2026-09-12). `SessionEngine::bind_workspace_owner` has exactly one
+   production caller, `LocalCoreHost::open_workspace`
+   (`crates/core/src/host.rs`), which mints the identity before the supervisor
+   starts so the first snapshot prefix carries it. `apps/cli` does not use the
+   host: it calls `bootstrap_runtime_with_resolved_config`, starts
+   `RuntimeSupervisor` itself, and wraps it in `LocalCoreTransport`, so no
+   binding is ever made and `RuntimeViewState.workspace_owner` is absent for the
+   whole session. Reproduced in T2's offline check: a `viden --provider fallback`
+   TUI session renders all four `/git` workspace rows disabled with "Core
+   published no workspace owner", and the scratch workspace has no
+   `.viden/project.toml`, so the project id was never minted either. The GUI is
+   unaffected, because `apps/gui/src-tauri/src/adapter.rs` opens through
+   `LocalCoreHost`. The client half of GUI-CORE-027 is complete on both sides;
+   what is left is one shared bootstrap path. Closing it means routing the CLI
+   through `LocalCoreHost::open_workspace`, or minting inside
+   `bootstrap_runtime*` so every embedder gets the identity — a Core or CLI
+   change, not a client one. E2 needs this closed before it can evidence a
+   commit with no Lane selected from the TUI.
 
 
 The `context-budgets` fixture backs the frontend-neutral facade export of
