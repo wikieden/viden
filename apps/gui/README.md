@@ -132,7 +132,7 @@ implementation, not editing screens.
 
 | GUI area | Design intent | Core `0.3.5` status | GUI handling |
 | --- | --- | --- | --- |
-| Project open / D11 intake | native folder open plus project probe, provider health, config preview/confirm, and credential handles | `LocalCoreHost::open_workspace` provides trusted folder rebinding and `runtime.recent_work` answers `QueryRecentWork`; Core publishes no first-run intake signal, no repository-clone or project-scaffold command, and no concurrent multi-root supervision | Welcome uses the native folder picker and host rebind directly and lists Core's recent projects; the titlebar project picker adds the guarded switch. D11 stays an explicit in-project configuration flow and never owns folder open. Reachable at `?screen=d11` and from the agent menu's `Full setup`; the shell never redirects into it on its own |
+| Project open / D11 intake | native folder open plus project probe, provider health, config preview/confirm, and credential handles | `LocalCoreHost::open_workspace` provides trusted folder rebinding and `runtime.recent_work` answers `QueryRecentWork`; Core publishes no first-run intake signal, no repository-clone or project-scaffold command, and no concurrent multi-root supervision | Welcome uses the native folder picker and host rebind directly and lists Core's recent projects; the titlebar project picker adds the guarded switch. D11 stays an explicit in-project configuration flow and never owns folder open. Reachable at `?screen=d11` and from the project picker's `Configure this project…` row; the shell never redirects into it on its own |
 | D4 lane creation | typed role, route, gate strength, mutation policy, target, budget, worktree preview, lane receipt | `PreviewStarterLane`/`CreateStarterLane`, Core-resolved preview, invalidation, approval, exact receipt, and `runtime.starter_lane_preview` advertisement are available | Task 8 renders the four-step reviewed flow; older Core handshakes still fail closed visibly with zero sends |
 | D1 cockpit | no-project welcome center, zero-Lane project cockpit, activity/lane rails, streaming transcript/tool rows, Environment, Live Work, composer, evidence/context/cost facts | Stream/tool/approval/queue/task/lane/owner/evidence/context/cost/preferences/recent-work facts exist; diff/apply, stable audit timeline, actionable lane recovery, and concurrent multi-workspace supervision remain incomplete | No bound host renders Welcome; a bound empty project remains D1 and exposes `New Lane`; the Lane rail groups its Lanes under the one project Core supervises (`GUI-CORE-023`); live work renders from `RuntimeViewState` |
 | Permission dock | scoped approve/deny, risk, target, expiry, default action, audit id | `ApprovalRequestView` and `RespondToApproval` exist | Usable through Core; GUI cannot execute tools directly |
@@ -175,8 +175,13 @@ Core projection changes remain visible during that wait. Cancel clears only the
 in-memory navigation state, performs no Core mutation, and returns to D1.
 Welcome never enters this flow: folder selection and host rebinding complete first.
 
-The shell reaches D11 at `?screen=d11` and from the agent menu's `Full setup`
-action, which opens the full intake flow rather than the single-Lane D4 form.
+The shell reaches D11 at `?screen=d11` and from the project picker's
+`Configure this project…` row beside the open project. It used to hang off the
+New Lane popover's `Full setup…`; the `0.3.4` cockpit-centre batch moved that
+action to the D4 Lane wizard it belongs to, because asking an operator to
+configure the whole project in order to make one Lane is the wrong question.
+D11 configures a *project* — probe, `viden.toml`, credentials, starter Lanes —
+so the project surface is where it is entered from.
 `d11_poll` is both the entry read and the wait, so re-entering resumes a command
 still awaiting its Core receipt instead of restarting it, and the starter-Lane
 seeds D11 collects are handed to D4, which owns the preview/confirm receipt loop.
@@ -198,6 +203,25 @@ after creation is sent, the screen exposes
 the exact Core approval allow/deny actions and no fake cancel command. Each
 complete `StarterLaneCreated.receipt` advances the queue, and the final receipt
 emits a typed D1 navigation request focused on the last created Lane.
+
+### The four steps
+
+The wizard's steps are the design's own (`GUI/pages/Viden - D4 Lane创建流程
+(GUI).html` `STEPS`), and each renders only its own fields rather than four
+headings over one form:
+
+| # | Step | What it renders | What Core does not model |
+| --- | --- | --- | --- |
+| 1 | Role & workstation | the three `StarterLanePreset` roles, the Lane name and branch, and Core's resolved worktree and base revision read-only | the design's seven-role domain pack (`D-ROLES`) is not on this contract, so the three Core names are the three offered |
+| 2 | Choose agent | Core's published adapters, read-only, with the New Lane popover's pick marked, plus the resolved route | `StarterLaneRequest` carries **no agent binding**, so creating the Lane does not start the Agent session; the step says so rather than offering a selection that cannot reach Core — a contract request this batch drafted rather than numbered, because the register is frozen for `0.3.4` |
+| 3 | Skill pack | the step, stated unavailable with the reason | `frontend-contract-v1` publishes no skill, pack, or context-injection fact anywhere, and the request has no field for one — the same drafted request |
+| 4 | Gates & target | Core's own resolution: route, gate strength, target, budget, worktree, base revision, and mutation policy | the request carries no execution target and the preview always resolves `local`; remote targets are designed in D9 and are not on this contract, which the step names instead of drawing a picker |
+
+The task the popover carried is shown on step 1 with the note that it is **not**
+part of the create command: `StarterLaneRequest` carries the Lane id, preset,
+branch and worktree only, so the task travels as the operator's first message
+once the Lane is open — which is exactly what the compact New Lane creator
+does (`create_starter_lane`, then `submit` / `start_agent_session`).
 
 The adapter sends `PreviewStarterLane`, retains the exact original request,
 and accepts only a same-owner `StarterLanePreviewed` fact. Branch, worktree,
@@ -252,11 +276,80 @@ than enabled and inert. The rail itself is the cockpit's router; see
 [Navigation shell](#navigation-shell) below for the table, the centre views,
 the return path, and the Lane sidebar's two modes.
 
+### Centre pane
+
+The centre pane is the design's `.center` column: the `.tabstrip.lanebar` Lane
+tab strip over the scrolling transcript. The strip carries **one tab per Lane
+the cockpit projection lists** — status dot, Lane id, Lane name, and the Lane's
+own recorded branch — plus the agent Core bound to it, a trailing `＋` that
+opens the New Lane popover, and the design's `.tabmeta` slot with the project,
+the context budget Core published, and the resolved work mode.
+
+Three absences are deliberate. A Lane that recorded no branch shows none: the
+workspace's branch is a different fact and never stands in for a Lane's (C5's
+`lane_sources` is the seam that will carry a per-Lane worktree source). The
+budget and the mode live in the trailing meta rather than on each tab, because
+the cockpit projection is Lane-scoped — `contextDock.context` and
+`statusbar.workMode` describe the Lane the read was made for, and printing
+either against another Lane would be a number with the wrong name on it. A Lane
+with no Agent session is named for the built-in runtime, exactly as the Lane
+rail names it.
+
+With no Lanes at all the strip stays, carrying the rail's own "No Lanes yet"
+sentence and the `＋`. A centre *view* — DiffReview, EvidenceView, or one of the
+five D-screens — replaces the whole column, which is the flagship's own switch,
+so those views draw no strip and state their own scope in their head instead.
+
+Clicking a tab selects the Lane through `selectLane`, the same path the Lane
+rail and the palette use. `⌃⇥` / `⌃⇧⇥` cycle the projected Lanes, which is the
+pair the design's keyboard registry binds to "Next / previous lane"; they stand
+down while an IME composition or any overlay owns the keyboard, because moving
+the conversation out from under a decision the operator is being asked to make
+is the one thing the chord must never do.
+
+**Tool blocks.** A workspace change and a check run render as the design's
+`.tool` block — a `.th` header over a `.tb` body. The change's body is the
+shared hunk renderer (`diff_rows`), the same rows DiffReview, the permission
+dock and D2 draw, and it is **collapsed by default**: a transcript is read top
+to bottom and a long hunk in the middle of it buries the conversation. A check
+run is not collapsed; its body is the design's three `.testrow`s — status, the
+failing location when Core reported one, and the result — and the failing line
+is why the block is on screen.
+
+The header names what Core named. Core publishes no producing tool on a
+workspace change, so the name slot carries the change kind — unless the pending
+approval's own `decisionContext` diff covers exactly this path, which is the
+one case where the design's `write_file` / `edit_file` is a Core fact rather
+than a guess (ordered typed tool-call rows remain `GUI-CORE-009`). The gate
+chip appears on that same evidence and nowhere else: an approval Core attached
+no context to gates nothing here. A change with no rows keeps the patch-or-
+unavailable body it has always had.
+
+**Focus mode (`⌘.` / `⌃.`).** `D-SIDEBAR`'s override: "focus 专注模式覆盖此偏好
+→ 两侧强制 hover 浮窗(退出恢复)". Both side panels move behind their own
+registered `.edgewrap` hot zones — the Lane sidebar's on the left, the context
+dock's on the right, each with the same ~700 ms peek delay — and the transcript
+takes the width. The activity rail stays, because it is the cockpit's router
+and a router that disappears is a dead end.
+
+The flag *shadows* `laneSidebarMode` rather than writing it, which is what
+makes "退出恢复" free: leaving restores the pinned column the operator chose
+with no saved copy. It is in-memory state like the sidebar mode and the
+statusbar's ambient set, but unlike those two it is not a preference — it is a
+posture held for a few minutes — so it is deliberately **not** part of C5's
+`UiLayoutPreferences`. The titlebar carries the design's `IFocus` control for
+it, in the `.tbtools` position the design draws, with `aria-pressed` reporting
+the state.
+
 `New Lane` opens one compact, anchored popover with the built-in Viden Agent
 selected by default, discovered ACP Agents, the task draft, branded Agent
 identity, Core-projected eligibility/probe diagnostics, and a
-presentation-only isolation hint. `Full setup…` routes to the existing D4
-compatibility flow instead of expanding the quick creator in place. Git
+presentation-only isolation hint. `Full setup…` opens the D4 Lane wizard on
+the popover's own draft — the task names the Lane and its branch with the same
+`vd/<slug>` the popover previews, and the chosen agent is marked on the
+wizard's agent step. Cancelling the wizard returns to the cockpit with the
+popover reopened on exactly what the operator had typed, so a detour through
+the full form never costs them the draft. Git
 workspaces preview the derived branch/worktree; non-Git directories explicitly
 state that the Lane runs in the opened workspace without creating either. Agent
 selection stays inside the popover, the task textarea receives focus, and Create
@@ -660,6 +753,15 @@ keywords using the same position-plus-adjacency score the TUI computes. Rows are
 not re-ranked under the cursor: the design's section order (Actions, Jump to,
 Settings, Files) is preserved, exactly as the TUI preserves its group order.
 
+The Actions section carries the design's own Lane-creation row, "Delegate task
+to new worktree… ⌘L" — creating a Lane *is* delegating a task to a fresh
+worktree, which is why the design names it that way. It opens the same New Lane
+popover the rail's and the tab strip's `＋` open, so there is one creation
+surface rather than two. When Core says the workspace cannot carry a Lane the
+row is disabled and carries Core's own diagnostic; a Core that published no
+workspace eligibility at all gets its own sentence, because that is not a
+refusal and must not be worded as one.
+
 Selecting a Lane or an Agent session selects it **in the cockpit** through the
 same path the Lane rail uses, then focuses the composer; the palette never
 navigates away for something the current screen already owns. A merge gate opens
@@ -680,6 +782,42 @@ and sends no command; a read still in flight, a refusal carrying Core's own
 sentence, and an answered read over an empty workspace each get their own row,
 so an empty list never stands in for any of them. The TUI's jump index mirrors
 all four cases.
+
+### Chords
+
+Every window-level chord the cockpit binds, in one place. `⌘` is `⌃` off
+macOS, except where the table says otherwise. Each stands down while an IME
+composition owns the key, and all but `⌘K` / `⌃P` stand down while a modal
+overlay owns focus.
+
+| Chord | Opens / does | Stands down when |
+| --- | --- | --- |
+| `⌘K` | the command palette (toggles) | a settings panel, New Lane popover, or control popover has focus |
+| `⌃P` | the palette pre-scoped to `>` | same |
+| `⌘L` | the New Lane popover | Core says the workspace cannot carry a Lane — the same condition the palette row fails closed on, with Core's own sentence |
+| `⌘R` | DiffReview (toggles) | no host is bound, or Core published no `runtime.structured_diff` |
+| `⌘E` | EvidenceView (toggles) | no host is bound, or Core published no `runtime.evidence_reads` |
+| `⌘F` | focuses the evidence search box | EvidenceView does not own the centre pane |
+| `⌘G` | the Decisions queue (toggles) | no router and no secondary host is bound |
+| `⌘.` | focus mode (toggles) | an overlay owns focus |
+| `⌃⇥` / `⌃⇧⇥` | next / previous Lane | an overlay owns focus, or there is nothing to switch to |
+| `⌘O` | the folder picker | only bound on the no-project Welcome |
+| `Esc` | the priority list below | — |
+
+`Esc` is handled in exactly one place, and the order *is* the contract:
+
+1. an IME composition owns the key outright;
+2. an open overlay owns it — the settings panel, the command palette, a
+   composer-control popover, the New Lane popover, the project picker, or the
+   permission dock. A decision the operator is being asked to make outranks any
+   navigation;
+3. the floating Lane sidebar's peek, the most transient thing on screen and the
+   one `D-SIDEBAR` binds `Esc` to;
+4. the composer's cancel-turn binding, which stops real work rather than moving
+   a view;
+5. the centre view's return path;
+6. focus mode, last of all — it hides no decision and interrupts no work, so
+   every surface above owns the key first.
 
 ### Keybinding divergence from the TUI
 

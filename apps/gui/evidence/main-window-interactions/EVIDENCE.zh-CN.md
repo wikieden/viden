@@ -755,6 +755,107 @@ G3 之前拍摄的带驾驶舱截图已在同一批次内重拍，见下文重�
 | `settings-1440x900-light-zh-CN.png` | 2026-09-12 | 同上，light/zh-CN |
 | `settings-unavailable-1440x900-dark-en.png` | 2026-09-12 | 同上；`ui.preference_persistence` 提示未变 |
 
+## 驾驶舱中央截图（G4）
+
+2026-09-12 以同一套 headless Chrome 流程拍摄
+（`--headless --disable-gpu --hide-scrollbars --window-size=1440,900
+--virtual-time-budget=6000`），针对 **4175** 端口上的 vite dev server（4173 属于
+另一个 worktree），随后逐张打开阅读。这是驾驶舱中央与设计对齐后的第一批图像：
+`.tabstrip.lanebar` Lane 标签条、`.tool` 转录块、专注模式，以及从「新建 Lane」弹层
+进入的 D4 向导。
+
+支撑它们的是两份新投影，都是共享 D1 fixture 的 delta，并在 `qa.ts` 中与其镜像的
+fixture 并列注明：
+
+- `d1TwoLanes()` 增加一条带**自己**记录分支的 Lane 以及绑定其上的 ACP 会话，于是
+  标签条能同时展示内置 Lane 与 agent 绑定的 Lane。没有第二条 Lane，标签条什么也证明不了。
+- `d1ToolBlocks()` 用一条工作区改动（携带与评审状态相同的单文件单 hunk 页
+  `REVIEW_PAGE.entries[0].diff`）与一次失败检查运行（携带 canonical
+  `d1-main-cockpit.json` 记录的 `file:line` 位置）替换清单。
+
+| 文件 | 状态 | 视口 | 模式 | 语言 |
+| --- | --- | --- | --- | --- |
+| [centre-lane-tabs-1440x900-dark-en.png](centre-lane-tabs-1440x900-dark-en.png) | centre-lane-tabs | 1440x900 | dark | en |
+| [centre-lane-tabs-1440x900-light-zh-CN.png](centre-lane-tabs-1440x900-light-zh-CN.png) | centre-lane-tabs | 1440x900 | light | zh-CN |
+| [centre-tool-diff-1440x900-dark-en.png](centre-tool-diff-1440x900-dark-en.png) | centre-tool-diff | 1440x900 | dark | en |
+| [centre-focus-mode-1440x900-dark-en.png](centre-focus-mode-1440x900-dark-en.png) | centre-focus-mode | 1440x900 | dark | en |
+| [d4-from-popover-1440x900-dark-en.png](d4-from-popover-1440x900-dark-en.png) | d4-from-popover | 1440x900 | dark | en |
+
+每张图都让一个主张可被证伪：
+
+| 图像 | 它证明的主张 |
+| --- | --- |
+| `centre-lane-tabs` | 标签条**按 Lane、按 Core 事实**渲染。两个标签，选中的那个带设计稿的强调线，各自携带该 Lane 自己记录的分支——`codex/lane-core` 与 `vd/retry-policy`，两者不同，因此都不可能是工作区的——以及 Core 为其绑定的 agent（内置 Lane 为 `Viden Agent`，ACP Lane 为 `codex-acp`）。末尾的 `.tabmeta` 只带**一次**项目、`42.1k`（Core 发布的预算）与 `Build`（Core 解析的模式），而不是每个标签一份，因为投影按 Lane 限定 |
+| `centre-lane-tabs`（light/zh-CN） | 新增文案的语言证明：标签条的可访问名称、创建入口的标签与模式词都会翻译，而 Lane id、分支名与 agent id 保持 Core 发布时的原样 |
+| `centre-tool-diff` | 转录内联承载证据。改动块展示设计稿的头部——展开箭头、Core 发布的改动类别、路径、`+1 −1`——之上是共享 hunk 渲染器，带 Git 自己的 `@@` 头与逐侧行号；检查块展示命令、`Failed` 芯片与三条 `.testrow`，含 Core 报告的失败位置。此处特意展开了 diff 块：折叠才是它的默认值，而截图必须展示展开后的内容 |
+| `centre-focus-mode` | `D-SIDEBAR` 的覆盖条款确实是**两侧强制 hover 浮窗**。主体只剩两条轨道——活动 rail 与转录——该状态起始时的 pinned Lane 列已让出，上下文坞离开网格、退到右缘热区之后，标题栏的 `IFocus` 控件读作已按下。请与 `lane-rail` 对读，那是同一驾驶舱保留该列的样子 |
+| `d4-from-popover` | 「完整设置…」保留 draft 并说明差距。Lane 依弹层携带的任务命名为 `refactor-the-config-loader`，agent 步骤列出 Core 的适配器并把 `Codex` 标为弹层中的选择，该步还用自己的话说明 `StarterLaneRequest` 不携带 agent 绑定——因此向导绝不暗示它会启动会话 |
+
+本目录中每一张带驾驶舱的截图都在同一批次内重拍，见下文重拍小节。
+
+### 中央批次之后的驾驶舱重拍（2026-09-12，G4）
+
+Lane 标签条出现在每一帧带转录的画面里，`.tool` 块出现在每一帧带清单的画面里，因此
+G3 重拍过的那 **42** 张带驾驶舱图像再次全部重拍，另加 `d4-1440x900-dark-en.png`，
+因为向导的步骤发生了变化——共 43 个文件。全部针对同一台运行中的服务器拍摄，且每一张
+在提交前都被打开阅读过。
+
+有一处布局修复随之提交，值得点名，因为它是被截图而不是被测试发现的。`gui-kit.css`
+的 `.frame` 是 flex 列，与 `.d1-frame` 的 `display: grid` 特异性相同却位于层叠更后
+的位置，因此外壳一直是按 flex 布局的；主体之所以能抵到状态栏，只是因为上下文坞的自然
+高度恰好够到。专注模式把坞移出文档流，于是第一张 `centre-focus-mode` 截图显示外壳在
+状态栏上方 170px 处就停住、后面露出裸页面。`.d1-body` 现在显式声明占据剩余空间
+（`flex: 1 1 auto`），这正是框架行高一直想表达的意思，并且在每一个非专注状态下测得的
+高度完全一致。
+
+重拍的 43 个文件，列在一处以便核对：
+
+- `approval-hunks-1440x900-dark-en.png`
+- `d1-1440x900-dark-en.png`
+- `d1-1440x900-light-zh-CN.png`
+- `d1-mode-menu-1440x900-dark-en.png`
+- `d1-model-menu-1440x900-dark-en.png`
+- `d4-1440x900-dark-en.png`
+- `d6-actions-1440x900-dark-en.png`
+- `d6-error-1440x900-dark-en.png`
+- `evidence-1440x900-dark-en.png`
+- `evidence-1440x900-light-zh-CN.png`
+- `evidence-empty-1440x900-dark-en.png`
+- `evidence-rejected-1440x900-dark-en.png`
+- `evidence-summary-only-1440x900-dark-en.png`
+- `evidence-text-1440x900-dark-en.png`
+- `evidence-unavailable-1440x900-dark-en.png`
+- `lane-rail-1440x900-dark-en.png`
+- `nav-d14-in-cockpit-1440x900-dark-en.png`
+- `nav-d2-in-cockpit-1440x900-dark-en.png`
+- `nav-d2-in-cockpit-1440x900-light-zh-CN.png`
+- `nav-sidebar-floating-peek-1440x900-dark-en.png`
+- `nav-statusbar-config-1440x900-dark-en.png`
+- `palette-1440x900-dark-en.png`
+- `palette-files-1440x900-dark-en.png`
+- `palette-files-1440x900-light-zh-CN.png`
+- `permission-ask-1440x900-dark-en.png`
+- `permission-deny-redirect-1440x900-dark-en.png`
+- `permission-deny-redirect-1440x900-light-zh-CN.png`
+- `project-picker-1440x900-dark-en.png`
+- `project-switch-confirm-1440x900-dark-en.png`
+- `review-1440x900-dark-en.png`
+- `review-1440x900-light-zh-CN.png`
+- `review-commit-1440x900-dark-en.png`
+- `review-commit-completed-1440x900-dark-en.png`
+- `review-commit-completed-1440x900-light-zh-CN.png`
+- `review-commit-pending-approval-1440x900-dark-en.png`
+- `review-empty-1440x900-dark-en.png`
+- `review-omitted-1440x900-dark-en.png`
+- `review-push-no-upstream-1440x900-dark-en.png`
+- `review-rejected-1440x900-dark-en.png`
+- `review-rejected-action-1440x900-dark-en.png`
+- `settings-1440x900-dark-en.png`
+- `settings-1440x900-light-zh-CN.png`
+- `settings-unavailable-1440x900-dark-en.png`
+
+五个新文件列在上表中。
+
 ### 关于 `nav-statusbar-config` 这个文件，直说
 
 本批次的第一个提交里，`nav-statusbar-config-1440x900-dark-en.png` 是看过且正确的；

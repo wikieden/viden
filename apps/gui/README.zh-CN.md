@@ -114,7 +114,7 @@ GUI 禁止导入 `viden_core::legacy`、`viden-runtime`、`viden-provider`、
 
 | GUI 区域 | 设计意图 | Core `0.3.5` 状态 | GUI 处理 |
 | --- | --- | --- | --- |
-| 打开项目 / D11 接入 | 原生文件夹打开，以及 project probe、provider health、config preview/confirm、credential handles | `LocalCoreHost::open_workspace` 已提供可信文件夹重绑，`runtime.recent_work` 已响应 `QueryRecentWork`；Core 不发布首启接入信号，也没有仓库克隆命令、项目脚手架命令与并发多根托管 | Welcome 直接使用原生选择器和 host rebind，并列出 Core 的最近项目；标题栏项目选择器提供带确认的切换。D11 只作为项目内显式配置流程，不接管打开文件夹。入口为 `?screen=d11` 与 agent 菜单的 `Full setup`；shell 不会自行重定向进入 |
+| 打开项目 / D11 接入 | 原生文件夹打开，以及 project probe、provider health、config preview/confirm、credential handles | `LocalCoreHost::open_workspace` 已提供可信文件夹重绑，`runtime.recent_work` 已响应 `QueryRecentWork`；Core 不发布首启接入信号，也没有仓库克隆命令、项目脚手架命令与并发多根托管 | Welcome 直接使用原生选择器和 host rebind，并列出 Core 的最近项目；标题栏项目选择器提供带确认的切换。D11 只作为项目内显式配置流程，不接管打开文件夹。入口为 `?screen=d11` 与项目选择器的「配置此项目…」行；shell 不会自行重定向进入 |
 | D4 Lane 创建 | typed role、route、gate strength、mutation policy、target、budget、worktree preview、lane receipt | 已有 `PreviewStarterLane`/`CreateStarterLane`、Core 解析 preview、invalidation、approval、精确 receipt 与 `runtime.starter_lane_preview` 广告 | Task 8 渲染四步复核流程；连接旧版 Core 时仍以可见 unavailable 和零发送 fail closed |
 | D1 驾驶舱 | 无项目欢迎中心、零 Lane 项目驾驶舱、activity/lane rails、streaming transcript/tool rows、Environment、Live Work、composer、evidence/context/cost facts | stream/tool/approval/queue/task/lane/owner/evidence/context/cost/preferences/recent-work facts 已有；diff/apply、稳定 audit timeline、可操作 Lane recovery 与并发多工作区托管尚不完整 | 未绑定 host 才显示 Welcome；已绑定空项目仍留在 D1 并提供“新建 Lane”；Lane 侧栏把 Lane 收拢在 Core 托管的那一个项目分组下（`GUI-CORE-023`）；实时工作从 `RuntimeViewState` 渲染 |
 | Permission dock | scoped approve/deny、risk、target、expiry、default action、audit id | `ApprovalRequestView` 和 `RespondToApproval` 已有 | 可经 Core 使用；GUI 不得直接执行 tool |
@@ -156,8 +156,11 @@ Cancel 只清除内存导航状态，不发生 Core mutation，并返回 D1。We
 字段。若确认需要 Core 批准，D11 会嵌入与 D1 相同的 typed Permission Dock；
 `Allow once` 或 `Deny` 仍是显式 Core command，不会成为 GUI 侧绕过。
 
-Shell 通过 `?screen=d11` 与 agent 菜单的 `Full setup` 进入 D11：该动作打开完整接入
-流程，而不是单 Lane 的 D4 表单。`d11_poll` 同时充当入口读取与等待，因此重新进入会
+Shell 通过 `?screen=d11` 与项目选择器中位于已打开项目旁的「配置此项目…」行进入 D11。
+该入口原本挂在「新建 Lane」弹层的 `Full setup…` 上；`0.3.4` 驾驶舱中央批次把那个动作
+移到了它本应归属的 D4 Lane 向导，因为为了创建一条 Lane 而要求操作者配置整个项目是错的
+问题。D11 配置的是*项目*——probe、`viden.toml`、凭据、starter Lane——因此入口在项目界面。
+`d11_poll` 同时充当入口读取与等待，因此重新进入会
 继续等待仍未收到 Core 回执的命令，而不是重新开始；D11 收集的起始 Lane 种子交给 D4，
 由 D4 拥有 preview/confirm 回执循环。没有自动跳转进入 D11：Core 不发布首启接入事实，
 客户端只能凭空编造一个。
@@ -169,6 +172,23 @@ Task 8 从项目驾驶舱的“新建 Lane”进入 D4，每次只复核一个 s
 approval 的 allow/deny，不伪造 cancel command。每个完整
 `StarterLaneCreated.receipt` 推进一项，最后一个 receipt 发出 typed D1 导航请求，并聚焦
 最后创建的 Lane。
+
+### 四个步骤
+
+向导的步骤即设计稿自身的四步（`GUI/pages/Viden - D4 Lane创建流程 (GUI).html` 的
+`STEPS`），每一步只渲染自己的字段，而不是把四个标题摞在同一张表单上：
+
+| # | 步骤 | 渲染什么 | Core 未建模的部分 |
+| --- | --- | --- | --- |
+| 1 | 角色与工位 | 三个 `StarterLanePreset` 角色、Lane 名称与分支，以及 Core 解析出的 worktree 与基线修订（只读） | 设计稿的七角色领域包（`D-ROLES`）不在本契约上，因此只提供 Core 的三个名字 |
+| 2 | 选择 agent | Core 发布的适配器（只读），标出「新建 Lane」弹层中的选择，并附解析出的 route | `StarterLaneRequest` **不携带 agent 绑定**，因此创建 Lane 不会启动 Agent 会话；该步直说这一点，而不是提供一个到不了 Core 的选择——本批次起草但未编号的契约请求，因为 `0.3.4` 的登记表是冻结的 |
+| 3 | Skill 包 | 渲染该步，并说明其不可用与原因 | `frontend-contract-v1` 任何地方都不发布 skill、包或上下文注入事实，请求也没有对应字段——同一份起草请求 |
+| 4 | 闸与执行目标 | Core 自己的解析：route、gate strength、target、budget、worktree、基线修订与 mutation policy | 请求不携带执行目标，预览恒解析为 `local`；远程目标在 D9 中设计，不在本契约内——该步说明这一点，而不是画一个选择器 |
+
+弹层带来的任务显示在第 1 步，并注明它**不属于**创建命令：`StarterLaneRequest` 只携带
+Lane id、预设、分支与 worktree，因此任务会在 Lane 打开后作为操作者的第一条消息发出——
+这正是紧凑版「新建 Lane」的做法（`create_starter_lane`，然后 `submit` /
+`start_agent_session`）。
 
 Adapter 发送 `PreviewStarterLane`、保留原始请求，并且只接受同 owner 的
 `StarterLanePreviewed` 事实。branch、worktree、base revision、route、gate、target、
@@ -210,9 +230,56 @@ hover 根节点在易变的 Lane/Agent 状态变化期间保持挂载；这样�
 的槽位一律禁用，而不是既可点击又无响应。Rail 本身就是驾驶舱的路由器，路由表、中央视图、
 返回路径与 Lane 侧栏双模式见下文[导航外壳](#导航外壳)。
 
+### 中央面板
+
+中央面板即设计稿的 `.center` 列：`.tabstrip.lanebar` Lane 标签条位于滚动转录之上。
+标签条为**驾驶舱投影列出的每条 Lane 渲染一个标签**——状态点、Lane id、Lane 名称，以及
+该 Lane 自己记录的分支——再加上 Core 为其绑定的 agent、末尾用于打开「新建 Lane」弹层的
+`＋`，以及设计稿的 `.tabmeta` 槽（项目、Core 发布的上下文预算、已解析的工作模式）。
+
+三处“缺席”是有意的。未记录分支的 Lane 就不显示分支：工作区的分支是另一件事实，绝不
+顶替 Lane 的（C5 的 `lane_sources` 正是承载每-Lane worktree 来源的接缝）。预算与模式
+放在末尾的 meta 而不是每个标签上，因为驾驶舱投影按 Lane 限定——`contextDock.context`
+与 `statusbar.workMode` 描述的是该次读取所针对的那条 Lane，把它们印在别的 Lane 上就是
+挂错名字的数字。没有 Agent 会话的 Lane 按内置 runtime 命名，与 Lane rail 的做法一致。
+
+完全没有 Lane 时标签条仍在，显示 rail 自己的「No Lanes yet」文案与 `＋`。中央**视图**
+（DiffReview、EvidenceView 或五个 D 屏之一）会替换整列——这是旗舰稿自己的切换方式——
+因此这些视图不画标签条，而是在各自头部说明作用域。
+
+点击标签经 `selectLane` 选中 Lane，与 Lane rail、命令面板同一条路径。`⌃⇥` / `⌃⇧⇥`
+在已投影的 Lane 之间循环，这正是设计稿键位表绑定给「下一条 / 上一条 lane」的组合键；
+当 IME 组合态或任一浮层占有键盘时它们让位，因为把对话从操作者正被要求作出的决定下面
+挪走，是这个组合键绝不能做的事。
+
+**工具块。** 工作区改动与检查运行都渲染为设计稿的 `.tool` 块——`.th` 头部加 `.tb` 主体。
+改动的主体是共享 hunk 渲染器（`diff_rows`），与 DiffReview、permission dock、D2 用的是
+同一套行，并且**默认折叠**：转录是自上而下读的，中间夹一段长 hunk 会把对话埋掉。检查运行
+不折叠，其主体是设计稿的三条 `.testrow`——状态、Core 报告的失败位置（若有）、结果——
+而失败那行正是这个块出现的原因。
+
+头部只说 Core 说过的话。Core 不会为工作区改动发布产生它的工具，因此名称槽显示改动类别——
+除非当前 approval 自己的 `decisionContext` diff 恰好覆盖这个路径，那是设计稿的
+`write_file` / `edit_file` 成为 Core 事实而非猜测的唯一情形（有序 typed tool-call 行仍是
+`GUI-CORE-009`）。闸状态芯片只依据同一份证据出现：Core 未附上下文的 approval 在这里不闸
+任何东西。没有行的改动保持它一直以来的 patch-或-不可用主体。
+
+**专注模式（`⌘.` / `⌃.`）。** `D-SIDEBAR` 的覆盖条款：「focus 专注模式覆盖此偏好 →
+两侧强制 hover 浮窗(退出恢复)」。两侧面板各自移到已登记的 `.edgewrap` 热区之后——左侧是
+Lane 侧栏，右侧是 Context Dock，两者用同样的约 700ms peek 延时——转录拿走宽度。
+Activity rail 留下，因为它是驾驶舱的路由器，而消失的路由器就是死路。
+
+该标志**遮蔽**而非写入 `laneSidebarMode`，这正是「退出恢复」无需保存副本的原因：退出时
+操作者选择的 pinned 列自然回来。它与侧栏模式、状态栏环境项一样是内存态，但与那两者不同，
+它不是偏好——它是操作者维持几分钟的姿态——因此**不**属于 C5 的 `UiLayoutPreferences`。
+标题栏为它提供设计稿的 `IFocus` 控件，位置就是设计稿 `.tbtools` 中的位置，
+`aria-pressed` 报告当前状态。
+
 “新建 Lane”会打开一个紧凑的锚定弹层，默认选中内置 Viden Agent，并包含已发现的 ACP
 Agents、品牌身份、任务 draft、Core 投影的 eligibility/probe 诊断，以及只作呈现的
-isolation 提示。“完整设置…”进入既有 D4 兼容流程，不在快速创建器里继续堆叠选项。
+isolation 提示。“完整设置…”在弹层自己的 draft 上打开 D4 Lane 向导——任务用弹层预览的同
+一个 `vd/<slug>` 命名 Lane 与分支，所选 agent 在向导的 agent 步骤上被标出。取消向导会
+带着 draft 回到驾驶舱并重新打开弹层，因此绕道完整表单一次也不会让操作者丢掉已输入的内容。
 Git 工作区预览由任务文本派生的 branch/worktree；非 Git 目录明确提示 Lane
 直接在已打开工作区运行，不创建二者。
 选择 Agent 不会关闭弹层，任务 textarea 会获得焦点，任务非空前“创建 Lane”保持禁用。
@@ -402,7 +469,27 @@ Close 控件；再次按下同一个 rail 槽位同样返回转录。`⌘G` / `�
 3. 浮动 Lane 侧栏的 peek，屏幕上最短暂的东西，也是 `D-SIDEBAR` 把 `Esc` 绑上去的那个；
 4. composer 的取消当前回合绑定，它停止的是真实工作而不是移动一个视图。它的可视入口——Live
    Work 条上的取消——位于转录内部，因此二者实际上从不冲突；
-5. 最后才是中央视图的返回路径。
+5. 中央视图的返回路径；
+6. 最后才是专注模式——它既不遮蔽决定也不中断工作，因此以上每个界面都先拿到该键。
+
+### 组合键
+
+驾驶舱绑定的全部窗口级组合键，集中于此。非 macOS 上 `⌘` 即 `⌃`。每一个在 IME 组合态
+占有该键时让位；除 `⌘K` / `⌃P` 外，其余在模态浮层持有焦点时也让位。
+
+| 组合键 | 作用 | 何时让位 |
+| --- | --- | --- |
+| `⌘K` | 命令面板（切换） | 设置面板、新建 Lane 弹层或控件弹层持有焦点 |
+| `⌃P` | 预置 `>` 作用域的命令面板 | 同上 |
+| `⌘L` | 新建 Lane 弹层 | Core 判定该工作区无法承载 Lane——与命令面板行相同的失败关闭条件，并带 Core 自己的说明 |
+| `⌘R` | DiffReview（切换） | 未绑定 host，或 Core 未发布 `runtime.structured_diff` |
+| `⌘E` | EvidenceView（切换） | 未绑定 host，或 Core 未发布 `runtime.evidence_reads` |
+| `⌘F` | 聚焦证据搜索框 | EvidenceView 未占有中央面板 |
+| `⌘G` | 决策队列（切换） | 未绑定路由与次级宿主 |
+| `⌘.` | 专注模式（切换） | 浮层持有焦点 |
+| `⌃⇥` / `⌃⇧⇥` | 下一条 / 上一条 Lane | 浮层持有焦点，或没有可切换目标 |
+| `⌘O` | 文件夹选择器 | 仅在无项目 Welcome 上绑定 |
+| `Esc` | 上文优先级列表 | — |
 
 **Lane 侧栏双模式（`D-SIDEBAR`）。** `floating` 是该决策的默认值，也是驾驶舱的默认值：侧栏
 把横向空间让给转录，藏在贴着 activity rail 右缘、带 `.edgehint` 提示条的 12px 热区之后。
@@ -500,6 +587,12 @@ Core 一次只托管**一个**工作区。`LocalCoreHost::open_workspace` 每次
 不带前缀的查询按子序列匹配每一行的标题、上下文与关键词，采用与 TUI 相同的
 「位置分 + 相邻加成」算法。行不会在光标下被重新排序：设计稿的分区顺序（动作、
 跳转到、设置、文件）保持不变，正如 TUI 保持其分组顺序。
+
+Actions 区带有设计稿自己的 Lane 创建行「Delegate task to new worktree… ⌘L」——创建一条
+Lane *就是*把任务委派给一棵新的 worktree，这正是设计稿如此命名的原因。它打开的是 rail
+与标签条的 `＋` 所打开的同一个「新建 Lane」弹层，因此创建界面只有一个而不是两个。当 Core
+判定该工作区无法承载 Lane 时，该行禁用并带上 Core 自己的诊断；若 Core 根本没有发布工作区
+可用性，则给出属于它自己的说法——那不是拒绝，也不能被写成拒绝。
 
 选中 Lane 或 Agent 会话会走与 Lane rail 完全相同的路径**在驾驶舱内**完成选择，
 随后聚焦 Composer；对当前屏已经拥有的东西，面板绝不跳转离开。合并闸打开 D12，

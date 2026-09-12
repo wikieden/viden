@@ -160,6 +160,10 @@ All URLs share the prefix
 | `review-rejected` | `…/qa.html?state=review-rejected` | Core's refusal verbatim in a `role=alert`, with no file count in the header and no empty-tree sentence |
 | `review-empty` | `…/qa.html?state=review-empty` | "No changes in the working tree" — the only state drawn that way, over a page Core actually answered |
 | `approval-hunks` | `…/qa.html?state=approval-hunks` | the D1 permission dock rendering `decision_context` as hunk rows under the "Preview computed against" note, with `input_preview` above and the decision row pinned below (`GUI-CORE-012`) |
+| `centre-lane-tabs` | `…/qa.html?state=centre-lane-tabs` | the `.tabstrip.lanebar` Lane tab strip over the transcript: one tab per Lane with its own recorded branch and bound agent, the current tab marked, the trailing `＋`, and the meta slot carrying the project, Core's published budget and the resolved work mode once |
+| `centre-tool-diff` | `…/qa.html?state=centre-tool-diff` | the transcript's `.tool` blocks: a workspace change with its header disclosed over the shared hunk rows, and a failed check run with the command, the status chip, and the three `.testrow`s including Core's failing location |
+| `centre-focus-mode` | `…/qa.html?state=centre-focus-mode` | focus mode entered from the titlebar control: two grid tracks, the pinned Lane column given back, the context dock behind its right-edge hot zone, and the `IFocus` control pressed |
+| `d4-from-popover` | `…/qa.html?state=d4-from-popover` | the D4 wizard entered from "Full setup…": the Lane named after the popover's task, the agent step listing Core's adapters with the popover's pick marked, and the sentence stating that the create command carries no agent binding |
 | `lane-rail` | `…/qa.html?state=lane-rail` | `D-SIDEBAR` **pinned** mode: the sidebar as a real layout column at the design's 218px, pushing the work surface rather than covering it, with the activity rail's pin marked pressed. It shows the one `.wsroot` project group named `viden` with its `▾` collapse, its Lane count, the per-group `＋`, the Lane nested beneath it, and the `＋ Add project…` footer — and no second group and no "Global" section |
 | `project-picker` | `…/qa.html?state=project-picker` | the picker open under the titlebar `▾` selector with all three columns visible at once: `Add directory…` enabled beside the two disabled rows naming `GUI-CORE-023`, the single "In workspace" row for the open project with its lane count, and one Recent row with its relative age |
 | `project-switch-confirm` | `…/qa.html?state=project-switch-confirm` | the same picker after choosing the recent project, showing the inline confirmation: the target root, the replacement sentence naming `GUI-CORE-023`, the running-work counts, and Cancel beside Switch workspace |
@@ -863,6 +867,116 @@ untouched.
 | `settings-1440x900-dark-en.png` | 2026-09-12 | rail slots + pin behind the dialog, statusbar gear; the Settings dialog is unchanged |
 | `settings-1440x900-light-zh-CN.png` | 2026-09-12 | same, light/zh-CN |
 | `settings-unavailable-1440x900-dark-en.png` | 2026-09-12 | same; the `ui.preference_persistence` notice is unchanged |
+
+## Cockpit centre captures (G4)
+
+Captured 2026-09-12 with the same headless Chrome procedure
+(`--headless --disable-gpu --hide-scrollbars --window-size=1440,900
+--virtual-time-budget=6000`) against the vite dev server on **port 4175**
+(4173 is another worktree's), then opened and read one by one. These are the
+first images of the cockpit centre level with its design: the
+`.tabstrip.lanebar` Lane tab strip, the `.tool` transcript blocks, focus mode,
+and the D4 wizard entered from the New Lane popover.
+
+Two new projections back them, both deltas on the shared D1 fixture and both
+described in `qa.ts` beside the fixture they mirror:
+
+- `d1TwoLanes()` adds a second Lane with its **own** recorded branch plus an
+  ACP session bound to it, so the strip shows a built-in Lane and an
+  agent-bound one side by side. Without a second Lane a tab strip proves
+  nothing.
+- `d1ToolBlocks()` replaces the checklist with one workspace change carrying
+  the same one-file, one-hunk page the review states use
+  (`REVIEW_PAGE.entries[0].diff`) and one failed check run with the
+  `file:line` location the canonical `d1-main-cockpit.json` state records.
+
+| File | State | Viewport | Mode | Locale |
+| --- | --- | --- | --- | --- |
+| [centre-lane-tabs-1440x900-dark-en.png](centre-lane-tabs-1440x900-dark-en.png) | centre-lane-tabs | 1440x900 | dark | en |
+| [centre-lane-tabs-1440x900-light-zh-CN.png](centre-lane-tabs-1440x900-light-zh-CN.png) | centre-lane-tabs | 1440x900 | light | zh-CN |
+| [centre-tool-diff-1440x900-dark-en.png](centre-tool-diff-1440x900-dark-en.png) | centre-tool-diff | 1440x900 | dark | en |
+| [centre-focus-mode-1440x900-dark-en.png](centre-focus-mode-1440x900-dark-en.png) | centre-focus-mode | 1440x900 | dark | en |
+| [d4-from-popover-1440x900-dark-en.png](d4-from-popover-1440x900-dark-en.png) | d4-from-popover | 1440x900 | dark | en |
+
+Each image exists to make one claim falsifiable:
+
+| Image | The claim it proves |
+| --- | --- |
+| `centre-lane-tabs` | the strip is **per Lane and per Core fact**. Two tabs, the selected one marked with the design's accent rule, each carrying that Lane's own recorded branch — `codex/lane-core` and `vd/retry-policy`, which are different, so neither can be the workspace's — and the agent Core bound to it (`Viden Agent` for the built-in Lane, `codex-acp` for the ACP one). The trailing `.tabmeta` carries the project, `42.1k` (Core's published budget) and `Build` (Core's resolved mode) **once**, not per tab, because the projection is Lane-scoped |
+| `centre-lane-tabs` (light/zh-CN) | the locale proof for the added copy: the strip's accessible names, the create affordance's label and the mode word translate, while Lane ids, branch names and agent ids stay exactly as Core published them |
+| `centre-tool-diff` | the transcript carries the evidence inline. The change block shows the design's header — disclosure caret, the change kind Core published, the path, `+1 −1` — over the shared hunk renderer with Git's own `@@` header and per-side line numbers; the check block shows the command, the `Failed` chip, and the three `.testrow`s including the failing location Core reported. The diff block is opened here on purpose: collapsed is its default, and the capture has to show what the disclosure reveals |
+| `centre-focus-mode` | `D-SIDEBAR`'s override really is **两侧强制 hover 浮窗**. The body is two tracks — activity rail and transcript — the pinned Lane column this state started in is gone, the context dock is off the grid behind its right-edge hot zone, and the titlebar's `IFocus` control reads pressed. Read it against `lane-rail`, which is the same cockpit with the column present |
+| `d4-from-popover` | "Full setup…" keeps the draft and states the gap. The Lane is named `refactor-the-config-loader` after the task the popover carried, the agent step lists Core's adapters with `Codex` marked as the popover's pick, and the step says in its own words that `StarterLaneRequest` carries no agent binding — so the wizard never implies it will start the session |
+
+Every cockpit-bearing capture in this directory was re-taken in the same batch;
+see the recapture section below.
+
+### Cockpit recapture after the centre batch (2026-09-12, G4)
+
+The Lane tab strip is in every transcript-bearing frame and the `.tool` blocks
+are in every frame with a checklist, so the same **42** cockpit-bearing images
+G3 re-took were re-taken again, plus `d4-1440x900-dark-en.png` because the
+wizard's steps changed — 43 files. All were captured against the same live
+server and every one of them was opened and read before committing.
+
+One layout fix moved with them and is worth naming, because it was found by a
+capture rather than by a test. `gui-kit.css`'s `.frame` is a flex column and
+ties on specificity with `.d1-frame`'s `display: grid` while sitting later in
+the cascade, so the shell has always been laid out as flex; the body only
+reached the status bar because the context dock's natural height happened to
+get there. Focus mode takes the dock out of the flow, and the first
+`centre-focus-mode` capture showed the shell stopping 170px short of the
+status bar with bare page behind it. `.d1-body` now claims the remaining space
+explicitly (`flex: 1 1 auto`), which is what the frame's rows always intended
+and which measures identically in every non-focus state.
+
+The 43 re-taken files, in one list so the claim is checkable:
+
+- `approval-hunks-1440x900-dark-en.png`
+- `d1-1440x900-dark-en.png`
+- `d1-1440x900-light-zh-CN.png`
+- `d1-mode-menu-1440x900-dark-en.png`
+- `d1-model-menu-1440x900-dark-en.png`
+- `d4-1440x900-dark-en.png`
+- `d6-actions-1440x900-dark-en.png`
+- `d6-error-1440x900-dark-en.png`
+- `evidence-1440x900-dark-en.png`
+- `evidence-1440x900-light-zh-CN.png`
+- `evidence-empty-1440x900-dark-en.png`
+- `evidence-rejected-1440x900-dark-en.png`
+- `evidence-summary-only-1440x900-dark-en.png`
+- `evidence-text-1440x900-dark-en.png`
+- `evidence-unavailable-1440x900-dark-en.png`
+- `lane-rail-1440x900-dark-en.png`
+- `nav-d14-in-cockpit-1440x900-dark-en.png`
+- `nav-d2-in-cockpit-1440x900-dark-en.png`
+- `nav-d2-in-cockpit-1440x900-light-zh-CN.png`
+- `nav-sidebar-floating-peek-1440x900-dark-en.png`
+- `nav-statusbar-config-1440x900-dark-en.png`
+- `palette-1440x900-dark-en.png`
+- `palette-files-1440x900-dark-en.png`
+- `palette-files-1440x900-light-zh-CN.png`
+- `permission-ask-1440x900-dark-en.png`
+- `permission-deny-redirect-1440x900-dark-en.png`
+- `permission-deny-redirect-1440x900-light-zh-CN.png`
+- `project-picker-1440x900-dark-en.png`
+- `project-switch-confirm-1440x900-dark-en.png`
+- `review-1440x900-dark-en.png`
+- `review-1440x900-light-zh-CN.png`
+- `review-commit-1440x900-dark-en.png`
+- `review-commit-completed-1440x900-dark-en.png`
+- `review-commit-completed-1440x900-light-zh-CN.png`
+- `review-commit-pending-approval-1440x900-dark-en.png`
+- `review-empty-1440x900-dark-en.png`
+- `review-omitted-1440x900-dark-en.png`
+- `review-push-no-upstream-1440x900-dark-en.png`
+- `review-rejected-1440x900-dark-en.png`
+- `review-rejected-action-1440x900-dark-en.png`
+- `settings-1440x900-dark-en.png`
+- `settings-1440x900-light-zh-CN.png`
+- `settings-unavailable-1440x900-dark-en.png`
+
+The five new files are listed in the table above.
 
 ### The `nav-statusbar-config` file, stated plainly
 

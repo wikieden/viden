@@ -387,6 +387,92 @@ const D6_STOPPED: D6RecoveryProjection = {
 /// captures the same sentence every time.
 const D6_REJECTION = "Core rejected restart: session-lane-core is no longer published.";
 
+/**
+ * A cockpit with a second Lane, so the tab strip has something to switch
+ * between.
+ *
+ * Delta on the shared D1 fixture, which carries one Lane: a second Lane with
+ * its own recorded branch and an ACP session bound to it, so the strip shows
+ * both a built-in Lane and an agent-bound one. The shapes mirror the two-Lane
+ * projection in `tests/lane_tabs.spec.ts` and the session fixture the ACP
+ * states already use.
+ */
+function d1TwoLanes(): D1CockpitProjection {
+  const base = d1Base();
+  return {
+    ...base,
+    lanes: [
+      ...base.lanes,
+      {
+        id: "lane-review",
+        role: "reviewer",
+        status: "waiting_approval",
+        summary: "Retry policy review",
+        branch: "vd/retry-policy",
+      },
+    ],
+    agentSessions: [
+      {
+        sessionId: "session-lane-review",
+        laneId: "lane-review",
+        agentId: "codex-acp",
+        model: "gpt-5.3-codex",
+        status: "waiting_approval",
+        task: "Review the retry policy",
+        diagnostic: null,
+      },
+    ],
+  };
+}
+
+/**
+ * The transcript's tool blocks with real content: a workspace change carrying
+ * Core's own hunk rows and a failed check run with the location Core reported.
+ *
+ * Delta on the shared fixture's checklist, which carries one passing check with
+ * no rows. The diff is the same one-file, one-hunk page the review states use
+ * (`REVIEW_PAGE.entries[0].diff`), and the check mirrors the failing check the
+ * `d1-main-cockpit.json` canonical state records — a `cargo test` command with
+ * a `file:line:column` failing location.
+ */
+function d1ToolBlocks(): D1CockpitProjection {
+  const base = d1Base();
+  const file = REVIEW_PAGE.entries[0]!;
+  return {
+    ...base,
+    contextDock: {
+      ...base.contextDock,
+      checklist: [
+        {
+          id: "change-diff",
+          kind: "workspace_change",
+          label: file.path,
+          status: "modified",
+          command: null,
+          path: file.path,
+          summary: null,
+          diff: { files: [file.diff!], truncated: false, byteLimit: 65_536 },
+          failingLocation: null,
+          additions: file.diff!.additions,
+          deletions: file.diff!.deletions,
+        },
+        {
+          id: "check-config",
+          kind: "check_run",
+          label: "viden-types",
+          status: "failed",
+          command: "cargo test -p viden-types",
+          path: null,
+          summary: "1 failed · 128 passed",
+          failingLocation: "crates/types/src/tests.rs:2500",
+          additions: null,
+          deletions: null,
+        },
+      ],
+    },
+  };
+}
+
 interface CockpitOptions {
   projection: D1CockpitProjection;
   /** Present so the rail's gear opens the Settings overlay. */
@@ -397,6 +483,8 @@ interface CockpitOptions {
   crossLane?: boolean;
   /** Present so the command palette's `Files` section resolves. */
   files?: boolean;
+  /** Reopens the New Lane popover on a draft, for the D4 round-trip state. */
+  newLaneDraft?: { agentId: string | null; task: string };
   /** Present so the titlebar selector and the rail footer open the picker. */
   projectPicker?: boolean;
   /** The `WorkspaceDiffLoaded` page the DiffReview entry points resolve to. */
@@ -446,6 +534,7 @@ function mountCockpit(options: CockpitOptions): D1Controller {
       showWelcome: false,
       onNavigate: () => undefined,
       laneSidebarMode: options.laneSidebarMode,
+      newLaneDraft: options.newLaneDraft,
       secondaryViews: options.secondaryViews
         ? { mount: options.secondaryViews }
         : undefined,
@@ -2198,6 +2287,79 @@ async function renderState(): Promise<void> {
       click("[data-sb-config-toggle]");
       await waitFor("[data-sb-config]");
       await waitFor("[data-sb-config-item='req']");
+      return;
+    }
+
+    case "centre-lane-tabs": {
+      // The design's `.tabstrip.lanebar` at the top of the centre pane: one
+      // tab per Lane Core published, the current one marked, each carrying the
+      // Lane's *own* recorded branch and the agent Core bound to it, the
+      // trailing `＋`, and the meta slot with the project, the published
+      // context budget and the resolved work mode.
+      mountCockpit({ projection: d1TwoLanes(), preferencesAvailable: true });
+      await waitFor('[data-lane-tab="lane-review"]');
+      await waitFor("[data-lane-tab-meta] [data-lane-tab-context]");
+      return;
+    }
+
+    case "centre-tool-diff": {
+      // A `write_file`-shaped workspace change and a failed check run as the
+      // design's `.tool` blocks. The diff block is opened, because the capture
+      // has to show the inline rows the header discloses; the check block is
+      // never collapsed.
+      mountCockpit({ projection: d1ToolBlocks(), preferencesAvailable: true });
+      await waitFor('[data-workspace-change="change-diff"] [data-tool-toggle]');
+      click('[data-workspace-change="change-diff"] [data-tool-toggle]');
+      await waitFor('[data-workspace-change="change-diff"] [data-diff-body]');
+      await waitFor('[data-check-run="check-config"] [data-check-row="failing"]');
+      return;
+    }
+
+    case "centre-focus-mode": {
+      // `D-SIDEBAR`'s focus override, entered from the titlebar control the
+      // design draws for it. The capture must show two tracks — activity rail
+      // and transcript — with both side panels behind their 12px hot zones and
+      // the focus control marked pressed. It starts from `pinned`, so the
+      // capture also shows that the layout column really was given back.
+      mountCockpit({
+        projection: d1TwoLanes(),
+        preferencesAvailable: true,
+        laneSidebarMode: "pinned",
+      });
+      click("[data-focus-toggle]");
+      await waitFor('[data-cockpit-grid][data-focus-mode="true"]');
+      await waitFor("[data-dock-edge]");
+      await waitFor('[data-focus-toggle][aria-pressed="true"]');
+      return;
+    }
+
+    case "d4-from-popover": {
+      // "Full setup…" as it now arrives: the wizard seeded with the popover's
+      // draft, on the agent step. The capture must show the Lane named after
+      // the task, the agent the operator picked marked, and the sentence
+      // saying the create command carries no agent binding.
+      renderD4LaneCreate(
+        root!,
+        { projection: D4_PROJECTION, pendingCommandId: null, pendingIntent: null },
+        never<D4IntentResult>,
+        never<D4IntentResult>,
+        locale,
+        {
+          queue: [],
+          queueIndex: 0,
+          completedLaneIds: [],
+          seed: { agentId: "codex-acp", task: "Refactor the config loader" },
+          // The adapters the cockpit was holding when the popover opened.
+          agents: [
+            { agentId: "codex-acp", displayName: "Codex", startability: "ready" },
+            { agentId: "claude-acp", displayName: "Claude", startability: "probe_required" },
+          ],
+          onCancel: () => undefined,
+          onNavigateToD1: () => undefined,
+        },
+      );
+      click('[data-d4-step="1"]');
+      await waitFor('[data-d4-agent="codex-acp"][data-d4-agent-chosen="true"]');
       return;
     }
 
