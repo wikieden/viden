@@ -118,6 +118,16 @@ pub(crate) struct NativePatchEvidenceInput<'a> {
 /// gate's task, so a session-scoped composer turn (which names no task and
 /// therefore falls through to its turn id) can never satisfy one. That is the
 /// intended refusal, not a gap.
+/// The archived `patch` row id for one tool call.
+///
+/// One helper rather than two `format!`s, because the transcript rows read
+/// (`runtime.transcript_rows`) joins a tool result to this exact row: if the
+/// producer's spelling and the reader's spelling drifted, a client would see a
+/// tool result claiming no evidence beside an archive that holds it.
+pub(crate) fn native_patch_evidence_id(tool_call_id: &str) -> String {
+    format!("patch-{tool_call_id}")
+}
+
 pub(crate) fn patch_producer_task_id(owner: &RuntimeOwner, tool_call_id: &str) -> String {
     owner
         .task_id
@@ -154,7 +164,7 @@ pub(crate) fn native_patch_evidence(
         ),
     };
     EvidenceView {
-        id: format!("patch-{}", input.tool_call_id),
+        id: native_patch_evidence_id(input.tool_call_id),
         kind: PATCH_EVIDENCE_KIND.to_string(),
         summary,
         path: Some(input.path.to_string()),
@@ -380,6 +390,12 @@ impl crate::SessionEngine {
     /// are the two ways the archive lies about who changed a file.
     pub(crate) fn begin_native_turn(&mut self, owner: RuntimeOwner) -> PermissionReceiptSlot {
         let permission_receipt: PermissionReceiptSlot = Arc::new(Mutex::new(None));
+        // The same window, written into the durable log so the read side can
+        // attribute the rows this turn is about to append
+        // (`runtime.transcript_rows`). In memory the window is what a patch row
+        // is owned by; on disk it is what a transcript row is owned by, and
+        // they are opened and closed together so the two can never disagree.
+        self.record_turn_owner_marker(Some(&owner));
         self.active_native_turn = Some(NativeTurnContext {
             owner,
             permission_receipt: Arc::clone(&permission_receipt),
@@ -391,6 +407,11 @@ impl crate::SessionEngine {
     /// cancelled ones, so a later tool call outside a turn cannot inherit the
     /// previous turn's owner.
     pub(crate) fn end_native_turn(&mut self) {
+        // Closes the durable bracket too. Without the closing marker every
+        // entry appended after this turn — a slash command's log line, a cost
+        // record — would read back as belonging to it, which is a false
+        // attribution rather than a missing one.
+        self.record_turn_owner_marker(None);
         self.active_native_turn = None;
     }
 

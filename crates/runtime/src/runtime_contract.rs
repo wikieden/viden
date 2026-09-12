@@ -749,6 +749,20 @@ impl SessionEngine {
                     Err(err) => return Ok(vec![command_rejected(command_id, err)]),
                 }
             }
+            // The fourth read of the same shape and the only one that is not
+            // permission-gated: it publishes Viden's own recorded facts rather
+            // than the operator's tree, so there is nothing here for a
+            // `viden.toml` rule to describe (the `QueryEvidence` posture). Every
+            // refusal — a cursor this build did not issue, a durable log it
+            // could not read — is a `CommandRejected` naming this exact read.
+            // An empty page would render as "nothing was said", which is the
+            // fabricated absence GUI-CORE-009 is about.
+            RuntimeCommand::QueryTranscriptRows { query } => {
+                match self.query_transcript_rows(&command_id, query) {
+                    Ok(row_events) => append_resequenced(&mut events, row_events),
+                    Err(err) => return Ok(vec![command_rejected(command_id, err)]),
+                }
+            }
             // Dispatched beside the diff read because they share a target and
             // a resolution path, but this one mutates, so every `Err` below is
             // a *pre-effect* refusal — a malformed action, a path that leaves
@@ -6191,6 +6205,14 @@ pub(crate) fn redacted_runtime_command_for_event(command: &RuntimeCommand) -> Ru
         // separators and dots and publish an accepted command naming a
         // *different* file than the one Core answered.
         RuntimeCommand::ReadWorkspaceFile { query } => RuntimeCommand::ReadWorkspaceFile {
+            query: query.clone(),
+        },
+        // And once more for the transcript rows read. The owner is the scope
+        // the client asked about and the cursor is a string Core itself issued;
+        // redacting either would publish an accepted command describing a
+        // *different* read than the one Core answered, which is what a client
+        // correlates its page against.
+        RuntimeCommand::QueryTranscriptRows { query } => RuntimeCommand::QueryTranscriptRows {
             query: query.clone(),
         },
         // Nothing is scrubbed here and that is deliberate. The paths are

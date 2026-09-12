@@ -26,6 +26,7 @@ mod runtime_supervisor_tests;
 mod session_command_tests;
 mod structured_diff_tests;
 mod transcript_contract_tests;
+mod transcript_rows_tests;
 mod trust_loop_tests;
 mod turn_lifecycle_tests;
 mod ui_layout_tests;

@@ -19,6 +19,7 @@ use viden_types::{
     WorkspaceFileKind, WorkspaceFilePage, WorkspaceFileReadQuery, WorkspaceFileUnavailableReason,
     WorkspaceFilesQuery, resolve_ui_preferences,
 };
+use viden_types::{TranscriptRowsQuery, transcript_rows_page};
 
 use crate::SessionEngine;
 use crate::evidence_reads::{evidence_page, resolve_evidence_content};
@@ -26,6 +27,7 @@ use crate::frontend_status::{
     GIT_COMMAND_TIMEOUT, GitOutput, run_git_capped, sample_workspace_source,
 };
 use crate::presentation::render_permission_denial;
+use crate::transcript_rows::bound_and_join_page_rows;
 
 /// Permission tool name the workspace inventory read is gated under.
 ///
@@ -333,6 +335,51 @@ impl SessionEngine {
     /// exists and simply has no bytes. Every outcome for a row that *does*
     /// exist is a typed `EvidenceContent`, including the unavailable ones,
     /// because those are facts about the archive rather than failures.
+    /// Reads one page of one owner's ordered transcript rows
+    /// (`runtime.transcript_rows`, C8, closes GUI-CORE-009).
+    ///
+    /// Gate posture is [`Self::query_evidence`]'s, not
+    /// [`Self::read_workspace_file`]'s, and for the same reason: these are
+    /// facts Core itself recorded into its own append-only logs, not bytes from
+    /// the operator's working tree. There is no workspace read to authorize and
+    /// no file or `git_*` tool whose `viden.toml` rule would describe one, so
+    /// gating it on a tool spec would invent a permission with no meaning and
+    /// let a rule written about the filesystem hide a conversation Core already
+    /// holds. The read is bounded, owner-scoped, and paged instead, which is
+    /// what actually constrains it.
+    ///
+    /// The order of the three steps is the contract: the owner scope is applied
+    /// *before* the page is cut, so `complete` and `older` describe the scoped
+    /// transcript rather than the raw log — a client filtering a page it already
+    /// holds could not know whether a matching row sits on a page it never
+    /// loaded. Bounding and the evidence join run last, on the page's own rows,
+    /// so neither cost is paid for a row nobody asked for.
+    ///
+    /// `Err` is a *pre-answer* refusal of this exact read — a cursor this build
+    /// did not issue, a durable log it could not read — and reaches the client
+    /// as `CommandRejected` carrying its own command id. It is deliberately
+    /// never an empty page: "this query was malformed" and "nothing was said"
+    /// are different facts, and a client shown the second for the first would
+    /// render a fabricated empty conversation, which is the failure
+    /// GUI-CORE-009 is about.
+    pub(crate) fn query_transcript_rows(
+        &self,
+        command_id: &str,
+        query: TranscriptRowsQuery,
+    ) -> Result<Vec<RuntimeEvent>, String> {
+        query.validate()?;
+        let rows = self.durable_transcript_rows()?;
+        let mut page = transcript_rows_page(&rows, &query);
+        bound_and_join_page_rows(&mut page, self.evidence_archive());
+        Ok(vec![RuntimeEvent::new(
+            1,
+            RuntimeEventKind::TranscriptRowsLoaded {
+                command_id: command_id.to_string(),
+                page,
+            },
+        )])
+    }
+
     pub(crate) fn read_evidence_content(
         &self,
         command_id: &str,

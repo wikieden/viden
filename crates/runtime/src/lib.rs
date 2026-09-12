@@ -36,6 +36,7 @@ mod runtime_tasks;
 mod runtime_views;
 mod session_lifecycle;
 mod test_commands;
+mod transcript_rows;
 mod trust_loop;
 mod web_commands;
 mod work_evidence;
