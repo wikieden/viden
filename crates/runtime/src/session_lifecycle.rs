@@ -514,6 +514,37 @@ impl SessionEngine {
         Ok(())
     }
 
+    /// Archives the durable facts of one supervised batch
+    /// (`runtime.durable_work_evidence`, C7).
+    ///
+    /// The wiring that has never existed. `handle_runtime_command` has always
+    /// ended by persisting its own domain facts, but a turn driven by
+    /// `RuntimeSupervisor` published to the live event bus and stopped there, so
+    /// every fact a supervised turn produced — the whole real-work path, which
+    /// is the only one a cockpit uses — was live-only. An operator who watched
+    /// an approved edit apply then found `QueryEvidence` empty, because the
+    /// archive is rebuilt from the durable projection and nothing had written
+    /// one (E1 defect 4, GUI-CORE-028).
+    ///
+    /// What is durable is decided by `is_durable_runtime_domain_event` and not
+    /// by this caller, so the supervised path and the command path archive
+    /// exactly the same set: `EvidenceRecorded` and `EvidenceCanonicalized` are
+    /// in it, while `WorkspaceChangeUpdated` and `CheckRunUpdated` stay live-only
+    /// — they are a cockpit's view of the working tree, re-sampled at every
+    /// connect, and persisting them would replay a stale tree as fact.
+    ///
+    /// Fail-closed against the *events*, not against the turn: an append failure
+    /// is returned so the caller can publish it, and no fact is remembered in
+    /// memory that did not reach the log. Remembering a row the projection never
+    /// received would give this process an archive its own restart cannot
+    /// rebuild.
+    pub(crate) fn absorb_supervised_events(
+        &mut self,
+        events: &[RuntimeEvent],
+    ) -> Result<(), String> {
+        self.persist_runtime_domain_events(events)
+    }
+
     fn persist_workflow_runtime_projection_batch(
         &self,
         command_id: Option<&str>,

@@ -2,28 +2,33 @@
 //! (`runtime.durable_work_evidence`, C7, closes GUI-CORE-028 and E1 defect 4).
 //!
 //! The `0.3.3` real task reached an approved, typed, applied edit and then
-//! found nothing to review: the archive was empty. Three claims have to hold
-//! for that to stop being true, and each has a test here.
+//! found nothing to review: the archive was empty and the approval's audit id
+//! resolved to no row. Four separate claims have to hold for that to stop being
+//! true, and each has a test here.
 //!
 //! 1. An applied native `edit_file`/`write_file` publishes an archived `patch`
 //!    row beside the live workspace change, with canonical ContextStore bytes,
 //!    the turn's owner, and the audit id of the approval that allowed it.
-//! 2. An adapter-reported patch is completed by the runtime's own ingestion.
-//! 3. A merge gate accepts such a row only when it names the gate's own task,
+//! 2. Those facts survive the process. The proof is a restart: a fresh engine
+//!    over the same workspace rebuilds the row from the durable projection and
+//!    serves its bytes.
+//! 3. An approval decision is a durable audit row under the id the request
+//!    already showed the operator.
+//! 4. A merge gate accepts such a row only when it names the gate's own task,
 //!    so a session-scoped composer edit can never satisfy a Lane's gate.
 
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use sha2::{Digest, Sha256};
 use viden_types::{
-    ApprovalResponse, EvidenceView, ModelEvent, RuntimeCommand, RuntimeEvent, RuntimeEventKind,
-    RuntimeOwner, ToolCall, ToolInput,
+    ApprovalResponse, AuditQuery, EvidenceContent, EvidenceQuery, EvidenceView, ModelEvent,
+    RuntimeCommand, RuntimeEvent, RuntimeEventKind, RuntimeOwner, ToolCall, ToolInput,
 };
 
 use super::{SequenceProvider, temp_dir};
-use crate::{RuntimeSupervisor, SessionEngine, mint_workspace_owner_binding};
+use crate::{RuntimeResumeRequest, RuntimeSupervisor, SessionEngine, mint_workspace_owner_binding};
 
 fn edit_tool_call(path: &str, old: &str, new: &str) -> ToolCall {
     let mut input = ToolInput::new();
@@ -97,6 +102,9 @@ fn patch_rows(events: &[RuntimeEvent]) -> Vec<EvidenceView> {
 /// Runs one supervised turn that edits a file behind an approval the operator
 /// allows, and returns everything needed to inspect what it left behind.
 struct AppliedEdit {
+    cwd: PathBuf,
+    home: PathBuf,
+    session_id: String,
     events: Vec<RuntimeEvent>,
     audit_id: String,
 }
@@ -115,7 +123,9 @@ fn supervised_applied_edit(name: &str, body: &str, replacement: &str) -> Applied
             content: "applied".to_string(),
         }],
     ]));
-    let supervisor = RuntimeSupervisor::start(bound_engine(&cwd, &home, provider));
+    let engine = bound_engine(&cwd, &home, provider);
+    let session_id = engine.session_id().to_string();
+    let supervisor = RuntimeSupervisor::start(engine);
 
     supervisor
         .send_command(
@@ -147,7 +157,26 @@ fn supervised_applied_edit(name: &str, body: &str, replacement: &str) -> Applied
             .any(|event| matches!(&event.kind, RuntimeEventKind::TurnFinished { .. }))
     }));
     drop(supervisor);
-    AppliedEdit { events, audit_id }
+    AppliedEdit {
+        cwd,
+        home,
+        session_id,
+        events,
+        audit_id,
+    }
+}
+
+fn reopened_engine(applied: &AppliedEdit) -> SessionEngine {
+    let mut engine = SessionEngine::new_with_home(
+        &applied.cwd,
+        Box::new(SequenceProvider::new(Vec::new())),
+        Some(applied.home.clone()),
+    )
+    .unwrap();
+    engine
+        .resume_session(RuntimeResumeRequest::exact_session_id(&applied.session_id))
+        .unwrap();
+    engine
 }
 
 /// An applied native mutation archives a `patch` row beside the live workspace
@@ -228,6 +257,83 @@ fn an_applied_native_edit_publishes_a_patch_row_with_canonical_bytes() {
     )));
 }
 
+/// The restart proof. A fresh engine over the same workspace rebuilds the row
+/// from the durable `runtime_projection` rows and serves the bytes behind it.
+///
+/// This is the claim `RuntimeSupervisor` could not make before: its turns
+/// published to the live bus and persisted nothing, so every archive read after
+/// a restart answered empty.
+#[test]
+fn a_restarted_engine_rebuilds_the_archived_patch_and_serves_its_diff() {
+    let applied = supervised_applied_edit(
+        "durable_work_evidence_restart",
+        "alpha\nbeta\ngamma\n",
+        "BETA",
+    );
+    let expected = applied.events[..]
+        .iter()
+        .find_map(|event| match &event.kind {
+            RuntimeEventKind::EvidenceRecorded { evidence } if evidence.kind == "patch" => {
+                Some(evidence.clone())
+            }
+            _ => None,
+        })
+        .expect("the live turn archived a patch row");
+
+    let engine = reopened_engine(&applied);
+    let archived = engine
+        .evidence_archive()
+        .iter()
+        .find(|entry| entry.id == expected.id)
+        .cloned()
+        .expect("the restarted engine rebuilds the patch row from the durable projection");
+    assert_eq!(archived.canonical, expected.canonical);
+
+    let page = engine
+        .query_evidence(
+            "cmd_query_evidence",
+            EvidenceQuery {
+                kinds: vec!["patch".to_string()],
+                ..EvidenceQuery::default()
+            },
+        )
+        .unwrap();
+    let entries = page
+        .iter()
+        .find_map(|event| match &event.kind {
+            RuntimeEventKind::EvidencePageLoaded { page, .. } => Some(page.entries.clone()),
+            _ => None,
+        })
+        .expect("the archive answers the page");
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].id, expected.id);
+
+    let content = engine
+        .read_evidence_content("cmd_read_evidence", &expected.id)
+        .unwrap()
+        .into_iter()
+        .find_map(|event| match event.kind {
+            RuntimeEventKind::EvidenceContentLoaded { content, .. } => Some(content),
+            _ => None,
+        })
+        .expect("the archive answers the content");
+    let EvidenceContent::Diff { document, sha256 } = content else {
+        panic!("a patch row's canonical bytes are served as a diff, got {content:?}");
+    };
+    assert_eq!(
+        sha256,
+        expected.canonical.as_ref().unwrap().source_hash,
+        "the served bytes verified against the hash the row published"
+    );
+    assert!(
+        document
+            .files
+            .iter()
+            .any(|file| file.additions > 0 || file.deletions > 0),
+        "the served diff carries the change's rows, got {document:?}"
+    );
+}
+
 /// A diff over the canonical evidence bound is archived without bytes and the
 /// summary says so. A silently dropped `canonical` would be read as
 /// display-only evidence, which is a different fact.
@@ -265,6 +371,66 @@ fn an_oversized_diff_is_archived_without_canonical_bytes_and_says_why() {
         evidence.summary
     );
     assert!(evidence.summary.contains("over the"));
+}
+
+/// An approval decision is a durable audit row, under the id the request
+/// already showed the operator.
+///
+/// The id was minted and published on `ApprovalRequested` and `ApprovalResolved`
+/// long before C7 and was written nowhere, so every cockpit "audit" link for an
+/// approval resolved to nothing (E1 defect 4).
+#[test]
+fn an_allowed_approval_is_a_durable_audit_row_under_its_published_id() {
+    let applied = supervised_applied_edit("durable_work_evidence_audit", "alpha\nbeta\n", "BETA");
+    let engine = reopened_engine(&applied);
+
+    let page = engine
+        .workflow_store()
+        .query_audit(&AuditQuery {
+            limit: 100,
+            ..AuditQuery::default()
+        })
+        .unwrap();
+    let record = page
+        .records
+        .iter()
+        .find(|record| record.audit_id == applied.audit_id)
+        .unwrap_or_else(|| {
+            panic!(
+                "the approval's published audit id must name a durable row; got {:?}",
+                page.records
+            )
+        });
+    assert_eq!(record.action, "approval.allow_once");
+    assert_eq!(record.actor, viden_types::AuditActor::Operator);
+    assert_eq!(record.outcome, viden_types::AuditOutcome::Success);
+    assert_eq!(
+        record.args.get("scope").map(String::as_str),
+        Some("allow_once")
+    );
+    assert!(
+        record
+            .objects
+            .iter()
+            .any(|object| object.kind == "permission"),
+        "the row names the approval request it decided, got {:?}",
+        record.objects
+    );
+    assert!(
+        record
+            .objects
+            .iter()
+            .any(|object| object.kind == "tool" && object.id == "edit_file"),
+        "the row names what was allowed, got {:?}",
+        record.objects
+    );
+
+    // The `ApprovalResolved` a client saw carries the same id, so the join a
+    // cockpit makes is the one the archive answers.
+    assert!(applied.events.iter().any(|event| matches!(
+        &event.kind,
+        RuntimeEventKind::ApprovalResolved { audit_id, .. } if audit_id == &applied.audit_id
+    )));
 }
 
 /// The merge-gate rule. A patch row satisfies a `patch`-required gate only when

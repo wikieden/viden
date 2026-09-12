@@ -18,12 +18,13 @@ use viden_provider::ModelRequestControl;
 use viden_types::{
     AgentSessionRequest, AgentSessionStatus, AgentSessionView, ApprovalDecision,
     ApprovalDefaultAction, ApprovalRequestView, ApprovalResponse, ApprovalRisk, ApprovalScope,
-    ApprovalTarget, CapabilityId, EventCursor, FRONTEND_SCHEMA_V1, FRONTEND_V1_CAPABILITIES,
-    FRONTEND_V1_EXTENSION_CAPABILITIES, GapRecovery, LaneRuntimeOwnerBinding, OperatorGitAction,
-    PermissionLevel, PermissionPrompt, ReplayBatch, ReplayRequest, RuntimeCommand,
-    RuntimeCommandEnvelope, RuntimeErrorView, RuntimeEvent, RuntimeEventEnvelope, RuntimeEventKind,
-    RuntimeOwner, RuntimeSnapshotEnvelope, RuntimeViewState, RuntimeWireEvent, TranscriptPage,
-    TranscriptPageRequest, TurnOutcome, TurnSource, TurnView, WorkMode, fresh_id, now_timestamp,
+    ApprovalTarget, AuditActor, AuditObjectRef, AuditOutcome, AuditRecord, CapabilityId,
+    EventCursor, FRONTEND_SCHEMA_V1, FRONTEND_V1_CAPABILITIES, FRONTEND_V1_EXTENSION_CAPABILITIES,
+    GapRecovery, LaneRuntimeOwnerBinding, OperatorGitAction, PermissionLevel, PermissionPrompt,
+    ReplayBatch, ReplayRequest, RuntimeCommand, RuntimeCommandEnvelope, RuntimeErrorView,
+    RuntimeEvent, RuntimeEventEnvelope, RuntimeEventKind, RuntimeOwner, RuntimeSnapshotEnvelope,
+    RuntimeViewState, RuntimeWireEvent, TranscriptPage, TranscriptPageRequest, TurnOutcome,
+    TurnSource, TurnView, WorkMode, fresh_id, now_timestamp,
 };
 use viden_workflows::stores::WorkflowStore;
 
@@ -47,11 +48,27 @@ use crate::{
 struct PendingApproval {
     owner: RuntimeOwner,
     audit_id: String,
+    /// The tool the operator is being asked about. Kept because the durable
+    /// audit row for the decision (`runtime.durable_work_evidence`) names it:
+    /// an audit timeline that recorded only "an approval was allowed" would not
+    /// say what was allowed.
+    tool_name: String,
     expires_at: u64,
     // An ordinary approval cannot survive any permission-control reservation.
     permission_epoch: u64,
     allowed_scopes: Vec<ApprovalScope>,
     target: PendingApprovalTarget,
+}
+
+impl PendingApprovalTarget {
+    /// The active job this approval is blocking, which every variant names.
+    fn owner_id(&self) -> Option<&str> {
+        match self {
+            Self::Channel { owner_id, .. }
+            | Self::ContextRetrieval { owner_id, .. }
+            | Self::ProjectMutation { owner_id, .. } => Some(owner_id.as_str()),
+        }
+    }
 }
 
 enum PendingApprovalTarget {
@@ -421,6 +438,89 @@ enum SupervisorMessage {
     },
 }
 
+/// The supervisor's narrow durable-audit handle
+/// (`runtime.durable_work_evidence`, C7).
+///
+/// `RespondToApproval` is answered on the caller's thread while the engine is
+/// owned by the worker, so the one durable write an approval decision needs
+/// cannot go through `SessionEngine`. This is deliberately not a second engine
+/// handle: it appends audit records and does nothing else, so the supervisor
+/// gains no path to runtime state it does not already own.
+///
+/// The store re-validates every record on append, so a record this handle
+/// cannot build is refused here rather than written malformed.
+#[derive(Clone)]
+struct ApprovalAuditLog {
+    workflows: WorkflowStore,
+}
+
+impl ApprovalAuditLog {
+    /// Appends the durable row for one approval decision.
+    ///
+    /// The `audit_id` is the one the request already showed the operator, so
+    /// the row an `ApprovalResolved` names is the row `QueryAudit` returns —
+    /// before this, that id was minted, published on two facts, and never
+    /// written anywhere, which is what made the cockpit's "audit" links resolve
+    /// to nothing (E1 defect 4).
+    fn record_decision(
+        &self,
+        audit_id: &str,
+        owner: &RuntimeOwner,
+        request_id: &str,
+        tool_name: &str,
+        job_id: Option<&str>,
+        decision: &ApprovalDecision,
+    ) -> Result<(), String> {
+        let mut objects = vec![
+            AuditObjectRef::new(AuditObjectRef::KIND_PERMISSION, request_id),
+            AuditObjectRef::new("tool", tool_name),
+        ];
+        // The active job the approval unblocks: the `command_id` the client
+        // sent, which is also the turn's job key, so the row joins to the work
+        // the decision released rather than only to the prompt.
+        if let Some(job_id) = job_id.filter(|id| !id.is_empty()) {
+            objects.push(AuditObjectRef::new("job", job_id));
+        }
+        let mut args = BTreeMap::new();
+        args.insert(
+            "scope".to_string(),
+            approval_scope_key(decision).to_string(),
+        );
+        let record = AuditRecord::sanitized(
+            audit_id.to_string(),
+            now_timestamp(),
+            owner.clone(),
+            // An approval is answered by a human through a client surface; the
+            // runtime never answers one on its own behalf.
+            AuditActor::Operator,
+            format!("approval.{}", approval_scope_key(decision)),
+            objects,
+            // The decision was applied: a denial is a decision that was carried
+            // out, not an action that failed. `Denied` is reserved for an
+            // action a policy refused, which this is not.
+            AuditOutcome::Success,
+            args,
+        )?;
+        self.workflows.append_audit_record(&record)
+    }
+}
+
+/// Stable action/scope key for one approval decision.
+fn approval_scope_key(decision: &ApprovalDecision) -> &'static str {
+    match decision {
+        ApprovalDecision::Allow {
+            scope: ApprovalScope::Once,
+        } => "allow_once",
+        ApprovalDecision::Allow {
+            scope: ApprovalScope::Session { .. },
+        } => "allow_session",
+        ApprovalDecision::Allow {
+            scope: ApprovalScope::RepoAllowlist { .. },
+        } => "allow_repo",
+        ApprovalDecision::Deny => "deny",
+    }
+}
+
 pub struct RuntimeSupervisor {
     workspace_root: PathBuf,
     commands: Sender<SupervisorMessage>,
@@ -431,6 +531,7 @@ pub struct RuntimeSupervisor {
     approval_timers: Arc<ApprovalTimerRegistry>,
     lane_supervisor: Arc<LaneSupervisor>,
     permission_control: Arc<Mutex<PermissionControlState>>,
+    approval_audit: ApprovalAuditLog,
     worker_alive: Arc<AtomicBool>,
     worker: Option<JoinHandle<()>>,
 }
@@ -477,6 +578,11 @@ impl RuntimeSupervisor {
         let worker_alive = Arc::new(AtomicBool::new(true));
         let live_view = engine.runtime_view_state();
         let lane_agent_store = engine.workflow_store();
+        // Cloned before the engine moves onto the worker thread: the handle the
+        // approval decision's durable row is written through.
+        let approval_audit = ApprovalAuditLog {
+            workflows: engine.workflow_store(),
+        };
         let mut lane_agent_hydration_error = None;
         let mut lane_agent_bindings = match lane_agent_store.load_lane_agent_bindings() {
             Ok(bindings) => bindings
@@ -656,6 +762,7 @@ impl RuntimeSupervisor {
             approval_timers,
             lane_supervisor,
             permission_control,
+            approval_audit,
             worker_alive,
             worker: Some(worker),
         }
@@ -1133,6 +1240,30 @@ impl RuntimeSupervisor {
                 );
                 let pending_owner = pending.owner.clone();
                 let pending_audit_id = pending.audit_id.clone();
+                // Audit before the fact that announces it, the same order every
+                // other mutation in the trust loop uses: `ApprovalResolved`
+                // carries this `audit_id`, and publishing it before the row
+                // existed would give a client a receipt it could not resolve.
+                //
+                // Fail-open on the decision, not on the audit: refusing to
+                // deliver an operator's answer because the audit log could not
+                // be appended would leave a tool call blocked on an approval
+                // that has already been given. The failure is published as an
+                // `Error` so it is visible rather than swallowed.
+                if let Err(error) = self.approval_audit.record_decision(
+                    &pending_audit_id,
+                    &pending_owner,
+                    &request_id,
+                    &pending.tool_name,
+                    pending.target.owner_id(),
+                    &response.decision,
+                ) {
+                    emit_error(
+                        &self.event_bus,
+                        pending_owner.clone(),
+                        format!("approval decision was applied but not audited: {error}"),
+                    );
+                }
                 match pending.target {
                     PendingApprovalTarget::Channel { owner_id, sender } => {
                         if response.is_allowed() {
@@ -1933,6 +2064,7 @@ fn run_supervised_project_mutation(
                 PendingApproval {
                     owner: owner.clone(),
                     audit_id: approval.audit_id.clone(),
+                    tool_name: approval.tool_name.clone(),
                     expires_at: approval.expires_at,
                     permission_epoch,
                     allowed_scopes: approval.allowed_scopes.clone(),
@@ -2117,6 +2249,7 @@ fn run_supervised_context_retrieval(
                 PendingApproval {
                     owner: approval.owner.clone(),
                     audit_id: approval.audit_id.clone(),
+                    tool_name: approval.tool_name.clone(),
                     expires_at: approval.expires_at,
                     permission_epoch,
                     allowed_scopes: approval.allowed_scopes.clone(),
@@ -2840,6 +2973,7 @@ fn supervised_agent_session_approver(
             PendingApproval {
                 owner: approval.owner.clone(),
                 audit_id: approval.audit_id.clone(),
+                tool_name: approval.tool_name.clone(),
                 expires_at: approval.expires_at,
                 permission_epoch,
                 allowed_scopes: approval.allowed_scopes.clone(),
@@ -3264,6 +3398,7 @@ fn run_supervised_agent_task(
             PendingApproval {
                 owner: approval.owner.clone(),
                 audit_id: approval.audit_id.clone(),
+                tool_name: approval.tool_name.clone(),
                 expires_at: approval.expires_at,
                 permission_epoch,
                 allowed_scopes: approval.allowed_scopes.clone(),
@@ -3522,6 +3657,11 @@ fn run_one_supervised_native_turn(
         },
     );
 
+    // Everything this turn published, kept so the durable facts among them can
+    // be archived once the turn ends. Only the batch is kept, never the live
+    // emission order: the bus has already delivered these.
+    let turn_batch: std::cell::RefCell<Vec<RuntimeEvent>> = std::cell::RefCell::new(Vec::new());
+
     let mut approver = |prompt: PermissionPrompt| {
         let permission_epoch = permission_control
             .lock()
@@ -3538,6 +3678,7 @@ fn run_one_supervised_native_turn(
             PendingApproval {
                 owner: approval.owner.clone(),
                 audit_id: approval.audit_id.clone(),
+                tool_name: approval.tool_name.clone(),
                 expires_at: approval.expires_at,
                 permission_epoch,
                 allowed_scopes: approval.allowed_scopes.clone(),
@@ -3579,7 +3720,10 @@ fn run_one_supervised_native_turn(
         response
     };
 
-    let mut emit_completed = |events| emit_events(event_bus, owner.clone(), events);
+    let mut emit_completed = |events: Vec<RuntimeEvent>| {
+        turn_batch.borrow_mut().extend(events.iter().cloned());
+        emit_events(event_bus, owner.clone(), events);
+    };
     let result = engine.process_runtime_turn_streaming_with_approval_and_control(
         &content,
         &mut approver,
@@ -3589,10 +3733,14 @@ fn run_one_supervised_native_turn(
     clear_active_control(active_control, &command_id);
     let outcome = match result {
         Ok(events) => {
+            turn_batch.borrow_mut().extend(events.iter().cloned());
             emit_events(event_bus, owner.clone(), events);
             TurnOutcome::Completed
         }
         Err(failure) => {
+            turn_batch
+                .borrow_mut()
+                .extend(failure.completed_events.iter().cloned());
             emit_events(event_bus, owner.clone(), failure.completed_events);
             emit_error(event_bus, owner.clone(), failure.message.clone());
             // A cancelled turn also unwinds through this error path, because
@@ -3608,6 +3756,20 @@ fn run_one_supervised_native_turn(
         }
     };
     engine.end_native_turn();
+    // The durable half of the turn, handed to the engine as one batch on every
+    // exit — a failed turn's completed tool facts are exactly as real as a
+    // successful one's, and the archive that drops them would tell a reviewer
+    // the files were never touched. An append failure is published rather than
+    // silently dropped: the events are already on the live bus, so a client
+    // that saw them must also learn they did not reach the log.
+    let absorbed = engine.absorb_supervised_events(&turn_batch.borrow());
+    if let Err(error) = absorbed {
+        emit_error(
+            event_bus,
+            turn_owner.clone(),
+            format!("supervised turn facts were published but not archived: {error}"),
+        );
+    }
     // The last fact of the turn on every exit, after the error a failure
     // publishes and after the trailing snapshot a completion publishes.
     emit_event(
