@@ -231,7 +231,14 @@ fixture 现在会让发布记录失败。
    `SessionEngine::absorb_supervised_events`，使这些行进入归档据以重建的
    `runtime_projection`。一个重启测试重放了该行并提供了它校验通过的字节。
 6. **EvidenceView 的报告可能在内容答案为 `HashMismatch` 的同时显示「已校验」**
-   （GUI，表述问题但会误导）。两个不同的事实，界面没有一句话说明两者关系。
+   （GUI，表述问题但会误导）。**已由 H2 于 2026-09-12 修复。** 两个不同的事实，
+   界面原先没有一句话说明两者关系。现在报告用一句话把两者联系起来 —— 归档行当初
+   记录下的判定，与 Core 刚刚做的那次读取 —— 并给那条记录加上设计中的「不一致」
+   处理（`var(--error)` 加删除线，因此状态不只靠颜色表达），同时把它作为事实继续
+   留在界面上。`failed` 与 `HashMismatch` 是两个彼此一致的事实，不会产生告警；为
+   另一行回显的内容答案也不会与本行冲突。两种到达顺序都有覆盖
+   （`apps/gui/tests/evidence_view.spec.ts`），截图为
+   `evidence-hash-mismatch-1440x900-dark-en.png`。
 
 ### 这对计划目标 4 意味着什么
 
@@ -319,7 +326,35 @@ linker-signed 且没有 TeamIdentifier，可执行文件 38,946,048 字节。它
 编号接续上文的列表。这里没有修复其中任何一项。
 
 7. **在已绑定项目的情况下，GUI 窗口可能消失且进程退出**（GUI，对本次运行是阻塞
-   性的）。在 `⌘K` 与 `Escape` 之后，座舱把中间栏换成了 `CONNECTING · Establishing
+   性的）。**H2 于 2026-09-12 修复了其中可见的一半；进程退出本身未能复现。**
+   可见的那一半在外壳接缝处复现了，原因是控制器泄漏而不是 adapter 丢失：
+   `renderD1Cockpit` 把 `⌘K`、`⌘L`、`⌘.`、`⌘G`、`⌘E`、`⌘R`、`⌘O` 与 `Escape`
+   注册在 `window` 上并一直持有到被 dispose，而 `bootstrapShell` 丢弃了自己的
+   控制器，于是水合前的那层外壳在活动座舱下面继续响应这些快捷键，打开第二个命令
+   面板，并把它自己的 `connecting` 投影重新渲染进同一个根节点 —— 项目 chip 退回
+   `—`，`Core connection pending` 重新出现。最后运行的那个处理器赢得绘制，这正是
+   它只在三次启动中出现一次的原因。现在每一次座舱挂载都经过 `claimRoot`
+   （`apps/gui/src/main.ts`），因此只有一个控制器持有这些快捷键；
+   `apps/gui/tests/adapter_drop.spec.ts` 对已绑定的宿主按下这些快捷键，并断言只有
+   一个命令面板、且不出现 `Core connection pending`。
+
+   **进程退出未能复现，代码中也不存在这样的路径。** 已尝试的事项：对 GUI 链接的
+   全部 Rust 源码检索 `process::exit` / `process::abort` / `libc::exit`（仅命中
+   `apps/cli/src/main.rs` 以及 `crates/plugin-host` 中以字符串嵌入的测试辅助程序，
+   两者都不在桌面客户端的可达路径上）；通读 `apps/gui/src-tauri/src/lib.rs` 的命令
+   层与 `spawn_core_event_pump`，后者唯一的退出口是被污染的 adapter 锁，并且结束的
+   是它自己的线程而不是进程；通读命令面板的关闭路径，它不会重新发起 Core 连接（已
+   有断言）；以及在两个接缝上实际驱动复现 —— `apps/gui/tests/reconnect.rs` 在传输
+   断开后抽取十六轮事件，断言 adapter 保留 Core 最后发布的视图、把状态分类为
+   `Disconnected`、阻断业务成功，并给出契约已建模的重连动作；
+   `apps/gui/tests/adapter_drop.spec.ts` 让宿主在绑定之后拒绝每一次读取，断言座舱
+   仍挂载在最后的事实上，且绝不把传输层的那句话当成 Core 事实绘制出来。真正会结束
+   进程的机制只有 Tauri 自己的：在 macOS 上，最后一个窗口关闭时应用就会退出。窗口
+   为何关闭仍然原因不明；本次运行自己记下的「宿主是一台还有其他软件在使用的共享
+   桌面」这一点并未被排除。在 `claimRoot` 之后，这一项值得在 E2 中用原生方式重新
+   驱动一次。
+
+   以下是原始观察，未作改动。在 `⌘K` 与 `Escape` 之后，座舱把中间栏换成了 `CONNECTING · Establishing
    the versioned Core connection. · Core connection pending`，标题栏的项目 chip 退回
    `—`；约十秒内窗口就从 `CGWindowListCopyWindowInfo` 中消失，进程也不再存在。
    `~/Library/Logs/DiagnosticReports` 中没有对应条目，进程合并后的 stdout/stderr
@@ -327,12 +362,32 @@ linker-signed 且没有 TeamIdentifier，可执行文件 38,946,048 字节。它
    屏幕锁定时仍在运行。前端本身的诚实性在这里是对的 —— 它说的是 Core 连接待定，而
    不是继续显示过期事实 —— 但一个丢失 adapter 之后直接终止的客户端，会让操作者的
    会话在没有任何说明的情况下消失。
-8. **Welcome 界面没有填满窗口**（GUI，观感问题）。它的内容与状态栏大约停在 525 px，
+8. **Welcome 界面没有填满窗口**（GUI，观感问题）。**已由 H2 于 2026-09-12 修复。**
+   先复现：在 qa 工装里强制出打包后的实际层叠顺序 —— `gui-kit.css` 的 `.frame`
+   flex 列在 `display` 上压过 `.d1-frame` 的 grid，且 `.d1-body` 处于初始的
+   `flex: 0 1 auto` —— 在 768 px 高的窗口里内容与状态栏停在 540 px，正是报告中的
+   形状。外壳层那一半（`.d1-body { flex: 1 1 auto }`）已随导航外壳落地；H2 把
+   Welcome 所在的中间栏改成「填充轨道」而不是「百分比」：`.d1-main-welcome` 移到
+   `.d1-main` 之后，从而真正赢得它原先默默输掉的同权重之争，工作面本身成为单轨
+   grid，Welcome 作为 grid 项被拉伸填满。全程没有任何像素高度。
+   `apps/gui/tests/welcome_fill.spec.ts` 按打包顺序加载真实样式表，并在 640、800、
+   900 三个高度上断言计算后的整条链路；它的十六个用例中有九个在 `25072a0a` 的 CSS
+   上失败。截图：`welcome-fill-1440x900-dark-en.png` 与
+   `welcome-fill-1440x640-dark-en.png`。
+
+   以下是原始观察，未作改动。它的内容与状态栏大约停在 525 px，
    窗口其余部分留空：在 800 px、900 px 与 640 px 三种窗口高度下都是如此，其中窗口
    尺寸没有改变布局的两张截图逐字节相同。已绑定的座舱能正确填满窗口，所以这是
    Welcome 的布局问题，不是外壳的问题。
 9. **Welcome 把最近列表为空的原因写成 `Core adapter is not connected`**（GUI，措辞）。
-   在那一刻 adapter 未连接，是因为还没有绑定项目，这是正常的首次启动状态，因此这句话
+   **已由 H2 于 2026-09-12 修复。** Welcome 只在没有绑定工作区时渲染，因此最近工作
+   读取失败时现在以 D1 自己的「尚未打开项目」作为首句，并说明下一步；宿主原本那句话
+   作为诊断保留在下方 —— 两个事实都不隐藏。若 Core 未发布 `runtime.recent_work`
+   能力，则仍用它自己的措辞，因为那无论是否打开项目都是关于 Core 的事实。
+   `Core adapter is not connected` 只在已绑定工作区的界面上继续作为首句，那里由 D6
+   连接状态负责说明。双语均已更新；截图为 `welcome-fill-1440x900-dark-en.png`。
+
+   以下是原始观察，未作改动。在那一刻 adapter 未连接，是因为还没有绑定项目，这是正常的首次启动状态，因此这句话
    读起来像故障，而 D1 自己的词汇会把它称作「还没有打开项目」。
 
 有一条观察被记录下来但没有被称作缺陷，因为它无法复现。**第一次**启动时看到它绑定了

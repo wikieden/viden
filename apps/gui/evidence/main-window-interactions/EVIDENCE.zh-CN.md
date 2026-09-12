@@ -1027,3 +1027,27 @@ ERR_CONNECTION_REFUSED"页面，采集脚本把那个页面存成了证据。它
 `d13-drill` 与 `d10-actions` 两个状态是带驾驶舱的：自 G3 起这两个屏都是中央面板
 视图，截图中标题栏、活动侧栏、Lane 侧栏、上下文坞、输入区与状态栏在其四周保持
 不变，视图自身的 Close 控件也在 DiffReview 放置自己那一个的位置上。
+
+## H2 卫生批次截图
+
+由 H2 批次（2026-09-12）追加，对应本批卫生修复新增的三个状态。每一张都通过 `qa.ts`
+调用生产渲染函数拍摄，除行内另有说明外均为 `1440x900` 深色/英文，并且都在提交之前
+被打开看过。
+
+| 状态 | URL | 必须展示什么 |
+| --- | --- | --- |
+| `evidence-hash-mismatch` | `…/qa.html?state=evidence-hash-mismatch` | E1 缺陷 6。该 `patch` 行的归档记录写着 `verified`，而内容答案是 `Unavailable { HashMismatch }`。报告中的 `verification` 行保留「verified」这个当初记录下来的词，并带上不一致处理 —— 错误色加删除线，因此状态不只靠颜色表达 —— 其下那句话把两个事实联系起来：归档当初记录了什么，以及 Core 刚刚读出字节时得到了什么。下方的内容说明仍然写校验失败，且不展示任何正文。画面按报告区取景，使两者同处一帧。 |
+| `welcome-fill` | `…/qa.html?state=welcome-fill` | E1 缺陷 8 与 9 合在一帧。未绑定项目的首次启动中间栏：活动栏、欢迎列与状态栏都抵达窗口底部，最近区域的提示读作「尚未打开项目 / 打开一个项目后，最近项目会出现在这里。」，宿主原本那句 `Error: Core adapter is not connected` 作为弱化的诊断保留在下方。 |
+| `welcome-fill`（`1440x640`） | 同上 | E1 运行实测的第二个窗口高度下的同一布局；旧链路无论窗口多高都大约停在同一个 525 px。这里没有任何截断，状态栏仍在底部。 |
+| `d10-events-not-read` | `…/qa.html?state=d10-events-not-read` | 兼容性待办 2。Lane 监视器作为座舱内视图 —— 完整外壳、带关闭控件 —— 事件流写着「The Core audit timeline has not been read yet.」。该状态不发出任何审计读取，这句话也不对 Core 是否提供时间线作任何声称；那种声称属于「能力缺失」状态，后者会点名 `runtime.audit`。 |
+
+| 文件 | 状态 | 尺寸 | 模式 | 语言 |
+| --- | --- | --- | --- | --- |
+| [evidence-hash-mismatch-1440x900-dark-en.png](evidence-hash-mismatch-1440x900-dark-en.png) | evidence-hash-mismatch | 1440x900 | dark | en |
+| [welcome-fill-1440x900-dark-en.png](welcome-fill-1440x900-dark-en.png) | welcome-fill | 1440x900 | dark | en |
+| [welcome-fill-1440x640-dark-en.png](welcome-fill-1440x640-dark-en.png) | welcome-fill | 1440x640 | dark | en |
+| [d10-events-not-read-1440x900-dark-en.png](d10-events-not-read-1440x900-dark-en.png) | d10-events-not-read | 1440x900 | dark | en |
+
+H2 没有重拍任何既有截图。上文的 `evidence-unavailable` 与 `evidence-hash-mismatch`
+是**同一个** Core 答案，刻意保留：那一张取景在内容说明，这一张取景在报告区，两张
+合起来才说明两个事实现在是被联系起来的，而不只是同时存在。

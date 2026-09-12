@@ -30,6 +30,11 @@
   `ProcessBackend` 子进程 effect 分开。
 - Patch adapters 必须先准备全部创建、写入和删除，再触碰文件系统；因此标准
   `/dev/null` 新建/删除 diff 也进入同一套 runtime transaction 安全回滚。
+- 严格 apply 写不了的文件必须是明示结果，绝不是静默的缺失。二进制片段 —— Git 报告
+  为 `Binary files … differ` 或 `GIT binary patch` 的那些 —— 会由 `check` 与 `apply`
+  在 `PatchApplyOutcome.conflicts` 中点名，同一补丁中的文本文件仍照常应用；
+  `conflict_content` 把它发布为一条不带行、`reason` 为 `ConflictHunkReason::Binary`
+  且没有原像的 hunk。
 - Git worktree tools 必须委托给 Core Lane orchestration 使用的同一套 Lane
   worktree adapter。
 

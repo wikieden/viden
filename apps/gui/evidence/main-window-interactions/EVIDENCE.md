@@ -1175,3 +1175,29 @@ The `d13-drill` and `d10-actions` states are cockpit-bearing: both screens are
 centre-pane views since G3, and the captures show the titlebar, activity rail,
 Lane sidebar, context dock, composer and statusbar unchanged around them, with
 the view's own Close control in the position DiffReview puts its own.
+
+## H2 hygiene captures
+
+Appended by batch H2 (2026-09-12) for the three states the hygiene fixes added.
+Each was taken against the production render functions through `qa.ts`, at
+`1440x900` dark/en unless the row says otherwise, and each was opened and read
+before it was committed.
+
+| State | URL | What it must show |
+| --- | --- | --- |
+| `evidence-hash-mismatch` | `…/qa.html?state=evidence-hash-mismatch` | E1 defect 6. The `patch` row whose archive record says `verified` and whose content answer is `Unavailable { HashMismatch }`. The report's `verification` row keeps the recorded word `verified` and carries the mismatch treatment — the error colour plus a strike-through, so the state is not colour alone — and the sentence under it relates the two facts: what the archive recorded, and what Core got when it read the bytes just now. The content note below still says verification failed and shows no body. Framed on the report so both are in one frame. |
+| `welcome-fill` | `…/qa.html?state=welcome-fill` | E1 defects 8 and 9 together. The unbound first-run centre pane: the activity rail, the welcome column and the status bar all reach the bottom of the window, and the Recent note reads `No project open` / `Recent projects appear once a project is open.` with the host's own `Error: Core adapter is not connected` kept beneath it as the dimmed diagnostic. |
+| `welcome-fill` at `1440x640` | same | the same layout at the second height the E1 run measured, where the old chain stopped at roughly the same 525 px regardless of window height. Nothing is cut and the status bar is still at the bottom. |
+| `d10-events-not-read` | `…/qa.html?state=d10-events-not-read` | compatibility follow-up 2. The Lane monitor as an in-cockpit view — full chrome, Close control — with the event stream saying `The Core audit timeline has not been read yet.` This state issues no audit read, and the sentence claims nothing about whether Core offers a timeline; that claim belongs to the capability-absent state, which names `runtime.audit`. |
+
+| File | State | Size | Mode | Locale |
+| --- | --- | --- | --- | --- |
+| [evidence-hash-mismatch-1440x900-dark-en.png](evidence-hash-mismatch-1440x900-dark-en.png) | evidence-hash-mismatch | 1440x900 | dark | en |
+| [welcome-fill-1440x900-dark-en.png](welcome-fill-1440x900-dark-en.png) | welcome-fill | 1440x900 | dark | en |
+| [welcome-fill-1440x640-dark-en.png](welcome-fill-1440x640-dark-en.png) | welcome-fill | 1440x640 | dark | en |
+| [d10-events-not-read-1440x900-dark-en.png](d10-events-not-read-1440x900-dark-en.png) | d10-events-not-read | 1440x900 | dark | en |
+
+No existing capture was retaken by H2. The `evidence-unavailable` capture above
+is the *same* Core answer as `evidence-hash-mismatch` and is deliberately kept:
+it frames the content note, this one frames the report, and the pair is what
+shows that the two facts are now related rather than merely both present.

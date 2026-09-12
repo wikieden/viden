@@ -256,8 +256,16 @@ written into `docs/core-0.3-compatibility.md` as a numbered open follow-up.
    the rows reach the `runtime_projection` the archive is rebuilt from. A
    restart test replays the row and serves its verified bytes.
 6. **The EvidenceView report can state `verified` beside a content answer of
-   `HashMismatch`** (GUI, cosmetic but misleading). Two different facts, no
-   sentence relating them.
+   `HashMismatch`** (GUI, cosmetic but misleading).
+   **Fixed by H2, 2026-09-12.** Two different facts, no sentence relating them.
+   The report now relates them in one sentence — the verdict the archive row
+   recorded, and the read Core just did — and the recorded claim carries the
+   design's mismatch treatment (`var(--error)` plus a strike-through, so the
+   state is not colour alone) while staying on screen as the data it is.
+   `failed` beside `HashMismatch` is two facts that agree and produces no
+   alert; an answer echoed for another row contradicts nothing. Both arrival
+   orders are covered (`apps/gui/tests/evidence_view.spec.ts`), and the capture
+   is `evidence-hash-mismatch-1440x900-dark-en.png`.
 
 ### What this means for plan goal 4
 
@@ -361,7 +369,43 @@ but it was never pressed, so nothing is claimed about what it opens.
 Numbering continues from the list above. None was fixed here.
 
 7. **The GUI window can disappear and the process exit while a project is
-   bound** (GUI, blocking for this run). After `⌘K` and `Escape`, the cockpit
+   bound** (GUI, blocking for this run).
+   **Partly fixed by H2, 2026-09-12; the exit itself was not reproduced.** The
+   visible half reproduces at the shell seam and the cause is a leaked
+   controller, not a lost adapter: `renderD1Cockpit` registers `⌘K`, `⌘L`,
+   `⌘.`, `⌘G`, `⌘E`, `⌘R`, `⌘O` and `Escape` on `window` and holds them until
+   it is disposed, and `bootstrapShell` discarded its controller, so the
+   pre-hydration shell kept answering those chords under the live cockpit,
+   opened a second command palette, and re-rendered its own `connecting`
+   projection into the same root — the project chip back at `—` and `Core
+   connection pending` returning. Whichever handler ran last won the paint,
+   which is why it was seen once in three launches. Every cockpit mount now
+   goes through `claimRoot` (`apps/gui/src/main.ts`), so exactly one controller
+   holds the chords; `apps/gui/tests/adapter_drop.spec.ts` presses the chords
+   against a bound host and asserts one palette and no `Core connection
+   pending`.
+
+   The **process exit** was not reproduced, and no code path for it exists.
+   What was tried: a grep of every Rust source the GUI links for
+   `process::exit` / `process::abort` / `libc::exit` (the only hits are
+   `apps/cli/src/main.rs` and a test-fixture program embedded as a string in
+   `crates/plugin-host`, neither reachable from the desktop client); a read of
+   `apps/gui/src-tauri/src/lib.rs`'s command layer and `spawn_core_event_pump`,
+   whose only escape is a poisoned adapter lock and which ends its own thread
+   rather than the process; a read of the palette's close path, which issues no
+   Core connect (asserted); and a driven reproduction at both seams —
+   `apps/gui/tests/reconnect.rs` pumps sixteen drains after a transport drop
+   and asserts the adapter keeps the last view Core published, classifies
+   `Disconnected`, blocks business success and offers the modelled reconnect,
+   while `apps/gui/tests/adapter_drop.spec.ts` has the host refuse every read
+   after the bind and asserts the cockpit stays mounted on the last facts and
+   never paints the transport sentence as a Core fact. The one mechanism that
+   does end the process is Tauri's own: on macOS the app exits when its last
+   window closes. Why the window closed remains unexplained; the run's own
+   note that the host was a shared desktop with other software running is not
+   ruled out. After `claimRoot` this is worth re-driving natively in E2.
+
+   The original observation follows, unchanged. After `⌘K` and `Escape`, the cockpit
    swapped its centre pane for `CONNECTING · Establishing the versioned Core
    connection. · Core connection pending` and the titlebar project chip fell
    back to `—`; within about ten seconds the window was gone from
@@ -373,14 +417,40 @@ Numbering continues from the list above. None was fixed here.
    the Core connection was pending rather than showing stale facts — but a
    client that loses its adapter and then terminates loses the operator's
    session with no message.
-8. **The Welcome screen does not fill the window** (GUI, cosmetic). Its content
+8. **The Welcome screen does not fill the window** (GUI, cosmetic).
+   **Fixed by H2, 2026-09-12.** Reproduced first: forcing the bundle's own
+   cascade in the qa harness — `gui-kit.css`'s `.frame` flex column winning
+   `display` over `.d1-frame`'s grid, with `.d1-body` at its initial
+   `flex: 0 1 auto` — puts the content and the status bar at 540 px in a 768 px
+   window, which is the reported shape. The frame-level half (`.d1-body
+   { flex: 1 1 auto }`) landed with the navigation shell; H2 makes the welcome
+   centre a fill chain rather than a percentage one: `.d1-main-welcome` moves
+   below `.d1-main`, where it can win the tie it was silently losing, and the
+   work surface becomes a one-track grid Welcome stretches into. No pixel
+   height anywhere. `apps/gui/tests/welcome_fill.spec.ts` loads the real
+   stylesheets in the bundle's order and asserts the computed chain at 640, 800
+   and 900; nine of its sixteen cases fail against the CSS as of `25072a0a`.
+   Captures: `welcome-fill-1440x900-dark-en.png` and
+   `welcome-fill-1440x640-dark-en.png`.
+
+   The original observation follows, unchanged. Its content
    and status bar stop at roughly 525 px, leaving the rest of the window empty:
    the same at an 800 px, a 900 px, and a 640 px window height, and the three
    captures are byte-identical where the window size did not change the layout.
    The bound cockpit fills the window correctly, so this is Welcome's layout,
    not the shell's.
 9. **Welcome states the reason for an empty recent list as `Core adapter is not
-   connected`** (GUI, wording). At that moment the adapter is not connected
+   connected`** (GUI, wording).
+   **Fixed by H2, 2026-09-12.** Welcome renders only while no workspace is
+   bound, so a failed recent-work read now leads with D1's own `No project
+   open` and names the next step, and keeps the host's sentence underneath as
+   the diagnostic it is — neither fact hidden. An absent `runtime.recent_work`
+   capability keeps its own wording, because that is a statement about Core
+   either way. `Core adapter is not connected` stays the headline only on the
+   bound-workspace surfaces, where the D6 connection state says so. Both
+   languages; the capture is `welcome-fill-1440x900-dark-en.png`.
+
+   The original observation follows, unchanged. At that moment the adapter is not connected
    because no project is bound, which is the normal first-run state, so the
    sentence reads as a fault where D1's own vocabulary would call it "no project
    open yet".

@@ -31,6 +31,12 @@
 - Patch adapters prepare every create, write, and delete before touching the
   filesystem. Standard `/dev/null` new-file and deleted-file diffs therefore
   participate in the same runtime rollback transaction.
+- A file the strict apply cannot write is a stated outcome, never a silent
+  absence. A binary section — what Git reports as `Binary files … differ` or
+  `GIT binary patch` — is named in `PatchApplyOutcome.conflicts` by both
+  `check` and `apply` while the text files in the same patch still apply, and
+  `conflict_content` publishes it as one row-less hunk with
+  `ConflictHunkReason::Binary` and no preimage.
 - Git worktree tools delegate to the same lane worktree adapter used by Core
   lane orchestration.
 

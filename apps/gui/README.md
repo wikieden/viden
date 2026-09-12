@@ -1492,3 +1492,55 @@ plus open non-dormant merge gates — so the badge and the view's header can
 legitimately differ. Reconciling them is a projection question for the batch
 that owns those counts; counting a second time in the rail would only make the
 rail disagree with the statusbar as well.
+
+## H2 hygiene
+
+Batch H2 (2026-09-12) closed the four E1 hygiene defects and the D10 copy
+follow-up. Three of them changed what is on screen.
+
+**EvidenceView: the recorded claim versus the read Core just did.** The report
+row `verification` carries the verdict the *archive* recorded when the
+canonical reference was written. The content answer is what Core got when it
+read those bytes *now*. When the second contradicts the first — a recorded
+`verified` under `Unavailable { HashMismatch }` — the pane relates them in one
+sentence and gives the recorded row the design's mismatch treatment (the error
+colour plus a strike-through, so the state is not carried by colour alone). The
+recorded word is never rewritten or removed: it is what the archive says, and
+hiding it would be the other half of the same dishonesty. `failed` beside
+`HashMismatch` is two facts that agree and draws no alert, and a content answer
+echoed for a different row contradicts nothing. This supersedes the
+GUI-CORE-025 implementation note above: the host projection does carry
+`verification` and `quality`, and the report states both.
+
+**Welcome: no project open is not an adapter fault.** Welcome renders only
+while no workspace is bound, so a recent-work read that fails there fails
+because nothing has been opened yet. The note leads with D1's own `No project
+open` and names the next step, and keeps the host's own sentence underneath as
+the diagnostic — neither fact hidden. An absent `runtime.recent_work`
+capability keeps its own wording, because that is a statement about Core
+whether or not a project is open. `Core adapter is not connected` remains the
+headline only on the bound-workspace surfaces, where the D6 connection state is
+the thing saying it.
+
+**Welcome fills the window.** The unbound centre pane is a fill chain, not a
+percentage one: `.d1-main-welcome` declares one `1fr` row below `.d1-main`
+where it wins the tie it used to lose, and the work surface is a one-track grid
+Welcome stretches into as a grid item. No pixel height is involved, so the
+layout is the same at every window height — which is what E1 defect 8 was:
+content and status bar stopping at roughly 525 px regardless of the window.
+
+**D10's event stream has two absences, not one.** "The Core audit timeline has
+not been read yet" is this page's own state and claims nothing about Core.
+"Core's handshake published no `runtime.audit` capability" is gated on the
+capability and names it, so the gap is checkable against the handshake. A
+refusal Core gave no words for falls back to the read's own state rather than
+to the capability sentence.
+
+**One cockpit owns the window chords.** `renderD1Cockpit` registers `⌘K`,
+`⌘L`, `⌘.`, `⌘G`, `⌘E`, `⌘R`, `⌘O` and `Escape` on `window` and holds them
+until it is disposed, so a cockpit mounted over another leaves two sets
+listening. `bootstrapShell` discarded its controller, and the pre-hydration
+shell then answered those chords under the live cockpit and re-rendered its own
+`connecting` projection into the same root — the reported fallback to `Core
+connection pending` with the project chip at `—`. Every mount now goes through
+`claimRoot` in `src/main.ts`, which disposes the previous owner first.

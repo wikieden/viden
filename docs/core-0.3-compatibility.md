@@ -238,10 +238,11 @@ digest identity.
 - `ConflictHunkReason` is classified once, in Core, from what the apply saw:
   `ContextMismatch`, `AlreadyApplied` when the file already holds the hunk's
   new side, `FileMissing`, `FileDeleted` when a deletion's preimage would leave
-  the file behind, and `Binary`. The local apply cannot produce `Binary`,
-  because a binary file carries no rows for it to reject; the variant exists
-  for an apply path that can. Clients never parse a message to decide what to
-  offer.
+  the file behind, and `Binary`. Since H2 (2026-09-12) the local apply does
+  produce `Binary`: a binary file carries no rows to reject, so the file itself
+  is the refusal and is published as one row-less hunk with `base: None` — "no
+  preimage at all", encoded differently from the `Some(vec![])` a creation's
+  empty region carries. Clients never parse a message to decide what to offer.
 - The bound is 256 KiB across the published lines. A file over the bound keeps
   its entry with `omitted` set and no hunks, and the content sets `truncated`,
   so "not shown" stays distinguishable from "no conflict here".
@@ -982,16 +983,30 @@ batches and deliberately left out of them, so none is rediscovered later as a
 new finding:
 
 1. **Strict apply silently drops binary files from a patch** (pre-existing,
-   found during C3). `crates/tools/src/patch.rs` refuses a binary file before
-   hunk matching and reports nothing for it, so a mixed patch applies its text
-   files and says nothing about the binary ones. That is also why
-   `ConflictHunkReason::Binary` is never produced by this apply path. The fix
-   is a stated per-file outcome, not a silent skip.
+   found during C3). **Closed 2026-09-12 by H2.** `parse_unified_diff`
+   discarded every scanned section it had found no rows for, which is every
+   binary file Git reports, so a mixed patch applied its text files and said
+   nothing about the binary ones — the operator read "applied" with no way to
+   learn that part of the change was never written. That was also why
+   `ConflictHunkReason::Binary` had no producer. The outcome is now stated per
+   file in the shape the types already model: a binary section is kept, its
+   path validated, and carried as a refusal rather than a change, so the text
+   files still apply and both `check` and `apply` name the binary file in
+   `PatchApplyOutcome.conflicts`; a patch whose every file was refused reports
+   `applied: false`. `conflict_content` publishes it as one row-less hunk with
+   `ConflictHunkReason::Binary` and `base: None`. A non-binary section with no
+   rows — Git's header-only mode change — is still dropped, because it carries
+   no change this apply could make or refuse. No event, capability, or fixture
+   changed, and the nine frozen base fixtures are byte-identical.
 2. **D10's `eventsUnavailable` copy conflates two states** (pre-existing, found
-   during H1). The string says Core publishes no audit timeline, but it must be
-   gated on the capability actually being absent rather than on a page that has
-   not been loaded yet. "Not read" and "not offered" are different facts and
-   the copy currently reads as the second for both.
+   during H1). **Closed 2026-09-12 by H2.** One string said Core publishes no
+   audit timeline, and a page nobody had loaded yet read as that. The two are
+   now separate states with separate copy in both languages: "not read yet" is
+   the page's own state and says nothing about Core, and "not offered" is gated
+   on the capability and names `runtime.audit` so the gap is checkable against
+   Core's handshake. A refusal Core gave no words for falls back to the read's
+   own state rather than to the capability sentence. The capture is
+   `d10-events-not-read-1440x900-dark-en.png`.
 3. **A native built-in turn has no turn-liveness fact** (found during H1).
    **Closed 2026-09-12 by C6.** The built-in local provider published no Agent
    session and no task, so the TUI's active-work predicate depended on

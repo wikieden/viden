@@ -2623,6 +2623,75 @@ async function renderState(): Promise<void> {
       return;
     }
 
+    /* ---------------------------------------------------------------- */
+    /* H2 hygiene                                                        */
+    /* ---------------------------------------------------------------- */
+
+    case "welcome-fill": {
+      // E1 defects 8 and 9: the unbound first-run centre pane. Captured at
+      // 1440x900 and again at 1440x640 — the layout must reach the status bar
+      // at both heights, and the empty-recent sentence must read as "no
+      // project open yet" rather than as an adapter fault.
+      renderD1Cockpit(
+        root!,
+        d1Base(),
+        never<D1IntentResult>,
+        never<D1IntentResult>,
+        never<unknown>,
+        never<D6RecoveryProjection>,
+        {
+          poll: false,
+          showWelcome: true,
+          onOpenProject: () => never<void>(),
+          onOpenWorkspace: () => never<void>(),
+          // The first-run read: with no project bound there is no Core adapter
+          // yet, so the host refuses with its own sentence. That is defect 9's
+          // exact state, and the note must lead with `No project open` and keep
+          // the host's words as the diagnostic beneath it.
+          loadRecentWork: () =>
+            Promise.reject(new Error("Core adapter is not connected")),
+        },
+      );
+      await waitFor("[data-recent-state='failed']");
+      return;
+    }
+
+    case "evidence-hash-mismatch": {
+      // E1 defect 6: the archive row records `verified`, and the bytes Core
+      // read just now do not match the recorded hash. The capture is framed on
+      // the report so both the recorded claim and the sentence relating it to
+      // the refusal are in one frame.
+      await openEvidence(
+        EVIDENCE_ARCHIVE,
+        EVIDENCE_UNAVAILABLE_CONTENT,
+        "evidence_alpha_patch",
+        "report",
+      );
+      await waitFor("[data-evidence-verification-contradicted]");
+      return;
+    }
+
+    case "d10-events-not-read": {
+      // Compatibility follow-up 2: the Lane monitor before any audit read has
+      // been issued. The strip must say the timeline has not been read, not
+      // that Core publishes none — that sentence belongs to the state where
+      // Core's handshake actually omitted `runtime.audit`.
+      const monitor = await d10Monitor();
+      const cockpit = mountCockpit({
+        projection: d1Base(),
+        preferencesAvailable: true,
+        secondaryViews: (route, container) => {
+          if (route !== "d10") throw new Error(`unexpected secondary route ${route}`);
+          // No `initialEvents`: this is the "not read yet" state by
+          // construction, exactly as the shell mounts it before the read.
+          renderD10LaneMonitor(container, monitor, locale);
+        },
+      });
+      cockpit.openCenterView("d10");
+      await waitFor("[data-d10-ticker-state='not-read']");
+      return;
+    }
+
     default: {
       root!.textContent = `unknown state ${state}`;
     }
