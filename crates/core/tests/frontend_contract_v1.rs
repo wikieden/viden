@@ -5,9 +5,9 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use viden_core::{
-    CORE_CLIENT_CAPABILITIES, CORE_CLIENT_VERSION, CORE_EXTENSION_CAPABILITIES, CheckRunView,
-    RuntimeServiceHealthView, WorkspaceChangeView, WorkspaceSourceView, frontend_capabilities,
-    local_core_handshake,
+    CORE_CLIENT_CAPABILITIES, CORE_CLIENT_VERSION, CORE_EXTENSION_CAPABILITIES, CheckRunStatus,
+    CheckRunView, RuntimeServiceHealthView, WorkspaceChangeView, WorkspaceSourceView,
+    frontend_capabilities, local_core_handshake,
 };
 use viden_types::{
     AgentAdapterSource, AgentAdapterView, AgentAuthState, AgentAvailability, AgentContentPart,
@@ -39,6 +39,10 @@ use viden_types::{
     WorkspaceDiffScope, WorkspaceEligibility, WorkspaceFileBody, WorkspaceFileContent,
     WorkspaceFileEntry, WorkspaceFileKind, WorkspaceFilePage, WorkspaceFileReadQuery,
     WorkspaceFileUnavailableReason, WorkspaceFilesQuery, WorkspaceRuntimeOwnerBinding,
+};
+use viden_types::{
+    MAX_TRANSCRIPT_ROW_TEXT_BYTES, OwnedTranscriptRow, ToolCallView, TranscriptRowContent,
+    TranscriptRowsPage, TranscriptRowsQuery,
 };
 
 const FIXTURE_DIR: &str = "tests/fixtures/frontend-contract-v1";
@@ -213,6 +217,12 @@ fn frontend_host_capabilities_are_schema_one_core_0_3_6_and_additive() {
         // is untouched, which is what keeps the nine base fixtures
         // byte-identical.
         "runtime.structured_diff",
+        // GUI-CORE-009, C8, and the last capability of the 0.3.4 contract
+        // increment: 29 extensions is the milestone's final count. The typed
+        // owner-scoped sibling of the frozen `runtime.transcript_page` above,
+        // which stays exactly as it was — which is what keeps the nine base
+        // fixtures byte-identical.
+        "runtime.transcript_rows",
         "runtime.trust_loop",
         // The turn bracket, C6. Compatibility follow-ups 3 and 5: a native
         // turn had no terminal fact and the session queue was never drained,
@@ -8091,5 +8101,637 @@ fn durable_work_evidence_fixture() -> FrontendContractFixtureOut {
         ],
         snapshot(WorkMode::Build),
         owned_envelopes_per_event(fixture_id, owned_events, 1_700_006_000),
+    )
+}
+
+/// Canonical proof of the owner-scoped transcript rows contract
+/// (`runtime.transcript_rows`, C8, closes GUI-CORE-009).
+///
+/// Deliberately not a happy path. Three reads are outstanding at once over one
+/// durable transcript, and the second is answered first, so a client
+/// correlating by arrival order attributes one Lane's conversation to the other.
+/// Two Lanes and the session each get their own page and no row appears on more
+/// than one of them, which is the isolation the base `runtime.transcript_page`
+/// cannot express at all. One Lane's page is cut by the limit and its `older`
+/// cursor is passed straight back to reach the page above it, tiling without
+/// repeating the boundary row. One assistant body is over the byte bound, says
+/// so, and names the canonical evidence row that still holds it whole. And one
+/// read is refused outright for a cursor this build did not issue, because "this
+/// query was malformed" and "nothing was said" must never render the same — the
+/// fabricated absence this capability exists to end.
+#[test]
+fn transcript_rows_fixture_scopes_three_owners_and_tiles_without_repeating_a_row() {
+    let name = "transcript-rows.json";
+    let root = fixture_root();
+    let fixture_bytes = fs::read(root.join(name)).expect("read transcript rows fixture bytes");
+    let fixture_sha256 = format!("{:x}", Sha256::digest(&fixture_bytes));
+    let extension_manifest = include_str!("../frontend-contract-extensions.toml");
+    assert!(
+        extension_manifest.contains(&format!(
+            "transcript_rows_fixture_sha256 = \"{fixture_sha256}\""
+        )),
+        "the extension manifest must register the exact transcript rows fixture bytes"
+    );
+    assert!(extension_manifest.contains("transcript_rows_fixture = \"transcript-rows.json\""));
+
+    let fixture = read_fixture(&root, name);
+    assert_fixture_identity(name, &fixture);
+    assert_capabilities_are_sorted_unique_and_advertised(name, &fixture);
+    assert_cursors_are_contiguous(name, &fixture);
+
+    let (view, first_cursor, first_digest) = replay_fixture(&fixture);
+    let (second_view, second_cursor, second_digest) = replay_fixture(&fixture);
+    assert_eq!(view, second_view);
+    assert_eq!(first_cursor, second_cursor);
+    assert_eq!(first_digest, second_digest);
+    assert_eq!(first_cursor, fixture.expected_final_cursor);
+    assert_eq!(first_digest, fixture.expected_view_sha256);
+    assert!(
+        extension_manifest.contains(&format!("transcript_rows_view_sha256 = \"{first_digest}\"")),
+        "the extension manifest must register the replayed view digest"
+    );
+
+    let pages = fixture
+        .events
+        .iter()
+        .filter_map(|envelope| match &envelope.event {
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::TranscriptRowsLoaded { command_id, page },
+                ..
+            }) => Some((command_id.clone(), page.clone())),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(pages.len(), 4, "three scoped reads plus one older page");
+
+    // Arrival order is not request order: a client that attributed the first
+    // answer to the first read would render Lane B's conversation under Lane A.
+    let accepted_order = fixture
+        .events
+        .iter()
+        .filter_map(|envelope| match &envelope.event {
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind:
+                    RuntimeEventKind::CommandAccepted {
+                        command_id,
+                        command: RuntimeCommand::QueryTranscriptRows { .. },
+                    },
+                ..
+            }) => Some(command_id.clone()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(accepted_order[0], "rows_lane_a");
+    assert_eq!(pages[0].0, "rows_lane_b");
+
+    let page_for = |command_id: &str| {
+        pages
+            .iter()
+            .find(|(answered, _)| answered == command_id)
+            .map(|(_, page)| page.clone())
+            .unwrap_or_else(|| panic!("no page answered `{command_id}`"))
+    };
+
+    // Owner isolation, proved by the rows themselves rather than by the query:
+    // every row of every page names the Lane or the session it was read for,
+    // and the three row sets are disjoint.
+    let lane_a = page_for("rows_lane_a");
+    let lane_a_older = page_for("rows_lane_a_older");
+    let lane_b = page_for("rows_lane_b");
+    let session = page_for("rows_session");
+    for row in lane_a.rows.iter().chain(lane_a_older.rows.iter()) {
+        assert_eq!(row.owner.lane_id.as_deref(), Some("lane_transcript_rows_a"));
+    }
+    for row in &lane_b.rows {
+        assert_eq!(row.owner.lane_id.as_deref(), Some("lane_transcript_rows_b"));
+    }
+    for row in &session.rows {
+        assert_eq!(
+            row.owner.lane_id, None,
+            "a session-scoped row must never carry a Lane"
+        );
+        assert_eq!(
+            row.owner.session_id.as_deref(),
+            Some("session_transcript_rows")
+        );
+    }
+    let ids = lane_a
+        .rows
+        .iter()
+        .chain(lane_a_older.rows.iter())
+        .chain(lane_b.rows.iter())
+        .chain(session.rows.iter())
+        .map(|row| row.id.clone())
+        .collect::<Vec<_>>();
+    let unique = ids.iter().cloned().collect::<BTreeSet<_>>();
+    assert_eq!(ids.len(), unique.len(), "no row may appear on two pages");
+
+    // The page boundary and the cursor round-trip: the cut page names an
+    // `older` cursor, the next read passes it back verbatim, and the two pages
+    // tile the Lane's transcript with the boundary row on exactly one of them.
+    assert!(!lane_a.complete, "a cut page is not complete");
+    let older = lane_a
+        .older
+        .clone()
+        .expect("an incomplete page carries a cursor");
+    let resumed = fixture
+        .events
+        .iter()
+        .find_map(|envelope| match &envelope.event {
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind:
+                    RuntimeEventKind::CommandAccepted {
+                        command_id,
+                        command: RuntimeCommand::QueryTranscriptRows { query },
+                    },
+                ..
+            }) if command_id == "rows_lane_a_older" => Some(query.before.clone()),
+            _ => None,
+        })
+        .expect("the older read is accepted");
+    assert_eq!(
+        resumed.as_deref(),
+        Some(older.as_str()),
+        "the resumed read passes the cursor back verbatim"
+    );
+    assert!(lane_a_older.complete, "no older row matches the scope");
+    assert!(
+        lane_a_older.older.is_none(),
+        "a complete page has no cursor"
+    );
+    let boundary = lane_a.rows.first().expect("a cut page has rows");
+    assert!(
+        lane_a_older
+            .rows
+            .iter()
+            .all(|row| row.sequence < boundary.sequence),
+        "the cursor is exclusive, so the boundary row is on exactly one page"
+    );
+
+    // Every content variant appears once, so a client cannot pass this fixture
+    // while rendering only prose.
+    let variants = lane_a
+        .rows
+        .iter()
+        .chain(lane_a_older.rows.iter())
+        .map(|row| match &row.content {
+            TranscriptRowContent::User { .. } => "user",
+            TranscriptRowContent::Assistant { .. } => "assistant",
+            TranscriptRowContent::ToolCall { .. } => "tool_call",
+            TranscriptRowContent::ToolResult { .. } => "tool_result",
+            TranscriptRowContent::CheckRun { .. } => "check_run",
+            TranscriptRowContent::Permission { .. } => "permission",
+            _ => "unknown",
+        })
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        variants,
+        BTreeSet::from([
+            "user",
+            "assistant",
+            "tool_call",
+            "tool_result",
+            "check_run",
+            "permission",
+        ]),
+        "the fixture must carry every row variant"
+    );
+
+    // The truncated assistant body: cut at the bound, flagged, and naming the
+    // canonical row that holds it whole. A client that rendered it as the whole
+    // reply would be showing a reviewer a partial answer as complete.
+    let truncated = lane_a_older
+        .rows
+        .iter()
+        .find_map(|row| match &row.content {
+            TranscriptRowContent::Assistant {
+                text,
+                truncated,
+                evidence_id,
+            } => Some((text.clone(), *truncated, evidence_id.clone())),
+            _ => None,
+        })
+        .expect("the fixture carries a cut assistant body");
+    assert!(truncated.1, "the bound cut the body and says so");
+    assert_eq!(
+        truncated.0.len(),
+        MAX_TRANSCRIPT_ROW_TEXT_BYTES as usize,
+        "the published prefix is exactly the bound"
+    );
+    assert_eq!(
+        truncated.2.as_deref(),
+        Some("assistant-body-transcript-rows"),
+        "a cut body names the canonical row that still holds it"
+    );
+
+    // The tool result names C7's archived patch row for its own tool call, so a
+    // reviewer reaches the bytes from the transcript rather than from a guess.
+    assert!(lane_a.rows.iter().any(|row| matches!(
+        &row.content,
+        TranscriptRowContent::ToolResult { tool_call_id, evidence_id, .. }
+            if tool_call_id == "call_transcript_rows_edit"
+                && evidence_id.as_deref() == Some("patch-call_transcript_rows_edit")
+    )));
+
+    // A scoped allow's payload is not in the durable audit row, so the
+    // permission row admits it does not know the decision rather than
+    // publishing a bare `allow_once` for a standing grant.
+    let permission = lane_a
+        .rows
+        .iter()
+        .find_map(|row| match &row.content {
+            TranscriptRowContent::Permission {
+                request_id,
+                decision,
+                audit_id,
+            } => Some((request_id.clone(), decision.clone(), audit_id.clone())),
+            _ => None,
+        })
+        .expect("the fixture carries a permission row");
+    assert_eq!(permission.0, "approval_transcript_rows");
+    assert_eq!(permission.2, "audit_transcript_rows");
+    assert_eq!(
+        permission.1,
+        Some(ApprovalDecision::Allow {
+            scope: ApprovalScope::Once
+        })
+    );
+
+    // The refusal. A cursor this build did not issue is a `command_rejected`
+    // naming the exact read, never an empty page.
+    let refusal = fixture
+        .events
+        .iter()
+        .find_map(|envelope| match &envelope.event {
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::CommandRejected { command_id, reason },
+                ..
+            }) => Some((command_id.clone(), reason.clone())),
+            _ => None,
+        })
+        .expect("the fixture carries the cursor refusal");
+    assert_eq!(refusal.0, "rows_bad_cursor");
+    assert!(
+        refusal.1.contains("transcript row cursor `page-2`"),
+        "the refusal names the cursor it refused"
+    );
+    assert!(
+        refusal.1.contains("pass back the `older` cursor"),
+        "the refusal keeps the actionable hint"
+    );
+    assert!(
+        !pages
+            .iter()
+            .any(|(command_id, _)| command_id == "rows_bad_cursor"),
+        "a refused read must not also publish a page"
+    );
+
+    // A transcript rows page is a query answer, never view state: applying
+    // every page in this fixture to a fresh view leaves it byte-identical, so
+    // publishing one moves no snapshot digest and no frozen base fixture.
+    let untouched = RuntimeViewState::new(fixture.initial_snapshot.clone());
+    let mut only_pages = RuntimeViewState::new(fixture.initial_snapshot.clone());
+    for envelope in &fixture.events {
+        if let RuntimeWireEvent::Known(event) = &envelope.event
+            && matches!(event.kind, RuntimeEventKind::TranscriptRowsLoaded { .. })
+        {
+            only_pages.apply_event(event);
+        }
+    }
+    assert_eq!(
+        canonical_view_sha256(&only_pages),
+        canonical_view_sha256(&untouched),
+        "no transcript rows page may reduce into RuntimeViewState"
+    );
+}
+
+#[test]
+#[ignore = "manual transcript rows fixture refresh; normal tests validate committed JSON only"]
+fn refresh_transcript_rows_extension_fixture() {
+    let root = fixture_root();
+    fs::create_dir_all(&root).unwrap();
+    let fixture = transcript_rows_fixture();
+    fs::write(
+        root.join("transcript-rows.json"),
+        serde_json::to_string_pretty(&fixture).unwrap() + "\n",
+    )
+    .unwrap();
+}
+
+/// `runtime.transcript_rows`, as bytes.
+///
+/// One durable transcript holding three owners' work — two Lanes and the
+/// session composer, which is what the supervised input path really produces,
+/// since a Lane's native turn runs through the same engine as the composer.
+/// Three reads are outstanding at once and answered out of order; one is cut by
+/// its limit and resumed through its own `older` cursor; one is refused for a
+/// cursor this build did not issue.
+///
+/// The row sequences are Core's own: a transcript row at entry ordinal `o` gets
+/// `2 * o + 1` and an audit-derived permission row that belongs after the first
+/// `a` entries gets `2 * a`, which is what keeps positions stable under append.
+/// Every string is fixed with no machine path in it, so the bytes are identical
+/// on every machine that regenerates this fixture.
+fn transcript_rows_fixture() -> FrontendContractFixtureOut {
+    let fixture_id = "transcript-rows";
+    let workspace_id = "workspace_contract_v1";
+    let project_id = "project_viden";
+    // The reading client. A transcript rows read is answered to whoever asked,
+    // so the envelope owner is the reader's and the row owners are the work's.
+    let reader = RuntimeOwner {
+        workspace_id: workspace_id.to_string(),
+        project_id: project_id.to_string(),
+        lane_id: None,
+        session_id: Some("session_transcript_rows".to_string()),
+        task_id: None,
+        turn_id: Some("turn_transcript_rows".to_string()),
+    };
+    let work_owner = |lane: Option<&str>, session: &str, turn: &str| RuntimeOwner {
+        workspace_id: workspace_id.to_string(),
+        project_id: project_id.to_string(),
+        lane_id: lane.map(ToString::to_string),
+        session_id: Some(session.to_string()),
+        task_id: None,
+        turn_id: Some(turn.to_string()),
+    };
+    let read_scope = |lane: Option<&str>, session: Option<&str>| RuntimeOwner {
+        workspace_id: workspace_id.to_string(),
+        project_id: project_id.to_string(),
+        lane_id: lane.map(ToString::to_string),
+        session_id: session.map(ToString::to_string),
+        task_id: None,
+        turn_id: None,
+    };
+    let lane_a_owner = work_owner(
+        Some("lane_transcript_rows_a"),
+        "session_lane_a",
+        "turn_lane_a",
+    );
+    let lane_b_owner = work_owner(
+        Some("lane_transcript_rows_b"),
+        "session_lane_b",
+        "turn_lane_b",
+    );
+    let session_owner = work_owner(None, "session_transcript_rows", "turn_session");
+
+    let row = |id: &str, owner: &RuntimeOwner, sequence: u64, content: TranscriptRowContent| {
+        OwnedTranscriptRow {
+            id: id.to_string(),
+            owner: owner.clone(),
+            sequence,
+            timestamp: Some(1_700_005_900 + sequence),
+            content,
+        }
+    };
+
+    // A real reply over the byte bound, cut exactly as Core cuts it. The bytes
+    // are in the fixture rather than a short stand-in with `truncated = true`,
+    // because a flag on a body the bound could not have cut would be a state
+    // Core never produces.
+    let whole_reply = {
+        let sentence = "The archive keeps the whole reply; the row keeps its first 8 KiB. ";
+        let mut body = String::new();
+        while body.len() <= MAX_TRANSCRIPT_ROW_TEXT_BYTES as usize {
+            body.push_str(sentence);
+        }
+        body
+    };
+    let cut_reply = whole_reply[..MAX_TRANSCRIPT_ROW_TEXT_BYTES as usize].to_string();
+
+    // Lane A's transcript: six rows across one turn, with the approval that
+    // allowed the edit sitting between the tool call and its result.
+    let lane_a_oldest = vec![
+        row(
+            "session_lane_a:0",
+            &lane_a_owner,
+            1,
+            TranscriptRowContent::User {
+                text: "rename the parser entry point".to_string(),
+                truncated: false,
+            },
+        ),
+        row(
+            "session_lane_a:1",
+            &lane_a_owner,
+            3,
+            TranscriptRowContent::Assistant {
+                text: cut_reply,
+                truncated: true,
+                evidence_id: Some("assistant-body-transcript-rows".to_string()),
+            },
+        ),
+        row(
+            "session_lane_a:2",
+            &lane_a_owner,
+            5,
+            TranscriptRowContent::ToolCall {
+                call: ToolCallView {
+                    tool_call_id: "call_transcript_rows_edit".to_string(),
+                    name: "edit_file".to_string(),
+                    input_preview: "path=crates/tools/src/parser.rs".to_string(),
+                    owner: Some(lane_a_owner.clone()),
+                },
+            },
+        ),
+    ];
+    let lane_a_newest = vec![
+        row(
+            "approval:audit_transcript_rows",
+            &lane_a_owner,
+            6,
+            TranscriptRowContent::Permission {
+                request_id: "approval_transcript_rows".to_string(),
+                decision: Some(ApprovalDecision::Allow {
+                    scope: ApprovalScope::Once,
+                }),
+                audit_id: "audit_transcript_rows".to_string(),
+            },
+        ),
+        row(
+            "session_lane_a:3",
+            &lane_a_owner,
+            7,
+            TranscriptRowContent::ToolResult {
+                tool_call_id: "call_transcript_rows_edit".to_string(),
+                success: true,
+                summary: "1 file changed, 4 insertions(+), 2 deletions(-)".to_string(),
+                evidence_id: Some("patch-call_transcript_rows_edit".to_string()),
+            },
+        ),
+        row(
+            "session_lane_a:4",
+            &lane_a_owner,
+            9,
+            TranscriptRowContent::CheckRun {
+                check: CheckRunView {
+                    id: "call_transcript_rows_check".to_string(),
+                    owner: lane_a_owner.clone(),
+                    label: "cargo test -p viden-tools".to_string(),
+                    command: "cargo test -p viden-tools".to_string(),
+                    status: CheckRunStatus::Passed,
+                    summary: "passed".to_string(),
+                    failing_location: None,
+                },
+            },
+        ),
+    ];
+    // Exclusive, so the boundary row lands on exactly one of the two pages.
+    let older_cursor = "s:6:approval:audit_transcript_rows".to_string();
+
+    let lane_b_rows = vec![
+        row(
+            "session_lane_b:0",
+            &lane_b_owner,
+            1,
+            TranscriptRowContent::User {
+                text: "write the migration note".to_string(),
+                truncated: false,
+            },
+        ),
+        row(
+            "session_lane_b:1",
+            &lane_b_owner,
+            3,
+            TranscriptRowContent::Assistant {
+                text: "Drafted docs/migration.md.".to_string(),
+                truncated: false,
+                evidence_id: None,
+            },
+        ),
+    ];
+    let session_rows = vec![
+        row(
+            "session_transcript_rows:0",
+            &session_owner,
+            1,
+            TranscriptRowContent::User {
+                text: "what changed in the two Lanes?".to_string(),
+                truncated: false,
+            },
+        ),
+        row(
+            "session_transcript_rows:1",
+            &session_owner,
+            3,
+            TranscriptRowContent::Assistant {
+                text: "One renamed the parser entry point; one drafted the migration note."
+                    .to_string(),
+                truncated: false,
+                evidence_id: None,
+            },
+        ),
+    ];
+
+    let accepted =
+        |command_id: &str, query: TranscriptRowsQuery| RuntimeEventKind::CommandAccepted {
+            command_id: command_id.to_string(),
+            command: RuntimeCommand::QueryTranscriptRows { query },
+        };
+    let loaded =
+        |command_id: &str, page: TranscriptRowsPage| RuntimeEventKind::TranscriptRowsLoaded {
+            command_id: command_id.to_string(),
+            page,
+        };
+
+    let kinds = vec![
+        // All three reads are sent before any is answered.
+        accepted(
+            "rows_lane_a",
+            TranscriptRowsQuery {
+                owner: read_scope(Some("lane_transcript_rows_a"), None),
+                before: None,
+                limit: Some(3),
+            },
+        ),
+        accepted(
+            "rows_lane_b",
+            TranscriptRowsQuery {
+                owner: read_scope(Some("lane_transcript_rows_b"), None),
+                before: None,
+                limit: None,
+            },
+        ),
+        accepted(
+            "rows_session",
+            TranscriptRowsQuery {
+                owner: read_scope(None, Some("session_transcript_rows")),
+                before: None,
+                limit: None,
+            },
+        ),
+        // Answered out of request order, so a client correlating by arrival
+        // renders Lane B's conversation under Lane A.
+        loaded(
+            "rows_lane_b",
+            TranscriptRowsPage {
+                rows: lane_b_rows,
+                older: None,
+                complete: true,
+            },
+        ),
+        loaded(
+            "rows_lane_a",
+            TranscriptRowsPage {
+                rows: lane_a_newest,
+                older: Some(older_cursor.clone()),
+                complete: false,
+            },
+        ),
+        loaded(
+            "rows_session",
+            TranscriptRowsPage {
+                rows: session_rows,
+                older: None,
+                complete: true,
+            },
+        ),
+        // The cursor round-trip: passed back verbatim to reach the page above.
+        accepted(
+            "rows_lane_a_older",
+            TranscriptRowsQuery {
+                owner: read_scope(Some("lane_transcript_rows_a"), None),
+                before: Some(older_cursor),
+                limit: Some(3),
+            },
+        ),
+        loaded(
+            "rows_lane_a_older",
+            TranscriptRowsPage {
+                rows: lane_a_oldest,
+                older: None,
+                complete: true,
+            },
+        ),
+        // A cursor this build did not issue. Refused, and deliberately not
+        // answered with an empty page: "malformed" and "nothing was said" are
+        // different facts and a client must never render the second for the
+        // first.
+        accepted(
+            "rows_bad_cursor",
+            TranscriptRowsQuery {
+                owner: read_scope(Some("lane_transcript_rows_a"), None),
+                before: Some("page-2".to_string()),
+                limit: None,
+            },
+        ),
+        RuntimeEventKind::CommandRejected {
+            command_id: "rows_bad_cursor".to_string(),
+            reason: "transcript row cursor `page-2` is not a cursor this build issued\n\
+                     hint: pass back the `older` cursor from the previous page verbatim, or omit \
+                     it to read the newest page"
+                .to_string(),
+        },
+    ];
+
+    fixture(
+        fixture_id,
+        &[
+            "runtime.commands",
+            "runtime.events",
+            "runtime.snapshot",
+            "runtime.transcript_rows",
+        ],
+        snapshot(WorkMode::Build),
+        owned_envelopes(fixture_id, reader, kinds, 1_700_006_000),
     )
 }

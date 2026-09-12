@@ -1,0 +1,594 @@
+{
+  "fixture_id": "transcript-rows",
+  "schema_version": 1,
+  "required_capabilities": [
+    "runtime.commands",
+    "runtime.events",
+    "runtime.snapshot",
+    "runtime.transcript_rows"
+  ],
+  "initial_snapshot": {
+    "cwd": "workspace/viden",
+    "provider_family": "deepseek",
+    "model_label": "deepseek-v4-flash",
+    "work_mode": "build",
+    "permission_mode": "default",
+    "permission_level": "ask",
+    "config_summary": "{\"design_entry\":{\"d11\":\"onboarding subordinate\",\"gui\":\"GUI index -> component library -> D1 desktop cockpit\",\"hierarchy\":[\"docs/viden-design/Viden/index.html\",\"client design index\",\"component library\",\"TUI unified prototype or GUI D1 desktop cockpit\"],\"tui\":\"TUI index -> component library -> unified prototype\"},\"ui\":{\"density\":[\"compact\",\"regular\",\"comfy\"],\"effective\":{\"density\":\"regular\",\"locale\":\"zh-CN\",\"mode\":\"dark\",\"motion\":\"reduced\",\"skin\":\"aurora\"},\"locales\":[\"en\",\"zh-CN\"],\"motion\":[\"system\",\"reduced\",\"full\"],\"skin_mode_pairs\":[[\"aurora\",\"dark\"],[\"aurora\",\"light\"],[\"ice\",\"dark\"],[\"ice\",\"light\"],[\"mono\",\"dark\"],[\"mono\",\"light\"],[\"amber\",\"dark\"],[\"phosphor\",\"dark\"]]}}",
+    "loaded_config_files": [
+      "config/viden.toml"
+    ],
+    "startup_overrides": [
+      "--provider=deepseek"
+    ],
+    "ui_preferences": {
+      "locale": "zh-CN",
+      "skin": "aurora",
+      "mode": "dark",
+      "density": "regular",
+      "motion": "reduced",
+      "diagnostics": []
+    }
+  },
+  "events": [
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_transcript_rows",
+        "task_id": null,
+        "turn_id": "turn_transcript_rows"
+      },
+      "cursor": {
+        "stream_id": "fixture:transcript-rows",
+        "sequence": 1
+      },
+      "event": {
+        "sequence": 1,
+        "timestamp": 1700006001,
+        "kind": {
+          "type": "command_accepted",
+          "payload": {
+            "command_id": "rows_lane_a",
+            "command": {
+              "type": "query_transcript_rows",
+              "query": {
+                "owner": {
+                  "workspace_id": "workspace_contract_v1",
+                  "project_id": "project_viden",
+                  "lane_id": "lane_transcript_rows_a",
+                  "session_id": null,
+                  "task_id": null,
+                  "turn_id": null
+                },
+                "limit": 3
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_transcript_rows",
+        "task_id": null,
+        "turn_id": "turn_transcript_rows"
+      },
+      "cursor": {
+        "stream_id": "fixture:transcript-rows",
+        "sequence": 2
+      },
+      "event": {
+        "sequence": 2,
+        "timestamp": 1700006002,
+        "kind": {
+          "type": "command_accepted",
+          "payload": {
+            "command_id": "rows_lane_b",
+            "command": {
+              "type": "query_transcript_rows",
+              "query": {
+                "owner": {
+                  "workspace_id": "workspace_contract_v1",
+                  "project_id": "project_viden",
+                  "lane_id": "lane_transcript_rows_b",
+                  "session_id": null,
+                  "task_id": null,
+                  "turn_id": null
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_transcript_rows",
+        "task_id": null,
+        "turn_id": "turn_transcript_rows"
+      },
+      "cursor": {
+        "stream_id": "fixture:transcript-rows",
+        "sequence": 3
+      },
+      "event": {
+        "sequence": 3,
+        "timestamp": 1700006003,
+        "kind": {
+          "type": "command_accepted",
+          "payload": {
+            "command_id": "rows_session",
+            "command": {
+              "type": "query_transcript_rows",
+              "query": {
+                "owner": {
+                  "workspace_id": "workspace_contract_v1",
+                  "project_id": "project_viden",
+                  "lane_id": null,
+                  "session_id": "session_transcript_rows",
+                  "task_id": null,
+                  "turn_id": null
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_transcript_rows",
+        "task_id": null,
+        "turn_id": "turn_transcript_rows"
+      },
+      "cursor": {
+        "stream_id": "fixture:transcript-rows",
+        "sequence": 4
+      },
+      "event": {
+        "sequence": 4,
+        "timestamp": 1700006004,
+        "kind": {
+          "type": "transcript_rows_loaded",
+          "payload": {
+            "command_id": "rows_lane_b",
+            "page": {
+              "rows": [
+                {
+                  "id": "session_lane_b:0",
+                  "owner": {
+                    "workspace_id": "workspace_contract_v1",
+                    "project_id": "project_viden",
+                    "lane_id": "lane_transcript_rows_b",
+                    "session_id": "session_lane_b",
+                    "task_id": null,
+                    "turn_id": "turn_lane_b"
+                  },
+                  "sequence": 1,
+                  "timestamp": 1700005901,
+                  "content": {
+                    "kind": "user",
+                    "text": "write the migration note",
+                    "truncated": false
+                  }
+                },
+                {
+                  "id": "session_lane_b:1",
+                  "owner": {
+                    "workspace_id": "workspace_contract_v1",
+                    "project_id": "project_viden",
+                    "lane_id": "lane_transcript_rows_b",
+                    "session_id": "session_lane_b",
+                    "task_id": null,
+                    "turn_id": "turn_lane_b"
+                  },
+                  "sequence": 3,
+                  "timestamp": 1700005903,
+                  "content": {
+                    "kind": "assistant",
+                    "text": "Drafted docs/migration.md.",
+                    "truncated": false
+                  }
+                }
+              ],
+              "complete": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_transcript_rows",
+        "task_id": null,
+        "turn_id": "turn_transcript_rows"
+      },
+      "cursor": {
+        "stream_id": "fixture:transcript-rows",
+        "sequence": 5
+      },
+      "event": {
+        "sequence": 5,
+        "timestamp": 1700006005,
+        "kind": {
+          "type": "transcript_rows_loaded",
+          "payload": {
+            "command_id": "rows_lane_a",
+            "page": {
+              "rows": [
+                {
+                  "id": "approval:audit_transcript_rows",
+                  "owner": {
+                    "workspace_id": "workspace_contract_v1",
+                    "project_id": "project_viden",
+                    "lane_id": "lane_transcript_rows_a",
+                    "session_id": "session_lane_a",
+                    "task_id": null,
+                    "turn_id": "turn_lane_a"
+                  },
+                  "sequence": 6,
+                  "timestamp": 1700005906,
+                  "content": {
+                    "kind": "permission",
+                    "request_id": "approval_transcript_rows",
+                    "decision": {
+                      "allow": {
+                        "scope": "once"
+                      }
+                    },
+                    "audit_id": "audit_transcript_rows"
+                  }
+                },
+                {
+                  "id": "session_lane_a:3",
+                  "owner": {
+                    "workspace_id": "workspace_contract_v1",
+                    "project_id": "project_viden",
+                    "lane_id": "lane_transcript_rows_a",
+                    "session_id": "session_lane_a",
+                    "task_id": null,
+                    "turn_id": "turn_lane_a"
+                  },
+                  "sequence": 7,
+                  "timestamp": 1700005907,
+                  "content": {
+                    "kind": "tool_result",
+                    "tool_call_id": "call_transcript_rows_edit",
+                    "success": true,
+                    "summary": "1 file changed, 4 insertions(+), 2 deletions(-)",
+                    "evidence_id": "patch-call_transcript_rows_edit"
+                  }
+                },
+                {
+                  "id": "session_lane_a:4",
+                  "owner": {
+                    "workspace_id": "workspace_contract_v1",
+                    "project_id": "project_viden",
+                    "lane_id": "lane_transcript_rows_a",
+                    "session_id": "session_lane_a",
+                    "task_id": null,
+                    "turn_id": "turn_lane_a"
+                  },
+                  "sequence": 9,
+                  "timestamp": 1700005909,
+                  "content": {
+                    "kind": "check_run",
+                    "check": {
+                      "id": "call_transcript_rows_check",
+                      "owner": {
+                        "workspace_id": "workspace_contract_v1",
+                        "project_id": "project_viden",
+                        "lane_id": "lane_transcript_rows_a",
+                        "session_id": "session_lane_a",
+                        "task_id": null,
+                        "turn_id": "turn_lane_a"
+                      },
+                      "label": "cargo test -p viden-tools",
+                      "command": "cargo test -p viden-tools",
+                      "status": "passed",
+                      "summary": "passed",
+                      "failing_location": null
+                    }
+                  }
+                }
+              ],
+              "older": "s:6:approval:audit_transcript_rows",
+              "complete": false
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_transcript_rows",
+        "task_id": null,
+        "turn_id": "turn_transcript_rows"
+      },
+      "cursor": {
+        "stream_id": "fixture:transcript-rows",
+        "sequence": 6
+      },
+      "event": {
+        "sequence": 6,
+        "timestamp": 1700006006,
+        "kind": {
+          "type": "transcript_rows_loaded",
+          "payload": {
+            "command_id": "rows_session",
+            "page": {
+              "rows": [
+                {
+                  "id": "session_transcript_rows:0",
+                  "owner": {
+                    "workspace_id": "workspace_contract_v1",
+                    "project_id": "project_viden",
+                    "lane_id": null,
+                    "session_id": "session_transcript_rows",
+                    "task_id": null,
+                    "turn_id": "turn_session"
+                  },
+                  "sequence": 1,
+                  "timestamp": 1700005901,
+                  "content": {
+                    "kind": "user",
+                    "text": "what changed in the two Lanes?",
+                    "truncated": false
+                  }
+                },
+                {
+                  "id": "session_transcript_rows:1",
+                  "owner": {
+                    "workspace_id": "workspace_contract_v1",
+                    "project_id": "project_viden",
+                    "lane_id": null,
+                    "session_id": "session_transcript_rows",
+                    "task_id": null,
+                    "turn_id": "turn_session"
+                  },
+                  "sequence": 3,
+                  "timestamp": 1700005903,
+                  "content": {
+                    "kind": "assistant",
+                    "text": "One renamed the parser entry point; one drafted the migration note.",
+                    "truncated": false
+                  }
+                }
+              ],
+              "complete": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_transcript_rows",
+        "task_id": null,
+        "turn_id": "turn_transcript_rows"
+      },
+      "cursor": {
+        "stream_id": "fixture:transcript-rows",
+        "sequence": 7
+      },
+      "event": {
+        "sequence": 7,
+        "timestamp": 1700006007,
+        "kind": {
+          "type": "command_accepted",
+          "payload": {
+            "command_id": "rows_lane_a_older",
+            "command": {
+              "type": "query_transcript_rows",
+              "query": {
+                "owner": {
+                  "workspace_id": "workspace_contract_v1",
+                  "project_id": "project_viden",
+                  "lane_id": "lane_transcript_rows_a",
+                  "session_id": null,
+                  "task_id": null,
+                  "turn_id": null
+                },
+                "before": "s:6:approval:audit_transcript_rows",
+                "limit": 3
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_transcript_rows",
+        "task_id": null,
+        "turn_id": "turn_transcript_rows"
+      },
+      "cursor": {
+        "stream_id": "fixture:transcript-rows",
+        "sequence": 8
+      },
+      "event": {
+        "sequence": 8,
+        "timestamp": 1700006008,
+        "kind": {
+          "type": "transcript_rows_loaded",
+          "payload": {
+            "command_id": "rows_lane_a_older",
+            "page": {
+              "rows": [
+                {
+                  "id": "session_lane_a:0",
+                  "owner": {
+                    "workspace_id": "workspace_contract_v1",
+                    "project_id": "project_viden",
+                    "lane_id": "lane_transcript_rows_a",
+                    "session_id": "session_lane_a",
+                    "task_id": null,
+                    "turn_id": "turn_lane_a"
+                  },
+                  "sequence": 1,
+                  "timestamp": 1700005901,
+                  "content": {
+                    "kind": "user",
+                    "text": "rename the parser entry point",
+                    "truncated": false
+                  }
+                },
+                {
+                  "id": "session_lane_a:1",
+                  "owner": {
+                    "workspace_id": "workspace_contract_v1",
+                    "project_id": "project_viden",
+                    "lane_id": "lane_transcript_rows_a",
+                    "session_id": "session_lane_a",
+                    "task_id": null,
+                    "turn_id": "turn_lane_a"
+                  },
+                  "sequence": 3,
+                  "timestamp": 1700005903,
+                  "content": {
+                    "kind": "assistant",
+                    "text": "The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The archive keeps the whole reply; the row keeps its first 8 KiB. The arch",
+                    "truncated": true,
+                    "evidence_id": "assistant-body-transcript-rows"
+                  }
+                },
+                {
+                  "id": "session_lane_a:2",
+                  "owner": {
+                    "workspace_id": "workspace_contract_v1",
+                    "project_id": "project_viden",
+                    "lane_id": "lane_transcript_rows_a",
+                    "session_id": "session_lane_a",
+                    "task_id": null,
+                    "turn_id": "turn_lane_a"
+                  },
+                  "sequence": 5,
+                  "timestamp": 1700005905,
+                  "content": {
+                    "kind": "tool_call",
+                    "call": {
+                      "tool_call_id": "call_transcript_rows_edit",
+                      "name": "edit_file",
+                      "input_preview": "path=crates/tools/src/parser.rs",
+                      "owner": {
+                        "workspace_id": "workspace_contract_v1",
+                        "project_id": "project_viden",
+                        "lane_id": "lane_transcript_rows_a",
+                        "session_id": "session_lane_a",
+                        "task_id": null,
+                        "turn_id": "turn_lane_a"
+                      }
+                    }
+                  }
+                }
+              ],
+              "complete": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_transcript_rows",
+        "task_id": null,
+        "turn_id": "turn_transcript_rows"
+      },
+      "cursor": {
+        "stream_id": "fixture:transcript-rows",
+        "sequence": 9
+      },
+      "event": {
+        "sequence": 9,
+        "timestamp": 1700006009,
+        "kind": {
+          "type": "command_accepted",
+          "payload": {
+            "command_id": "rows_bad_cursor",
+            "command": {
+              "type": "query_transcript_rows",
+              "query": {
+                "owner": {
+                  "workspace_id": "workspace_contract_v1",
+                  "project_id": "project_viden",
+                  "lane_id": "lane_transcript_rows_a",
+                  "session_id": null,
+                  "task_id": null,
+                  "turn_id": null
+                },
+                "before": "page-2"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_transcript_rows",
+        "task_id": null,
+        "turn_id": "turn_transcript_rows"
+      },
+      "cursor": {
+        "stream_id": "fixture:transcript-rows",
+        "sequence": 10
+      },
+      "event": {
+        "sequence": 10,
+        "timestamp": 1700006010,
+        "kind": {
+          "type": "command_rejected",
+          "payload": {
+            "command_id": "rows_bad_cursor",
+            "reason": "transcript row cursor `page-2` is not a cursor this build issued\nhint: pass back the `older` cursor from the previous page verbatim, or omit it to read the newest page"
+          }
+        }
+      }
+    }
+  ],
+  "expected_final_cursor": {
+    "stream_id": "fixture:transcript-rows",
+    "sequence": 10
+  },
+  "expected_view_sha256": "2fa91b16aff8c0d896ae2b6cd7843acea86be1cf04ddf2c69394b86d5fa2ad13"
+}

@@ -6,7 +6,7 @@ frontend_schema_version = 1
 base_contract_checkpoint = "5bd2b80b0953f4194d082940a7b9164c7231ca2d"
 contract_implementation_checkpoint = "1cec82185bbe860d6b8536a63741bc01f1edf2f6"
 compatibility = "additive_capability_gated"
-capabilities = ["core.workspace_host", "runtime.agent_adapters", "runtime.agent_conversation", "runtime.agent_permission_bridge", "runtime.agent_session_input", "runtime.agent_sessions", "runtime.audit", "runtime.cockpit_context_v1", "runtime.conflict_content", "runtime.credential_handles", "runtime.credential_staging", "runtime.durable_work_evidence", "runtime.evidence_reads", "runtime.lane_lifecycle", "runtime.lane_owner_projection", "runtime.operator_git", "runtime.project_onboarding", "runtime.recent_work", "runtime.starter_lane_preview", "runtime.structured_diff", "runtime.trust_loop", "runtime.turn_lifecycle", "runtime.workspace_eligibility", "runtime.workspace_file_reads", "runtime.workspace_files", "runtime.workspace_owner", "ui.layout_preferences", "ui.preference_persistence"]
+capabilities = ["core.workspace_host", "runtime.agent_adapters", "runtime.agent_conversation", "runtime.agent_permission_bridge", "runtime.agent_session_input", "runtime.agent_sessions", "runtime.audit", "runtime.cockpit_context_v1", "runtime.conflict_content", "runtime.credential_handles", "runtime.credential_staging", "runtime.durable_work_evidence", "runtime.evidence_reads", "runtime.lane_lifecycle", "runtime.lane_owner_projection", "runtime.operator_git", "runtime.project_onboarding", "runtime.recent_work", "runtime.starter_lane_preview", "runtime.structured_diff", "runtime.transcript_rows", "runtime.trust_loop", "runtime.turn_lifecycle", "runtime.workspace_eligibility", "runtime.workspace_file_reads", "runtime.workspace_files", "runtime.workspace_owner", "ui.layout_preferences", "ui.preference_persistence"]
 
 [cockpit_context]
 capability = "runtime.cockpit_context_v1"
@@ -96,13 +96,22 @@ payload_sha256 = "457c0879ad5e7475b3d79c29dd47af4feaa84d8f95f3317c4335cb04d38a27
 view_sha256 = "b2719e73785bc9e3a71b459e3eb83ae3a551ac62aa61f8a7c3807e2f883c6f45"
 final_cursor = 17
 
+# The 0.3.4 contract increment's final batch (C8). 29 extension capabilities is
+# the milestone's final count: C8 is the last Core batch before E2, which is
+# where the Core 0.3.7 checkpoint and `component_version` move.
+[fixtures.transcript_rows]
+path = "../types/tests/fixtures/frontend-contract-v1/transcript-rows.json"
+payload_sha256 = "f17c3e7fad2baf3d5670cf320ec172f50a9048baa3aedbe09c8cd38456ff4ea8"
+view_sha256 = "2fa91b16aff8c0d896ae2b6cd7843acea86be1cf04ddf2c69394b86d5fa2ad13"
+final_cursor = 10
+
 [verification]
 date = "2026-09-10"
 core_gates = "passed"
 workspace_gate = "passed"
 workspace_baseline = "13795abce263bd60f0e4785e4af0f3f852cb3009"
 base_fixture_bytes = "nine frozen frontend-contract-v1 fixtures byte-equal to their apps/tui/release-manifest.toml digests"
-capability_count = "15 frozen base + 28 extensions"
+capability_count = "15 frozen base + 29 extensions"
 integration_branch = "claude/int-0.3.3"
 on_main = false
 tag_authorized = false

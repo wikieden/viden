@@ -745,9 +745,11 @@ mod tests {
         // C6's `runtime.turn_lifecycle`; 26 -> 28 with C7's
         // `runtime.durable_work_evidence` and C9's
         // `runtime.workspace_file_reads`, which landed on concurrent branches
-        // and were reconciled at integration. The milestone target is 29;
-        // each batch moves this by what it adds.
-        assert_eq!(CORE_EXTENSION_CAPABILITIES.len(), 28);
+        // and were reconciled at integration; 28 -> 29 with C8's
+        // `runtime.transcript_rows`, the last Core batch of the 0.3.4
+        // increment and therefore the milestone's final count. A later
+        // increment moves this again; nothing inside 0.3.4 does.
+        assert_eq!(CORE_EXTENSION_CAPABILITIES.len(), 29);
         for capability in CORE_EXTENSION_CAPABILITIES {
             let mut fake = FakeCoreClient::compatible();
             let capability = CapabilityId((*capability).to_string());

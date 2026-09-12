@@ -161,10 +161,12 @@ if release["supported_schema_versions"] != [1]:
 # runtime.workspace_owner and ui.layout_preferences; 26 adds C6's
 # runtime.turn_lifecycle (section 3); 28 adds C7's
 # runtime.durable_work_evidence (section 4) and C9's
-# runtime.workspace_file_reads (section 6), reconciled at integration. The
-# milestone target is 29; each batch moves this count by exactly what it adds.
-if len(base_capabilities) != 15 or len(extension_capabilities) != 28:
-    raise SystemExit("TUI certification capability counts are not base 15 + extension 28")
+# runtime.workspace_file_reads (section 6), reconciled at integration; 29 adds
+# C8's runtime.transcript_rows (section 5), which is the last Core batch of the
+# 0.3.4 increment and therefore the milestone's final count. A later increment
+# moves it again; nothing inside 0.3.4 does.
+if len(base_capabilities) != 15 or len(extension_capabilities) != 29:
+    raise SystemExit("TUI certification capability counts are not base 15 + extension 29")
 if set(base_capabilities) & set(extension_capabilities):
     raise SystemExit("TUI certification base and extension capabilities overlap")
 

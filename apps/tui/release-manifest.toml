@@ -53,6 +53,7 @@ capabilities = [
   "runtime.recent_work",
   "runtime.starter_lane_preview",
   "runtime.structured_diff",
+  "runtime.transcript_rows",
   "runtime.trust_loop",
   "runtime.turn_lifecycle",
   "runtime.workspace_eligibility",
