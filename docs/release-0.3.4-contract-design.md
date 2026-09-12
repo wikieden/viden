@@ -517,7 +517,8 @@ marked; this section is what shipped.
 - **Minting lives in `viden-runtime`, called from `LocalCoreHost::open_workspace`.**
   The workspace-id digest needs `sha2`, a dependency of `viden-runtime` and
   only a dev-dependency of `viden-core`. The host still performs both steps at
-  open.
+  open. (Superseded by C10, 2026-09-12: the binding moved into the one runtime
+  bootstrap every host path funnels through — see the C10 amendment below.)
 - **Resetting the appearance profile preserves `[ui.layout]`.** The design puts
   the layout table under `[ui]`, which the appearance reset removed wholesale;
   the two records answer to two different commands, so an operator resetting a
@@ -642,3 +643,18 @@ marked; this section is what shipped.
 - Previews (`input_preview`, `ToolResult.summary`) are bounded at 500 bytes
   like their live counterparts; a check run replaces, not accompanies, the
   tool result row for the same call.
+
+### C10 CLI workspace-owner binding (accepted on review, 2026-09-12)
+
+- **The binding lives in `bootstrap_runtime_with_context`**
+  (`crates/runtime/src/bootstrap.rs`), reached by the host's
+  `bootstrap_runtime` and by the CLI's `bootstrap_runtime_with_resolved_config`
+  alike, through one helper `bind_workspace_owner_at_root`; the host now reads
+  the ids back off that binding instead of minting its own.
+- **The root is canonicalized before the digest**, so two callers spelling one
+  directory differently cannot mint two identities for one tree.
+- **A root whose `.viden/project.toml` cannot be written fails the bootstrap**,
+  which is the host's pre-existing behaviour made uniform: an unbound engine is
+  the fabricated-actor failure GUI-CORE-027 exists to end. Consequence: a
+  read-only workspace refuses to start rather than starting with the git rows
+  disabled.

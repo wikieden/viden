@@ -424,7 +424,8 @@ GUI：Files tab 内容与 Code tab，面板 `~` 行在 Code tab 中打开文件�
   获授权新增；`fresh_id` 是既有辅助函数。前缀与形状与设计一致。
 - **铸造逻辑位于 `viden-runtime`，由 `LocalCoreHost::open_workspace` 调用。**
   workspace id 的摘要需要 `sha2` —— 它是 `viden-runtime` 的正式依赖，而对 `viden-core`
-  只是 dev-dependency。host 仍在 open 时完成这两步。
+  只是 dev-dependency。host 仍在 open 时完成这两步。（已被 C10 于 2026-09-12 取代：
+  绑定移入了每条 host 路径都会汇聚的那一条运行时引导——见下文 C10 修订。）
 - **重置外观档案会保留 `[ui.layout]`。** 设计把布局表放在 `[ui]` 之下，而外观重置原本
   整表删除；两条记录对应两条不同的命令，操作者重置主题时不该发现驾驶舱被重排。
 - **Lane 目标的操作者 git 动作发布 `LaneSourceUpdated`，而不是 `WorkspaceSourceUpdated`。**
@@ -512,3 +513,15 @@ GUI：Files tab 内容与 Code tab，面板 `~` 行在 Code tab 中打开文件�
 - **未归属于任何回合的行只携带其会话**，绝不是会回答任何会话查询的空 owner。
 - 预览（`input_preview`、`ToolResult.summary`）与实时对应物一样以 500 字节为界；
   同一次调用的检查运行替代而非伴随工具结果行。
+
+### C10 CLI 工作区 owner 绑定（评审通过，2026-09-12）
+
+- **绑定位于 `bootstrap_runtime_with_context`**（`crates/runtime/src/bootstrap.rs`），
+  host 的 `bootstrap_runtime` 与 CLI 的 `bootstrap_runtime_with_resolved_config` 同样
+  经过它，共用一个辅助函数 `bind_workspace_owner_at_root`；host 现在从该绑定读回两个
+  id，而不再自行铸造。
+- **摘要之前先规范化根目录**，因此以不同拼写指向同一目录的两个调用方不可能为同一棵树
+  铸出两个身份。
+- **`.viden/project.toml` 无法写入的根目录会使引导失败**，这是 host 既有行为的统一化：
+  未绑定的引擎正是 GUI-CORE-027 要终结的臆造 actor 故障。后果：只读工作区会拒绝启动，
+  而不是带着置灰的 git 行启动。

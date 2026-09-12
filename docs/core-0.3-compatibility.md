@@ -753,10 +753,11 @@ picker's workspace rows send `command.owner` and the envelope owner from
 `RuntimeViewState.workspace_owner`, copied verbatim, and the picker's TARGET row
 reads `lane_sources[lane]` for a Lane target and `workspace_source` for the
 workspace. Absence stays a refusal, stated as "Core published no workspace
-owner" rather than as GUI-CORE-027, which is closed here. One Core-side gap is
-recorded as open follow-up 11: the only production caller of
-`SessionEngine::bind_workspace_owner` is `LocalCoreHost::open_workspace`, which
-`apps/cli` does not use, so a `viden` TUI session still sees the field absent.
+owner" rather than as GUI-CORE-027, which is closed here. One Core-side gap was
+recorded as follow-up 11 (closed by C10 the same day): the only production
+caller of `SessionEngine::bind_workspace_owner` was
+`LocalCoreHost::open_workspace`, which `apps/cli` does not use, so a `viden` TUI
+session saw the field absent until the binding moved into the shared bootstrap.
 `ui.layout_preferences`: **no TUI parity minimum.** The TUI renders no lane
 sidebar — its Lane surfaces are the side screens, the lane-detail panel, and the
 `/lane` selector, none of which is a pinned-or-floating sidebar — and no ambient

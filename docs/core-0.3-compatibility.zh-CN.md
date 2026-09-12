@@ -569,10 +569,10 @@ TUI 对等（批次 T2，2026-09-12）。`runtime.workspace_owner`：`/git` 选�
 行从 `RuntimeViewState.workspace_owner` 原样取出 `command.owner` 与信封 owner，
 选择器的 TARGET 行对 Lane 目标读 `lane_sources[lane]`、对工作区读
 `workspace_source`。缺失仍然是拒绝，写作「Core published no workspace owner」而
-不再引用在此关闭的 GUI-CORE-027。一个 Core 侧缺口记为未决跟进项 11：
-`SessionEngine::bind_workspace_owner` 在生产代码中的唯一调用方是
-`LocalCoreHost::open_workspace`，而 `apps/cli` 不使用它，因此 `viden` 的 TUI 会话
-仍看到该字段缺失。`ui.layout_preferences`：**没有 TUI 对等最小集。** TUI 不渲染
+不再引用在此关闭的 GUI-CORE-027。一个 Core 侧缺口曾记为跟进项 11（同日由 C10 关闭）：
+`SessionEngine::bind_workspace_owner` 在生产代码中的唯一调用方曾是
+`LocalCoreHost::open_workspace`，而 `apps/cli` 不使用它，因此在绑定移入共用引导路径
+之前，`viden` 的 TUI 会话看到该字段缺失。`ui.layout_preferences`：**没有 TUI 对等最小集。** TUI 不渲染
 lane 侧栏——它的 Lane 界面是侧屏、lane 详情面板与 `/lane` 选择器，没有哪一个是
 可固定/可浮动的侧栏——那里也没有可由操作者隐藏的常驻状态栏段。`apps/tui/**` 中没有
 任何地方读取、持久化或镜像 `lane_sidebar_mode`，也没有任何地方发送
