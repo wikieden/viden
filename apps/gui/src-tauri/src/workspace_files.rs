@@ -64,3 +64,86 @@ pub struct WorkspaceFilesProjection {
     /// False when Core's handshake published no `runtime.workspace_files`.
     pub capability_available: bool,
 }
+
+/// The frontend-contract-v1 capability that carries a single file's content
+/// (`runtime.workspace_file_reads`, C9).
+///
+/// Separate from [`WORKSPACE_FILES_CAPABILITY`] because Core publishes them
+/// separately: a build may list the tree and not read it, and the inspector's
+/// Open has to say which of the two is missing.
+pub const WORKSPACE_FILE_READS_CAPABILITY: &str = "runtime.workspace_file_reads";
+
+/// What Core published for one file, flattened for the webview.
+///
+/// The three bodies are deliberately not collapsible. `text` is bytes Core
+/// will publish, `binary` is bytes it will not, and `unavailable` is nothing to
+/// read with the reason attached — and a client shown one for another would
+/// render an empty editor over a binary asset or over a file it was never
+/// allowed to open.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceFileFactsProjection {
+    /// The normalized target-relative path Core resolved, echoed from the
+    /// answer rather than from the request: a read sent as `./src/lib.rs` is
+    /// keyed on the one spelling Core used.
+    pub path: String,
+    /// `text`, `binary`, `unavailable`, or `unknown` for a body shape this
+    /// build cannot draw — `WorkspaceFileBody` is `#[non_exhaustive]`, and
+    /// drawing an unmodelled body as empty text would be a fabricated file.
+    pub body: &'static str,
+    /// The published prefix, for a `text` body only.
+    pub text: Option<String>,
+    /// Core's byte bound cut the body. Its own flag: a short file and a cut
+    /// one are otherwise indistinguishable.
+    pub truncated: bool,
+    /// Byte length of the *whole* file. `None` when there was no file to
+    /// measure — never a substituted zero, which would read as "empty file"
+    /// for a path that is not there.
+    pub size: Option<u64>,
+    /// SHA-256 of the whole file, never of the published prefix. `None` when
+    /// there were no bytes to hash.
+    pub sha256: Option<String>,
+    /// `not_found`, `directory`, `unreadable`, or `unknown` for an
+    /// `unavailable` body whose reason this build cannot name. `None` for
+    /// every other body.
+    pub reason: Option<&'static str>,
+}
+
+/// One answered (or refused) single-file read.
+///
+/// There is no `loaded` flag: every answer Core publishes carries a body, so
+/// `file.is_none()` is exactly "nothing has been answered yet" and an
+/// answered-with-nothing read is an `unavailable` body with its reason.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceFileProjection {
+    /// `idle`, `pending`, `confirmed`, or `rejected` with Core's own reason.
+    /// A rejection is where the permission gate's refusal and the path
+    /// validator's refusal arrive, both in Core's words.
+    pub outcome: D1OutcomeProjection,
+    pub pending_command_id: Option<String>,
+    /// False when Core's handshake published no `runtime.workspace_file_reads`.
+    pub capability_available: bool,
+    /// The path this client asked for, held so a refusal can say which read
+    /// was refused: Core's rejection reason names the path, but the pending
+    /// and idle states have no answer to read one from.
+    pub requested_path: Option<String>,
+    /// The Lane whose worktree was read, or `None` for the workspace root.
+    pub target_lane_id: Option<String>,
+    /// Core's answer, or `None` while nothing has been answered.
+    pub file: Option<WorkspaceFileFactsProjection>,
+}
+
+impl WorkspaceFileProjection {
+    /// The projection a client renders before anything has been read.
+    pub fn idle(capability_available: bool) -> Self {
+        Self {
+            outcome: D1OutcomeProjection::idle(),
+            pending_command_id: None,
+            capability_available,
+            requested_path: None,
+            target_lane_id: None,
+            file: None,
+        }
+    }
+}

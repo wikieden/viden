@@ -375,6 +375,7 @@ export async function hydrateShellFromCore(
             operatorGit: operatorGitPort,
             layout: layoutPort,
             transcriptRows: transcriptRowsPort,
+            workspaceFile: workspaceFilePort,
             evidence: evidencePort,
             // EvidenceView's footer opens the audit trail scoped to the
             // evidence object, the same one-way `D-AUDIT` link D12's baseline
@@ -764,6 +765,30 @@ export async function hydrateShellFromCore(
           );
           for (let attempt = 0; attempt < 4 && result.outcome.state === "pending"; attempt += 1) {
             result = await core.transcriptRowsPoll();
+          }
+          return result;
+        },
+      };
+
+      /**
+       * The single-file read port (`runtime.workspace_file_reads`, C9).
+       *
+       * `read` is the no-traffic projection the dock reads for the capability
+       * before it offers to open anything; `open` sends one
+       * `ReadWorkspaceFile` and drains until Core answers. Core owns the byte
+       * bound, the permission gate and the path validator — the shell names
+       * the target and the path and waits.
+       */
+      const workspaceFilePort = {
+        read: async () => await core.workspaceFile(),
+        open: async (laneId: string | null, path: string) => {
+          let result = await core.readWorkspaceFile(
+            `gui-file-${crypto.randomUUID()}`,
+            laneId,
+            path,
+          );
+          for (let attempt = 0; attempt < 4 && result.outcome.state === "pending"; attempt += 1) {
+            result = await core.workspaceFilePoll();
           }
           return result;
         },

@@ -71,6 +71,18 @@ function host(): { adapterGone: () => void } {
           complete: false,
           scopeLaneId: null,
         };
+      case "workspace_file":
+      case "workspace_file_poll":
+        // Same rule: a Core that publishes no file reads still answers with a
+        // projection, and a fake that returns `null` tests the fake.
+        return {
+          outcome: { state: "idle", reason: null },
+          pendingCommandId: null,
+          capabilityAvailable: false,
+          requestedPath: null,
+          targetLaneId: null,
+          file: null,
+        };
       case "layout_preferences":
       case "layout_preferences_poll":
         // Shaped like the host's own answer for the same reason as below: a

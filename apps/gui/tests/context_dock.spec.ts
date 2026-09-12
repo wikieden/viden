@@ -9,6 +9,7 @@
 // different sentences, never one empty list.
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
+import { IDLE_WORKSPACE_FILE } from "../src/models/workspace_file";
 import {
   DOCK_TABS,
   renderContextDock,
@@ -129,6 +130,8 @@ function model(overrides: Partial<ContextDockModel> = {}): ContextDockModel {
       onToggleDirectory: vi.fn(),
       onSelect: vi.fn(),
       fileReadsAvailable: false,
+      onOpenFile: vi.fn(),
+      content: IDLE_WORKSPACE_FILE,
     },
     commit: { available: true, reason: null, onCommitOrPush: vi.fn() },
     ...overrides,

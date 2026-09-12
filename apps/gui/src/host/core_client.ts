@@ -15,6 +15,7 @@ import type {
 } from "../models/layout_preferences";
 import type { RecentWorkResult } from "../models/recent_work";
 import type { TranscriptRowsProjection } from "../models/transcript_rows";
+import type { WorkspaceFileProjection } from "../models/workspace_file";
 import type { D6Intent, D6IntentResult, D6RecoveryProjection } from "../models/workspace";
 import type {
   PreferenceIntentResult,
@@ -104,6 +105,35 @@ export interface CoreClient {
    * rows instead of an empty conversation.
    */
   transcriptRows(): Promise<TranscriptRowsProjection>;
+
+  /**
+   * Sends Core's read-only `ReadWorkspaceFile` and resolves with whatever the
+   * ordered `WorkspaceFileLoaded` published (`runtime.workspace_file_reads`,
+   * C9).
+   *
+   * `laneId` names one Lane's worktree; `null` is the workspace root. Core
+   * resolves a Lane's worktree from its own records, so the client never
+   * passes a path, and `path` is target-relative: the host runs Core's own
+   * validator before anything is sent, because a path that leaves the target
+   * is refused rather than repaired into a different file.
+   *
+   * Core owns the byte bound, the permission gate — the read runs under the
+   * agent's own non-mutating `read_file` rule — and the three bodies. The
+   * frontend never opens a workspace path itself.
+   */
+  readWorkspaceFile(
+    commandId: string,
+    laneId: string | null,
+    path: string,
+  ): Promise<WorkspaceFileProjection>;
+  /** Drains ordered Core events while a file read is still pending. */
+  workspaceFilePoll(): Promise<WorkspaceFileProjection>;
+  /**
+   * The last answered file with no Core traffic. The dock reads it for the
+   * capability before it offers to open anything, so an absent one keeps the
+   * control disabled and named rather than opening an empty editor.
+   */
+  workspaceFile(): Promise<WorkspaceFileProjection>;
 
   /**
    * The cockpit layout record with no Core traffic (`ui.layout_preferences`).

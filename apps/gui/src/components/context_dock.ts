@@ -1,6 +1,7 @@
 import { translate, type Locale, type MessageKey } from "../i18n/catalog";
 import type { WorkspaceDiffProjection } from "../models/diff_review";
 import type { D1CockpitProjection, WorkspaceSourceProjection } from "../models/workspace";
+import type { WorkspaceFileProjection } from "../models/workspace_file";
 import type { PaletteWorkspaceFiles } from "./command_palette";
 import { renderDiffBody } from "./diff_rows";
 import { formatCompactCount } from "./statusbar";
@@ -12,13 +13,15 @@ import { boundedLiveWorkEntries } from "./live_work";
  * over one `.dockbody` panel
  * (`docs/viden-design/Viden/GUI/Viden - 桌面驾驶舱 (GUI).html`, `ContextDock`).
  *
- * **Three panels are live, three are named and disabled.** The design's strip
+ * **Four panels can be live, two are named and disabled.** The design's strip
  * carries six tabs. Environment, Files and Diff are backed by facts Core
  * already publishes (`contextDock`, `runtime.workspace_files`,
- * `runtime.structured_diff`). Terminal, Code and Docs are not, so they render
- * as disabled tabs carrying the exact reason — a hidden tab would make the
- * dock look complete, and an enabled-and-inert one would lie about what a
- * click does.
+ * `runtime.structured_diff`), and Code opens exactly when Core publishes
+ * `runtime.workspace_file_reads` (C9) — read-only, because the contract has
+ * no write. Terminal and Docs have no Core fact at all, so they render as
+ * disabled tabs carrying the exact reason — a hidden tab would make the dock
+ * look complete, and an enabled-and-inert one would lie about what a click
+ * does.
  *
  * **The component is stateless.** The open tab, the expanded directories and
  * the selected path are the cockpit's presentation state; this renderer is a
@@ -56,6 +59,12 @@ export interface DockTabDefinition {
   live: boolean;
   /** Why a non-live tab cannot open. Absent for a live tab. */
   reasonKey?: MessageKey;
+  /**
+   * The Core capability that makes this tab openable, for a tab whose
+   * liveness is a fact about the connected Core rather than about this build.
+   * Absent for a tab with no Core fact at all (Terminal, Docs).
+   */
+  capability?: string;
 }
 
 export const DOCK_TABS: readonly DockTabDefinition[] = [
@@ -77,8 +86,12 @@ export const DOCK_TABS: readonly DockTabDefinition[] = [
     id: "code",
     labelKey: "d1.dock.tab.code",
     chordKey: null,
+    // Openable exactly when Core publishes `runtime.workspace_file_reads`
+    // (C9), which is a per-Core fact rather than a build-time one — so `live`
+    // stays false here and [`isDockTabLive`] answers for a given model.
     live: false,
     reasonKey: "d1.dock.tab.code.reason",
+    capability: "runtime.workspace_file_reads",
   },
   { id: "diff", labelKey: "d1.dock.tab.diff", chordKey: "d1.dock.chord.diff", live: true },
   {
@@ -90,10 +103,26 @@ export const DOCK_TABS: readonly DockTabDefinition[] = [
   },
 ];
 
-/** The tabs a chord or a click may actually open. */
+/** The tabs a chord or a click may open on every Core. */
 export const LIVE_DOCK_TABS: readonly DockTab[] = DOCK_TABS.filter((tab) => tab.live).map(
   (tab) => tab.id,
 );
+
+/**
+ * Whether one tab can open against the connected Core.
+ *
+ * Separate from [`DockTabDefinition.live`] because the Code tab's answer is a
+ * fact about Core: it opens where `runtime.workspace_file_reads` is published
+ * and stays disabled-and-named where it is not. Both the strip and the
+ * cockpit's own tab switch ask this, so a chord cannot open a panel a click
+ * could not.
+ */
+export function isDockTabLive(tab: DockTab, capabilities: { fileReads: boolean }): boolean {
+  const found = DOCK_TABS.find((candidate) => candidate.id === tab);
+  if (!found) return false;
+  if (found.live) return true;
+  return found.capability === "runtime.workspace_file_reads" && capabilities.fileReads;
+}
 
 export interface DockDiffModel {
   /** False while no host is bound: nothing can ever fill this panel. */
@@ -127,10 +156,21 @@ export interface DockFilesModel {
   onToggleDirectory: (path: string) => void;
   onSelect: (path: string) => void;
   /**
-   * Whether Core published `runtime.workspace_file_reads`. Until a build
-   * consumes it (G7), the inspector's Open stays disabled and names it.
+   * Whether a host is bound *and* Core published
+   * `runtime.workspace_file_reads` (C9). False leaves the inspector's Open
+   * disabled and naming the capability, which is what every Core without it
+   * gets.
    */
   fileReadsAvailable: boolean;
+  /** Sends one `ReadWorkspaceFile` for this path. */
+  onOpenFile: (path: string) => void;
+  /**
+   * Core's last answered file, or the idle projection before anything was
+   * read. The inspector and the Code tab render this answer and nothing else:
+   * there is no client-side cache, because bytes read a minute ago are not the
+   * file now.
+   */
+  content: WorkspaceFileProjection;
 }
 
 export interface DockCommitModel {
@@ -868,7 +908,19 @@ export function renderInspector(
       action.dataset.inspectorAction = marker;
       action.disabled = true;
       action.setAttribute("aria-disabled", "true");
-      action.title = translate(locale, "d1.dock.inspector.actionUnavailable", {});
+      // Two different reasons, because they are two different facts: Core
+      // *does* publish a per-path `Stage` (`runtime.operator_git`), and it is
+      // DiffReview's own file rows that send it — this panel carries no action
+      // port. A per-file revert has no Core command at all. Saying "Core
+      // publishes no per-file stage" for both, as this dock did until G7,
+      // named a gap that does not exist.
+      action.title = translate(
+        locale,
+        marker === "stage"
+          ? "d1.dock.inspector.stageElsewhere"
+          : "d1.dock.inspector.revertUnavailable",
+        {},
+      );
       action.textContent = translate(
         locale,
         marker === "stage" ? "d1.dock.inspector.stage" : "d1.dock.inspector.revert",
@@ -898,11 +950,174 @@ export function renderInspector(
       reason.textContent = why;
       actions.append(reason);
     } else {
+      // One `ReadWorkspaceFile` for this path. Re-clicking re-reads, because
+      // the answer describes the bytes at the moment Core read them.
+      open.addEventListener("click", () => model.files.onOpenFile(path));
       actions.append(open);
     }
   }
   inspector.append(actions);
+  // Core's answer for *this* path, when it is this path's answer. The Files
+  // inspector shows it beside the facts; the Code tab shows the same answer
+  // with the whole published body.
+  if (source === "files" && model.files.fileReadsAvailable) {
+    appendWorkspaceFileAnswer(inspector, model, path, "inspector");
+  }
   panel.append(inspector);
+}
+
+/* ---- Code panel (`runtime.workspace_file_reads`, C9) ---- */
+
+/**
+ * The design's Code tab: exactly the file Core last answered, read-only.
+ *
+ * Read-only is a contract fact, not a posture: frontend-contract-v1 publishes
+ * no workspace write, so an editable pane would be a control whose save can
+ * never reach Core. The header states it rather than leaving an operator to
+ * discover it by typing.
+ */
+export function renderCodePanel(panel: HTMLElement, model: ContextDockModel): void {
+  const { locale } = model;
+  const path = model.files.selectedPath;
+  const header = document.createElement("p");
+  header.className = "d1-dock-reason";
+  header.dataset.codeReadOnly = "true";
+  header.textContent = translate(locale, "d1.dock.file.readOnly", {});
+  panel.append(header);
+  if (!path) {
+    panel.append(emptyState("code-selection", translate(locale, "d1.dock.file.none", {})));
+    return;
+  }
+  appendWorkspaceFileAnswer(panel, model, path, "code");
+}
+
+/**
+ * Renders Core's answer for one path, or the sentence that says why there is
+ * none.
+ *
+ * Five states, five sentences, and the first rule is that an answer belongs to
+ * the path it named: a read of `README.md` is not this file's content, so a
+ * held answer for another path renders as "not read yet" rather than as this
+ * file's bytes. The four bodies (`text`, `binary`, `unavailable`, and a shape
+ * this build predates) each keep their own sentence for the reason the
+ * contract gives them separate cases — an empty editor over a binary asset,
+ * or over a file Core was not allowed to open, is the failure this prevents.
+ */
+export function appendWorkspaceFileAnswer(
+  host: HTMLElement,
+  model: ContextDockModel,
+  path: string,
+  surface: "inspector" | "code",
+): void {
+  const { locale } = model;
+  const answer = model.files.content;
+  const state = document.createElement("div");
+  state.className = "d1-dock-file";
+  state.dataset.fileAnswer = surface;
+  host.append(state);
+
+  if (answer.requestedPath !== path) {
+    state.dataset.fileState = "unread";
+    state.append(emptyState("file-unread", translate(locale, "d1.dock.file.unread", {})));
+    return;
+  }
+  if (answer.outcome.state === "rejected") {
+    state.dataset.fileState = "rejected";
+    const refusal = document.createElement("p");
+    refusal.className = "d1-dock-reason";
+    refusal.setAttribute("role", "alert");
+    refusal.dataset.fileRejected = "true";
+    // Core's own words, hint included: the refusal is either the permission
+    // gate's or the path validator's, and both are sentences an operator can
+    // act on.
+    refusal.textContent = translate(locale, "d1.dock.file.rejected", {
+      reason: answer.outcome.reason ?? translate(locale, "d1.unavailable", {}),
+    });
+    state.append(refusal);
+    return;
+  }
+  const file = answer.file;
+  if (!file) {
+    state.dataset.fileState = "pending";
+    const pending = document.createElement("p");
+    pending.className = "d1-dock-reason";
+    pending.dataset.filePending = "true";
+    pending.textContent = translate(locale, "d1.dock.file.pending", { path });
+    state.append(pending);
+    return;
+  }
+
+  state.dataset.fileState = file.body;
+  const facts = document.createElement("p");
+  facts.className = "d1-dock-reason";
+  facts.dataset.fileFacts = "true";
+  facts.textContent = [
+    // The Lane's worktree or the workspace root: two different trees, and
+    // which one was read is stated rather than implied by the selection.
+    answer.targetLaneId
+      ? translate(locale, "d1.dock.file.scopeLane", { lane: answer.targetLaneId })
+      : translate(locale, "d1.dock.file.scopeWorkspace", {}),
+    // The size and the hash are the *whole* file's, never the published
+    // body's, and absence is Core not knowing rather than zero.
+    file.size === null
+      ? translate(locale, "d1.dock.file.sizeUnknown", {})
+      : translate(locale, "d1.dock.file.size", { size: String(file.size) }),
+    file.sha256
+      ? translate(locale, "d1.dock.file.sha", { sha: file.sha256.slice(0, 12) })
+      : translate(locale, "d1.dock.file.shaUnknown", {}),
+  ].join(" · ");
+  state.append(facts);
+
+  if (file.body === "text") {
+    if (file.truncated) {
+      const cut = document.createElement("p");
+      cut.className = "d1-dock-reason";
+      cut.dataset.fileCut = "true";
+      cut.textContent = translate(locale, "d1.dock.file.truncated", {});
+      state.append(cut);
+    }
+    const body = document.createElement("pre");
+    body.className = "d1-dock-code";
+    body.dataset.fileBody = "text";
+    // `textContent`, never `innerHTML`: the bytes are workspace content, and
+    // this pane renders them as text rather than as markup.
+    body.textContent = file.text ?? "";
+    state.append(body);
+    return;
+  }
+  const sentence = document.createElement("p");
+  sentence.className = "d1-empty";
+  sentence.dataset.typedEmpty = `file-${file.body}`;
+  sentence.textContent =
+    file.body === "binary"
+      ? translate(locale, "d1.dock.file.binary", {})
+      : file.body === "unavailable"
+        ? unavailableFileSentence(locale, file.reason)
+        : translate(locale, "d1.dock.file.unknownBody", { body: file.body });
+  state.append(sentence);
+}
+
+/**
+ * One sentence per `WorkspaceFileUnavailableReason`.
+ *
+ * The affordance differs per reason — a missing path is a stale reference, a
+ * directory is a navigation target, an unreadable one is a refusal — so a
+ * reason this build cannot name says exactly that rather than borrowing a
+ * neighbour's sentence.
+ */
+function unavailableFileSentence(locale: Locale, reason: string | null): string {
+  switch (reason) {
+    case "not_found":
+      return translate(locale, "d1.dock.file.notFound", {});
+    case "directory":
+      return translate(locale, "d1.dock.file.directory", {});
+    case "unreadable":
+      return translate(locale, "d1.dock.file.unreadable", {});
+    default:
+      return translate(locale, "d1.dock.file.unknownReason", {
+        reason: reason ?? translate(locale, "d1.unavailable", {}),
+      });
+  }
 }
 
 /* ---- Environment panel ---- */
@@ -1070,6 +1285,9 @@ export function renderDockTab(panel: HTMLElement, model: ContextDockModel): void
     case "diff":
       renderDiffPanel(panel, model);
       return;
+    case "code":
+      renderCodePanel(panel, model);
+      return;
     default:
       renderEnvironmentPanel(panel, model);
   }
@@ -1108,7 +1326,7 @@ export function renderContextDock(model: ContextDockModel): HTMLElement {
     tab.setAttribute("role", "tab");
     const label = translate(locale, definitionEntry.labelKey, {});
     tab.textContent = label;
-    if (definitionEntry.live) {
+    if (isDockTabLive(definitionEntry.id, { fileReads: model.files.fileReadsAvailable })) {
       const current = definitionEntry.id === model.tab;
       tab.setAttribute("aria-selected", String(current));
       tab.setAttribute("aria-controls", "d1-dock-body");

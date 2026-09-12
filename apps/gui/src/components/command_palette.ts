@@ -210,6 +210,15 @@ export interface CommandPaletteHandlers {
   onOpenReview?: () => void;
   /** Opens the EvidenceView in the cockpit's centre pane. */
   onOpenEvidence?: () => void;
+  /**
+   * Reads one workspace file into the context dock's inspector
+   * (`runtime.workspace_file_reads`, C9).
+   *
+   * Absent while the shell bound no read or Core publishes no file reads, and
+   * a `~` row then stays a jump target that closes the palette rather than a
+   * control that pretends to open an editor.
+   */
+  onOpenFile?: (path: string) => void;
   /** Keeps the operator's query in cockpit state across a forced remount. */
   onQueryChange?: (query: string) => void;
   onClose: () => void;
@@ -608,6 +617,11 @@ export function paletteItems(
     );
   } else {
     for (const entry of files.entries) {
+      // A file row reads the file into the dock inspector once Core publishes
+      // `runtime.workspace_file_reads` (C9). A directory row never does: Core
+      // answers a directory with `Unavailable { Directory }`, and the tree
+      // that lists its contents is the Files tab's own read.
+      const readable = handlers.onOpenFile && entry.kind === "file";
       items.push(
         enabled({
           kind: "file",
@@ -616,12 +630,12 @@ export function paletteItems(
           title: entry.path,
           context: entry.kind,
           keywords: entry.path,
-          hint: null,
+          hint: readable ? translate(locale, "d1.palette.files.open", {}) : null,
           icon: "evidence",
-          // Selecting a file closes the palette. `frontend-contract-v1`
-          // publishes no "open this path" command, so activating a row must
-          // not pretend to open an editor the client does not have.
-          activate: () => undefined,
+          // Without the read this row is a jump target that closes the
+          // palette: the contract has no "open this path" command of its own,
+          // so activating it must not pretend to open an editor.
+          activate: readable ? () => handlers.onOpenFile!(entry.path) : () => undefined,
         }),
       );
     }

@@ -16,7 +16,8 @@ use viden_core::{
     ReviewRequestStatus, RuntimeOwner, RuntimeServiceKind, RuntimeServiceStatus,
     RuntimeSnapshotEnvelope, RuntimeViewState, SourceTarget, TranscriptRowContent, TurnSource,
     UiColorMode, UiDensity, UiMotion, UiSkin, WorkMode, WorkspaceChangeKind, WorkspaceDiffEntry,
-    WorkspaceSourceStatus, WorkspaceSourceView,
+    WorkspaceFileBody, WorkspaceFileContent, WorkspaceFileUnavailableReason, WorkspaceSourceStatus,
+    WorkspaceSourceView,
 };
 
 use crate::d1::{
@@ -62,6 +63,7 @@ use crate::evidence_view::{
 };
 use crate::operator_git::OperatorGitResultProjection;
 use crate::transcript_rows::TranscriptRowProjection;
+use crate::workspace_files::WorkspaceFileFactsProjection;
 use crate::{
     D6ActionProjection, D6ConnectionState, D6RecoveryProjection, D6State,
     PermissionActionProjection, PermissionDockProjection, PermissionRequestProjection,
@@ -3066,6 +3068,58 @@ pub(crate) fn workspace_diff_source_projection(
         added: source.added,
         deleted: source.deleted,
         dirty: source.dirty,
+    }
+}
+
+/* -- one workspace file's content (`runtime.workspace_file_reads`, C9) -- */
+
+/// Flattens Core's answer for one file into the webview's vocabulary.
+///
+/// Every arm is Core's own: the three bodies keep their names, the
+/// `#[non_exhaustive]` fourth case becomes `unknown` rather than the nearest
+/// modelled body, and `size` / `sha256` stay absent where Core published
+/// none. Nothing here substitutes a zero, an empty string, or an empty body —
+/// each of those would render as a real, empty file.
+pub(crate) fn workspace_file_facts_projection(
+    file: &WorkspaceFileContent,
+) -> WorkspaceFileFactsProjection {
+    let (body, text, truncated, reason) = match &file.content {
+        WorkspaceFileBody::Text { text, truncated } => {
+            ("text", Some(text.clone()), *truncated, None)
+        }
+        WorkspaceFileBody::Binary => ("binary", None, false, None),
+        WorkspaceFileBody::Unavailable { reason } => (
+            "unavailable",
+            None,
+            false,
+            Some(workspace_file_unavailable_reason(*reason)),
+        ),
+        // A body shape this build predates. It is still an answer, so it is
+        // reported as one; drawing it as empty text would invent a file.
+        _ => ("unknown", None, false, None),
+    };
+    WorkspaceFileFactsProjection {
+        path: file.path.clone(),
+        body,
+        text,
+        truncated,
+        size: file.size,
+        sha256: file.sha256.clone(),
+        reason,
+    }
+}
+
+/// Core's own word for why one read produced no content.
+///
+/// The affordance differs per reason — a missing path is a stale reference, a
+/// directory is a navigation target, and an unreadable one is a refusal — so
+/// an unmodelled reason is `unknown` rather than the nearest neighbour.
+fn workspace_file_unavailable_reason(reason: WorkspaceFileUnavailableReason) -> &'static str {
+    match reason {
+        WorkspaceFileUnavailableReason::NotFound => "not_found",
+        WorkspaceFileUnavailableReason::Directory => "directory",
+        WorkspaceFileUnavailableReason::Unreadable => "unreadable",
+        _ => "unknown",
     }
 }
 

@@ -29,6 +29,10 @@ export function createTauriCoreClient(): CoreClient {
       invoke("transcript_rows_load_older", { commandId, laneId }),
     transcriptRowsPoll: () => invoke("transcript_rows_poll"),
     transcriptRows: () => invoke("transcript_rows"),
+    readWorkspaceFile: (commandId, laneId, path) =>
+      invoke("read_workspace_file", { commandId, laneId, path }),
+    workspaceFilePoll: () => invoke("workspace_file_poll"),
+    workspaceFile: () => invoke("workspace_file"),
 
     layoutPreferences: () => invoke("layout_preferences"),
     layoutPreferencesSet: (commandId, patch) =>

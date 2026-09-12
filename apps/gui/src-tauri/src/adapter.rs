@@ -14,7 +14,7 @@ use viden_core::{
     RuntimeWireEvent, StarterLanePreset, StarterLaneRequest, TranscriptPage, TranscriptPageRequest,
     TranscriptRowsQuery, TurnOutcome, UiColorMode, UiDensity, UiLayoutPreferencePatch, UiMotion,
     UiPreferencePatch, UiPreferences, UiSkin, WorkMode, WorkspaceFileEntry, WorkspaceFileKind,
-    WorkspaceFilesQuery, WorkspaceOpenRequest,
+    WorkspaceFileReadQuery, WorkspaceFilesQuery, WorkspaceOpenRequest,
 };
 use viden_core::{EvidenceQuery, SourceTarget, WorkspaceDiffQuery, WorkspaceDiffScope};
 use viden_core::{RecentProjectSummary, RecentSessionSummary, RecentWorkQuery};
@@ -50,6 +50,7 @@ use crate::projection::{
     lane_sidebar_mode_name, operator_git_action, operator_git_result_projection,
     preference_diagnostic_projection, target_lane_id, transcript_row_projection,
     typed_lane_sidebar_mode, workspace_diff_entry_projection, workspace_diff_source_projection,
+    workspace_file_facts_projection,
 };
 use crate::recent_work::{
     RECENT_WORK_CAPABILITY, RecentProjectProjection, RecentSessionProjection, RecentWorkResult,
@@ -63,8 +64,8 @@ use crate::ui_preferences::{
     UI_PREFERENCE_PERSISTENCE_CAPABILITY,
 };
 use crate::workspace_files::{
-    WORKSPACE_FILES_CAPABILITY, WORKSPACE_FILES_PAGE_LIMIT, WorkspaceFileRowProjection,
-    WorkspaceFilesProjection,
+    WORKSPACE_FILE_READS_CAPABILITY, WORKSPACE_FILES_CAPABILITY, WORKSPACE_FILES_PAGE_LIMIT,
+    WorkspaceFileProjection, WorkspaceFileRowProjection, WorkspaceFilesProjection,
 };
 use crate::{
     D6ConnectionState, D6RecoveryProjection, D6State, D11IntakeProjection, PermissionChoice,
@@ -131,6 +132,18 @@ pub struct GuiCoreAdapter {
     /// The Lane the held rows were read for. A Lane switch drops them rather
     /// than rendering one Lane's conversation under another Lane's name.
     transcript_rows_scope: Option<String>,
+    /// One file read at a time (`runtime.workspace_file_reads`, C9).
+    /// `WorkspaceFileLoaded` names the exact read it answers, so an answer for
+    /// another file is dropped rather than rendered under this path's name.
+    pending_workspace_file: Option<PendingWorkspaceFile>,
+    workspace_file_outcome: D1OutcomeProjection,
+    /// Core's last answered file, or `None` while none has been answered. The
+    /// content is deliberately not reduced into `RuntimeViewState`: a reopened
+    /// file is re-read rather than served from a view that outlived the bytes.
+    workspace_file_receipt: Option<crate::workspace_files::WorkspaceFileFactsProjection>,
+    /// The path and target the outstanding (or last) read named, so a refusal
+    /// and a pending state can both say which file they are about.
+    workspace_file_request: Option<(String, Option<String>)>,
     /// The last turn Core ended without completing it
     /// (`runtime.turn_lifecycle`, C6).
     ///
@@ -900,6 +913,42 @@ enum TranscriptRowsObservation {
     Rejected(String),
 }
 
+/// One in-flight `ReadWorkspaceFile` awaiting its ordered Core answer
+/// (`runtime.workspace_file_reads`, C9).
+struct PendingWorkspaceFile {
+    /// The only correlation this read needs: both events that can settle it —
+    /// `WorkspaceFileLoaded` and `CommandRejected` — name the command id they
+    /// answer, and the answer's id is a *required* field.
+    command_id: String,
+}
+
+impl PendingWorkspaceFile {
+    /// Reconciles one ordered event against this read.
+    ///
+    /// `RuntimeEventKind::Error` is deliberately not observed, for the reason
+    /// every correlated read here documents: it carries no command id, so
+    /// treating one as this read's refusal because a read happened to be
+    /// outstanding would fabricate a refusal Core never issued.
+    fn observe(&self, envelope: &RuntimeEventEnvelope) -> AuditObservation {
+        let RuntimeWireEvent::Known(event) = &envelope.event else {
+            return AuditObservation::Continue;
+        };
+        match &event.kind {
+            RuntimeEventKind::CommandRejected { command_id, reason }
+                if command_id == &self.command_id =>
+            {
+                AuditObservation::Rejected(reason.clone())
+            }
+            RuntimeEventKind::WorkspaceFileLoaded { command_id, .. }
+                if command_id == &self.command_id =>
+            {
+                AuditObservation::Confirmed
+            }
+            _ => AuditObservation::Continue,
+        }
+    }
+}
+
 impl PendingTranscriptRows {
     fn observe(&self, envelope: &RuntimeEventEnvelope) -> TranscriptRowsObservation {
         let RuntimeWireEvent::Known(event) = &envelope.event else {
@@ -1660,6 +1709,10 @@ impl GuiCoreAdapter {
             workspace_files_receipt: WorkspaceFilesReceipt::default(),
             audit_outcome: D1OutcomeProjection::idle(),
             audit_receipt: AuditReceipt::default(),
+            pending_workspace_file: None,
+            workspace_file_outcome: D1OutcomeProjection::idle(),
+            workspace_file_receipt: None,
+            workspace_file_request: None,
             pending_workspace_diff: None,
             workspace_diff_outcome: D1OutcomeProjection::idle(),
             workspace_diff_receipt: WorkspaceDiffReceipt::default(),
@@ -4558,7 +4611,7 @@ impl GuiCoreAdapter {
                         // first, so an older page goes *above* what is already
                         // held. The existing rows keep their order.
                         let mut merged = rows;
-                        merged.extend(self.transcript_rows_receipt.rows.drain(..));
+                        merged.append(&mut self.transcript_rows_receipt.rows);
                         self.transcript_rows_receipt.rows = merged;
                     } else {
                         self.transcript_rows_receipt.rows = rows;
@@ -4577,6 +4630,168 @@ impl GuiCoreAdapter {
                 // A refusal loads nothing. The rows already held are not
                 // discarded: they are pages Core answered, and dropping them
                 // would turn one bad cursor into an empty conversation.
+                true
+            }
+        }
+    }
+
+    /// Whether Core's handshake published single-file reads.
+    ///
+    /// The dock inspector's Open and the Code tab read this before they offer
+    /// anything: an absent capability leaves the control disabled and names
+    /// the capability, which is the G5 behaviour this consumer replaces only
+    /// where Core actually answers.
+    pub fn supports_workspace_file_reads(&self) -> bool {
+        self.supports(WORKSPACE_FILE_READS_CAPABILITY)
+    }
+
+    /// The last file read with no Core traffic.
+    pub fn workspace_file(&self) -> WorkspaceFileProjection {
+        WorkspaceFileProjection {
+            outcome: self.workspace_file_outcome.clone(),
+            pending_command_id: self
+                .pending_workspace_file
+                .as_ref()
+                .map(|pending| pending.command_id.clone()),
+            capability_available: self.supports_workspace_file_reads(),
+            requested_path: self
+                .workspace_file_request
+                .as_ref()
+                .map(|(path, _)| path.clone()),
+            target_lane_id: self
+                .workspace_file_request
+                .as_ref()
+                .and_then(|(_, lane_id)| lane_id.clone()),
+            file: self.workspace_file_receipt.clone(),
+        }
+    }
+
+    /// Sends one `ReadWorkspaceFile` and waits for Core's ordered answer.
+    ///
+    /// `lane_id` names one Lane's worktree; `None` is the workspace root. Core
+    /// resolves a Lane's worktree from its own records — the client never
+    /// passes a path.
+    ///
+    /// The path runs through *Core's own* validator before anything is sent,
+    /// for the reason the evidence read documents: an operator who met the
+    /// same bad path twice would otherwise read two different refusals for one
+    /// rule. Core refuses rather than repairs, and so does this: normalizing
+    /// `../../etc/passwd` would serve a different file under the asked-for
+    /// name.
+    ///
+    /// A missing capability is not an error: it returns the honest projection
+    /// with `capability_available == false` and sends nothing.
+    pub fn read_workspace_file_and_wait(
+        &mut self,
+        command_id: &str,
+        lane_id: Option<&str>,
+        path: &str,
+        event_timeout: Duration,
+    ) -> Result<WorkspaceFileProjection, String> {
+        if !self.supports_workspace_file_reads() {
+            return Ok(self.workspace_file());
+        }
+        if let Some(pending) = &self.pending_workspace_file {
+            return Err(format!(
+                "workspace file read `{}` is still pending",
+                pending.command_id
+            ));
+        }
+        let target = match lane_id {
+            Some(lane_id) => SourceTarget::Lane {
+                lane_id: lane_id.to_string(),
+            },
+            None => SourceTarget::Workspace,
+        };
+        let query = WorkspaceFileReadQuery {
+            target,
+            path: path.to_string(),
+            // Core owns the bound and publishes `truncated` when it cut the
+            // body, so the client expresses no preference.
+            byte_limit: None,
+        };
+        query.validate()?;
+        self.client
+            .send(RuntimeCommandEnvelope {
+                schema_version: FRONTEND_SCHEMA_V1,
+                client_id: "viden-gui".to_string(),
+                command_id: command_id.to_string(),
+                // The target is named in the query, so the read carries no
+                // Lane owner; Core resolves the worktree.
+                owner: RuntimeOwner::default(),
+                command: RuntimeCommand::ReadWorkspaceFile { query },
+            })
+            .map_err(|error| error.to_string())?;
+        self.pending_workspace_file = Some(PendingWorkspaceFile {
+            command_id: command_id.to_string(),
+        });
+        self.workspace_file_outcome = D1OutcomeProjection::pending();
+        self.workspace_file_request = Some((path.to_string(), lane_id.map(str::to_string)));
+        // A fresh read replaces the held answer before the new one arrives, so
+        // the previous file's bytes are never on screen under this path's
+        // name while the read is out.
+        self.workspace_file_receipt = None;
+        self.poll_workspace_file(event_timeout)
+    }
+
+    /// Drains ordered Core events for a file read still in flight.
+    pub fn poll_workspace_file(
+        &mut self,
+        event_timeout: Duration,
+    ) -> Result<WorkspaceFileProjection, String> {
+        let mut received = false;
+        let mut receive_failed = false;
+        for _ in 0..8 {
+            let event = match self.receive_event_until(event_timeout) {
+                Ok(Some(event)) => event,
+                Ok(None) => break,
+                Err(_) => {
+                    receive_failed = true;
+                    break;
+                }
+            };
+            received = true;
+            if self.observe_pending_workspace_file(&event) {
+                break;
+            }
+        }
+        if received && !receive_failed {
+            self.refresh_projection()
+                .map_err(|error| error.to_string())?;
+        }
+        Ok(self.workspace_file())
+    }
+
+    /// Reconciles one ordered event against the in-flight file read.
+    ///
+    /// Returns whether the read reached a terminal outcome. The desktop event
+    /// pump calls this too, so a background drain cannot swallow the only
+    /// answer the inspector is waiting for.
+    pub(crate) fn observe_pending_workspace_file(&mut self, event: &RuntimeEventEnvelope) -> bool {
+        let observation = self
+            .pending_workspace_file
+            .as_ref()
+            .map_or(AuditObservation::Continue, |pending| pending.observe(event));
+        match observation {
+            AuditObservation::Continue => false,
+            AuditObservation::Confirmed => {
+                self.pending_workspace_file = None;
+                self.workspace_file_outcome = D1OutcomeProjection::confirmed();
+                if let RuntimeWireEvent::Known(known) = &event.event
+                    && let RuntimeEventKind::WorkspaceFileLoaded { file, .. } = &known.kind
+                {
+                    self.workspace_file_receipt = Some(workspace_file_facts_projection(file));
+                }
+                true
+            }
+            AuditObservation::Rejected(reason) => {
+                self.pending_workspace_file = None;
+                // Core's own words, hint included: the refusal is either the
+                // permission gate's or the path validator's, and both are
+                // sentences the operator can act on. Nothing is loaded, and
+                // the previous file's bytes were already dropped when the read
+                // left.
+                self.workspace_file_outcome = D1OutcomeProjection::rejected(reason);
                 true
             }
         }
@@ -5205,6 +5420,7 @@ impl GuiCoreAdapter {
             self.observe_pending_audit(&event);
             self.observe_pending_workspace_files(&event);
             self.observe_pending_workspace_diff(&event);
+            self.observe_pending_workspace_file(&event);
             self.observe_pending_evidence(&event);
             self.observe_pending_evidence_content(&event);
             self.observe_pending_operator_git(&event);

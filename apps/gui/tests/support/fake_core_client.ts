@@ -9,6 +9,7 @@
 
 import { IDLE_LAYOUT_PREFERENCES } from "../../src/models/layout_preferences";
 import { IDLE_TRANSCRIPT_ROWS } from "../../src/models/transcript_rows";
+import { IDLE_WORKSPACE_FILE } from "../../src/models/workspace_file";
 import type { CoreClient } from "../../src/host/core_client";
 import type { D11IntakeProjection, D11IntentResult } from "../../src/screens/d11_intake";
 import type { D4IntentResult } from "../../src/screens/d4_lane_create";
@@ -99,6 +100,9 @@ export function fakeCoreClient(overrides: Partial<CoreClient> = {}): CoreClient 
     transcriptRowsLoadOlder: unreachable("transcript_rows_load_older"),
     transcriptRowsPoll: unreachable("transcript_rows_poll"),
     transcriptRows: async () => IDLE_TRANSCRIPT_ROWS,
+    readWorkspaceFile: unreachable("read_workspace_file"),
+    workspaceFilePoll: unreachable("workspace_file_poll"),
+    workspaceFile: async () => IDLE_WORKSPACE_FILE,
     layoutPreferences: async () => IDLE_LAYOUT_PREFERENCES,
     layoutPreferencesSet: unreachable("layout_preferences_set"),
     layoutPreferencesReset: unreachable("layout_preferences_reset"),

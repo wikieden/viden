@@ -118,7 +118,8 @@ pub use ui_preferences::{
     UI_PREFERENCE_PERSISTENCE_CAPABILITY,
 };
 pub use workspace_files::{
-    WORKSPACE_FILES_CAPABILITY, WORKSPACE_FILES_PAGE_LIMIT, WorkspaceFileRowProjection,
+    WORKSPACE_FILE_READS_CAPABILITY, WORKSPACE_FILES_CAPABILITY, WORKSPACE_FILES_PAGE_LIMIT,
+    WorkspaceFileFactsProjection, WorkspaceFileProjection, WorkspaceFileRowProjection,
     WorkspaceFilesProjection,
 };
 
@@ -328,6 +329,65 @@ fn transcript_rows_poll(
         .as_mut()
         .ok_or_else(|| "Core adapter is not connected".to_string())?
         .poll_transcript_rows(Duration::from_millis(250))
+}
+
+/// Sends one `ReadWorkspaceFile` and waits briefly for Core's answer.
+///
+/// `laneId` names one Lane's worktree; `null` is the workspace root. The path
+/// is target-relative and runs through Core's own validator before anything is
+/// sent, so a path that leaves the target is refused in Core's words rather
+/// than repaired into a different file.
+#[tauri::command]
+fn read_workspace_file(
+    command_id: String,
+    lane_id: Option<String>,
+    path: String,
+    state: tauri::State<'_, DesktopState>,
+) -> Result<WorkspaceFileProjection, String> {
+    state
+        .adapter
+        .lock()
+        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?
+        .as_mut()
+        .ok_or_else(|| "Core adapter is not connected".to_string())?
+        .read_workspace_file_and_wait(
+            &command_id,
+            lane_id.as_deref(),
+            &path,
+            Duration::from_millis(250),
+        )
+}
+
+/// Drains ordered Core events for a file read still in flight.
+#[tauri::command]
+fn workspace_file_poll(
+    state: tauri::State<'_, DesktopState>,
+) -> Result<WorkspaceFileProjection, String> {
+    state
+        .adapter
+        .lock()
+        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?
+        .as_mut()
+        .ok_or_else(|| "Core adapter is not connected".to_string())?
+        .poll_workspace_file(Duration::from_millis(250))
+}
+
+/// The last answered file with no Core traffic.
+///
+/// The dock inspector and the Code tab read this for the capability before
+/// they offer to open anything: an absent `runtime.workspace_file_reads` keeps
+/// the control disabled and named rather than opening an empty editor.
+#[tauri::command]
+fn workspace_file(
+    state: tauri::State<'_, DesktopState>,
+) -> Result<WorkspaceFileProjection, String> {
+    Ok(state
+        .adapter
+        .lock()
+        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?
+        .as_ref()
+        .ok_or_else(|| "Core adapter is not connected".to_string())?
+        .workspace_file())
 }
 
 /// The held transcript rows with no Core traffic.
@@ -1180,6 +1240,9 @@ pub fn run_with_adapter(adapter: Option<GuiCoreAdapter>) {
             layout_preferences_poll,
             query_workspace_files,
             workspace_files_poll,
+            read_workspace_file,
+            workspace_file_poll,
+            workspace_file,
             query_workspace_diff,
             workspace_diff_poll,
             workspace_diff,

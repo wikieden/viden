@@ -1469,6 +1469,33 @@ button.d1-topbar-project[aria-expanded="true"] {
   color: var(--fg-faint);
 }
 
+/* One workspace file's content (`runtime.workspace_file_reads`, C9). The body
+   scrolls inside its own box: the dock column is 300px and a file is not, so
+   without this the panel would either clip the text or push the layout. */
+.d1-right .d1-dock-file {
+  margin-block-start: var(--sp-2);
+}
+
+.d1-right .d1-dock-code {
+  max-height: 320px;
+  margin: 0;
+  padding: var(--sp-2);
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+  color: var(--fg-primary);
+  white-space: pre;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-sm);
+}
+
+/* The Code tab owns the whole panel, so its body may use the height it has. */
+.d1-right [data-dock-body="code"] .d1-dock-code {
+  max-height: none;
+}
+
 .d1-right .dkh {
   display: flex;
   justify-content: space-between;

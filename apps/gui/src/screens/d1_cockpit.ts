@@ -37,6 +37,7 @@ import {
 } from "../components/statusbar";
 import {
   DOCK_TABS,
+  isDockTabLive,
   renderContextDock,
   type DockTab,
 } from "../components/context_dock";
@@ -47,6 +48,11 @@ import {
   TRANSCRIPT_ROWS_CAPABILITY,
   type TranscriptRowsProjection,
 } from "../models/transcript_rows";
+import {
+  IDLE_WORKSPACE_FILE,
+  WORKSPACE_FILE_READS_CAPABILITY,
+  type WorkspaceFileProjection,
+} from "../models/workspace_file";
 import {
   LAYOUT_PREFERENCES_CAPABILITY,
   IDLE_LAYOUT_PREFERENCES,
@@ -407,8 +413,11 @@ export interface D1RenderOptions {
    * behaviour — and the pin says so.
    *
    * The pinned column's width is still fixed at the design's default
-   * (`--rail-left`, 218px); the 176–360 drag the token documents is the same
-   * record's second field and is not implemented.
+   * (`--rail-left`, 218px). The 176–360 drag the token documents has no field
+   * in `UiLayoutPreferences` — the record carries the mode and the hidden
+   * statusbar segments, and nothing else — so a draggable column would have to
+   * keep its width in the client, which is the second preference model the
+   * contract forbids. It stays unimplemented until Core publishes a width.
    */
   laneSidebarMode?: LaneSidebarMode;
   /**
@@ -425,6 +434,24 @@ export interface D1RenderOptions {
     read: () => Promise<TranscriptRowsProjection>;
     query: (laneId: string | null) => Promise<TranscriptRowsProjection>;
     loadOlder: (laneId: string | null) => Promise<TranscriptRowsProjection>;
+  };
+  /**
+   * One workspace file's content (`runtime.workspace_file_reads`, C9).
+   *
+   * `read` is the no-traffic projection the dock reads for the capability
+   * before it offers anything; `open` sends one `ReadWorkspaceFile` for a
+   * target-relative path in the workspace root (`laneId: null`) or in one
+   * Lane's worktree. Absent while no host is bound, which keeps the
+   * inspector's Open disabled-and-labelled rather than opening an editor that
+   * can never fill.
+   *
+   * Core owns the byte bound, the permission gate, and the path validator;
+   * the cockpit renders the three bodies and Core's refusal, and never reads a
+   * path itself.
+   */
+  workspaceFile?: {
+    read: () => Promise<WorkspaceFileProjection>;
+    open: (laneId: string | null, path: string) => Promise<WorkspaceFileProjection>;
   };
   /**
    * The Core-owned cockpit layout record (`ui.layout_preferences`, C5).
@@ -757,6 +784,16 @@ export function renderD1Cockpit(
   const dockFileReads = new Set<string>();
   const dockFilesExpanded = new Set<string>();
   let dockFileSelected: string | null = null;
+  /**
+   * Core's last answered file (`runtime.workspace_file_reads`, C9).
+   *
+   * Never reduced into a view and never cached per path: the dock re-reads a
+   * file it reopens, because bytes read a minute ago are not the file now, and
+   * a cache would let the inspector show a stale body under a fresh path.
+   */
+  let workspaceFileAnswer: WorkspaceFileProjection = IDLE_WORKSPACE_FILE;
+  /** True while one read is out, so a second click cannot stack reads. */
+  let workspaceFileInFlight = false;
   /** Paths whose diff rows the operator opened in the Diff tab. */
   const dockDiffExpanded = new Set<string>();
   let dockDiffSelected: string | null = null;
@@ -1837,10 +1874,17 @@ export function renderD1Cockpit(
    * the dock the operator clicked is already on screen.
    */
   const setDockTab = (tab: DockTab, reveal = false): void => {
-    const definition = DOCK_TABS.find((candidate) => candidate.id === tab);
-    // The three unopenable tabs are disabled in the strip; refusing here too
-    // keeps a stray caller from opening a panel that can never fill.
-    if (!definition?.live) return;
+    // The disabled tabs are refused here too, so a stray caller cannot open a
+    // panel that can never fill. Code is openable exactly where Core
+    // publishes `runtime.workspace_file_reads` (C9), which is why this asks
+    // the same question the strip does rather than reading `live` alone.
+    if (
+      !isDockTabLive(tab, {
+        fileReads: !!options.workspaceFile && workspaceFileAnswer.capabilityAvailable,
+      })
+    ) {
+      return;
+    }
     dockTab = tab;
     if (reveal) {
       contextDrawerOpen = true;
@@ -2562,6 +2606,64 @@ export function renderD1Cockpit(
       });
   };
 
+  /**
+   * Reads one file from Core into the dock inspector and the Code tab.
+   *
+   * `laneId` is the cockpit's own selection, so a Lane's worktree is read for
+   * a Lane and the workspace root otherwise — Core resolves the worktree and
+   * the client never passes a path. The answer replaces whatever was held
+   * before it is sent, so a pending inspector never shows the previous file's
+   * bytes under the new path's name.
+   */
+  const openWorkspaceFile = (path: string): void => {
+    if (!options.workspaceFile || workspaceFileInFlight) return;
+    const laneId = selectedLaneId;
+    workspaceFileInFlight = true;
+    workspaceFileAnswer = {
+      ...IDLE_WORKSPACE_FILE,
+      capabilityAvailable: workspaceFileAnswer.capabilityAvailable,
+      outcome: { state: "pending", reason: null },
+      requestedPath: path,
+      targetLaneId: laneId,
+    };
+    render(false);
+    void options.workspaceFile
+      .open(laneId, path)
+      .then((answer) => {
+        if (disposed) return;
+        workspaceFileAnswer = answer;
+      })
+      .catch((error: unknown) => {
+        if (disposed) return;
+        // A transport failure is this client's own, so it is reported as one
+        // rather than dressed up as a Core refusal.
+        workspaceFileAnswer = {
+          ...workspaceFileAnswer,
+          outcome: { state: "rejected", reason: String(error) },
+          file: null,
+        };
+      })
+      .finally(() => {
+        workspaceFileInFlight = false;
+        if (!disposed) render(false);
+      });
+  };
+
+  /// One no-traffic read for the capability, before anything is asked for.
+  const ensureWorkspaceFile = (): void => {
+    if (!options.workspaceFile) return;
+    void options.workspaceFile
+      .read()
+      .then((answer) => {
+        if (disposed) return;
+        workspaceFileAnswer = answer;
+        render(false);
+      })
+      .catch(() => {
+        /* the capability stays unknown; the inspector's Open stays disabled. */
+      });
+  };
+
   /// One no-traffic read for the capability, before anything is asked for.
   const ensureTranscriptRows = (): void => {
     if (!options.transcriptRows) return;
@@ -3274,6 +3376,19 @@ export function renderD1Cockpit(
         },
         onOpenReview: () => openReview(),
         onOpenEvidence: () => openEvidence(),
+        // A `~` row reads the file into the dock inspector, which is the one
+        // surface this client has for a file's content: the contract publishes
+        // no editor command, and the dock is where the read already lives.
+        onOpenFile:
+          options.workspaceFile && workspaceFileAnswer.capabilityAvailable
+            ? (path) => {
+                closePalette();
+                dockTab = "files";
+                dockFileSelected = path;
+                contextDrawerOpen = true;
+                openWorkspaceFile(path);
+              }
+            : undefined,
         onQueryChange: (next) => {
           paletteQuery = next;
         },
@@ -3311,24 +3426,29 @@ export function renderD1Cockpit(
     }
     render(false);
     mountCommandPalette();
-    if (!options.loadPaletteCrossLane) return;
-    void options
-      .loadPaletteCrossLane()
-      .then((answer) => {
-        if (disposed || token !== paletteReadToken) return;
-        paletteCrossLane = { ...answer, unavailable: null };
-        paletteController?.setCrossLane(paletteCrossLane);
-      })
-      .catch((error: unknown) => {
-        if (disposed || token !== paletteReadToken) return;
-        // Core's own words, not a client paraphrase.
-        paletteCrossLane = {
-          gates: [],
-          asks: [],
-          unavailable: error instanceof Error ? error.message : String(error),
-        };
-        paletteController?.setCrossLane(paletteCrossLane);
-      });
+    // The two reads are independent: a host that bound one and not the other
+    // gets that one. (Before G7 an absent cross-Lane read returned here and
+    // took the file inventory with it, which left the `~` scope permanently
+    // unavailable on such a host.)
+    if (options.loadPaletteCrossLane) {
+      void options
+        .loadPaletteCrossLane()
+        .then((answer) => {
+          if (disposed || token !== paletteReadToken) return;
+          paletteCrossLane = { ...answer, unavailable: null };
+          paletteController?.setCrossLane(paletteCrossLane);
+        })
+        .catch((error: unknown) => {
+          if (disposed || token !== paletteReadToken) return;
+          // Core's own words, not a client paraphrase.
+          paletteCrossLane = {
+            gates: [],
+            asks: [],
+            unavailable: error instanceof Error ? error.message : String(error),
+          };
+          paletteController?.setCrossLane(paletteCrossLane);
+        });
+    }
     if (!options.loadWorkspaceFiles) return;
     void options
       .loadWorkspaceFiles(null)
@@ -4423,9 +4543,14 @@ export function renderD1Cockpit(
           dockFileSelected = path;
           render(false);
         },
-        // `runtime.workspace_file_reads` (C9) is not consumed by this build;
-        // G7 turns the inspector's Open into a real read.
-        fileReadsAvailable: false,
+        // `runtime.workspace_file_reads` (C9). Both halves have to hold: a
+        // host bound to send the read, and a Core that publishes the
+        // capability. Either missing leaves Open disabled and named, which is
+        // what G5 shipped for every Core.
+        fileReadsAvailable:
+          !!options.workspaceFile && workspaceFileAnswer.capabilityAvailable,
+        onOpenFile: (path) => openWorkspaceFile(path),
+        content: workspaceFileAnswer,
       },
       commit: {
         // The row routes rather than acts, so it is enabled exactly when the
@@ -4718,6 +4843,9 @@ export function renderD1Cockpit(
   // without it keeps the two named unavailable rows rather than an empty
   // transcript, which is what GUI-CORE-009 reported.
   ensureTranscriptRows();
+  // The same no-traffic read for single-file reads, so the dock inspector's
+  // Open and the Code tab know whether Core answers before anyone clicks.
+  ensureWorkspaceFile();
   // The layout record, read before anything is drawn twice: the operator's
   // sidebar mode and hidden statusbar segments are Core's facts, so the first
   // frame that can carry them does.
