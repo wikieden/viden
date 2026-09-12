@@ -23,6 +23,12 @@ export function createTauriCoreClient(): CoreClient {
     preferencesRestore: (commandId) => invoke("preferences_restore", { commandId }),
     preferencesPoll: () => invoke("preferences_poll"),
 
+    layoutPreferences: () => invoke("layout_preferences"),
+    layoutPreferencesSet: (commandId, patch) =>
+      invoke("layout_preferences_set", { commandId, patch }),
+    layoutPreferencesReset: (commandId) => invoke("layout_preferences_reset", { commandId }),
+    layoutPreferencesPoll: () => invoke("layout_preferences_poll"),
+
     queryRecentWork: (commandId, limit) => invoke("query_recent_work", { commandId, limit }),
     recentWorkPoll: () => invoke("recent_work_poll"),
 

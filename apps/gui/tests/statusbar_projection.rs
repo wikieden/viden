@@ -61,10 +61,12 @@ fn statusbar_projects_only_published_core_facts() {
     assert!(statusbar.requests.is_none());
     assert!(statusbar.context.is_none());
 
-    // One runtime error and one open merge gate (the fixture's approval was
-    // already resolved) are the fixture's live diagnostics and gate queue.
+    // One runtime error is the fixture's live diagnostic. The decision count
+    // is zero: the fixture's approval was already resolved and its one open
+    // merge gate is decided in D12, which this chip does not open (G7 made the
+    // count the D2 queue's own total — see `pending_decision_count`).
     assert_eq!(statusbar.diagnostics_count, 1);
-    assert_eq!(statusbar.pending_gate_count, 1);
+    assert_eq!(statusbar.pending_decision_count, 0);
 
     // The event segment is the replay-cursor stream position, not a counter.
     assert_eq!(statusbar.event_stream_position, 0);

@@ -87,7 +87,6 @@
   "d1.statusbar.tokens": "TOKENS",
   "d1.statusbar.diag": "DIAG",
   "d1.statusbar.req": "REQ",
-  "d1.statusbar.gateWaiting": "{count} \u4e2a\u95f8\u5f85\u5ba1",
   "d1.topbar.syncTitle": "\u76f8\u5bf9 upstream \u9886\u5148 {ahead}\u3001\u843d\u540e {behind}\uff08Core \u6700\u8fd1\u4e00\u6b21\u91c7\u6837\uff09\u3002",
   "d1.topbar.sync.push": "\u63a8\u9001 {ahead} \u4e2a\u672c\u5730\u63d0\u4ea4\u3002\u5951\u7ea6\u6392\u9664\u4e86 pull\uff1b\u672c\u5ba2\u6237\u7aef\u53ea\u505a push \u548c fetch\u3002",
   "d1.topbar.sync.fetch": "\u4ece\u8fdc\u7aef fetch\uff08\u843d\u540e {behind}\uff09\u3002\u5951\u7ea6\u6392\u9664\u4e86 pull\uff1b\u672c\u5ba2\u6237\u7aef\u53ea\u505a push \u548c fetch\u3002",
@@ -628,5 +627,10 @@
   "d1.dock.mcp.detail.notFound": "Core 在本工作区未找到 MCP 配置。",
   "d1.dock.mcp.detail.configVisible": "Core 能看到 MCP 配置，但 MCP 工具尚未接入共享权限路径，因此没有任何服务已连接。",
   "d1.dock.local.branch": "分支",
-  "d1.dock.inspector.openFile": "打开文件"
+  "d1.dock.inspector.openFile": "打开文件",
+  "d1.statusbar.decisionsWaiting": "{count} 项等你",
+  "d1.layout.unpersisted": "Core 已为本次会话应用该布局，但未能写入文件，因此重启后不会保留。",
+  "d1.layout.unavailable": "Core 未发布 {capability}，因此该布局仅在本次会话内保留。",
+  "d1.layout.rejected": "Core 拒绝了布局变更：{reason}",
+  "d1.laneTabs.source": "该 Lane 自己的工作树：领先 {ahead}，落后 {behind}（Core 最近一次采样）。"
 }

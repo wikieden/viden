@@ -93,7 +93,6 @@ export const MESSAGE_ARGUMENT_NAMES = {
   "d1.statusbar.tokens": [],
   "d1.statusbar.diag": [],
   "d1.statusbar.req": [],
-  "d1.statusbar.gateWaiting": ["count"],
   "d1.topbar.syncTitle": ["ahead", "behind"],
   "d1.topbar.sync.push": ["ahead"],
   "d1.topbar.sync.fetch": ["behind"],
@@ -637,6 +636,12 @@ export const MESSAGE_ARGUMENT_NAMES = {
   "d1.dock.mcp.detail.configVisible": [],
   "d1.dock.local.branch": [],
   "d1.dock.inspector.openFile": [],
+  // G7 consumers
+  "d1.statusbar.decisionsWaiting": ["count"],
+  "d1.layout.unpersisted": [],
+  "d1.layout.unavailable": ["capability"],
+  "d1.layout.rejected": ["reason"],
+  "d1.laneTabs.source": ["ahead", "behind"],
 } as const;
 
 export type MessageKey = keyof typeof MESSAGE_ARGUMENT_NAMES;

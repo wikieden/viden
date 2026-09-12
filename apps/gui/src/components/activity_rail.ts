@@ -270,6 +270,15 @@ export interface ActivityRailOptions {
    */
   laneSidebarMode?: LaneSidebarMode;
   onToggleLaneSidebarMode?: () => void;
+  /**
+   * Core's own sentence about the layout record this pin writes
+   * (`ui.layout_preferences`, C5), or `null` when there is nothing to say.
+   *
+   * It joins the pin's accessible name rather than replacing it: an operator
+   * whose mode was applied but not written has to be able to learn that from
+   * the control they pressed, not only from the statusbar popover.
+   */
+  laneSidebarNote?: string | null;
 }
 
 export function renderActivityRail(
@@ -371,8 +380,10 @@ export function renderActivityRail(
     pin.dataset.laneSidebarPin = mode;
     pin.setAttribute("aria-pressed", String(mode === "pinned"));
     const label = translate(locale, mode === "pinned" ? "d1.lanes.unpin" : "d1.lanes.pin", {});
-    pin.title = label;
-    pin.setAttribute("aria-label", label);
+    const described = options.laneSidebarNote ? `${label} — ${options.laneSidebarNote}` : label;
+    pin.title = described;
+    pin.setAttribute("aria-label", described);
+    if (options.laneSidebarNote) pin.dataset.laneSidebarNote = "true";
     pin.classList.toggle("on", mode === "pinned");
     pin.append(createCanonicalGuiIcon("pin"));
     pin.addEventListener("click", () => options.onToggleLaneSidebarMode?.());

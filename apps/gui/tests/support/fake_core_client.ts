@@ -7,6 +7,7 @@
  * allowed to make.
  */
 
+import { IDLE_LAYOUT_PREFERENCES } from "../../src/models/layout_preferences";
 import type { CoreClient } from "../../src/host/core_client";
 import type { D11IntakeProjection, D11IntentResult } from "../../src/screens/d11_intake";
 import type { D4IntentResult } from "../../src/screens/d4_lane_create";
@@ -89,6 +90,12 @@ export function fakeCoreClient(overrides: Partial<CoreClient> = {}): CoreClient 
     preferencesSave: unreachable("preferences_save"),
     preferencesRestore: unreachable("preferences_restore"),
     preferencesPoll: unreachable("preferences_poll"),
+    // The layout record answers with the honest absence: a shell route spec
+    // must not depend on a persisted cockpit layout existing.
+    layoutPreferences: async () => IDLE_LAYOUT_PREFERENCES,
+    layoutPreferencesSet: unreachable("layout_preferences_set"),
+    layoutPreferencesReset: unreachable("layout_preferences_reset"),
+    layoutPreferencesPoll: unreachable("layout_preferences_poll"),
     queryRecentWork: unreachable("query_recent_work"),
     recentWorkPoll: unreachable("recent_work_poll"),
     queryWorkspaceFiles: unreachable("query_workspace_files"),

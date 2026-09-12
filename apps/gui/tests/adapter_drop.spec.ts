@@ -57,6 +57,19 @@ function host(): { adapterGone: () => void } {
         return bound();
       case "d1_poll":
         return { projection: bound(), pendingCommandId: null, outcome: { state: "idle", reason: null } };
+      case "layout_preferences":
+      case "layout_preferences_poll":
+        // Shaped like the host's own answer for the same reason as below: a
+        // Core that publishes no layout record still answers with a record.
+        return {
+          outcome: { state: "idle", reason: null },
+          pendingCommandId: null,
+          capabilityAvailable: false,
+          laneSidebarMode: null,
+          hiddenStatusbarSegments: [],
+          persisted: null,
+          diagnostics: [],
+        };
       case "operator_git":
       case "operator_git_poll":
         // Shaped like the host's own answer. `null` is not a value this command

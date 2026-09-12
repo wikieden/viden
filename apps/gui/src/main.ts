@@ -4,6 +4,7 @@ import { translate } from "./i18n/catalog";
 import type { ComposerControlIntent } from "./models/composer";
 import type { PermissionIntent, PermissionIntentResult } from "./components/permission_dock";
 import type { D6Intent, D6RecoveryProjection } from "./models/workspace";
+import type { LayoutPreferencePatch } from "./models/layout_preferences";
 import type { OperatorGitActionRequest } from "./models/operator_git";
 import type { RecentWorkResult } from "./models/recent_work";
 import {
@@ -140,7 +141,7 @@ function shellProjection(
       diagnosticsCount: 0,
       requests: null,
       // No Core count yet. `0` would read as an empty decision queue.
-      pendingGateCount: null,
+      pendingDecisionCount: null,
     },
     permissionDock: { workMode: "—", permissionLevel: "—", request: null },
     recovery: {
@@ -372,6 +373,7 @@ export async function hydrateShellFromCore(
             loadWorkspaceFiles,
             workspaceDiff: workspaceDiffPort,
             operatorGit: operatorGitPort,
+            layout: layoutPort,
             evidence: evidencePort,
             // EvidenceView's footer opens the audit trail scoped to the
             // evidence object, the same one-way `D-AUDIT` link D12's baseline
@@ -733,6 +735,30 @@ export async function hydrateShellFromCore(
        * refusal in place of the section rather than showing an empty inventory
        * (GUI-CORE-022).
        */
+      /**
+       * The cockpit layout port (`ui.layout_preferences`, C5).
+       *
+       * `read` is the no-traffic projection the cockpit re-reads on every
+       * ordered wake, so the Lane sidebar mode and the hidden statusbar
+       * segments are Core's record rather than a value this webview
+       * remembered. `set` sends one `SetUiLayoutPreferences` and drains until
+       * Core answers, exactly as the appearance preferences do; Core owns the
+       * bound, the `[ui.layout]` table, and the `persisted` verdict.
+       */
+      const layoutPort = {
+        read: async () => await core.layoutPreferences(),
+        set: async (patch: LayoutPreferencePatch) => {
+          let result = await core.layoutPreferencesSet(
+            `gui-layout-${crypto.randomUUID()}`,
+            patch,
+          );
+          for (let attempt = 0; attempt < 4 && result.outcome.state === "pending"; attempt += 1) {
+            result = await core.layoutPreferencesPoll();
+          }
+          return result;
+        },
+      };
+
       /**
        * The DiffReview read pair (GUI-CORE-012).
        *

@@ -247,6 +247,16 @@ pub struct D1LaneProjection {
     pub status: String,
     pub summary: String,
     pub branch: Option<String>,
+    /// This Lane's own worktree source facts (`runtime.workspace_owner`'s
+    /// `lane_sources`, C5), or `None` when Core sampled none for it.
+    ///
+    /// `None` is a real answer and never falls back to `workspace_source`: a
+    /// Lane with no worktree of its own *is* the workspace, and one Core has
+    /// not sampled yet has no branch to print. Putting the workspace chip's
+    /// ahead/behind on a Lane tab would name one tree's position with another
+    /// tree's numbers, which is what `WorkspaceSourceUpdated` keeping its
+    /// workspace-only meaning exists to prevent.
+    pub source: Option<D1WorkspaceSourceProjection>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -502,8 +512,13 @@ pub struct D1StatusbarProjection {
     /// Number of runtime errors Core currently publishes.
     pub diagnostics_count: u64,
     pub requests: Option<D1StatusbarRequestsProjection>,
-    /// Pending approvals plus open merge gates awaiting a human.
-    pub pending_gate_count: u64,
+    /// Decisions awaiting the operator: pending approvals plus pending
+    /// reviews, which is exactly what the D2 queue this chip opens lists.
+    ///
+    /// One Core-derived count for the rail badge, this chip and D2's own
+    /// header. See `pending_decision_count` in `projection.rs` for why open
+    /// merge gates are not in it.
+    pub pending_decision_count: u64,
 }
 
 /// One composer-control mutation. Values arrive as the CLI names Core itself

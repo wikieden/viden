@@ -219,7 +219,7 @@ function d1Base(): D1CockpitProjection {
       // Mirrors the populated statusbar fixture in `tests/statusbar.spec.ts`.
       context: { usedTokens: 42_100, hardTokenLimit: 128_000, exceeded: false },
       diagnosticsCount: 1,
-      pendingGateCount: 2,
+      pendingDecisionCount: 2,
     },
   };
 }
@@ -2536,7 +2536,7 @@ async function renderState(): Promise<void> {
           ...base,
           // Delta: a larger pending count than the shared statusbar fixture's
           // two, mirroring `tests/rail_decision_badge.spec.ts`.
-          statusbar: { ...base.statusbar, pendingGateCount: 7 },
+          statusbar: { ...base.statusbar, pendingDecisionCount: 7 },
         },
         preferencesAvailable: true,
         secondaryViews: (route, container) => {

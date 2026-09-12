@@ -135,7 +135,7 @@ export const D1_PROJECTION: D1CockpitProjection = {
     tokens: { inputTokens: 1200, outputTokens: 240 },
     diagnosticsCount: 0,
     requests: { requestCount: 4, errorCount: 0 },
-    pendingGateCount: 0,
+    pendingDecisionCount: 0,
   },
   permissionDock: { workMode: "build", permissionLevel: "ask", request: null },
   recovery: {

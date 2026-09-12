@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 
 import { hydrateShellFromCore } from "../src/main";
 import type { CoreClient } from "../src/host/core_client";
+import { IDLE_LAYOUT_PREFERENCES } from "../src/models/layout_preferences";
 import { D1_PROJECTION } from "./support/d1_projection";
 
 const PREFERENCES = {
@@ -28,6 +29,10 @@ function fakeCoreClient(overrides: Partial<CoreClient> = {}): CoreClient {
     preferencesSave: unreachable("preferences_save"),
     preferencesRestore: unreachable("preferences_restore"),
     preferencesPoll: unreachable("preferences_poll"),
+    layoutPreferences: async () => IDLE_LAYOUT_PREFERENCES,
+    layoutPreferencesSet: unreachable("layout_preferences_set"),
+    layoutPreferencesReset: unreachable("layout_preferences_reset"),
+    layoutPreferencesPoll: unreachable("layout_preferences_poll"),
     queryRecentWork: unreachable("query_recent_work"),
     recentWorkPoll: unreachable("recent_work_poll"),
     queryWorkspaceFiles: unreachable("query_workspace_files"),

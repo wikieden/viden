@@ -12,8 +12,9 @@ use viden_core::{
     ReplayBatch, ReplayRequest, ReviewRequestStatus, RuntimeCommand, RuntimeCommandEnvelope,
     RuntimeEventEnvelope, RuntimeEventKind, RuntimeOwner, RuntimeSnapshotEnvelope,
     RuntimeWireEvent, StarterLanePreset, StarterLaneRequest, TranscriptPage, TranscriptPageRequest,
-    UiColorMode, UiDensity, UiMotion, UiPreferencePatch, UiPreferences, UiSkin, WorkMode,
-    WorkspaceFileEntry, WorkspaceFileKind, WorkspaceFilesQuery, WorkspaceOpenRequest,
+    UiColorMode, UiDensity, UiLayoutPreferencePatch, UiMotion, UiPreferencePatch, UiPreferences,
+    UiSkin, WorkMode, WorkspaceFileEntry, WorkspaceFileKind, WorkspaceFilesQuery,
+    WorkspaceOpenRequest,
 };
 use viden_core::{EvidenceQuery, SourceTarget, WorkspaceDiffQuery, WorkspaceDiffScope};
 use viden_core::{RecentProjectSummary, RecentSessionSummary, RecentWorkQuery};
@@ -35,15 +36,20 @@ use crate::evidence_view::{
     EVIDENCE_NO_OWNER_CODE, EVIDENCE_PAGE_LIMIT, EVIDENCE_READS_CAPABILITY,
     EvidenceArchiveProjection, EvidenceContentProjection, EvidenceRowProjection,
 };
+use crate::layout_preferences::{
+    LAYOUT_PREFERENCES_CAPABILITY, LayoutPreferenceIntent, LayoutPreferencePatchInput,
+    LayoutPreferencesProjection,
+};
 use crate::operator_git::{
-    OPERATOR_GIT_CAPABILITY, OPERATOR_GIT_NO_OWNER_CODE, OperatorGitIntent, OperatorGitProjection,
-    OperatorGitResultProjection,
+    OPERATOR_GIT_CAPABILITY, OPERATOR_GIT_NO_OWNER_CODE, OPERATOR_GIT_NO_WORKSPACE_OWNER_CODE,
+    OperatorGitIntent, OperatorGitProjection, OperatorGitResultProjection,
 };
 use crate::projection::{
     PreferenceDiagnosticProjection, ResolvedPreferencesProjection, awaits_operator_git_approval,
     evidence_content_projection, evidence_row_projection, exact_terminal_agent_session,
-    operator_git_action, operator_git_result_projection, preference_diagnostic_projection,
-    target_lane_id, workspace_diff_entry_projection, workspace_diff_source_projection,
+    lane_sidebar_mode_name, operator_git_action, operator_git_result_projection,
+    preference_diagnostic_projection, target_lane_id, typed_lane_sidebar_mode,
+    workspace_diff_entry_projection, workspace_diff_source_projection,
 };
 use crate::recent_work::{
     RECENT_WORK_CAPABILITY, RecentProjectProjection, RecentSessionProjection, RecentWorkResult,
@@ -112,6 +118,11 @@ pub struct GuiCoreAdapter {
     /// keeps the receipt's replace/append decision unambiguous and keeps the
     /// screen from paging two lists into one. See [`PendingAuditPage`].
     pending_audit: Option<PendingAuditPage>,
+    /// One layout command at a time, correlated by the id the answering
+    /// `UiLayoutPreferencesUpdated` repeats.
+    pending_layout_preference: Option<PendingLayoutPreference>,
+    layout_preference_outcome: D1OutcomeProjection,
+    layout_preference_receipt: Option<LayoutPreferenceReceipt>,
     /// One inventory read at a time. `WorkspaceFilesLoaded` names the exact
     /// read it answers, so two reads *could* be told apart, but the palette
     /// shows one list and a second read would only race the first for it.
@@ -836,6 +847,54 @@ impl PendingPreference {
     }
 }
 
+/// One in-flight layout-preference command awaiting its ordered Core answer.
+///
+/// Simpler than [`PendingPreference`] on purpose: `UiLayoutPreferencesUpdated`
+/// carries the answering `command_id` itself, so this correlates on the id
+/// rather than inferring a match from the persisted table. A record published
+/// on the snapshot prefix carries no id and therefore never settles a command
+/// nobody sent.
+struct PendingLayoutPreference {
+    command_id: String,
+}
+
+/// What Core confirmed for the last completed layout command.
+///
+/// Deliberately only the two facts `RuntimeViewState` does not carry. The
+/// record itself is reduced into `view.layout_preferences` by the same event,
+/// so keeping a second copy here would be a client-held preference that could
+/// drift from the one Core publishes.
+struct LayoutPreferenceReceipt {
+    persisted: bool,
+    diagnostics: Vec<PreferenceDiagnosticProjection>,
+}
+
+enum LayoutPreferenceObservation {
+    Continue,
+    Confirmed,
+    Rejected(String),
+}
+
+impl PendingLayoutPreference {
+    fn observe(&self, envelope: &RuntimeEventEnvelope) -> LayoutPreferenceObservation {
+        let RuntimeWireEvent::Known(event) = &envelope.event else {
+            return LayoutPreferenceObservation::Continue;
+        };
+        match &event.kind {
+            RuntimeEventKind::CommandRejected { command_id, reason }
+                if command_id == &self.command_id =>
+            {
+                LayoutPreferenceObservation::Rejected(reason.clone())
+            }
+            RuntimeEventKind::UiLayoutPreferencesUpdated {
+                command_id: Some(command_id),
+                ..
+            } if command_id == &self.command_id => LayoutPreferenceObservation::Confirmed,
+            _ => LayoutPreferenceObservation::Continue,
+        }
+    }
+}
+
 /// One in-flight `QueryRecentWork` awaiting its ordered Core answer.
 struct PendingRecentWork {
     command_id: String,
@@ -1514,6 +1573,9 @@ impl GuiCoreAdapter {
             d2_selected: None,
             pending_d2_review: None,
             pending_audit: None,
+            pending_layout_preference: None,
+            layout_preference_outcome: D1OutcomeProjection::idle(),
+            layout_preference_receipt: None,
             pending_workspace_files: None,
             workspace_files_outcome: D1OutcomeProjection::idle(),
             workspace_files_receipt: WorkspaceFilesReceipt::default(),
@@ -2578,14 +2640,28 @@ impl GuiCoreAdapter {
     /// never `RuntimeOwner::default()`, which would record an authorized
     /// mutation as belonging to nobody.
     fn operator_git_owner(&self, lane_id: Option<&str>) -> Result<RuntimeOwner, String> {
-        let lane_id = lane_id.ok_or_else(|| {
-            format!(
-                "{OPERATOR_GIT_NO_OWNER_CODE}: no Lane is selected, so this client has no Core \
-                 owner to run a source-control action as"
-            )
-        })?;
-        self.exact_lane_owner(lane_id, "operator git")
-            .map_err(|error| format!("{OPERATOR_GIT_NO_OWNER_CODE}: {error}"))
+        match lane_id {
+            Some(lane_id) => self
+                .exact_lane_owner(lane_id, "operator git")
+                .map_err(|error| format!("{OPERATOR_GIT_NO_OWNER_CODE}: {error}")),
+            // C5: the workspace target acts as the identity Core minted at
+            // open and published as `WorkspaceRuntimeOwnerBound`. Its absence
+            // is a real answer — this Core published no workspace identity —
+            // and the bar is disabled and labelled with it rather than sending
+            // `RuntimeOwner::default()`, which names nobody. That substitution
+            // is the whole of GUI-CORE-027.
+            None => self
+                .projection
+                .view()
+                .and_then(|view| view.workspace_owner.clone())
+                .ok_or_else(|| {
+                    format!(
+                        "{OPERATOR_GIT_NO_WORKSPACE_OWNER_CODE}: Core published no workspace \
+                         owner, so this client has no identity to run a workspace source-control \
+                         action as"
+                    )
+                }),
+        }
     }
 
     /// Sends one `RunOperatorGitAction` and waits for Core's ordered answer.
@@ -4173,6 +4249,179 @@ impl GuiCoreAdapter {
         }
     }
 
+    /// Whether Core's handshake published the cockpit layout record.
+    ///
+    /// The rail pin and the statusbar gear read this: an absent capability
+    /// leaves both operable as session-only presentation (the G3 behaviour)
+    /// and says so, rather than offering a save that cannot reach Core.
+    pub fn supports_ui_layout_preferences(&self) -> bool {
+        self.supports(LAYOUT_PREFERENCES_CAPABILITY)
+    }
+
+    /// The layout record with no Core traffic.
+    ///
+    /// The record half comes from `RuntimeViewState`, which the snapshot
+    /// prefix fills, so a reconnecting cockpit renders the operator's layout
+    /// without sending anything. The receipt half is whatever the last
+    /// answered command carried; `None` there means no command has answered in
+    /// this session, which is a different fact from "the write failed".
+    pub fn layout_preferences(&self) -> LayoutPreferencesProjection {
+        let record = self
+            .projection
+            .view()
+            .and_then(|view| view.layout_preferences.clone());
+        let receipt = self.layout_preference_receipt.as_ref();
+        LayoutPreferencesProjection {
+            outcome: self.layout_preference_outcome.clone(),
+            pending_command_id: self
+                .pending_layout_preference
+                .as_ref()
+                .map(|pending| pending.command_id.clone()),
+            capability_available: self.supports_ui_layout_preferences(),
+            lane_sidebar_mode: record
+                .as_ref()
+                .map(|record| lane_sidebar_mode_name(record.lane_sidebar_mode).to_string()),
+            hidden_statusbar_segments: record
+                .map(|record| record.hidden_statusbar_segments)
+                .unwrap_or_default(),
+            persisted: receipt.map(|receipt| receipt.persisted),
+            diagnostics: receipt
+                .map(|receipt| receipt.diagnostics.clone())
+                .unwrap_or_default(),
+        }
+    }
+
+    /// Sends one layout mutation and waits for the ordered Core receipt.
+    ///
+    /// An unknown mode and an out-of-bounds hidden-segment list fail closed
+    /// before anything is sent, using Core's own validator so the wording
+    /// cannot drift. Core owns the bound, the persistence, and the `[ui.layout]`
+    /// table; this client never writes one.
+    pub fn send_layout_preference_intent_and_wait(
+        &mut self,
+        command_id: &str,
+        intent: LayoutPreferenceIntent,
+        event_timeout: Duration,
+    ) -> Result<LayoutPreferencesProjection, String> {
+        if !self.supports_ui_layout_preferences() {
+            return Err(format!(
+                "missing Core capability `{LAYOUT_PREFERENCES_CAPABILITY}`"
+            ));
+        }
+        if let Some(pending) = &self.pending_layout_preference {
+            return Err(format!(
+                "layout preference command `{}` is still pending",
+                pending.command_id
+            ));
+        }
+        let command = match intent {
+            LayoutPreferenceIntent::Set { patch } => {
+                let patch = typed_layout_patch(&patch)?;
+                if patch.lane_sidebar_mode.is_none() && patch.hidden_statusbar_segments.is_none() {
+                    return Err("no layout change to save".to_string());
+                }
+                // Core's own validator, imported rather than reimplemented, so
+                // a refusal the operator sees locally says exactly what Core
+                // would have said.
+                patch.validate()?;
+                RuntimeCommand::SetUiLayoutPreferences { patch }
+            }
+            LayoutPreferenceIntent::Reset => RuntimeCommand::ResetUiLayoutPreferences,
+        };
+        self.client
+            .send(RuntimeCommandEnvelope {
+                schema_version: FRONTEND_SCHEMA_V1,
+                client_id: "viden-gui".to_string(),
+                command_id: command_id.to_string(),
+                // The cockpit layout is user-scoped, not Lane-scoped.
+                owner: RuntimeOwner::default(),
+                command,
+            })
+            .map_err(|error| error.to_string())?;
+        self.pending_layout_preference = Some(PendingLayoutPreference {
+            command_id: command_id.to_string(),
+        });
+        self.layout_preference_outcome = D1OutcomeProjection::pending();
+        self.layout_preference_receipt = None;
+        self.poll_layout_preferences(event_timeout)
+    }
+
+    /// Drains ordered Core events for the in-flight layout command.
+    pub fn poll_layout_preferences(
+        &mut self,
+        event_timeout: Duration,
+    ) -> Result<LayoutPreferencesProjection, String> {
+        let mut received = false;
+        let mut receive_failed = false;
+        for _ in 0..8 {
+            let event = match self.receive_event_until(event_timeout) {
+                Ok(Some(event)) => event,
+                Ok(None) => break,
+                Err(_) => {
+                    receive_failed = true;
+                    break;
+                }
+            };
+            received = true;
+            if self.observe_pending_layout_preference(&event) {
+                break;
+            }
+        }
+        if received && !receive_failed {
+            self.refresh_projection()
+                .map_err(|error| error.to_string())?;
+        }
+        Ok(self.layout_preferences())
+    }
+
+    /// Reconciles one ordered event against the in-flight layout command.
+    ///
+    /// Returns whether the command reached a terminal outcome. The desktop
+    /// event pump calls this too, so a background drain can never swallow the
+    /// only receipt the cockpit is waiting for.
+    pub(crate) fn observe_pending_layout_preference(
+        &mut self,
+        event: &RuntimeEventEnvelope,
+    ) -> bool {
+        let observation = self
+            .pending_layout_preference
+            .as_ref()
+            .map_or(LayoutPreferenceObservation::Continue, |pending| {
+                pending.observe(event)
+            });
+        match observation {
+            LayoutPreferenceObservation::Continue => false,
+            LayoutPreferenceObservation::Confirmed => {
+                self.pending_layout_preference = None;
+                self.layout_preference_outcome = D1OutcomeProjection::confirmed();
+                if let RuntimeWireEvent::Known(known) = &event.event
+                    && let RuntimeEventKind::UiLayoutPreferencesUpdated {
+                        persisted,
+                        diagnostics,
+                        ..
+                    } = &known.kind
+                {
+                    // The confirming fact is the authority for whether the
+                    // record reached the file; nothing is recomputed.
+                    self.layout_preference_receipt = Some(LayoutPreferenceReceipt {
+                        persisted: *persisted,
+                        diagnostics: diagnostics
+                            .iter()
+                            .map(preference_diagnostic_projection)
+                            .collect(),
+                    });
+                }
+                true
+            }
+            LayoutPreferenceObservation::Rejected(reason) => {
+                self.pending_layout_preference = None;
+                self.layout_preference_outcome = D1OutcomeProjection::rejected(reason);
+                self.layout_preference_receipt = None;
+                true
+            }
+        }
+    }
+
     /// Whether Core's handshake published the recent-work inventory.
     ///
     /// Welcome and the project picker read this before they render, so an
@@ -4614,6 +4863,7 @@ impl GuiCoreAdapter {
             received = true;
             self.observe_pending_permission(&event);
             self.observe_pending_preference(&event);
+            self.observe_pending_layout_preference(&event);
             self.observe_pending_recent_work(&event);
             self.observe_pending_audit(&event);
             self.observe_pending_workspace_files(&event);
@@ -4743,6 +4993,24 @@ fn sha256(bytes: &[u8]) -> String {
 /// the offending axis named, instead of travelling to Core as a command Core
 /// would have to reject. The skin/mode pair is deliberately *not* validated
 /// here — Core owns that rule and rejects an invalid pair itself.
+/// Converts the webview's layout patch into Core's typed one.
+///
+/// An unknown mode is refused rather than defaulted: writing `floating` over
+/// an operator's `pinned` because this build did not recognize a word would be
+/// the client choosing their layout for them.
+fn typed_layout_patch(
+    patch: &LayoutPreferencePatchInput,
+) -> Result<UiLayoutPreferencePatch, String> {
+    Ok(UiLayoutPreferencePatch {
+        lane_sidebar_mode: patch
+            .lane_sidebar_mode
+            .as_deref()
+            .map(typed_lane_sidebar_mode)
+            .transpose()?,
+        hidden_statusbar_segments: patch.hidden_statusbar_segments.clone(),
+    })
+}
+
 fn typed_preference_patch(input: &PreferencePatchInput) -> Result<UiPreferencePatch, String> {
     fn locale(value: &str) -> Result<LocaleId, String> {
         match value {

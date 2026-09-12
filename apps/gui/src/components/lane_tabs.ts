@@ -21,13 +21,18 @@ import "./lane_tabs.css";
  * carrying the `.lanehd` content. Nothing is invented: every part of both
  * families is in the flagship's own stylesheet.
  *
- * **What is a Lane fact and what is not.** The branch comes from the Lane's own
- * `branch` field and is omitted when Core recorded none — the workspace's
- * branch is a different fact and must never stand in for it (this is the seam
- * `C5`'s `lane_sources` fills, per-Lane worktree source; until a Lane source
- * reaches this projection the recorded branch is all Core says). The agent is
- * Core's own `agentSessions` binding; a Lane with no Agent session runs on the
- * built-in runtime, which the Lane rail already names the same way.
+ * **What is a Lane fact and what is not.** The branch is `C5`'s per-Lane
+ * worktree source (`lane_sources[lane]`) when Core sampled one, and the Lane's
+ * own recorded `branch` otherwise — a sampled tree's branch is the live fact,
+ * and the record is what Core wrote when the Lane was created. A Lane with
+ * neither shows no branch: the workspace's branch belongs to the titlebar and
+ * must never stand in for a Lane's. A sampled tree additionally carries its
+ * own `↑ahead ↓behind` and dirty marker, which is exactly the fact that could
+ * not be shown before `C5` — the titlebar chips are the *workspace* root's
+ * position, and printing them on a Lane tab would name one tree with another
+ * tree's numbers. The agent is Core's own `agentSessions` binding; a Lane with
+ * no Agent session runs on the built-in runtime, which the Lane rail already
+ * names the same way.
  *
  * **Why the meta slot describes only the selected Lane.** The cockpit
  * projection is Lane-scoped: `contextDock.context` is the budget Core sampled
@@ -102,15 +107,35 @@ export function renderLaneTabs(options: LaneTabsOptions): HTMLElement {
     name.className = "lnm";
     name.textContent = lane.summary;
     head.append(status, id, name);
-    if (lane.branch) {
-      // The Lane's own recorded branch. Absent stays absent: the workspace's
-      // branch belongs to the titlebar, not to a Lane that recorded none.
+    // `C5`'s sampled worktree wins over the recorded branch, because it is
+    // the live fact about that tree; the record is what Core wrote at
+    // creation. Neither means no branch is drawn.
+    const laneSource = lane.source ?? null;
+    const branchName = laneSource?.branch ?? lane.branch;
+    if (branchName) {
       const branch = document.createElement("span");
       branch.className = "lbr";
       branch.dataset.laneTabBranch = "true";
-      branch.title = lane.branch;
-      branch.textContent = lane.branch;
+      if (laneSource?.branch) branch.dataset.laneTabBranchSource = "lane_sources";
+      branch.title = branchName;
+      branch.textContent = branchName;
       head.append(branch);
+    }
+    if (laneSource && laneSource.status !== "unavailable") {
+      // This Lane's own position and dirt, never the workspace chip's. A
+      // sample Core could not take renders nothing rather than zeroes, which
+      // would read as "clean and in sync".
+      const position = document.createElement("span");
+      position.className = "lscope d1-lane-tab-source";
+      position.dataset.laneTabSource = lane.id;
+      const marks = [`↑${laneSource.ahead} ↓${laneSource.behind}`];
+      if (laneSource.dirty) marks.push("●");
+      position.textContent = marks.join(" ");
+      position.title = translate(locale, "d1.laneTabs.source", {
+        ahead: String(laneSource.ahead),
+        behind: String(laneSource.behind),
+      });
+      head.append(position);
     }
     const agent = document.createElement("span");
     agent.className = "lscope d1-lane-tab-agent";
@@ -125,7 +150,7 @@ export function renderLaneTabs(options: LaneTabsOptions): HTMLElement {
     // the design's compact glyph.
     tab.setAttribute(
       "aria-label",
-      `${lane.id} · ${lane.summary} · ${lane.status}${lane.branch ? ` · ${lane.branch}` : ""}`,
+      `${lane.id} · ${lane.summary} · ${lane.status}${branchName ? ` · ${branchName}` : ""}`,
     );
     tab.addEventListener("click", () => options.onSelectLane(lane.id));
     tab.addEventListener("keydown", (event) => {

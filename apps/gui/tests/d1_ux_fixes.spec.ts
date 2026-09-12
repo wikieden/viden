@@ -60,7 +60,7 @@ function projection(overrides: Partial<D1CockpitProjection> = {}): D1CockpitProj
       tokens: null,
       diagnosticsCount: 0,
       requests: null,
-      pendingGateCount: 0,
+      pendingDecisionCount: 0,
     },
     permissionDock: { workMode: "build", permissionLevel: "ask", request: null },
     recovery: {

@@ -21,7 +21,7 @@ const FULL: D1StatusbarProjection = {
   tokens: { inputTokens: 42_100, outputTokens: 8_900 },
   diagnosticsCount: 1,
   requests: { requestCount: 128, errorCount: 0 },
-  pendingGateCount: 1,
+  pendingDecisionCount: 1,
 };
 
 const EMPTY: D1StatusbarProjection = {
@@ -34,7 +34,7 @@ const EMPTY: D1StatusbarProjection = {
   tokens: null,
   diagnosticsCount: 0,
   requests: null,
-  pendingGateCount: 0,
+  pendingDecisionCount: 0,
 };
 
 function segmentText(bar: HTMLElement, id: string): string {
@@ -76,7 +76,9 @@ describe("statusbar", () => {
     const onNavigate = vi.fn();
     const bar = renderStatusbar(FULL, "en", onNavigate);
     const gate = bar.querySelector<HTMLButtonElement>("[data-sb-gate]");
-    expect(gate?.textContent).toContain("1 gate waiting");
+    // G7 made this the D2 queue's own total, printed in the queue's own words,
+    // so the chip and the header the click lands on read the same sentence.
+    expect(gate?.textContent).toContain("1 awaiting you");
     gate?.click();
     expect(onNavigate).toHaveBeenCalledExactlyOnceWith("d2");
     // Every other segment is inert text.
@@ -107,7 +109,7 @@ describe("statusbar", () => {
     const onNavigate = vi.fn();
     const projection = {
       ...D1_PROJECTION,
-      statusbar: { ...D1_PROJECTION.statusbar, pendingGateCount: 2 },
+      statusbar: { ...D1_PROJECTION.statusbar, pendingDecisionCount: 2 },
     };
     const controller = renderD1Cockpit(
       root,

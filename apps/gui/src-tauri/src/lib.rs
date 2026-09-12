@@ -12,6 +12,7 @@ mod d4;
 mod d6;
 mod diff_review;
 mod evidence_view;
+mod layout_preferences;
 mod operator_git;
 mod permission;
 mod presentation;
@@ -83,7 +84,8 @@ pub use evidence_view::{
 };
 pub use operator_git::{
     OPERATOR_GIT_APPROVAL_KIND, OPERATOR_GIT_CAPABILITY, OPERATOR_GIT_NO_OWNER_CODE,
-    OperatorGitIntent, OperatorGitProjection, OperatorGitResultProjection,
+    OPERATOR_GIT_NO_WORKSPACE_OWNER_CODE, OperatorGitIntent, OperatorGitProjection,
+    OperatorGitResultProjection,
 };
 pub use permission::{
     PermissionActionProjection, PermissionChoice, PermissionDockProjection, PermissionIntent,
@@ -91,6 +93,10 @@ pub use permission::{
     PermissionTargetProjection,
 };
 
+pub use layout_preferences::{
+    LAYOUT_PREFERENCES_CAPABILITY, LayoutPreferenceIntent, LayoutPreferencePatchInput,
+    LayoutPreferencesProjection,
+};
 pub use presentation::{
     ComposerAction, ComposerDraft, GuiPreferences, TranscriptRow, TranscriptViewport,
     WorkspaceSelection,
@@ -258,6 +264,76 @@ fn recent_work_poll(state: tauri::State<'_, DesktopState>) -> Result<RecentWorkR
         .as_mut()
         .ok_or_else(|| "Core adapter is not connected".to_string())?
         .poll_recent_work(Duration::from_millis(250))
+}
+
+/// The cockpit layout record with no Core traffic (`ui.layout_preferences`).
+///
+/// The cockpit reads this at mount and on every ordered wake, which is what
+/// keeps the webview from holding a second copy of the operator's layout.
+#[tauri::command]
+fn layout_preferences(
+    state: tauri::State<'_, DesktopState>,
+) -> Result<LayoutPreferencesProjection, String> {
+    Ok(state
+        .adapter
+        .lock()
+        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?
+        .as_ref()
+        .ok_or_else(|| "Core adapter is not connected".to_string())?
+        .layout_preferences())
+}
+
+/// Sends one `SetUiLayoutPreferences` and waits for the ordered receipt.
+#[tauri::command]
+fn layout_preferences_set(
+    command_id: String,
+    patch: LayoutPreferencePatchInput,
+    state: tauri::State<'_, DesktopState>,
+) -> Result<LayoutPreferencesProjection, String> {
+    state
+        .adapter
+        .lock()
+        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?
+        .as_mut()
+        .ok_or_else(|| "Core adapter is not connected".to_string())?
+        .send_layout_preference_intent_and_wait(
+            &command_id,
+            LayoutPreferenceIntent::Set { patch },
+            Duration::from_millis(250),
+        )
+}
+
+/// Sends one `ResetUiLayoutPreferences`, dropping the persisted `[ui.layout]`.
+#[tauri::command]
+fn layout_preferences_reset(
+    command_id: String,
+    state: tauri::State<'_, DesktopState>,
+) -> Result<LayoutPreferencesProjection, String> {
+    state
+        .adapter
+        .lock()
+        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?
+        .as_mut()
+        .ok_or_else(|| "Core adapter is not connected".to_string())?
+        .send_layout_preference_intent_and_wait(
+            &command_id,
+            LayoutPreferenceIntent::Reset,
+            Duration::from_millis(250),
+        )
+}
+
+/// Drains ordered Core events for a layout command still in flight.
+#[tauri::command]
+fn layout_preferences_poll(
+    state: tauri::State<'_, DesktopState>,
+) -> Result<LayoutPreferencesProjection, String> {
+    state
+        .adapter
+        .lock()
+        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?
+        .as_mut()
+        .ok_or_else(|| "Core adapter is not connected".to_string())?
+        .poll_layout_preferences(Duration::from_millis(250))
 }
 
 /// Sends one `QueryWorkspaceFiles` and waits briefly for Core's ordered answer.
@@ -1012,6 +1088,10 @@ pub fn run_with_adapter(adapter: Option<GuiCoreAdapter>) {
             preferences_poll,
             query_recent_work,
             recent_work_poll,
+            layout_preferences,
+            layout_preferences_set,
+            layout_preferences_reset,
+            layout_preferences_poll,
             query_workspace_files,
             workspace_files_poll,
             query_workspace_diff,

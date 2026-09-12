@@ -52,14 +52,18 @@ export const ALL_STATUSBAR_AMBIENT_VISIBLE: StatusbarAmbientVisibility = {
  * The config gear's port.
  *
  * Absent on a bar nobody can configure — the gear is then not rendered at all,
- * rather than rendered and inert. The visibility map is presentation state the
- * cockpit holds in memory; see the seam note in `d1_cockpit.ts`.
+ * rather than rendered and inert. The visibility map is derived from Core's
+ * `UiLayoutPreferences.hidden_statusbar_segments` (C5); `note` is what Core
+ * said about the last write, which is where a record Core applied but could
+ * not persist becomes visible instead of silently coming back rearranged.
  */
 export interface StatusbarConfig {
   ambient: StatusbarAmbientVisibility;
   open: boolean;
   onToggleOpen: () => void;
   onToggleSegment: (segment: StatusbarAmbientSegment) => void;
+  /** Core's own sentence about the layout record, or `null` when it is clean. */
+  note?: string | null;
 }
 
 /// Compact token counts in the design's terminal vocabulary ("42.1k").
@@ -253,15 +257,16 @@ export function renderStatusbar(
 
   // An absent count omits the segment for the same reason a zero does: neither
   // is a decision waiting on the operator, and only one of them is a number.
-  if (statusbar.pendingGateCount !== null && statusbar.pendingGateCount > 0) {
-    // The only interactive segment: it opens the D2 decision queue where the
-    // waiting gates are actually decided.
+  if (statusbar.pendingDecisionCount !== null && statusbar.pendingDecisionCount > 0) {
+    // The only interactive segment: it opens the D2 decision queue, and it
+    // prints that queue's own total in that queue's own words — the rail badge
+    // reads the same field, so the three surfaces cannot disagree.
     const gate = document.createElement("button");
     gate.type = "button";
     gate.className = "sb-right d1-sb-gate";
     gate.dataset.sbGate = "true";
-    gate.textContent = `⏸ ${translate(locale, "d1.statusbar.gateWaiting", {
-      count: String(statusbar.pendingGateCount),
+    gate.textContent = `⏸ ${translate(locale, "d1.statusbar.decisionsWaiting", {
+      count: String(statusbar.pendingDecisionCount),
     })}`;
     gate.disabled = !onNavigate;
     gate.addEventListener("click", () => onNavigate?.("d2"));
@@ -302,6 +307,17 @@ export function renderStatusbar(
     foot.className = "mfoot";
     foot.textContent = translate(locale, "d1.statusbar.config.foot", {});
     popover.append(foot);
+    if (config.note) {
+      // A layout Core applied and could not write, or refused outright. Said
+      // where the change was made rather than only in a tooltip, because the
+      // operator's next restart is what disagrees with it.
+      const note = document.createElement("p");
+      note.className = "mfoot d1-sb-config-note";
+      note.dataset.sbConfigNote = "true";
+      note.setAttribute("role", "status");
+      note.textContent = config.note;
+      popover.append(note);
+    }
     bar.append(popover);
   }
 

@@ -51,6 +51,17 @@ pub const OPERATOR_GIT_APPROVAL_KIND: &str = "git";
 /// record an authorized mutation as belonging to nobody.
 pub const OPERATOR_GIT_NO_OWNER_CODE: &str = "D1-OPERATOR-GIT-OWNER";
 
+/// The local code the bar renders when Core published no workspace owner
+/// (`runtime.workspace_owner`, C5).
+///
+/// Its own code rather than [`OPERATOR_GIT_NO_OWNER_CODE`], because the two
+/// absences have different remedies: that one says "select a Lane", and this
+/// one says "this Core does not publish a workspace identity", which no
+/// selection fixes. Before C5 the workspace target had no owner at all and was
+/// always the first case; conflating them now would send an operator looking
+/// for a Lane to select when the fact they are missing is Core's.
+pub const OPERATOR_GIT_NO_WORKSPACE_OWNER_CODE: &str = "D1-OPERATOR-GIT-NO-WORKSPACE-OWNER";
+
 /// One operator action as the frontend names it.
 ///
 /// Mirrors Core's `OperatorGitAction` rather than wrapping it so the wire

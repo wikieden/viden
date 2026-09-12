@@ -49,6 +49,81 @@ function tabs(overrides: Partial<LaneTabsOptions> = {}): HTMLElement {
   });
 }
 
+/**
+ * `C5`'s per-Lane worktree source on the same strip.
+ *
+ * Two facts could not be shown before it: a Lane's *live* branch (the recorded
+ * one is what Core wrote at creation) and that Lane's own ahead/behind. The
+ * titlebar chips are the workspace root's position, so printing them here
+ * would name one tree with another tree's numbers.
+ */
+describe("lane tab strip with C5 lane sources", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  const sampled = {
+    status: "ready" as const,
+    branch: "vd/retry-policy",
+    worktree: "/workspace/viden/.worktrees/vd-retry-policy",
+    ahead: 3,
+    behind: 1,
+    added: 4,
+    deleted: 2,
+    dirty: true,
+  };
+
+  test("a sampled worktree's branch wins over the recorded one and carries its position", () => {
+    const strip = renderLaneTabs({
+      projection: {
+        ...PROJECTION,
+        lanes: PROJECTION.lanes.map((lane) =>
+          lane.id === "lane-review" ? { ...lane, source: sampled } : lane,
+        ),
+      },
+      locale: "en",
+      selectedLaneId: "lane-core",
+      onSelectLane: vi.fn(),
+      onCreateLane: vi.fn(),
+    });
+    const tab = strip.querySelector<HTMLElement>("[data-lane-tab='lane-review']")!;
+    const branch = tab.querySelector<HTMLElement>("[data-lane-tab-branch]")!;
+    expect(branch.textContent).toBe("vd/retry-policy");
+    expect(branch.dataset.laneTabBranchSource).toBe("lane_sources");
+    expect(tab.querySelector("[data-lane-tab-source]")?.textContent).toBe("↑3 ↓1 ●");
+  });
+
+  test("a Lane Core sampled nothing for keeps its recorded branch and no position", () => {
+    const tab = tabs().querySelector<HTMLElement>("[data-lane-tab='lane-review']")!;
+    const branch = tab.querySelector<HTMLElement>("[data-lane-tab-branch]")!;
+    expect(branch.textContent).toBe("codex/lane-review");
+    expect(branch.dataset.laneTabBranchSource).toBeUndefined();
+    expect(tab.querySelector("[data-lane-tab-source]")).toBeNull();
+  });
+
+  test("an unavailable sample draws no position rather than zeroes", () => {
+    const strip = renderLaneTabs({
+      projection: {
+        ...PROJECTION,
+        lanes: PROJECTION.lanes.map((lane) =>
+          lane.id === "lane-review"
+            ? {
+                ...lane,
+                source: { ...sampled, status: "unavailable" as const, ahead: 0, behind: 0 },
+              }
+            : lane,
+        ),
+      },
+      locale: "en",
+      selectedLaneId: "lane-core",
+      onSelectLane: vi.fn(),
+      onCreateLane: vi.fn(),
+    });
+    const tab = strip.querySelector<HTMLElement>("[data-lane-tab='lane-review']")!;
+    expect(tab.querySelector("[data-lane-tab-source]")).toBeNull();
+  });
+});
+
 describe("lane tab strip", () => {
   beforeEach(() => {
     document.body.innerHTML = "";

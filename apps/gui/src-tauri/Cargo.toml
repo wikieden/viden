@@ -160,3 +160,7 @@ path = "../tests/decision_context.rs"
 [[test]]
 name = "evidence_reads"
 path = "../tests/evidence_reads.rs"
+
+[[test]]
+name = "workspace_owner"
+path = "../tests/workspace_owner.rs"

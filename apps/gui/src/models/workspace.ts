@@ -245,15 +245,22 @@ export interface D1StatusbarProjection {
   diagnosticsCount: number;
   requests: { requestCount: number; errorCount: number } | null;
   /**
-   * Decisions Core is holding for a human — the number behind the statusbar's
-   * `⏸` segment and the activity rail's D2 badge.
+   * Decisions awaiting the operator — the one count behind the statusbar's
+   * `⏸` segment, the activity rail's D2 badge, and the D2 queue's own header.
+   *
+   * **Pending approvals plus pending reviews**, which is exactly what the D2
+   * queue lists as awaiting a human. Open merge gates were in this number and
+   * are not any more: they are decided in D12, so counting them here made the
+   * badge promise rows its destination never showed (the G6 capture's `7`
+   * beside `2 awaiting you`). The gate dormancy rule still governs D12's
+   * ordering, D6's clear state and the palette's gate rows.
    *
    * `null` is "Core published no count", which the shell's pre-connection
    * placeholder projection carries. It is deliberately distinct from `0`
    * ("nothing is waiting"): rendering the placeholder as a zero would tell the
    * operator their queue is empty before anything has been counted.
    */
-  pendingGateCount: number | null;
+  pendingDecisionCount: number | null;
 }
 
 export interface D1CockpitProjection {
@@ -274,6 +281,16 @@ export interface D1CockpitProjection {
     status: string;
     summary: string;
     branch: string | null;
+    /**
+     * This Lane's own worktree source (`C5`'s `lane_sources`), or absent when
+     * Core sampled none for it.
+     *
+     * Never falls back to `topbarSource`: that is the workspace root's
+     * position, and printing it on a Lane tab would name one tree with another
+     * tree's ahead/behind. Optional on the wire because a Core build without
+     * `C5` publishes no such row.
+     */
+    source?: WorkspaceSourceProjection | null;
   }>;
   environment: {
     cwd: string;

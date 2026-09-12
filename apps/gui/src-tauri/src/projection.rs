@@ -9,8 +9,8 @@ use viden_core::{
     CheckRunStatus, ConflictBaseline, ConflictBounceStatus, ConflictContent, ConflictFile,
     ConflictHunk, ConflictHunkReason, ContextScope, ContractDecision, ContractRecord,
     CostMeterability, CredentialHandle, DecisionContext, DependencyState, DiffDocument, DiffFile,
-    DiffHunk, DiffLine, DiffLineKind, EventCursor, GateStrength, LaneStatus, LocaleId,
-    MergeGateRecord, MergeGateStatus, MergeGateType, MutationPolicy, OperatorGitAction,
+    DiffHunk, DiffLine, DiffLineKind, EventCursor, GateStrength, LaneSidebarMode, LaneStatus,
+    LocaleId, MergeGateRecord, MergeGateStatus, MergeGateType, MutationPolicy, OperatorGitAction,
     OperatorGitFailureClass, OperatorGitOutcome, ProjectConfigPreview, ProjectProbe,
     ProviderHealthView, ReviewRequestRecord, ReviewRequestStatus, RuntimeOwner, RuntimeServiceKind,
     RuntimeServiceStatus, RuntimeSnapshotEnvelope, RuntimeViewState, SourceTarget, UiColorMode,
@@ -401,12 +401,11 @@ impl RuntimeProjection {
         let review_items: Vec<D2QueueItemProjection> =
             view.review_requests.iter().map(review_queue_item).collect();
 
-        // Only approvals and pending reviews are actually awaiting a human.
-        let pending_total = gate_items.len()
-            + review_items
-                .iter()
-                .filter(|item| item.status == "pending")
-                .count();
+        // The one count of decisions awaiting the operator. The rail badge,
+        // the statusbar chip and this header read the same function, because
+        // three surfaces printing one queue's size from three sums is how they
+        // start disagreeing (G6 captured the `7` beside `2 awaiting you`).
+        let pending_total = pending_decision_count(view) as usize;
 
         let groups = vec![
             D2GroupProjection {
@@ -1534,18 +1533,9 @@ impl RuntimeProjection {
                     request_count: provider.request_count,
                     error_count: provider.error_count,
                 }),
-            // The badge must match what its navigation target can act on:
-            // it takes the operator to the decision surfaces, so counting
-            // gates whose session finished weeks ago sends them to a screen
-            // with nothing live in it. Dormant gates are still listed there —
-            // they are grouped, not hidden — but they are not a count of work
-            // waiting on the operator.
-            pending_gate_count: view.pending_approvals.len() as u64
-                + view
-                    .merge_gates
-                    .iter()
-                    .filter(|gate| gate.status.is_open() && !is_dormant_gate(view, gate))
-                    .count() as u64,
+            // The same function the D2 header prints, so the badge promises
+            // exactly what the view it opens lists.
+            pending_decision_count: pending_decision_count(view),
         };
         // The titlebar git block is a workspace-level read, not a Lane-scoped
         // one: Core samples `workspace_source` from the workspace root. An
@@ -1602,6 +1592,11 @@ impl RuntimeProjection {
                     status: lane_status(lane.status).to_string(),
                     summary: lane.summary.clone(),
                     branch: lane.branch.clone(),
+                    // C5: the Lane's own worktree, when Core sampled one.
+                    source: view
+                        .lane_sources
+                        .get(&lane.id)
+                        .map(workspace_source_projection),
                 })
                 .collect(),
             environment: D1EnvironmentProjection {
@@ -2119,6 +2114,60 @@ pub(crate) fn is_dormant_gate(view: &RuntimeViewState, gate: &MergeGateRecord) -
                     | AgentSessionStatus::Cancelled
             )
     })
+}
+
+/// The wire spelling of one sidebar mode (`ui.layout_preferences`, C5).
+///
+/// `unknown` rather than a nearest-match: the enum is `#[non_exhaustive]`, and
+/// drawing a pinned column for a mode Core named something else would be the
+/// client inventing a layout the operator never chose.
+pub(crate) fn lane_sidebar_mode_name(mode: LaneSidebarMode) -> &'static str {
+    match mode {
+        LaneSidebarMode::Pinned => "pinned",
+        LaneSidebarMode::Floating => "floating",
+        _ => "unknown",
+    }
+}
+
+/// The typed mode for one wire spelling, or an error naming what was accepted.
+///
+/// Refused rather than defaulted: a patch carrying a mode this build does not
+/// know would otherwise write `floating` over the operator's `pinned`.
+pub(crate) fn typed_lane_sidebar_mode(value: &str) -> Result<LaneSidebarMode, String> {
+    match value {
+        "pinned" => Ok(LaneSidebarMode::Pinned),
+        "floating" => Ok(LaneSidebarMode::Floating),
+        other => Err(format!(
+            "unknown lane sidebar mode `{other}`; expected `pinned` or `floating`"
+        )),
+    }
+}
+
+/// The number of decisions awaiting the operator — one definition, three
+/// surfaces.
+///
+/// **Pending approvals plus pending reviews**, which is exactly what the D2
+/// decision queue lists as awaiting a human. The rail's D2 badge, the
+/// statusbar's `⏸` chip and D2's own header all print this, because all three
+/// promise the same thing: press here and decide these.
+///
+/// Open merge gates are deliberately *not* counted. They were, and the G6
+/// capture showed the result — a rail badge reading `7` above a queue whose
+/// own header read `2 awaiting you` — because D2 lists approvals, reviews and
+/// contracts, and a merge gate is decided in D12. A badge that counts rows its
+/// destination does not show is a promise the destination cannot keep.
+///
+/// The gate dormancy rule is untouched and still governs everything it was
+/// written for: D12's ordering and labelling, D6's clear state
+/// ([`has_actionable_merge_gate`]) and the command palette's gate rows. It no
+/// longer affects this count, because merge gates no longer enter it.
+pub(crate) fn pending_decision_count(view: &RuntimeViewState) -> u64 {
+    view.pending_approvals.len() as u64
+        + view
+            .review_requests
+            .iter()
+            .filter(|review| review.status == ReviewRequestStatus::Pending)
+            .count() as u64
 }
 
 /// Whether any gate is both open and still attached to a live session — the

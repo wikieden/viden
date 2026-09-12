@@ -30,6 +30,7 @@ import {
 } from "../components/settings_panel";
 import {
   ALL_STATUSBAR_AMBIENT_VISIBLE,
+  STATUSBAR_AMBIENT_SEGMENTS,
   renderStatusbar,
   type StatusbarAmbientSegment,
   type StatusbarAmbientVisibility,
@@ -40,6 +41,12 @@ import {
   type DockTab,
 } from "../components/context_dock";
 import { renderLaneRail, type LaneSidebarMode } from "../components/lane_rail";
+import {
+  LAYOUT_PREFERENCES_CAPABILITY,
+  IDLE_LAYOUT_PREFERENCES,
+  type LayoutPreferencePatch,
+  type LayoutPreferencesProjection,
+} from "../models/layout_preferences";
 import { cycledLaneId, renderLaneTabs } from "../components/lane_tabs";
 import {
   renderProjectPicker,
@@ -382,21 +389,37 @@ export interface D1RenderOptions {
     ) => void | Promise<void>;
   };
   /**
-   * The Lane sidebar's `D-SIDEBAR` mode at mount. Defaults to the decision's
-   * own default, `floating`.
+   * The Lane sidebar's `D-SIDEBAR` mode before Core answers, and the mode a
+   * host that publishes no layout record keeps. Defaults to the decision's own
+   * default, `floating`.
    *
-   * **Seam.** This is presentation state held in memory for this batch and
-   * deliberately not persisted: the frontend contract makes Core the single
-   * preference authority, so a `localStorage` key here (which the design
-   * prototype uses as `vd-leftmode`) would be the second preference model the
-   * contract forbids. Core batch `C5` adds
-   * `UiLayoutPreferences.lane_sidebar_mode`; G7 then reads it here and writes
-   * it through the preference command, and this option becomes the resolved
-   * Core value rather than a caller default. The pinned column's width is
-   * fixed at the design's default (`--rail-left`, 218px) for this batch; the
-   * 176–360 drag the token documents is the same seam's second field.
+   * With `layout` bound this is only the frame drawn *before* the first read
+   * lands: from then on the mode is Core's published
+   * `UiLayoutPreferences.lane_sidebar_mode`, re-read on every wake, so the
+   * webview holds no copy of the operator's layout beyond the view it is
+   * rendering. Without the capability the mode stays session-local — the G3
+   * behaviour — and the pin says so.
+   *
+   * The pinned column's width is still fixed at the design's default
+   * (`--rail-left`, 218px); the 176–360 drag the token documents is the same
+   * record's second field and is not implemented.
    */
   laneSidebarMode?: LaneSidebarMode;
+  /**
+   * The Core-owned cockpit layout record (`ui.layout_preferences`, C5).
+   *
+   * `read` is a no-traffic projection: the cockpit calls it at mount and on
+   * every ordered wake, which is what makes Core the single authority for the
+   * sidebar mode and the statusbar's hidden segments. `set` sends one
+   * `SetUiLayoutPreferences` carrying only the axis the operator changed, and
+   * the rendered layout moves when Core's answer comes back — never
+   * optimistically, because a `persisted: false` answer is a different fact
+   * from a saved one and the operator has to see which they got.
+   */
+  layout?: {
+    read: () => Promise<LayoutPreferencesProjection>;
+    set: (patch: LayoutPreferencePatch) => Promise<LayoutPreferencesProjection>;
+  };
   /** Opens D14 scoped to one audit object, for EvidenceView's footer. */
   onOpenAuditTrail?: (scope: { kind: string; id: string }) => void;
   /** Native folder chooser behind the picker's `Add directory…` row. */
@@ -741,10 +764,24 @@ export function renderD1Cockpit(
   /// the screen rather than leaving the pane blank.
   let secondaryError: string | null = null;
   /**
-   * The Lane sidebar mode (`D-SIDEBAR`). In-memory for this batch; the
-   * persistence seam is documented on `D1RenderOptions.laneSidebarMode`.
+   * The Lane sidebar mode (`D-SIDEBAR`) this frame draws.
+   *
+   * Core's published record once `layout.read` has answered — re-read on every
+   * wake rather than remembered — and the caller's default until then, or for
+   * the whole session on a Core that publishes no layout record.
    */
   let laneSidebarMode: LaneSidebarMode = options.laneSidebarMode ?? "floating";
+  /**
+   * The layout record exactly as Core last published it.
+   *
+   * Held for one purpose only: rendering `persisted` and Core's diagnostics.
+   * The two *values* it carries are copied into `laneSidebarMode` and
+   * `statusbarAmbient` on arrival, and both are re-derived from the next read,
+   * so nothing here outlives the projection it came from.
+   */
+  let layoutRecord: LayoutPreferencesProjection = IDLE_LAYOUT_PREFERENCES;
+  /** True while a layout command is out, so a wake cannot stack patches. */
+  let layoutCommandInFlight = false;
   /**
    * Focus mode (`⌘.`).
    *
@@ -771,10 +808,11 @@ export function renderD1Cockpit(
   /**
    * Which ambient statusbar segments are shown (`D-STATUSBAR`).
    *
-   * **Seam.** In memory, like `laneSidebarMode` and for the same reason: the
-   * GUI must not own a second preference authority. When Core publishes a
-   * statusbar preference — the same `UiLayoutPreferences` record `C5` adds —
-   * this map becomes its resolved value.
+   * Derived from Core's `hidden_statusbar_segments` once the layout record has
+   * answered: a segment is shown unless the operator hid it. Names Core stored
+   * that this build's vocabulary does not contain are kept in the record and
+   * ignored here rather than dropped, because dropping them on the next write
+   * would quietly unhide a newer client's segment.
    */
   let statusbarAmbient: StatusbarAmbientVisibility = { ...ALL_STATUSBAR_AMBIENT_VISIBLE };
   let statusbarConfigOpen = false;
@@ -1586,6 +1624,10 @@ export function renderD1Cockpit(
         queueMicrotask(noteReviewStaleness);
         queueMicrotask(noteEvidenceStaleness);
         queueMicrotask(noteOperatorGitPending);
+        // The layout record rides the same wake: a mode or a hidden segment
+        // changed anywhere else is Core's fact, and re-reading is what keeps
+        // this webview from holding a second copy of it.
+        queueMicrotask(() => void refreshLayoutRecord());
       });
   };
 
@@ -1847,6 +1889,10 @@ export function renderD1Cockpit(
         queueMicrotask(noteReviewStaleness);
         queueMicrotask(noteEvidenceStaleness);
         queueMicrotask(noteOperatorGitPending);
+        // The layout record rides the same wake: a mode or a hidden segment
+        // changed anywhere else is Core's fact, and re-reading is what keeps
+        // this webview from holding a second copy of it.
+        queueMicrotask(() => void refreshLayoutRecord());
         render(false);
       });
   };
@@ -2169,7 +2215,7 @@ export function renderD1Cockpit(
     // The queue badge is absent in two different situations and only one of
     // them is "nothing waiting". No published count says so in the name, so
     // the missing badge is never read as an empty queue.
-    if (destination === "d2" && projection.statusbar.pendingGateCount === null) {
+    if (destination === "d2" && projection.statusbar.pendingDecisionCount === null) {
       return translate(locale, "d1.activity.queueUnknown", {});
     }
     return undefined;
@@ -2187,7 +2233,7 @@ export function renderD1Cockpit(
         current: centerView === destination,
         note: destinationNote(destination),
         // The only count Core already publishes for a rail destination. D2 is
-        // the decision queue and `pendingGateCount` is its size; nothing else
+        // the decision queue and `pendingDecisionCount` is its size; nothing else
         // gets a badge, because nothing else has a Core-published number.
         //
         // It is the same number the statusbar's `⏸` segment prints, on purpose:
@@ -2197,7 +2243,7 @@ export function renderD1Cockpit(
         // non-dormant merge gates — so the badge and the view's header can
         // legitimately differ. Reconciling them is a projection question for
         // the owning batch, not something to hide by counting twice here.
-        badge: destination === "d2" ? projection.statusbar.pendingGateCount : null,
+        badge: destination === "d2" ? projection.statusbar.pendingDecisionCount : null,
       };
     }
     return states;
@@ -2403,7 +2449,7 @@ export function renderD1Cockpit(
     }, LANE_PEEK_CLOSE_MS);
   };
 
-  const setLaneSidebarMode = (next: LaneSidebarMode): void => {
+  const applyLaneSidebarMode = (next: LaneSidebarMode): void => {
     if (laneSidebarMode === next) return;
     laneSidebarMode = next;
     // The two modes are two hosts for one component, so the flag that means
@@ -2413,6 +2459,116 @@ export function renderD1Cockpit(
     laneRailPeek = false;
     laneRailOpen = next === "pinned";
     render(false);
+  };
+
+  /**
+   * The rail pin's action.
+   *
+   * With the capability the mode is Core's, so the patch goes out and the
+   * layout moves when Core answers — the same rule the Settings panel follows
+   * for the appearance record. Without it the toggle stays session-local,
+   * which is the honest fallback: a client that persisted it itself would be
+   * the second preference authority the contract forbids.
+   */
+  const setLaneSidebarMode = (next: LaneSidebarMode): void => {
+    if (!options.layout || !layoutRecord.capabilityAvailable) {
+      applyLaneSidebarMode(next);
+      return;
+    }
+    void sendLayoutPatch({ laneSidebarMode: next });
+  };
+
+  /**
+   * Sends one layout patch and adopts whatever Core published back.
+   *
+   * Only the axis the operator touched enters the patch, so an untouched one
+   * keeps whatever Core resolves. A refusal leaves the rendered layout exactly
+   * where it was and keeps Core's reason on the record, because a layout that
+   * moved after a refusal would claim a write that never happened.
+   */
+  async function sendLayoutPatch(patch: LayoutPreferencePatch): Promise<void> {
+    if (!options.layout || layoutCommandInFlight || disposed) return;
+    layoutCommandInFlight = true;
+    try {
+      const answer = await options.layout.set(patch);
+      if (disposed) return;
+      adoptLayoutRecord(answer);
+    } catch (error: unknown) {
+      if (disposed) return;
+      // A transport failure is the client's own, so it is reported as the
+      // client's rather than dressed up as a Core refusal.
+      layoutRecord = {
+        ...layoutRecord,
+        outcome: { state: "rejected", reason: String(error) },
+      };
+    } finally {
+      layoutCommandInFlight = false;
+      if (!disposed) render(false);
+    }
+  }
+
+  /**
+   * Adopts one layout answer as the layout this frame draws.
+   *
+   * `unknown` and `null` both fall back to the design's own default rather
+   * than to the last value this client happened to render: `D-SIDEBAR` makes
+   * `floating` what an operator who never opened Settings sees, and a mode
+   * this build cannot draw is not a reason to invent a pinned column.
+   */
+  function adoptLayoutRecord(record: LayoutPreferencesProjection): void {
+    layoutRecord = record;
+    if (!record.capabilityAvailable) return;
+    applyLaneSidebarMode(record.laneSidebarMode === "pinned" ? "pinned" : "floating");
+    const hidden = new Set(record.hiddenStatusbarSegments);
+    statusbarAmbient = Object.fromEntries(
+      STATUSBAR_AMBIENT_SEGMENTS.map((segment) => [segment, !hidden.has(segment)]),
+    ) as StatusbarAmbientVisibility;
+  }
+
+  /**
+   * Re-reads the layout record with no Core traffic.
+   *
+   * Called at mount and on every ordered wake, which is the whole of "the
+   * webview keeps no copy": a mode changed in another window, or a record
+   * Core republished on a snapshot prefix, lands here instead of being
+   * overwritten by what this client last drew.
+   */
+  async function refreshLayoutRecord(): Promise<void> {
+    if (!options.layout || layoutCommandInFlight || disposed) return;
+    try {
+      const record = await options.layout.read();
+      if (disposed) return;
+      const before = laneSidebarMode;
+      const beforeHidden = JSON.stringify(statusbarAmbient);
+      adoptLayoutRecord(record);
+      if (before === laneSidebarMode && beforeHidden === JSON.stringify(statusbarAmbient)) {
+        return;
+      }
+      render(false);
+    } catch {
+      // The record is a read; a failed one leaves the layout as drawn.
+    }
+  }
+
+  /**
+   * Core's sentence for a layout record it applied but could not write, or
+   * refused outright. `null` when there is nothing to say.
+   */
+  const layoutNote = (): string | null => {
+    if (layoutRecord.outcome.state === "rejected") {
+      return translate(locale, "d1.layout.rejected", {
+        reason: layoutRecord.outcome.reason ?? "",
+      });
+    }
+    if (layoutRecord.persisted === false) {
+      return translate(locale, "d1.layout.unpersisted", {});
+    }
+    if (options.layout && layoutRecord.capabilityAvailable === false) {
+      return translate(locale, "d1.layout.unavailable", {
+        capability: LAYOUT_PREFERENCES_CAPABILITY,
+      });
+    }
+    return null;
   };
 
   const schedulePoll = (): void => {
@@ -2440,6 +2596,7 @@ export function renderD1Cockpit(
           queueMicrotask(noteReviewStaleness);
           queueMicrotask(noteEvidenceStaleness);
           queueMicrotask(noteOperatorGitPending);
+          queueMicrotask(() => void refreshLayoutRecord());
           schedulePoll();
         });
     }, 250);
@@ -3448,6 +3605,7 @@ export function renderD1Cockpit(
       laneSidebarMode,
       onToggleLaneSidebarMode: () =>
         setLaneSidebarMode(laneSidebarMode === "pinned" ? "floating" : "pinned"),
+      laneSidebarNote: layoutNote(),
       settingsOpen,
       onOpenSettings: !options.preferences
         ? undefined
@@ -4109,9 +4267,26 @@ export function renderD1Cockpit(
           render(false);
         },
         onToggleSegment: (id: StatusbarAmbientSegment) => {
-          statusbarAmbient = { ...statusbarAmbient, [id]: !statusbarAmbient[id] };
-          render(false);
+          const next = { ...statusbarAmbient, [id]: !statusbarAmbient[id] };
+          if (!options.layout || !layoutRecord.capabilityAvailable) {
+            // No record to write to: the set stays session-local, which the
+            // popover's own note says out loud.
+            statusbarAmbient = next;
+            render(false);
+            return;
+          }
+          // Core stores the *hidden* half, and names it does not recognize are
+          // carried through untouched: a newer client's hidden segment must
+          // not be unhidden by this one rewriting the list from its own
+          // vocabulary.
+          const known = new Set<string>(STATUSBAR_AMBIENT_SEGMENTS);
+          const foreign = layoutRecord.hiddenStatusbarSegments.filter(
+            (segment) => !known.has(segment),
+          );
+          const hidden = STATUSBAR_AMBIENT_SEGMENTS.filter((segment) => !next[segment]);
+          void sendLayoutPatch({ hiddenStatusbarSegments: [...hidden, ...foreign] });
         },
+        note: layoutNote(),
       },
     );
     const currentFrame = root.querySelector<HTMLElement>('[data-screen="d1-cockpit"]');
@@ -4309,6 +4484,10 @@ export function renderD1Cockpit(
   // and the titlebar sync chip know whether they may act before anyone presses
   // one of them.
   readOperatorGit();
+  // The layout record, read before anything is drawn twice: the operator's
+  // sidebar mode and hidden statusbar segments are Core's facts, so the first
+  // frame that can carry them does.
+  void refreshLayoutRecord();
   if (options.poll !== false) {
     if (options.onCoreWake) {
       // A host push replaces the drain timer outright: reading on the wake

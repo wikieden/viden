@@ -9,6 +9,10 @@ import type {
   OperatorGitActionRequest,
   OperatorGitProjection,
 } from "../models/operator_git";
+import type {
+  LayoutPreferencePatch,
+  LayoutPreferencesProjection,
+} from "../models/layout_preferences";
 import type { RecentWorkResult } from "../models/recent_work";
 import type { D6Intent, D6IntentResult, D6RecoveryProjection } from "../models/workspace";
 import type {
@@ -63,6 +67,29 @@ export interface CoreClient {
   preferencesRestore(commandId: string): Promise<PreferenceIntentResult>;
   /** Drains ordered Core events while a preference command is still pending. */
   preferencesPoll(): Promise<PreferenceIntentResult>;
+
+  /**
+   * The cockpit layout record with no Core traffic (`ui.layout_preferences`).
+   *
+   * The cockpit reads it at mount and on every ordered wake, which is what
+   * keeps the webview from holding a second copy of the operator's layout:
+   * the Lane sidebar mode and the statusbar's hidden segments are rendered
+   * from this answer, never from a remembered value.
+   */
+  layoutPreferences(): Promise<LayoutPreferencesProjection>;
+  /**
+   * Sends `SetUiLayoutPreferences` with only the axes the operator changed.
+   * Core owns the bound, the validation, the `[ui.layout]` table, and the
+   * `persisted` verdict; the client never writes a layout file.
+   */
+  layoutPreferencesSet(
+    commandId: string,
+    patch: LayoutPreferencePatch,
+  ): Promise<LayoutPreferencesProjection>;
+  /** Sends `ResetUiLayoutPreferences`, dropping the persisted `[ui.layout]`. */
+  layoutPreferencesReset(commandId: string): Promise<LayoutPreferencesProjection>;
+  /** Drains ordered Core events while a layout command is still pending. */
+  layoutPreferencesPoll(): Promise<LayoutPreferencesProjection>;
 
   /**
    * Sends Core's read-only `QueryRecentWork` and resolves with whatever the

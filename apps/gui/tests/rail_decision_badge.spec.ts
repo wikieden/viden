@@ -4,7 +4,7 @@
  * The activity rail's decision-queue badge (`G6`).
  *
  * The badge is the one count on the rail, and it is the same Core number the
- * statusbar's `⏸` segment prints — `D1StatusbarProjection.pendingGateCount`,
+ * statusbar's `⏸` segment prints — `D1StatusbarProjection.pendingDecisionCount`,
  * which is also what the D2 view the slot opens is a queue of. Three states,
  * three different renderings, and only one of them is a number:
  *
@@ -34,12 +34,12 @@ function rail(badge: number | null): HTMLElement {
   return element;
 }
 
-function cockpit(pendingGateCount: number | null) {
+function cockpit(pendingDecisionCount: number | null) {
   document.body.innerHTML = '<div id="host"></div>';
   const root = document.querySelector<HTMLElement>("#host")!;
   const projection = {
     ...D1_PROJECTION,
-    statusbar: { ...D1_PROJECTION.statusbar, pendingGateCount },
+    statusbar: { ...D1_PROJECTION.statusbar, pendingDecisionCount },
   };
   const result: D1IntentResult = {
     projection,

@@ -87,7 +87,6 @@
   "d1.statusbar.tokens": "TOKENS",
   "d1.statusbar.diag": "DIAG",
   "d1.statusbar.req": "REQ",
-  "d1.statusbar.gateWaiting": "{count} gate waiting",
   "d1.topbar.syncTitle": "{ahead} ahead, {behind} behind the upstream, as Core last sampled it.",
   "d1.topbar.sync.push": "Push {ahead} local commits. Pull is excluded by contract; this client pushes and fetches only.",
   "d1.topbar.sync.fetch": "Fetch from the remote ({behind} behind). Pull is excluded by contract; this client pushes and fetches only.",
@@ -628,5 +627,10 @@
   "d1.dock.mcp.detail.notFound": "Core found no MCP configuration in this workspace.",
   "d1.dock.mcp.detail.configVisible": "Core can see an MCP configuration, but MCP tools are not on the shared permission path yet, so no server is connected.",
   "d1.dock.local.branch": "Branch",
-  "d1.dock.inspector.openFile": "Open file"
+  "d1.dock.inspector.openFile": "Open file",
+  "d1.statusbar.decisionsWaiting": "{count} awaiting you",
+  "d1.layout.unpersisted": "Core applied this layout for the session but could not write it, so it will not survive a restart.",
+  "d1.layout.unavailable": "Core publishes no {capability}, so this layout is kept for this session only.",
+  "d1.layout.rejected": "Core refused the layout change: {reason}",
+  "d1.laneTabs.source": "This Lane's own worktree: {ahead} ahead, {behind} behind, as Core last sampled it."
 }

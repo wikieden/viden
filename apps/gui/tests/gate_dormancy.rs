@@ -244,18 +244,22 @@ fn only_a_pending_gate_on_a_finished_session_is_dormant() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn the_statusbar_badge_counts_only_gates_its_target_can_act_on() {
+fn the_statusbar_badge_counts_no_merge_gate_dormant_or_live() {
+    // G7 made the badge the D2 queue's own total, and D2 lists approvals,
+    // reviews and contracts — never a merge gate, which is decided in D12. So
+    // neither the live gate nor the dormant one is in this number: a badge
+    // that counted rows its destination does not show would promise a screen
+    // it cannot keep. Dormancy is untouched and still governs D12's ordering,
+    // D6's clear state and the palette, which the tests above and below pin.
     let statusbar = connected(mixed_view())
         .d1_cockpit(Some("lane_d1_core"))
         .expect("D1")
         .statusbar;
     assert_eq!(
-        statusbar.pending_gate_count, 1,
-        "the dormant gate is listed in D12 but is not work waiting on the operator"
+        statusbar.pending_decision_count, 0,
+        "a merge gate is D12's decision, not a row the D2 queue lists"
     );
 
-    // With every gate dormant the badge is empty rather than advertising a
-    // queue that leads to nothing actionable.
     let mut all_dormant = mixed_view();
     all_dormant
         .merge_gates
@@ -265,15 +269,16 @@ fn the_statusbar_badge_counts_only_gates_its_target_can_act_on() {
             .d1_cockpit(Some("lane_d1_core"))
             .expect("D1")
             .statusbar
-            .pending_gate_count,
+            .pending_decision_count,
         0
     );
 }
 
 #[test]
-fn the_statusbar_badge_still_counts_pending_approvals_alongside_live_gates() {
-    // Approvals are untouched by gate dormancy: the badge is their sum with
-    // the gates that are still actionable.
+fn the_statusbar_badge_counts_the_pending_approval_the_queue_lists() {
+    // An approval *is* a row the D2 queue lists, so it is the whole of the
+    // count here — and it is the same number D2's own header prints, which is
+    // the agreement G7 exists to establish.
     let mut view = mixed_view();
     let fixture: serde_json::Value = serde_json::from_str(APPROVAL_FIXTURE).expect("fixture");
     let envelope: viden_core::RuntimeEventEnvelope =
@@ -282,14 +287,20 @@ fn the_statusbar_badge_still_counts_pending_approvals_alongside_live_gates() {
         view.apply_event(&event);
     }
     assert_eq!(view.pending_approvals.len(), 1, "one approval is pending");
+    let adapter = connected(view);
     assert_eq!(
-        connected(view)
+        adapter
             .d1_cockpit(Some("lane_d1_core"))
             .expect("D1")
             .statusbar
-            .pending_gate_count,
-        2,
-        "one pending approval plus the one gate whose session is still live"
+            .pending_decision_count,
+        1,
+        "one pending approval, and no merge gate"
+    );
+    assert_eq!(
+        adapter.d2_decisions().expect("D2").pending_total,
+        1,
+        "the queue's own header prints the same number the badge does"
     );
 }
 

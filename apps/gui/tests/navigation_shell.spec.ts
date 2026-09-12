@@ -302,7 +302,7 @@ describe("secondary screens are centre-pane views with the chrome retained", () 
     const { root, controller } = mount(
       { secondaryViews: host.port, onNavigate },
       projection({
-        statusbar: { ...D1_PROJECTION.statusbar, pendingGateCount: 2 },
+        statusbar: { ...D1_PROJECTION.statusbar, pendingDecisionCount: 2 },
       }),
     );
 
