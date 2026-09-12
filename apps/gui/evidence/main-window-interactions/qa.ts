@@ -2547,6 +2547,8 @@ async function renderState(): Promise<void> {
       cockpit.openCenterView("d2");
       await waitFor("[data-rail-route='d2'] [data-rail-badge]");
       await waitFor("[data-sb-gate]");
+      return;
+    }
 
     case "dock-environment": {
       // The dock's Environment panel as the design draws it: the tab strip
