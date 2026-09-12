@@ -783,13 +783,22 @@ fn preview_diff_line(
 }
 
 /// The `/git` operator source-control picker
-/// (`runtime.operator_git`, GUI-CORE-020).
+/// (`runtime.operator_git`, GUI-CORE-020, with the workspace owner of
+/// `runtime.workspace_owner`).
 ///
 /// The context row under the choices names the target and the source facts
-/// Core published; nothing in it is sampled locally.
+/// Core published; nothing in it is sampled locally. The rows are pickable
+/// because Core published a workspace-scoped operator identity, which is what
+/// C5 added: before it every workspace-target row was disabled for want of an
+/// actor to audit the action under.
 fn git_picker_preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState {
     let mut state = preview_state(provider, model, theme_name);
     state.ui.input = "".into();
+    state.runtime.workspace_owner = Some(viden_core::RuntimeOwner {
+        workspace_id: "ws_4f3c1a09b8d27e65".to_string(),
+        project_id: "prj_preview_workspace".to_string(),
+        ..viden_core::RuntimeOwner::default()
+    });
     state.runtime.workspace_source = Some(WorkspaceSourceView {
         status: WorkspaceSourceStatus::Ready,
         branch: Some("codex/v3-tui-client".to_string()),

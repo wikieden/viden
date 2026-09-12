@@ -1072,23 +1072,25 @@ pub(super) fn git_target(state: &TuiState) -> viden_core::SourceTarget {
 /// derived locally, and an unpublished source renders as unknown rather than as
 /// a clean tree.
 ///
-/// `RuntimeViewState::workspace_source` is a single workspace-scoped view — it
-/// carries no target, and Core publishes nothing per Lane — so a Lane target's
-/// branch, ahead/behind and dirty state are facts this client does not have.
-/// The row names the Lane and says the source is unknown rather than printing
-/// the workspace's numbers beside a Lane's name, which would attribute one
-/// tree's state to another. A per-Lane source view is a Core fact this surface
-/// would use if it existed.
+/// Each target reads its *own* row. `RuntimeViewState::workspace_source` is
+/// the workspace root only — that is what `runtime.workspace_owner` (C5)
+/// settled when it split `LaneSourceUpdated` out — and a Lane's branch,
+/// ahead/behind, and dirty state come from `lane_sources[lane]`. A Lane with
+/// no row is either a Lane whose worktree *is* the workspace or one Core has
+/// not sampled; either way this row says unknown rather than printing the
+/// workspace's numbers beside a Lane's name, which would attribute one tree's
+/// state to another.
 fn git_target_row(state: &TuiState) -> String {
-    let (target, lane_scoped) = match git_target(state) {
-        viden_core::SourceTarget::Lane { lane_id } => (lane_id, true),
-        _ => (super::i18n::text(state, "git.target.workspace"), false),
+    let (target, source) = match git_target(state) {
+        viden_core::SourceTarget::Lane { lane_id } => {
+            let source = state.runtime.lane_sources.get(&lane_id);
+            (lane_id, source)
+        }
+        _ => (
+            super::i18n::text(state, "git.target.workspace"),
+            state.runtime.workspace_source.as_ref(),
+        ),
     };
-    let source = state
-        .runtime
-        .workspace_source
-        .as_ref()
-        .filter(|_| !lane_scoped);
     let Some(source) = source else {
         return super::i18n::translate(state, "git.source.unknown", &[("target", &target)]);
     };

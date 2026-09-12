@@ -3432,13 +3432,18 @@ mod tests {
         assert!(entry.body.contains("runtime owner"), "{entry:?}");
     }
 
-    /// The workspace target has no Core-published operator identity at all
-    /// yet (GUI-CORE-027), so every workspace-scoped action is refused the
-    /// same way — again matching the GUI. The TARGET row keeps stating the
-    /// workspace source facts Core *did* publish: the refusal is about the
-    /// actor, not about the tree.
+    /// Absence is the refusal, and it is about the actor rather than the tree.
+    ///
+    /// Since `runtime.workspace_owner` (C5) Core mints a workspace-scoped
+    /// identity at open, so an absent `RuntimeViewState.workspace_owner` means
+    /// *this* Core published none — an engine built without a host binding, or
+    /// a build predating the capability. The rows stay listed and say what is
+    /// missing, the TARGET row keeps stating the workspace source facts Core
+    /// *did* publish, and nothing is sent: `RuntimeOwner::default()` names
+    /// nobody, and the client neither substitutes it nor recomputes the id
+    /// from the root path itself.
     #[test]
-    fn a_workspace_target_refuses_locally_and_names_the_core_gap() {
+    fn a_workspace_target_without_a_published_owner_refuses_before_anything_is_sent() {
         let client = FakeCoreClient::default();
         let sent = Arc::clone(&client.sent);
         let mut driver = TuiClientDriver::connect(client).expect("connect");
@@ -3448,7 +3453,7 @@ mod tests {
         };
         state.runtime.workspace_source = Some(viden_core::WorkspaceSourceView {
             status: viden_core::WorkspaceSourceStatus::Ready,
-            branch: Some("claude/tui-parity-t1a".to_string()),
+            branch: Some("claude/tui-parity-t2".to_string()),
             worktree: Some("workspace".to_string()),
             ahead: 2,
             behind: 0,
@@ -3456,6 +3461,7 @@ mod tests {
             deleted: 0,
             dirty: true,
         });
+        assert!(state.runtime.workspace_owner.is_none());
         assert_eq!(
             crate::tui::modal::git_target(&state),
             viden_core::SourceTarget::Workspace
@@ -3466,8 +3472,12 @@ mod tests {
         assert!(
             rows.iter()
                 .all(|row| matches!(row.kind, GitPickerRowKind::Disabled)
-                    && row.label.contains("GUI-CORE-027")),
+                    && row.label.contains("Core published no workspace owner")),
             "{rows:?}"
+        );
+        assert!(
+            !rows.iter().any(|row| row.label.contains("GUI-CORE-027")),
+            "the register entry is closed on the Core side: {rows:?}"
         );
 
         state.ui.interaction_panel = Some(InteractionPanel::GitPicker {
@@ -3478,7 +3488,7 @@ mod tests {
         assert!(
             panel
                 .iter()
-                .any(|row| row.contains("workspace") && row.contains("claude/tui-parity-t1a")),
+                .any(|row| row.contains("workspace") && row.contains("claude/tui-parity-t2")),
             "the TARGET row keeps the published source facts: {panel:?}"
         );
 
@@ -3493,8 +3503,147 @@ mod tests {
         let entry = state.ui.entries.last().expect("the refusal is stated");
         assert_eq!(entry.label, "system");
         assert!(
-            entry.body.contains("GUI-CORE-027"),
-            "both clients name the same Core gap: {entry:?}"
+            entry.body.contains("Core published no workspace owner"),
+            "the refusal names the missing fact: {entry:?}"
+        );
+    }
+
+    /// GUI-CORE-027 closed, from this client's side.
+    ///
+    /// With `RuntimeViewState.workspace_owner` published the four rows are
+    /// pickable, and the command carries that owner verbatim in both places
+    /// Core compares: the command's own `owner` field and the envelope's.
+    /// Core authorizes a workspace-target action by the workspace and project
+    /// ids, so copying the published owner is the whole of the client's job
+    /// here — and the owner it copies carries no Lane, session, task, or turn,
+    /// because a workspace owner is a scope rather than a fallback.
+    #[test]
+    fn a_published_workspace_owner_enables_the_rows_and_is_sent_verbatim() {
+        let client = FakeCoreClient::default();
+        let sent = Arc::clone(&client.sent);
+        let mut driver = TuiClientDriver::connect(client).expect("connect");
+        let mut state = TuiState {
+            capabilities: driver.capabilities(),
+            ..TuiState::default()
+        };
+        let workspace_owner = RuntimeOwner {
+            workspace_id: "ws_4f3c1a09b8d27e65".to_string(),
+            project_id: "prj_contract_v1_workspace".to_string(),
+            lane_id: None,
+            session_id: None,
+            task_id: None,
+            turn_id: None,
+        };
+        state.runtime.workspace_owner = Some(workspace_owner.clone());
+        assert_eq!(
+            crate::tui::modal::git_target(&state),
+            viden_core::SourceTarget::Workspace
+        );
+
+        let rows = crate::tui::modal::git_picker_rows(&state);
+        assert_eq!(rows.len(), 4);
+        assert!(
+            rows.iter()
+                .all(|row| !matches!(row.kind, GitPickerRowKind::Disabled)),
+            "{rows:?}"
+        );
+        assert!(
+            !rows.iter().any(|row| row.label.contains("·")),
+            "an enabled row carries no refusal suffix: {rows:?}"
+        );
+
+        // Row 2 is Push, which needs no prompt, so one selection is one
+        // command.
+        apply_git_picker_selection(&mut driver, &mut state, 2, &GitPickerPhase::Browse)
+            .expect("send the action");
+
+        let commands = sent.lock().expect("sent commands");
+        let envelope = commands.first().expect("one action");
+        assert_eq!(
+            envelope.owner, workspace_owner,
+            "the envelope owner is the actor Core audits"
+        );
+        let RuntimeCommand::RunOperatorGitAction {
+            owner,
+            target,
+            action,
+        } = &envelope.command
+        else {
+            panic!("expected an operator git action: {:?}", envelope.command);
+        };
+        assert_eq!(owner, &workspace_owner, "command and envelope must agree");
+        assert_eq!(target, &viden_core::SourceTarget::Workspace);
+        assert_eq!(
+            action,
+            &viden_core::OperatorGitAction::Push {
+                remote: None,
+                set_upstream: false
+            }
+        );
+    }
+
+    /// A Lane target reads its own source row, not the workspace's.
+    ///
+    /// `runtime.workspace_owner` split `LaneSourceUpdated` out of
+    /// `WorkspaceSourceUpdated` precisely so one tree's branch and
+    /// ahead/behind stop appearing under another tree's name. A Lane Core has
+    /// sampled shows its own facts; a Lane it has not shows unknown, never the
+    /// workspace's numbers.
+    #[test]
+    fn a_lane_target_row_states_the_lanes_own_source_and_never_the_workspaces() {
+        let client = FakeCoreClient::default();
+        let driver = TuiClientDriver::connect(client).expect("connect");
+        let mut state = TuiState {
+            capabilities: driver.capabilities(),
+            ..TuiState::default()
+        };
+        let (lane_id, _owner) = focus_lane_with_published_owner(&mut state);
+        state.runtime.workspace_source = Some(viden_core::WorkspaceSourceView {
+            status: viden_core::WorkspaceSourceStatus::Ready,
+            branch: Some("main".to_string()),
+            worktree: Some("workspace".to_string()),
+            ahead: 9,
+            behind: 0,
+            added: 0,
+            deleted: 0,
+            dirty: false,
+        });
+        state.ui.interaction_panel = Some(InteractionPanel::GitPicker {
+            selected: 0,
+            phase: GitPickerPhase::Browse,
+        });
+
+        let unsampled = crate::tui::modal::interaction_rows(&state);
+        assert!(
+            unsampled
+                .iter()
+                .any(|row| row.contains(&lane_id) && !row.contains("main")),
+            "an unsampled Lane must not borrow the workspace's branch: {unsampled:?}"
+        );
+
+        state.runtime.lane_sources.insert(
+            lane_id.clone(),
+            viden_core::WorkspaceSourceView {
+                status: viden_core::WorkspaceSourceStatus::Ready,
+                branch: Some("viden/lane_alpha".to_string()),
+                worktree: Some("workspace/.worktrees/lane_alpha".to_string()),
+                ahead: 1,
+                behind: 2,
+                added: 3,
+                deleted: 0,
+                dirty: true,
+            },
+        );
+        let sampled = crate::tui::modal::interaction_rows(&state);
+        assert!(
+            sampled.iter().any(|row| row.contains(&lane_id)
+                && row.contains("viden/lane_alpha")
+                && row.contains("behind 2")),
+            "the Lane's own row is what the header states: {sampled:?}"
+        );
+        assert!(
+            !sampled.iter().any(|row| row.contains("ahead 9")),
+            "the workspace's numbers must not appear under a Lane: {sampled:?}"
         );
     }
 
