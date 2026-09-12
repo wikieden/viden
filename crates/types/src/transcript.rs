@@ -456,33 +456,88 @@ fn extract_optional_string_field(line: &str, field: &str) -> Result<Option<Strin
     }
 }
 
+/// Decodes the JSON string whose body starts at byte offset `start` in `line`.
+///
+/// Read-side UTF-8 contract (compatibility follow-up 12, closed by C11): the
+/// persisted line is already valid UTF-8. The writer escapes only `"`, `\`,
+/// and the three ASCII control characters it needs and emits every other
+/// character raw, so the unescaped span is copied character by character.
+/// Copying it *byte* by byte and casting each byte to `char` mapped every byte
+/// at or above `0x80` to its Latin-1 code point, which replayed a persisted
+/// `"café 你好"` as mojibake on every reader of the log. This is a read-side
+/// fix only: nothing on disk changes and no migration is involved, because the
+/// bytes were always right.
+///
+/// A `\u` escape is decoded to the character it names, including an astral
+/// character written as a surrogate pair, because a foreign writer of this
+/// format may produce escapes this crate never emits. An escape that names no
+/// character — an unpaired surrogate, or too few hex digits — is unreadable
+/// rather than silently reinterpreted: it becomes
+/// [`char::REPLACEMENT_CHARACTER`] so the rest of the line still replays.
 fn parse_json_string_from(line: &str, start: usize) -> Result<String, String> {
-    let bytes = line.as_bytes();
-    let mut index = start;
-    let mut escaped = false;
+    if start > line.len() || !line.is_char_boundary(start) {
+        return Err("JSON string does not start on a character boundary".to_string());
+    }
     let mut out = String::new();
-    while index < bytes.len() {
-        let ch = bytes[index] as char;
-        if escaped {
-            out.push(match ch {
-                'n' => '\n',
-                'r' => '\r',
-                't' => '\t',
-                '"' => '"',
-                '\\' => '\\',
-                other => other,
-            });
-            escaped = false;
-        } else if ch == '\\' {
-            escaped = true;
-        } else if ch == '"' {
-            return Ok(out);
-        } else {
-            out.push(ch);
+    let mut chars = line[start..].chars();
+    while let Some(ch) = chars.next() {
+        match ch {
+            '"' => return Ok(out),
+            '\\' => match chars.next() {
+                Some('n') => out.push('\n'),
+                Some('r') => out.push('\r'),
+                Some('t') => out.push('\t'),
+                Some('b') => out.push('\u{8}'),
+                Some('f') => out.push('\u{c}'),
+                Some('u') => out.push(decode_json_unicode_escape(&mut chars)),
+                // `\"`, `\\`, `\/`, and anything else: the escaped character
+                // stands for itself, which is the exact inverse of the writer.
+                Some(other) => out.push(other),
+                None => break,
+            },
+            other => out.push(other),
         }
-        index += 1;
     }
     Err("Unterminated JSON string".to_string())
+}
+
+/// Decodes the four hex digits after a `\u`, plus the trailing surrogate
+/// escape that must follow when those digits name a leading surrogate.
+fn decode_json_unicode_escape(chars: &mut std::str::Chars<'_>) -> char {
+    let Some(first) = take_four_hex_digits(chars) else {
+        return char::REPLACEMENT_CHARACTER;
+    };
+    if let Some(ch) = char::from_u32(first) {
+        return ch;
+    }
+    // `char::from_u32` rejects exactly the surrogate range, so a leading
+    // surrogate is the only value worth pairing; a lone trailing one names
+    // nothing on its own.
+    if !(0xd800..=0xdbff).contains(&first) {
+        return char::REPLACEMENT_CHARACTER;
+    }
+    // Peek rather than consume: an unpaired leading surrogate must leave the
+    // escape that follows it intact so that one still decodes on its own.
+    let mut paired = chars.clone();
+    if paired.next() != Some('\\') || paired.next() != Some('u') {
+        return char::REPLACEMENT_CHARACTER;
+    }
+    let Some(second) =
+        take_four_hex_digits(&mut paired).filter(|value| (0xdc00..=0xdfff).contains(value))
+    else {
+        return char::REPLACEMENT_CHARACTER;
+    };
+    *chars = paired;
+    let combined = 0x1_0000 + ((first - 0xd800) << 10) + (second - 0xdc00);
+    char::from_u32(combined).unwrap_or(char::REPLACEMENT_CHARACTER)
+}
+
+fn take_four_hex_digits(chars: &mut std::str::Chars<'_>) -> Option<u32> {
+    let mut value = 0;
+    for _ in 0..4 {
+        value = value * 16 + chars.next()?.to_digit(16)?;
+    }
+    Some(value)
 }
 
 fn extract_u64_field(line: &str, field: &str) -> Result<u64, String> {

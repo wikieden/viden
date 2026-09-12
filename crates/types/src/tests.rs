@@ -1394,6 +1394,165 @@ fn transcript_tool_result_preserves_exit_code() {
     assert_eq!(TranscriptEntry::from_json_line(&line).unwrap(), entry);
 }
 
+/// Compatibility follow-up 12: a persisted non-ASCII body replays byte-equal.
+///
+/// The writer already emits raw UTF-8 — the line on disk is correct — so the
+/// decoder is the only place the text can be lost. Decoding it byte by byte
+/// mapped every byte at or above `0x80` to its Latin-1 code point and replayed
+/// `"café 你好"` as `"cafÃ© ä½ å¥½"`.
+#[test]
+fn transcript_message_replays_persisted_non_ascii_text_as_utf8() {
+    let body = "café 你好 — ✓";
+    let entry = TranscriptEntry::Message {
+        message: Message {
+            id: "msg_utf8".to_string(),
+            role: Role::Assistant,
+            content: body.to_string(),
+            timestamp: 7,
+            tool_name: None,
+            tool_call_id: None,
+        },
+    };
+
+    let line = entry.to_json_line();
+    assert!(
+        line.contains(body),
+        "the writer persists the body as raw UTF-8, so nothing on disk changes: {line}"
+    );
+
+    let TranscriptEntry::Message { message } = TranscriptEntry::from_json_line(&line).unwrap()
+    else {
+        panic!("expected a message entry");
+    };
+    assert_eq!(
+        message.content, body,
+        "a persisted body must replay byte-equal, never as Latin-1 mojibake"
+    );
+}
+
+/// Every string-carrying field of every hand-written entry shape decodes the
+/// same way: one decoder serves them all, so proving one field would not prove
+/// the surface a client actually reads.
+#[test]
+fn every_persisted_transcript_string_field_replays_as_utf8() {
+    let body = "Änderung: 补丁 ✓";
+    let mut input = ToolInput::new();
+    input.insert("path".to_string(), "文档/naïve.txt".to_string());
+
+    let entries = vec![
+        TranscriptEntry::ToolCall {
+            call: ToolCall {
+                id: "call_utf8".to_string(),
+                name: "edit_file".to_string(),
+                input,
+            },
+        },
+        TranscriptEntry::ToolResult {
+            result: ToolResult {
+                tool_call_id: "call_utf8".to_string(),
+                name: "edit_file".to_string(),
+                output: body.to_string(),
+                diff: Some("+ 补丁".to_string()),
+                success: true,
+                exit_code: Some(0),
+            },
+        },
+        TranscriptEntry::Permission {
+            entry: PermissionLogEntry {
+                timestamp: 3,
+                tool_name: "edit_file".to_string(),
+                decision: "allow".to_string(),
+                reason: "作用域内".to_string(),
+                message: Some("准许一次".to_string()),
+            },
+        },
+        TranscriptEntry::Command {
+            entry: CommandLogEntry {
+                timestamp: 4,
+                name: "résumé".to_string(),
+                args: vec!["--模式".to_string(), "build".to_string()],
+                output: body.to_string(),
+            },
+        },
+        TranscriptEntry::SessionMeta {
+            entry: SessionMetaEntry {
+                timestamp: 5,
+                key: "turn_owner".to_string(),
+                value: "巷道-α".to_string(),
+            },
+        },
+    ];
+
+    for entry in entries {
+        let line = entry.to_json_line();
+        assert_eq!(
+            TranscriptEntry::from_json_line(&line).unwrap(),
+            entry,
+            "entry must survive its own persisted line: {line}"
+        );
+    }
+}
+
+/// Escapes keep working beside the UTF-8 decode. The writer emits only `\"`,
+/// `\\`, `\n`, `\r`, and `\t`, but a persisted line may also carry the
+/// `\uXXXX` escapes JSON allows, including an astral character written as a
+/// surrogate pair.
+#[test]
+fn transcript_string_escapes_decode_to_the_characters_they_name() {
+    let entry = TranscriptEntry::SessionMeta {
+        entry: SessionMetaEntry {
+            timestamp: 1,
+            key: "escapes".to_string(),
+            value: "quote:\" slash:\\ nl:\n cr:\r tab:\t".to_string(),
+        },
+    };
+    assert_eq!(
+        TranscriptEntry::from_json_line(&entry.to_json_line()).unwrap(),
+        entry,
+        "the writer's own escapes still round-trip"
+    );
+
+    // A foreign writer's escaped form of the same text this crate writes raw.
+    let escaped = r#"{"type":"session_meta","timestamp":1,"key":"escapes","value":"A\u0042 \u00e9 \u4f60\u597d \ud83d\ude80 \u0022q\u0022"}"#;
+    let TranscriptEntry::SessionMeta { entry } = TranscriptEntry::from_json_line(escaped).unwrap()
+    else {
+        panic!("expected a session meta entry");
+    };
+    assert_eq!(
+        entry.value, "AB é 你好 🚀 \"q\"",
+        "a `\\uXXXX` escape names a character, and a surrogate pair names one astral character"
+    );
+}
+
+/// An escape that names no character is unreadable, not reinterpreted. It
+/// becomes U+FFFD so the rest of the line still replays; silently treating its
+/// bytes as text is what follow-up 12 was.
+#[test]
+fn an_escape_that_names_no_character_replays_as_the_replacement_character() {
+    for value in [
+        // A lone leading surrogate, a lone trailing surrogate, a leading
+        // surrogate followed by something that is not a trailing one, and a
+        // `\u` with too few hex digits.
+        r"\ud800 tail",
+        r"\udc00 tail",
+        r"\ud83d\u0041 tail",
+        r"\u00 tail",
+    ] {
+        let line =
+            format!(r#"{{"type":"session_meta","timestamp":1,"key":"k","value":"{value}"}}"#);
+        let TranscriptEntry::SessionMeta { entry } =
+            TranscriptEntry::from_json_line(&line).unwrap()
+        else {
+            panic!("expected a session meta entry");
+        };
+        assert!(
+            entry.value.contains('\u{fffd}'),
+            "`{value}` names no character and must replay as U+FFFD, got {:?}",
+            entry.value
+        );
+    }
+}
+
 #[test]
 fn transcript_cost_usage_roundtrips_canonical_and_legacy_shapes() {
     let cost = CostUsageRecord {
