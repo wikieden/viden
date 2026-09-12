@@ -546,6 +546,9 @@ export const MESSAGE_ARGUMENT_NAMES = {
   "d1.statusbar.config": [],
   "d1.statusbar.config.head": [],
   "d1.statusbar.config.foot": [],
+  // G4 cockpit centre (Lane tab strip, chords, focus mode, D4 entry).
+  "d1.laneTabs": [],
+  "d1.shortcut.newLane": [],
 } as const;
 
 export type MessageKey = keyof typeof MESSAGE_ARGUMENT_NAMES;

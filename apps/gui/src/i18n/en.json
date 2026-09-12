@@ -539,5 +539,7 @@
   "d1.lanes.unpin": "Unpin the Lane sidebar",
   "d1.statusbar.config": "Configure status items",
   "d1.statusbar.config.head": "Ambient items · checked ones are shown",
-  "d1.statusbar.config.foot": "Identity and actionable items are always pinned."
+  "d1.statusbar.config.foot": "Identity and actionable items are always pinned.",
+  "d1.laneTabs": "Lanes in this project",
+  "d1.shortcut.newLane": "⌘L"
 }

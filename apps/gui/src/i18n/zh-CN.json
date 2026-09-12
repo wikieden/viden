@@ -539,5 +539,7 @@
   "d1.lanes.unpin": "取消固定 Lane 边栏",
   "d1.statusbar.config": "配置状态项",
   "d1.statusbar.config.head": "环境项 · 勾选者显示",
-  "d1.statusbar.config.foot": "身份项与可操作项始终固定。"
+  "d1.statusbar.config.foot": "身份项与可操作项始终固定。",
+  "d1.laneTabs": "本项目的 Lane",
+  "d1.shortcut.newLane": "⌘L"
 }

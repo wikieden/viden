@@ -712,6 +712,22 @@ button.d1-topbar-project[aria-expanded="true"] {
   box-sizing: border-box;
 }
 
+/*
+ * The Lane tab strip turns the centre pane into the design's `.center` column:
+ * a fixed-height strip over a scrolling body. The transcript gives up its
+ * `height: 100%` here because it is no longer the pane's only child.
+ */
+.d1-work-surface[data-has-lane-tabs="true"] {
+  display: flex;
+  flex-direction: column;
+}
+
+.d1-work-surface[data-has-lane-tabs="true"] > .d1-transcript {
+  height: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
 .d1-permission-host {
   max-height: min(22rem, 46vh);
   overflow: auto;

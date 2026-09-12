@@ -36,6 +36,7 @@ import {
 } from "../components/statusbar";
 import { renderContextDock } from "../components/context_dock";
 import { renderLaneRail, type LaneSidebarMode } from "../components/lane_rail";
+import { cycledLaneId, renderLaneTabs } from "../components/lane_tabs";
 import {
   renderProjectPicker,
   type ProjectPickerAnchorKind,
@@ -825,6 +826,16 @@ export function renderD1Cockpit(
   /// Discards the answer to a read whose palette has already been closed.
   let paletteReadToken = 0;
   let agentMenuOpen = false;
+  /**
+   * Which control the New Lane popover is anchored to.
+   *
+   * Two controls open the same popover — the Lane rail's per-project `＋` and
+   * the tab strip's trailing `＋` — and in floating sidebar mode the rail's is
+   * off screen. Anchoring is therefore state rather than a fixed selector:
+   * a popover that opened beside a hidden sidebar would appear to come from
+   * nowhere, and `Escape` would hand focus back to something invisible.
+   */
+  let newLaneAnchor: "rail" | "tabs" = "rail";
   let remountingAgentMenu = false;
   let agentMenuComposing = false;
   let agentMenuRefreshDeferred = false;
@@ -1063,7 +1074,40 @@ export function renderD1Cockpit(
     field.focus();
     field.select();
   };
+  /**
+   * `⌃⇥` / `⌃⇧⇥` move to the next and previous Lane.
+   *
+   * The design's keyboard registry (`GUI/gui-settings.jsx` `SecKeyboard`) binds
+   * "Next / previous lane" to exactly this pair. The chord goes through
+   * `selectLane`, the same path the Lane rail and the tab strip use, so a
+   * switch by keyboard and a switch by pointer are one code path.
+   *
+   * It stands down in the same places `handleEscape` does: an IME composition
+   * owns the key outright, and an open overlay — the palette, the settings
+   * panel, the picker, the New Lane popover, a control popover, the permission
+   * dock — owns `Tab` for its own focus ring. Moving the conversation out from
+   * under a decision the operator is being asked to make is the one thing this
+   * chord must never do.
+   */
+  const handleLaneCycleShortcut = (event: KeyboardEvent): void => {
+    if (event.key !== "Tab" || composing) return;
+    if (!event.ctrlKey || event.metaKey || event.altKey) return;
+    if (paletteOpen || settingsOpen || pickerOpen || agentMenuOpen || openControl !== null) return;
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && active.closest(ESCAPE_OWNERS)) return;
+    const target = cycledLaneId(
+      projection.lanes.map((lane) => lane.id),
+      selectedLaneId,
+      event.shiftKey ? "previous" : "next",
+    );
+    // One Lane is already current and zero Lanes have nothing to cycle; in both
+    // cases the webview keeps its own `Tab`.
+    if (target === null || target === selectedLaneId) return;
+    event.preventDefault();
+    selectLane(target);
+  };
   window.addEventListener("keydown", handleEscape);
+  window.addEventListener("keydown", handleLaneCycleShortcut);
   window.addEventListener("keydown", handleDecisionsShortcut);
   window.addEventListener("keydown", handleWindowKeydown);
   window.addEventListener("keydown", handlePaletteShortcut);
@@ -1252,6 +1296,7 @@ export function renderD1Cockpit(
       paletteController = null;
       window.removeEventListener("keydown", handleWindowKeydown);
       window.removeEventListener("keydown", handleEscape);
+      window.removeEventListener("keydown", handleLaneCycleShortcut);
       window.removeEventListener("keydown", handleDecisionsShortcut);
       window.removeEventListener("keydown", handlePaletteShortcut);
       window.removeEventListener("keydown", handleReviewShortcut);
@@ -2577,7 +2622,10 @@ export function renderD1Cockpit(
 
   function mountAgentMenu(): void {
     if (!agentMenuOpen || disposed) return;
-    const anchor = root.querySelector<HTMLButtonElement>("[data-create-lane]");
+    const anchor =
+      (newLaneAnchor === "tabs"
+        ? root.querySelector<HTMLButtonElement>("[data-lane-tab-add]")
+        : null) ?? root.querySelector<HTMLButtonElement>("[data-create-lane]");
     if (!anchor) return;
     menuController = renderAgentMenu(
       anchor,
@@ -2761,7 +2809,8 @@ export function renderD1Cockpit(
     advanceAgentDiscovery();
   }
 
-  function openAgentMenu(): void {
+  function openAgentMenu(anchor: "rail" | "tabs" = "rail"): void {
+    newLaneAnchor = anchor;
     if (agentMenuOpen) {
       menuController?.close();
       return;
@@ -2935,7 +2984,7 @@ export function renderD1Cockpit(
       mode: laneSidebarMode,
       onCreateLane: () => {
         if (options.onCreateLane) options.onCreateLane();
-        else void openAgentMenu();
+        else openAgentMenu("rail");
       },
       onDismiss: () => {
         // The rail's own `Escape`. Focus goes back to the control that opened
@@ -3204,6 +3253,25 @@ export function renderD1Cockpit(
       }
       workSurface.append(secondaryShell);
     } else {
+      // The design's `.tabstrip.lanebar` sits at the top of `ChatView`, inside
+      // the centre pane and above the scrolling transcript — not above the
+      // whole pane. A centre *view* replaces `ChatView` outright in the
+      // flagship's own switch, which is why DiffReview, EvidenceView and the
+      // five D-screens draw no strip: the Lane they are scoped to is the
+      // selected one, and each of them states its own scope in its head.
+      workSurface.dataset.hasLaneTabs = "true";
+      workSurface.append(
+        renderLaneTabs({
+          projection,
+          locale,
+          selectedLaneId,
+          onSelectLane: (laneId) => selectLane(laneId),
+          onCreateLane: () => {
+            if (options.onCreateLane) options.onCreateLane();
+            else openAgentMenu("tabs");
+          },
+        }),
+      );
       const transcriptRegion = document.createElement("section");
       transcriptRegion.className = "d1-transcript";
       transcriptRegion.dataset.centerSequence = "true";
