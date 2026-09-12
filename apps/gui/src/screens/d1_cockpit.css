@@ -157,6 +157,17 @@ button.d1-topbar-project[aria-expanded="true"] {
 .d1-body {
   position: relative;
   min-height: 0;
+  /*
+   * The shell's own rows come from `.d1-frame` above, but `gui-kit.css`'s
+   * `.frame` is a flex column and ties with it on specificity while sitting
+   * later in the cascade, so the frame is laid out as flex in practice. Under
+   * flex the body only filled the window because the context dock's natural
+   * height happened to reach the bottom — and focus mode, which takes the dock
+   * out of the flow, made that visible as a shell that stopped short of the
+   * status bar. Claiming the remaining space explicitly is what the rows
+   * always intended, and it holds under either layout.
+   */
+  flex: 1 1 auto;
   display: grid;
   grid-template-columns:
     var(--rail-act)

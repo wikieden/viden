@@ -20,6 +20,10 @@
 }
 
 .d1-tool-head {
+  /* The header is a full-width flex row with padding; without this the padding
+     is added to 100% and the gate chip is clipped by the block's own
+     `overflow: hidden`. */
+  box-sizing: border-box;
   display: flex;
   align-items: center;
   gap: 9px;
@@ -72,8 +76,19 @@ button.d1-tool-head[aria-expanded="true"]::before {
   min-inline-size: 0;
 }
 
+/*
+ * The counts sit in the header, so the legacy `.d1-work-card-meta` rule — a
+ * block-level footer row with its own top border — is overridden rather than
+ * inherited. The class stays because it is the name the cockpit's "no counts
+ * published" coverage asserts the absence of.
+ */
 .d1-tool-head .d1-work-card-meta {
+  display: inline;
+  margin: 0;
+  padding: 0;
+  border-block-start: 0;
   color: var(--fg-muted);
+  font-family: inherit;
   flex: none;
 }
 
