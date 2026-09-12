@@ -363,6 +363,7 @@ a contract change, not a refactor.
 | Page the evidence archive | `QueryEvidence { command_id, query }` | the durable archive rebuilt from the workflow agent log, stable `(timestamp, id)` ordering, the opaque cursor, owner-scope and kind filtering applied before the page is cut, bounds, and the typed page |
 | Read the bytes behind one evidence row | `ReadEvidenceContent { command_id, evidence_id }` | canonical ContextStore lookup, `source_hash` verification before anything is served, the typed content or unavailable reason, and the 256 KiB bound |
 | Create a starter Lane | `PreviewStarterLane`, review the result, then `CreateStarterLane` with the unchanged request/id/hash | preset resolution, workspace/isolation checks, permission gate, execution-time recheck, compensation, typed receipt |
+| Arrange the cockpit layout | `SetUiLayoutPreferences { patch }`, `ResetUiLayoutPreferences` | `[ui.layout]` persistence in the user config, bounds on the hidden-segment list, the published record with `persisted` and its diagnostics, and the snapshot-prefix copy |
 
 Starter Lane isolation is selected by Core, not by the frontend. A workspace
 inside a Git work tree with a valid `HEAD` receives the existing branch and
@@ -890,6 +891,107 @@ resampled *after* the effect and is reduced as it always was, so a client that
 only tracks the source chip still sees the post-effect tree. "Commit and push"
 is two sequential commands: a client sends the second only after the first
 reports `Completed`, and never infers success from output text.
+
+## Workspace Identity, Turn Lifecycle, And Durable Evidence
+
+The `0.3.4` Core increment adds three facts the `0.3.3` real task stopped on.
+This section is written as each batch lands; the headed placeholders below name
+what is not delivered yet rather than implying it is.
+
+### Workspace identity (`runtime.workspace_owner`, GUI-CORE-027)
+
+Every audited mutation in Viden names a `RuntimeOwner`. Until this capability
+there was exactly one way to obtain a real one: run inside a Lane. A commit made
+from the cockpit with no Lane selected therefore had no actor at all, so both
+clients refused it locally rather than file an authorized source-control change
+under `RuntimeOwner::default()`, which names nobody.
+
+Core now mints the identity at open and publishes it:
+
+- **Minting.** `workspace_id` is `ws_` plus the first 16 lowercase hex
+  characters of SHA-256 over the canonical root path. It is derivable, so the
+  same directory always mints the same id with no store to consult — and moving
+  the repository changes it, because the id names a *location*. `project_id` is
+  read from `.viden/project.toml` `[project] id`, or minted there as
+  `prj_<token>` on the first open; that is the half that survives a move and the
+  half an audit trail joins on. An id already in the file is never rewritten.
+- **The fact.** `WorkspaceRuntimeOwnerBound { binding }` is emitted once per
+  open, as the first fact after `SnapshotUpdated`, and again on a rebind. The
+  binding carries the canonical root, the owner, and a `project_id_origin` of
+  `existing` or `minted`, so an operator meeting a new project id in an audit
+  trail can tell which of the two happened.
+- **The scope is a scope, not a fallback.** A workspace owner carries
+  `workspace_id` and `project_id` and nothing else. A binding that also names a
+  Lane, session, task, or turn is refused by the producer and ignored by the
+  reducer rather than trimmed, because a trimmed one would make one Lane's
+  identity the actor every workspace-target mutation is audited under.
+- **Absence is an answer.** `RuntimeViewState.workspace_owner` is absent until
+  Core publishes one. A frontend gates its workspace-target commit bar and sync
+  control on presence and keeps its existing refusal text when the capability is
+  missing. It never substitutes `RuntimeOwner::default()`.
+- **New bindings inherit it.** Core folds the two ids into an envelope owner
+  that carries neither, so a Lane created after open carries them in its
+  binding. An owner a client did name is never rewritten, and a command that
+  carries its own actor is left alone — the supervisor validates actor against
+  envelope owner, and rewriting one side would launder a mismatch past that
+  check.
+- **Operator git on the workspace target.** `RunOperatorGitAction` with
+  `SourceTarget::Workspace` is accepted when its owner names the published
+  workspace and refused before any process spawns when it names none or names
+  another one. The refusal is a `CommandRejected` quoting GUI-CORE-027, so an
+  operator learns which capability their client is missing rather than only that
+  they were refused, and the audit record the action appends names that owner.
+
+**Per-Lane source.** `LaneSourceUpdated { lane_id, source }` reduces into
+`RuntimeViewState.lane_sources`, a map keyed by Lane id. Core samples it
+wherever it samples the workspace source — at connect, at every snapshot, and
+after every completed supervised command — and again after an operator git
+action targeting that Lane. `WorkspaceSourceUpdated` keeps its meaning, the
+workspace root only, so a Lane action no longer puts one tree's branch and
+ahead/behind into another tree's chip. A Lane with no worktree of its own is a
+direct-workspace Lane whose source *is* `workspace_source`, so it has no row;
+an empty map means Core sampled no Lane, never that every Lane is clean.
+
+### Cockpit layout preferences (`ui.layout_preferences`)
+
+`SetUiLayoutPreferences { patch }` and `ResetUiLayoutPreferences` write the
+Lane sidebar mode and the ambient statusbar segments the operator hid;
+`UiLayoutPreferencesUpdated { command_id, preferences, persisted, diagnostics }`
+answers, repeating the envelope's command id, and rides the snapshot prefix with
+`command_id` absent because nobody asked for that copy.
+
+This is a separate record from `UiPreferences` rather than a field on it:
+`ResolvedUiPreferences` serializes into every `RuntimeSnapshot`, so one more
+field there would move the recorded digest of all nine frozen base fixtures.
+`RuntimeViewState.layout_preferences` is optional and skipped when absent, so it
+moves none.
+
+Rules a frontend must honor:
+
+- `persisted: false` means Core applied the record for this session but could
+  not write it, with the reason in `diagnostics`. Render that difference; do not
+  report a preference that will not survive a restart as saved.
+- `None` on a patch field means "leave it", never "reset it". A reset is its own
+  command.
+- The hidden-segment list is bounded to 16 names of at most 64 bytes and is
+  *refused* over the bound, not clamped. Identity and actionable statusbar
+  segments must never be offered for hiding.
+- Core keeps segment names verbatim, including ones it does not recognize: the
+  statusbar vocabulary belongs to the client.
+- Absent `layout_preferences` means Core published no record, which is a
+  different fact from "Core says pinned".
+
+### Turn lifecycle (C6)
+
+Not delivered. `runtime.turn_lifecycle` is designed in
+`docs/release-0.3.4-contract-design.md` section 3 and lands in batch C6; this
+section is written when it does.
+
+### Durable work evidence (C7)
+
+Not delivered. `runtime.durable_work_evidence` is designed in
+`docs/release-0.3.4-contract-design.md` section 4 and lands in batch C7; this
+section is written when it does.
 
 ## Approval And Permission UI Contract
 

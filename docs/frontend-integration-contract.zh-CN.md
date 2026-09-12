@@ -317,6 +317,7 @@ flowchart LR
 | 分页读取证据归档 | `QueryEvidence { command_id, query }` | 从 workflow agent 日志重建的持久归档、稳定的 `(timestamp, id)` 排序、不透明 cursor、在切页之前应用的 owner 作用域与 kind 过滤、边界，以及类型化 page |
 | 读取单条证据背后的字节 | `ReadEvidenceContent { command_id, evidence_id }` | canonical ContextStore 查找、在提供任何内容之前先做 `source_hash` 校验、类型化的内容或不可用原因，以及 256 KiB 边界 |
 | 创建 starter Lane | `PreviewStarterLane`，审阅结果后携带未变化 request/id/hash 发送 `CreateStarterLane` | preset 解析、workspace/isolation 校验、permission gate、执行前复检、补偿和 typed receipt |
+| 安排驾驶舱布局 | `SetUiLayoutPreferences { patch }`、`ResetUiLayoutPreferences` | 用户配置中的 `[ui.layout]` 持久化、隐藏段列表的边界、带 `persisted` 与诊断的已发布记录，以及快照前缀的副本 |
 
 Starter Lane 的隔离模式由 Core 决定，而不是由前端决定。位于 Git work tree 且具有有效
 `HEAD` 的工作区继续使用 branch 与 worktree 隔离；其他任何真实存在的目录都创建直接工作区
@@ -729,6 +730,91 @@ agent 工具调用所走的同一个 tool registry 执行：
 发布它不会移动任何快照摘要。其后的 `WorkspaceSourceUpdated` 携带效果**之后**重新采样的
 源码事实并照常归约，因此只跟踪状态条的客户端仍能看到效果之后的工作树。"提交并推送"是两条
 顺序命令：客户端只在第一条报告 `Completed` 之后才发送第二条，且永不从输出文本推断成功。
+
+## 工作区身份、Turn 生命周期与持久工作证据
+
+`0.3.4` 的 Core 增量补上了 `0.3.3` 真实任务停在那里的三类事实。本节随各批次
+落地而逐步写成；下文带标题的占位条目指名的是尚未交付的内容，而不是暗示它已
+交付。
+
+### 工作区身份（`runtime.workspace_owner`，GUI-CORE-027）
+
+Viden 中每一次被审计的变更都要指名一个 `RuntimeOwner`。在本能力之前，取得一个
+真实 owner 只有一条路：在 Lane 内运行。因此在未选中 Lane 的驾驶舱里做的提交
+根本没有执行身份，两个客户端于是在本地拒绝，而不是把一次已授权的源码控制变更
+记在 `RuntimeOwner::default()` 名下 —— 那个 owner 谁也不是。
+
+Core 现在在 open 时铸造该身份并发布它：
+
+- **铸造。** `workspace_id` 是 `ws_` 加上规范根路径 SHA-256 的前 16 位小写
+  十六进制字符。它是可推导的，因此同一目录永远铸造出同一个 id，无需查阅任何
+  存储 —— 而移动仓库会改变它，因为这个 id 指名的是一个**位置**。`project_id`
+  从 `.viden/project.toml` 的 `[project] id` 读取，若不存在则在首次 open 时以
+  `prj_<token>` 铸造并写入；那是移动之后仍然存续、并且被审计轨迹据以连接的那
+  一半。文件中已有的 id 永不改写。
+- **事实本身。** `WorkspaceRuntimeOwnerBound { binding }` 每次 open 发布一次，
+  作为 `SnapshotUpdated` 之后的第一条事实，重新绑定时再发布一次。binding 携带
+  规范根目录、owner，以及取值为 `existing` 或 `minted` 的 `project_id_origin`，
+  于是操作者在审计轨迹里遇到一个新的 project id 时，能分辨发生的是哪一种。
+- **作用域是作用域，不是兜底值。** 工作区 owner 只携带 `workspace_id` 与
+  `project_id`，其余一概没有。同时指名 Lane、session、task 或 turn 的 binding
+  会被生产者拒绝、被归约器忽略，而不是被裁剪：裁剪过的 binding 会让某个 Lane
+  的身份成为每一次工作区目标变更被审计时的执行者。
+- **缺席是一个答案。** 在 Core 发布之前，`RuntimeViewState.workspace_owner`
+  是缺席的。前端据其存在与否对工作区目标的提交栏与同步控件做门禁；能力缺失时
+  保留既有的拒绝文案，绝不拿 `RuntimeOwner::default()` 顶替。
+- **新绑定继承它。** Core 把两个 id 折进那些两者皆空的信封 owner，因此 open
+  之后创建的 Lane 会在其 binding 中携带它们。客户端已经指名的 owner 永不改写，
+  自带 actor 的命令完全不动 —— supervisor 会校验 actor 与信封 owner 相等，
+  改写其中一侧会把不一致洗过这道检查。
+- **工作区目标上的操作者 git。** `SourceTarget::Workspace` 的
+  `RunOperatorGitAction`，在其 owner 指名了已发布的工作区时被接受；在它谁也
+  没指名、或指名了另一个工作区时，在任何进程启动之前被拒。拒绝是一条援引
+  GUI-CORE-027 的 `CommandRejected`，使操作者知道自己的客户端缺的是哪一项
+  能力，而不只是知道被拒；该动作追加的审计记录指名那个 owner。
+
+**按 Lane 的 source。** `LaneSourceUpdated { lane_id, source }` 归约进
+`RuntimeViewState.lane_sources` —— 一个以 Lane id 为键的 map。Core 在采样工作区
+source 的一切位置采样它 —— 连接时、每次快照时、每条已完成的受监督命令之后 ——
+并在针对该 Lane 的操作者 git 动作之后再采样一次。`WorkspaceSourceUpdated`
+保持其原义 —— 仅指工作区根目录 —— 因此 Lane 动作不再把一棵树的分支与
+ahead/behind 放进另一棵树的芯片里。没有自己 worktree 的 Lane 是直接工作区
+Lane，其 source 就是 `workspace_source`，因此没有行；空 map 意味着 Core 没有
+采样任何 Lane，而绝不意味着每个 Lane 都是干净的。
+
+### 驾驶舱布局偏好（`ui.layout_preferences`）
+
+`SetUiLayoutPreferences { patch }` 与 `ResetUiLayoutPreferences` 写入 Lane
+侧栏模式与操作者隐藏的环境类状态栏段；
+`UiLayoutPreferencesUpdated { command_id, preferences, persisted, diagnostics }`
+作答并回显信封的 command id，也随快照前缀发布，此时 `command_id` 缺席，因为
+那份副本没有任何人请求过。
+
+它是独立于 `UiPreferences` 的一条记录，而不是其上的一个字段：
+`ResolvedUiPreferences` 会序列化进每一个 `RuntimeSnapshot`，在那里多加一个字段
+会移动全部九个冻结基线 fixture 的记录摘要。`RuntimeViewState.layout_preferences`
+是可选的、缺席即跳过，因此一个也不会移动。
+
+前端必须遵守的规则：
+
+- `persisted: false` 表示 Core 已为本会话应用该记录但未能写入，原因在
+  `diagnostics` 中。请渲染出这一差别；不要把重启后不会存续的偏好报告为已保存。
+- patch 字段为 `None` 意为「保持原样」，绝不是「重置」。重置是它自己的命令。
+- 隐藏段列表上界为 16 个名字、每个至多 64 字节，越界时**拒绝**而非截断。身份类
+  与可操作的状态栏段绝不可提供隐藏选项。
+- Core 原样保留段名，包括它不认识的名字：状态栏词汇属于客户端。
+- `layout_preferences` 缺席意味着 Core 没有发布记录，这与「Core 说是 pinned」
+  是不同的事实。
+
+### Turn 生命周期（C6）
+
+尚未交付。`runtime.turn_lifecycle` 的设计见
+`docs/release-0.3.4-contract-design.md` 第 3 节，将在 C6 批次落地；届时再写本节。
+
+### 持久工作证据（C7）
+
+尚未交付。`runtime.durable_work_evidence` 的设计见
+`docs/release-0.3.4-contract-design.md` 第 4 节，将在 C7 批次落地；届时再写本节。
 
 ## Approval 和 Permission UI 契约
 

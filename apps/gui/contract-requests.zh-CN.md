@@ -24,6 +24,14 @@
 由发布证据回合开立，承接同日的 C5 裁定，排入 `0.3.4`。当前开放的登记项为
 009、013、018、019、021、023、026、027、028。
 
+状态注记 2026-09-12（C5）：GUI-CORE-027 已在 **Core 侧**关闭 ——
+`runtime.workspace_owner` 连同其 `workspace-owner` fixture 已发布 —— 并作为
+客户端采纳项继续开放，直到 GUI 移除 `D1-OPERATOR-GIT-OWNER`（G7）、TUI 启用其
+`/git` 工作区行（T2）。此处将其列为已关闭，是因为登记册跟踪的是 Core 欠下的
+内容；一条 Core 请求不会因为某个客户端尚未采纳而被重新开立。当前开放的登记项为
+009、013、018、019、021、023、026、028。这些条目记录在 `claude/int-0.3.4`
+集成分支上；在该分支合并之前，此处内容尚未进入 `main`。
+
 ## GUI-CORE-008：所选 Lane 的上下文作用域 — 已关闭
 
 历史：Core `0.3.5` 已暴露 `RuntimeViewState.context_budgets`，但 frontend-neutral
@@ -389,7 +397,9 @@ owner 限定并带 `target.kind = "git"` 的 `ApprovalRequested` 抵达既有权
 没有可指名的执行身份：此时提交栏与芯片禁用并标注客户端本地编码
 `D1-OPERATOR-GIT-OWNER`，而不是发送 `RuntimeOwner::default()` —— 那会把一次已授权的
 变更记成「不属于任何人」。这不是重新打开一条 Core 请求 —— 该能力完全按规范工作 —— 但
-一个工作区级的操作者身份会消除这条限制。它已登记为 GUI-CORE-027，排入 `0.3.4`。TUI
+一个工作区级的操作者身份会消除这条限制。它已登记为 GUI-CORE-027，Core 已于
+2026-09-12 以 `runtime.workspace_owner` 交付；本客户端在 G7 批次采纳，在那之前
+上述限制仍然描述实际发布的行为。TUI
 得出同样结论并拒绝同样的情形（T1a，2026-09-09），因此在没有绑定 Lane 时，`/git` 与
 DiffReview 提交栏同样不可用。
 
@@ -632,7 +642,7 @@ TUI 状态：已于 2026-09-10 采纳（T1b）。`0.3.2` 监督检查点上推�
 `CredentialHandle`」与「暂存被拒绝」两种情形的规范 `frontend-contract-v1`
 fixture。
 
-## GUI-CORE-027：工作区级操作者身份
+## GUI-CORE-027：工作区级操作者身份 —— 已关闭（Core 侧，2026-09-12）
 
 `RunOperatorGitAction` 校验命令的 `owner` 与信封 actor 相等，且 Core 的校验器
 已经接受 `SourceTarget::Workspace` 目标携带 `lane_id: None`。缺的东西在这道
@@ -653,12 +663,27 @@ project 字段在整个契约中语义上是惰性的 —— 这是本请求同�
 这是一条附加式契约请求，不是 `runtime.operator_git` 的缺陷。该能力对它能指名
 的目标完全按设计工作。
 
-当 Core 把工作区 owner 作为一个事实发布时关闭本请求 —— 调研得到的形状是
-`WorkspaceRuntimeOwnerBound`，对应 `LaneRuntimeOwnerBound`，携带由 Core 铸造
-的 `workspace_id` 与 `project_id` —— 并附一个规范 `frontend-contract-v1`
-fixture，其中一次 Workspace 目标的操作者动作在该 owner 下被授权并被审计。排入
-`0.3.4`；刻意不在 `0.3.3` 末期加入 —— 那会在计数门已经移动之后再添第 24 项
-能力，而 E1 的证据流程本身走的就是 Lane。
+Core 侧状态：已于 2026-09-12 由 `0.3.4` 契约增量的 C5 批次交付（能力
+`runtime.workspace_owner`），形状与本条目调研所得完全一致。
+`LocalCoreHost::open_workspace` 铸造该身份 —— `workspace_id` 是 `ws_` 加上
+规范根路径 SHA-256 的前 16 位十六进制字符，`project_id` 从
+`.viden/project.toml` 读取，若无则在首次 open 时铸造并写入 ——
+`WorkspaceRuntimeOwnerBound { binding }` 把它作为 `SnapshotUpdated` 之后的第一
+条事实发布，并携带用于区分「已有 id」与「本次 open 铸造」的
+`project_id_origin`。`RuntimeViewState.workspace_owner` 是可选的、在 Core 发布
+之前缺席，因此这两个 id 不再语义惰性，同时没有移动任何冻结基线 fixture。
+`SourceTarget::Workspace` 的 `RunOperatorGitAction` 现在能在该 owner 下端到端
+执行并被审计；谁也没指名、或指名了另一个工作区的命令，会在任何进程启动之前被
+拒，拒绝理由援引本编号。`workspace-owner` fixture 是规范证据：binding、随后
+创建并携带同样两个 id 的 Lane、带审计行的已授权提交，以及该 Lane 自己的
+`LaneSourceUpdated` 行 —— 后者同时终结了 `WorkspaceSourceUpdated` 携带 Lane
+worktree 分支的行为。
+
+客户端尚未采纳，两端的本地拒绝在采纳之前继续有效。GUI 将在 G7 批次移除
+`D1-OPERATOR-GIT-OWNER`，并在 `workspace_owner` 存在时对工作区目标启用
+DiffReview 提交栏与标题栏同步控件；TUI 将在 T2 批次以同样条件启用其 `/git`
+工作区行。对于不发布 `runtime.workspace_owner` 的 Core，两端都不应启用任何
+东西：缺席是一个真实的答案，既有的拒绝文案正是它对应的答案。
 
 ## GUI-CORE-028：由 supervisor 驱动的工作缺少持久证据
 

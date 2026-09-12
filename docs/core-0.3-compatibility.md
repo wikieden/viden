@@ -96,6 +96,8 @@ runtime.structured_diff
 runtime.trust_loop
 runtime.workspace_eligibility
 runtime.workspace_files
+runtime.workspace_owner
+ui.layout_preferences
 ui.preference_persistence
 ```
 
@@ -542,6 +544,8 @@ registered schema-1 extension fixtures are:
 | `operator-git` | A `Stage` refused by policy and answered by `CommandRejected` naming the mapped `git_add` spec; a `Commit` approved through the ask path with the staged rows attached, completed, and followed by a resampled source where `ahead` moved and the tree is clean; and a `Push` settled as `Failed { NoUpstream }` rather than rejected, because the gate granted it and the attempt was audited | `07eadb0e93c8e151ba5e3dd0f069035ff5e97ca20156b6f1f0c0e85a86ac14e1` | `f29aa213870cfd2e511553453b077db7f193dac553068e932c787ae0ba683936` |
 | `conflict-content` | Two Lanes over one file: Lane A's patch merges, Lane B's `MergeAgentPatch` is refused and the bounce carries one hunk with `ours`, `theirs`, and the patch preimage against an `Evidence` baseline, plus a `LaneConflictDetected` carrying the same shape against a `Revision` baseline | `d73ea2a144cd2682f3c5121f124c952dfad158e4befdd1a60ec9b9dc1c4d01bf` | `830afb77c04cf807926d0010309b07c3f1802e580daf48bc0715d4722c96ce1f` |
 | `evidence-reads` | Two pages tiling one three-row archive through the exact opaque cursor the first published; a kind-filtered page `complete` for its filter while the unfiltered archive is not; three content reads answering bounded text, parsed diff rows for a `patch` row, and `Unavailable { SummaryOnly }` for display-only evidence; and an over-limit `kinds` query answered by `CommandRejected` with no page at all | `b15cb2fd024f60a1abb3a5a39b5c5736fca8bec443ae1a99a69e99f51edf8ef9` | `4d33513151bda26aa8e11242a9963d7fde25cc332980a40306f6393e6fc4caa0` |
+| `workspace-owner` | A minted workspace identity published as the first fact after the snapshot, a Lane created afterwards whose binding carries the same two ids, a workspace-target `Commit` settled and audited under that owner, and a Lane-target `Stage` answered with the Lane's own source row while the workspace chip keeps describing the workspace | `0866370b2f4a9c85b1a577688e7cce42f51243b711440c7f3a033a5e75515a87` | `b8ac58db0fc8d3780d514e75531b21d98d7592e7e44b8aebd7bab69094777286` |
+| `ui-layout-preferences` | The snapshot prefix's copy with no command id, a stored record Core applied but could not write, an over-bound hidden-segment list refused by command id before anything was written, and a reset landing on the pinned default — with an unrecognized segment name kept verbatim | `4bd474eb181ac8bf8acb002627074fa80920a233be47d57dff0a1991d3a7c0e1` | `3dbde7428fba6a00be4fc771b12eb9b7efe01ec2c97cb016b36049ece8612908` |
 
 Semantics fix 2026-09-07 (review finding 4): `RuntimeViewState.assistant_stream`
 had no lifecycle — it was append-only for the life of the view, so startup
@@ -662,6 +666,73 @@ all four (GUI batches G1a/G1b/G2a/G2b, TUI batches T1a/T1b). This makes Core a
 declaration and the `component_version` bump in
 `crates/core/release-manifest.toml` belong to the `0.3.3` release step (E1),
 and nothing here is on `main` until the integration branch is merged.
+
+`runtime.workspace_owner` (GUI-CORE-027) gives work scoped to the workspace
+root an operator identity. `LocalCoreHost::open_workspace` mints it: the
+`workspace_id` is `ws_` followed by the first 16 lowercase hex characters of
+SHA-256 over the canonical root path, and the `project_id` is read from
+`.viden/project.toml` `[project] id`, or minted there as `prj_<token>` on the
+first open. The two halves are obtained differently on purpose. A derived
+workspace id needs no store, so the same directory always mints the same id and
+a client can recompute it — and moving the repository changes it, because the id
+names a location and that is stated rather than hidden. The project id is the
+durable half, the one an audit trail joins on, and an id already in the file is
+never rewritten: a second minted id would split one project's history into two
+identities with nothing to join them on. `WorkspaceRuntimeOwnerBound` carries
+both plus a `project_id_origin` of `existing` or `minted`, so an operator
+meeting a new project id in an audit trail can tell which of the two happened.
+
+A workspace owner is a scope, not a fallback: it carries the two ids and
+nothing else, and a binding that also names a Lane, session, task, or turn is
+refused by the producer and ignored by the reducer rather than trimmed. The
+binding is the first fact after `SnapshotUpdated`, so a snapshot replay carries
+it, and `RuntimeViewState.workspace_owner` is absent until Core publishes one:
+absence means this Core published no workspace identity, and a client gates its
+workspace-target commit bar on presence rather than substituting
+`RuntimeOwner::default()`, which names nobody. A new binding starts from that
+identity — the supervisor folds the two ids into an envelope owner that carries
+neither, once, so a Lane created after open carries them — while an owner a
+client did name is never rewritten and a command carrying its own actor is left
+alone. A `RunOperatorGitAction` with `SourceTarget::Workspace` is accepted when
+its owner names the published workspace and refused before any process spawns
+when it names none or names another one, with the refusal quoting GUI-CORE-027.
+The same capability adds `LaneSourceUpdated` and
+`RuntimeViewState.lane_sources`, so a Lane worktree's branch and ahead/behind
+stop overwriting the workspace chip: `WorkspaceSourceUpdated` keeps its meaning,
+the workspace root only. A Lane with no worktree of its own is the workspace and
+has no row; an empty map means Core sampled no Lane, never that every Lane is
+clean.
+
+`ui.layout_preferences` persists the cockpit layout — the Lane sidebar mode and
+the ambient statusbar segments the operator hid — under `[ui.layout]` in the
+same user config file as `[ui]`. It is a separate record and a separate
+capability rather than a field on `UiPreferences` for one reason:
+`ResolvedUiPreferences` serializes into every `RuntimeSnapshot`, so one more
+field there would move the recorded digest of all nine frozen base fixtures,
+while an optional view field skipped when absent moves none. The two records
+answer to two commands, so resetting the appearance profile deliberately carries
+`[ui.layout]` across — an operator resetting a theme must not find their cockpit
+rearranged. A record Core applied but could not write is published with
+`persisted: false` and the reason as a diagnostic, mirroring
+`ui.preference_persistence`; the hidden-segment list is bounded to 16 names of
+at most 64 bytes and refused rather than clamped over the bound, because a
+clamped list silently keeps showing a segment the operator asked to hide. Names
+Core does not recognize are kept verbatim: the statusbar vocabulary belongs to
+the client. There is no permission prompt — the record grants nothing and
+arranges one client's own window — so every refusal is pre-write and is answered
+as a `CommandRejected` naming the caller's command.
+
+0.3.4 contract increment, batch C5, landed 2026-09-12 on
+`claude/int-0.3.4`. `runtime.workspace_owner` and `ui.layout_preferences` move
+the advertised extension set from 23 to 25 and add the two fixtures listed in
+the corpus table, with the nine frozen base fixtures byte-unchanged and the
+capability count gate in `scripts/tui-regression.sh` moved 23 -> 25. The
+milestone target is 29; each batch moves the count by exactly what it adds.
+Neither client has adopted these two yet — the GUI commit bar and sync chip
+(G7) and the TUI `/git` workspace rows (T2) come later in `0.3.4` — and
+`crates/core/release-manifest.toml` keeps its `0.3.6` `component_version` and
+its recorded checkpoint, because the Core `0.3.7` checkpoint is declared once by
+the release step (E2) rather than per batch.
 
 Open follow-ups recorded 2026-09-10. Each was confirmed during the `0.3.3`
 batches and deliberately left out of them, so none is rediscovered later as a

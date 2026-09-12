@@ -30,6 +30,16 @@ supervisor-driven work) is opened by the release-evidence pass and scheduled for
 `0.3.4`, following the C5 adjudication of the same day. The open register is
 009, 013, 018, 019, 021, 023, 026, 027, and 028.
 
+Status note 2026-09-12 (C5): GUI-CORE-027 is closed **on the Core side** —
+`runtime.workspace_owner` is published with its `workspace-owner` fixture — and
+stays open as a client adoption item until the GUI drops
+`D1-OPERATOR-GIT-OWNER` (G7) and the TUI enables its `/git` workspace rows (T2).
+It is listed as closed here because the register tracks what Core owes; a Core
+request is not re-opened by a client that has not yet adopted it. The open
+register is 009, 013, 018, 019, 021, 023, 026, and 028. These entries are
+recorded against the `claude/int-0.3.4` integration branch; nothing here is on
+`main` until that branch is merged.
+
 ## GUI-CORE-008: Selected-Lane context scope — CLOSED
 
 History: Core `0.3.5` exposed `RuntimeViewState.context_budgets`, but the
@@ -514,9 +524,11 @@ disabled and labelled `D1-OPERATOR-GIT-OWNER`, a client-local code, rather than
 sending `RuntimeOwner::default()`, which would record an authorized mutation as
 belonging to nobody. This is not a re-opened Core request — the capability works
 as specified — but a workspace-scoped operator identity would remove the limit.
-It is registered as GUI-CORE-027 and scheduled for `0.3.4`. The TUI reaches the
-same conclusion and refuses the same cases (T1a, 2026-09-09), so `/git` and the
-DiffReview commit bar are both inert without a bound Lane.
+It is registered as GUI-CORE-027, which Core delivered on 2026-09-12 as
+`runtime.workspace_owner`; this client adopts it in batch G7, and until then the
+limit above still describes what ships. The TUI reaches the same conclusion and
+refuses the same cases (T1a, 2026-09-09), so `/git` and the DiffReview commit
+bar are both inert without a bound Lane.
 
 D1's `apply` unavailable row is no longer unconditional: it survives only for a
 Core build that genuinely publishes no `runtime.operator_git`, and then names
@@ -843,7 +855,7 @@ event that reports its outcome, and a canonical `frontend-contract-v1` fixture
 covering a staged credential that becomes a `CredentialHandle` and one that is
 refused.
 
-## GUI-CORE-027: Workspace-scoped operator identity
+## GUI-CORE-027: Workspace-scoped operator identity — CLOSED (Core side, 2026-09-12)
 
 `RunOperatorGitAction` validates that the command's `owner` equals the
 envelope actor, and Core's validator already accepts `lane_id: None` for a
@@ -868,14 +880,32 @@ reachable only through a Lane.
 This is an additive contract request, not a defect in `runtime.operator_git`.
 The capability behaves as designed for the target it can name.
 
-Close this request when Core publishes a workspace owner as a fact — the
-shape investigated is `WorkspaceRuntimeOwnerBound`, mirroring
-`LaneRuntimeOwnerBound`, carrying a Core-minted `workspace_id` and
-`project_id` — together with a canonical `frontend-contract-v1` fixture in
-which a Workspace-target operator action is authorized and audited under that
-owner. Scheduled for `0.3.4`; deliberately not added late in `0.3.3`, where it
-would have been a twenty-fourth capability after the count gate moved, and
-where the E1 evidence flow runs through a Lane.
+Core status: delivered 2026-09-12 by batch C5 of the `0.3.4` contract increment
+(capability `runtime.workspace_owner`), in the exact shape this entry
+investigated. `LocalCoreHost::open_workspace` mints the identity —
+`workspace_id` is `ws_` plus the first 16 hex characters of SHA-256 over the
+canonical root, `project_id` is read from `.viden/project.toml` or minted there
+on the first open — and `WorkspaceRuntimeOwnerBound { binding }` publishes it as
+the first fact after `SnapshotUpdated`, carrying a `project_id_origin` that
+separates an existing id from one minted on this open.
+`RuntimeViewState.workspace_owner` is optional and absent until Core publishes
+one, so the two ids stopped being semantically inert without moving any frozen
+base fixture. A `RunOperatorGitAction` with `SourceTarget::Workspace` now runs
+end to end under that owner and is audited under it; one that names no
+workspace, or another workspace, is refused before any process spawns with a
+`CommandRejected` quoting this number. The `workspace-owner` fixture is the
+canonical evidence: the binding, a Lane created afterwards carrying the same two
+ids, the authorized commit with its audit row, and the Lane's own
+`LaneSourceUpdated` row — which also ends `WorkspaceSourceUpdated` carrying a
+Lane worktree's branch.
+
+Clients have not adopted it yet, and both local refusals still stand until they
+do. The GUI drops `D1-OPERATOR-GIT-OWNER` and enables the DiffReview commit bar
+and the titlebar sync control on the workspace target when `workspace_owner` is
+present, in batch G7; the TUI enables its `/git` workspace rows under the same
+condition in batch T2. Neither should enable anything on a Core that publishes
+no `runtime.workspace_owner`: absence is a real answer, and the existing
+refusal text is the right one for it.
 
 ## GUI-CORE-028: Durable evidence for supervisor-driven work
 

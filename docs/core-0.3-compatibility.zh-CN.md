@@ -88,6 +88,8 @@ runtime.structured_diff
 runtime.trust_loop
 runtime.workspace_eligibility
 runtime.workspace_files
+runtime.workspace_owner
+ui.layout_preferences
 ui.preference_persistence
 ```
 
@@ -411,6 +413,8 @@ Fixture 文件位于 `crates/types/tests/fixtures/frontend-contract-v1/`。下�
 | `operator-git` | 一个 `Stage` 被策略拒绝，并以 `CommandRejected` 指名映射后的 `git_add` spec 返回；一个 `Commit` 走 ask 路径、携带已暂存行被审批并完成，其后跟随重新采样的源码事实，其中 `ahead` 前进且工作树干净；一个 `Push` 结论为 `Failed { NoUpstream }` 而不是被拒绝，因为门禁放行了它且该尝试已被审计 | `07eadb0e93c8e151ba5e3dd0f069035ff5e97ca20156b6f1f0c0e85a86ac14e1` | `f29aa213870cfd2e511553453b077db7f193dac553068e932c787ae0ba683936` |
 | `conflict-content` | 两条 Lane 触及同一个文件：Lane A 的补丁合入，Lane B 的 `MergeAgentPatch` 被拒绝，bounce 携带一个 hunk，含 `ours`、`theirs` 与补丁原像，基线为 `Evidence`；另有一条 `LaneConflictDetected` 以相同形状携带内容，基线为 `Revision` | `d73ea2a144cd2682f3c5121f124c952dfad158e4befdd1a60ec9b9dc1c4d01bf` | `830afb77c04cf807926d0010309b07c3f1802e580daf48bc0715d4722c96ce1f` |
 | `evidence-reads` | 两页以第一页发布的那个不透明 cursor 原样拼接同一份三行归档；一页按 kind 过滤、对其过滤而言 `complete`，而未过滤的归档并非如此；三次内容读取分别回答有界文本、`patch` 行的已解析 diff 行、以及仅供展示证据的 `Unavailable { SummaryOnly }`；另有一次越界 `kinds` 查询以 `CommandRejected` 回答且完全不发布 page | `b15cb2fd024f60a1abb3a5a39b5c5736fca8bec443ae1a99a69e99f51edf8ef9` | `4d33513151bda26aa8e11242a9963d7fde25cc332980a40306f6393e6fc4caa0` |
+| `workspace-owner` | 铸造出的工作区身份作为快照之后的第一条事实发布；随后创建的 Lane，其绑定携带同样的两个 id；一次 Workspace 目标的 `Commit` 在该 owner 下结算并被审计；一次 Lane 目标的 `Stage` 以该 Lane 自己的 source 行作答，而工作区芯片仍描述工作区 | `0866370b2f4a9c85b1a577688e7cce42f51243b711440c7f3a033a5e75515a87` | `b8ac58db0fc8d3780d514e75531b21d98d7592e7e44b8aebd7bab69094777286` |
+| `ui-layout-preferences` | 快照前缀的副本不带 command id；一条 Core 已应用但写入失败的记录；一次越界的隐藏段列表在写入任何内容之前按 command id 被拒；一次 reset 落回 pinned 默认值 —— 其中一个无法识别的段名被原样保留 | `4bd474eb181ac8bf8acb002627074fa80920a233be47d57dff0a1991d3a7c0e1` | `3dbde7428fba6a00be4fc771b12eb9b7efe01ec2c97cb016b36049ece8612908` |
 
 2026-09-07 语义修正（评审发现 4）：`RuntimeViewState.assistant_stream` 此前没有生命
 周期——它在整个 view 生命期内只追加，因此启动重放会把每个历史会话的回复串接成一整块
@@ -494,6 +498,59 @@ page 与每一个内容事件之后 `latest_evidence` 仍为空，这正是归�
 `0.3.6` **候选**。它不是不可变 checkpoint：checkpoint 的声明与
 `crates/core/release-manifest.toml` 中 `component_version` 的提升属于 `0.3.3`
 的发布步骤（E1），且在集成分支合并之前，此处内容尚未进入 `main`。
+
+`runtime.workspace_owner`（GUI-CORE-027）为作用于工作区根目录的工作提供了一个
+操作者身份。它由 `LocalCoreHost::open_workspace` 铸造：`workspace_id` 是 `ws_`
+加上规范根路径 SHA-256 的前 16 位小写十六进制字符；`project_id` 从
+`.viden/project.toml` 的 `[project] id` 读取，若不存在则在首次 open 时以
+`prj_<token>` 铸造并写入该文件。两半刻意以不同方式获得。派生出的 workspace id
+不需要任何存储，因此同一目录永远铸造出同一个 id，客户端也可以自行重算 —— 而移动
+仓库会改变它，因为这个 id 指名的是一个**位置**，这一点被明说而不是被掩盖。
+project id 是持久的那一半，是审计轨迹据以连接的那一半；文件中已有的 id 永不
+改写：第二次铸造会把同一个项目的历史劈成两个彼此无法关联的身份。
+`WorkspaceRuntimeOwnerBound` 同时携带这两者以及取值为 `existing` 或 `minted`
+的 `project_id_origin`，于是操作者在审计轨迹里遇到一个新的 project id 时，能
+分辨发生的是哪一种。
+
+工作区 owner 是一个作用域，不是兜底值：它只携带这两个 id，其余一概没有；同时
+指名 Lane、session、task 或 turn 的绑定会被生产者拒绝、被归约器忽略，而不是被
+裁剪。该绑定是 `SnapshotUpdated` 之后的第一条事实，因此快照重放会带上它；而
+`RuntimeViewState.workspace_owner` 在 Core 发布之前是缺席的：缺席意味着这个
+Core 没有发布工作区身份，客户端据此对工作区目标的提交栏做能力门禁，而不是拿
+`RuntimeOwner::default()` 顶替 —— 那个 owner 谁也不是。新的绑定从该身份出发 ——
+supervisor 把两个 id 一次性折进那些两者皆空的信封 owner，因此 open 之后创建的
+Lane 会携带它们 —— 而客户端已经指名的 owner 永不改写，自带 actor 的命令则完全
+不动。`SourceTarget::Workspace` 的 `RunOperatorGitAction`，在其 owner 指名了已
+发布的工作区时被接受；在它谁也没指名、或指名了另一个工作区时，在任何进程启动
+之前被拒，拒绝理由中援引 GUI-CORE-027。同一能力还新增 `LaneSourceUpdated` 与
+`RuntimeViewState.lane_sources`，使 Lane worktree 的分支与 ahead/behind 不再
+覆盖工作区芯片：`WorkspaceSourceUpdated` 保持其原义 —— 仅指工作区根目录。没有
+自己 worktree 的 Lane 就是工作区本身，因此没有行；空 map 意味着 Core 没有采样
+任何 Lane，而绝不意味着每个 Lane 都是干净的。
+
+`ui.layout_preferences` 持久化驾驶舱布局 —— Lane 侧栏模式，以及操作者隐藏的
+环境类状态栏段 —— 写入与 `[ui]` 同一个用户配置文件中的 `[ui.layout]` 表。它是
+一条独立记录、一项独立能力，而不是 `UiPreferences` 上的一个字段，原因只有一个：
+`ResolvedUiPreferences` 会序列化进每一个 `RuntimeSnapshot`，在那里多加一个字段
+会移动全部九个冻结基线 fixture 的记录摘要，而一个缺席即跳过的可选视图字段一个
+也不会移动。两条记录对应两条命令，因此重置外观档案刻意把 `[ui.layout]` 原样
+带过 —— 操作者重置主题时不该发现驾驶舱被重排。Core 已应用但写入失败的记录以
+`persisted: false` 加上作为诊断的原因发布，与 `ui.preference_persistence` 一致；
+隐藏段列表上界为 16 个名字、每个至多 64 字节，越界时拒绝而非截断，因为被截断的
+列表会继续显示操作者要求隐藏的段，且没有任何事实说明这一点。Core 不认识的名字
+原样保留：状态栏词汇属于客户端。这条路径没有权限提示 —— 该记录不授予任何权限，
+只是安排某个客户端自己的窗口 —— 因此每一次拒绝都发生在写入之前，并以指名调用方
+命令的 `CommandRejected` 作答。
+
+0.3.4 契约增量的 C5 批次已于 2026-09-12 落到 `claude/int-0.3.4`。
+`runtime.workspace_owner` 与 `ui.layout_preferences` 把对外通告的扩展集合从 23
+项推到 25 项，并新增语料表中列出的两个 fixture；九个冻结基线 fixture 的字节未变，
+`scripts/tui-regression.sh` 中的能力计数门由 23 移到 25。里程碑目标是 29 项；
+每个批次按其新增量移动该计数。两个客户端都尚未采纳这两项 —— GUI 的提交栏与同步
+芯片（G7）、TUI 的 `/git` 工作区行（T2）在 `0.3.4` 的后续批次 ——
+`crates/core/release-manifest.toml` 保持其 `0.3.6` 的 `component_version` 与已
+记录的 checkpoint，因为 Core `0.3.7` 的 checkpoint 由发布步骤（E2）一次性声明，
+而不是逐批次声明。
 
 2026-09-10 记录的未决跟进项。每一条都是在 `0.3.3` 各批次中确认、并被刻意留在
 批次之外的，因此它们不会日后被当作新发现重新提出：
