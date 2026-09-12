@@ -1456,6 +1456,11 @@ fn run_supervisor_worker(
                 command,
                 submitted_permission_epoch,
             } => {
+                // Every new binding this command creates — a Lane worker, an
+                // Agent session — starts from the envelope owner, so the
+                // workspace identity is folded in here, once, rather than at
+                // each producer.
+                let owner = stamp_workspace_identity(&engine, owner, &command);
                 before_supervisor_command_for_test(&command_id);
                 if LaneSupervisor::handles(&command) {
                     if let Err(error) =
@@ -3474,6 +3479,39 @@ fn emit_events(bus: &RuntimeEventBus, owner: RuntimeOwner, events: Vec<RuntimeEv
     }
 }
 
+/// Fills a bare envelope owner in with the workspace identity Core published.
+///
+/// Only the two id fields, and only when the client named neither: an owner a
+/// client did name is authoritative and is never rewritten. A command that
+/// carries its own actor is skipped entirely, because the supervisor validates
+/// that the actor equals the envelope owner — stamping one side would either
+/// break that check or launder a mismatch past it.
+///
+/// This is what makes a Lane created after open carry the workspace and
+/// project ids in its binding instead of a pair of empty strings. Facts the
+/// built-in turn already publishes under the empty owner are re-stamped by C7,
+/// not here.
+pub(crate) fn stamp_workspace_identity(
+    engine: &SessionEngine,
+    owner: RuntimeOwner,
+    command: &RuntimeCommand,
+) -> RuntimeOwner {
+    let Some(workspace) = engine.workspace_owner() else {
+        return owner;
+    };
+    if !owner.workspace_id.is_empty() || !owner.project_id.is_empty() {
+        return owner;
+    }
+    if crate::project_runtime::supervised_command_actor(command).is_some() {
+        return owner;
+    }
+    RuntimeOwner {
+        workspace_id: workspace.workspace_id.clone(),
+        project_id: workspace.project_id.clone(),
+        ..owner
+    }
+}
+
 fn emit_frontend_status_events_if_changed(
     bus: &RuntimeEventBus,
     owner: RuntimeOwner,
@@ -3487,6 +3525,9 @@ fn emit_frontend_status_events_if_changed(
             .is_some_and(|state| match &event.kind {
                 RuntimeEventKind::WorkspaceSourceUpdated { source } => {
                     state.live_view.workspace_source.as_ref() == Some(source)
+                }
+                RuntimeEventKind::LaneSourceUpdated { lane_id, source } => {
+                    state.live_view.lane_sources.get(lane_id) == Some(source)
                 }
                 RuntimeEventKind::RuntimeServiceHealthUpdated { service } => state
                     .live_view

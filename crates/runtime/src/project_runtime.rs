@@ -451,7 +451,9 @@ impl SessionEngine {
     }
 }
 
-fn supervised_command_actor(command: &RuntimeCommand) -> Option<&viden_types::RuntimeOwner> {
+pub(crate) fn supervised_command_actor(
+    command: &RuntimeCommand,
+) -> Option<&viden_types::RuntimeOwner> {
     match command {
         RuntimeCommand::CreateHandoff { owner, .. }
         | RuntimeCommand::RequestReview { owner, .. }

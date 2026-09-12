@@ -156,7 +156,50 @@ pub(crate) fn lifecycle_events(cwd: &Path, lsp_runtime: &LspRuntime) -> Vec<Runt
 
 impl SessionEngine {
     pub(crate) fn frontend_status_lifecycle_events(&self) -> Vec<RuntimeEvent> {
-        lifecycle_events(&self.cwd, self.lsp_runtime.as_ref())
+        let mut events = lifecycle_events(&self.cwd, self.lsp_runtime.as_ref());
+        events.extend(self.lane_source_events());
+        events
+    }
+
+    /// One source row per live Lane that owns a worktree
+    /// (`runtime.workspace_owner`).
+    ///
+    /// Sampled here rather than in `runtime_state_events` on purpose: this
+    /// function runs at connect, at every snapshot request, and after every
+    /// completed supervised command — which is exactly where the workspace's
+    /// own source is sampled — while the state prefix is rebuilt for *every*
+    /// command and would spawn four `git` processes per Lane each time. The
+    /// caller dedupes, so an unchanged Lane publishes nothing.
+    ///
+    /// A Lane with no worktree of its own is a direct-workspace Lane: its
+    /// source *is* `workspace_source`, so it gets no row rather than a
+    /// duplicate one. A terminal Lane gets none either — its worktree may
+    /// already be gone, and sampling a missing directory would publish
+    /// `Unavailable` for a Lane that simply finished.
+    fn lane_source_events(&self) -> Vec<RuntimeEvent> {
+        let Ok(lane_state) = self.workflows.load_lane_state() else {
+            return Vec::new();
+        };
+        lane_state
+            .lanes()
+            .values()
+            .filter(|lane| lane.is_active())
+            .filter_map(|lane| {
+                let worktree = lane.worktree.as_ref()?;
+                let path = Path::new(worktree);
+                if !path.is_dir() {
+                    return None;
+                }
+                Some(RuntimeEvent::new(
+                    0,
+                    RuntimeEventKind::LaneSourceUpdated {
+                        lane_id: lane.id.clone(),
+                        source: sample_workspace_source(path),
+                    },
+                ))
+            })
+            .take(MAX_COCKPIT_ROWS)
+            .collect()
     }
 }
 

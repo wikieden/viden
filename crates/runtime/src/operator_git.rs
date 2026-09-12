@@ -32,7 +32,7 @@ use viden_types::{
     AuditActor, AuditObjectRef, AuditOutcome, AuditRecord, MAX_OPERATOR_GIT_OUTPUT_BYTES,
     OperatorGitAction, OperatorGitFailureClass, OperatorGitOutcome, PermissionDecision,
     RuntimeEvent, RuntimeEventKind, RuntimeOwner, SourceTarget, ToolCall, ToolInput, ToolSpec,
-    fresh_id, now_timestamp,
+    fresh_id, now_timestamp, workspace_owner_authorizes,
 };
 
 use crate::SessionEngine;
@@ -75,6 +75,7 @@ impl SessionEngine {
         F: FnMut(viden_types::PermissionPrompt) -> viden_types::ApprovalResponse,
     {
         action.validate()?;
+        self.authorize_operator_git_owner(&target, owner)?;
         let root = self.resolve_source_target_root(&target)?;
         let call = operator_git_tool_call(&self.tools, &action, &root)?;
 
@@ -202,6 +203,42 @@ impl SessionEngine {
         ))
     }
 
+    /// Refuses a workspace-target action whose actor Core cannot name
+    /// (`runtime.workspace_owner`, GUI-CORE-027).
+    ///
+    /// The audit record this action appends *is* the authorization, so the
+    /// owner on it has to be a real identity. Before this capability a
+    /// workspace-target action had none to offer — `RuntimeOwner::default()`
+    /// names nobody — and both clients refused locally rather than file an
+    /// authorized source-control change as belonging to no one. Core now
+    /// publishes the identity, so the refusal moves here, where it belongs,
+    /// and names the contract request so an operator reading it learns which
+    /// capability their client is missing rather than only that they were
+    /// refused.
+    ///
+    /// A Lane target is not checked here: its identity is the Lane's own
+    /// binding, which the Lane records already validate.
+    fn authorize_operator_git_owner(
+        &self,
+        target: &SourceTarget,
+        owner: &RuntimeOwner,
+    ) -> Result<(), String> {
+        if !matches!(target, SourceTarget::Workspace) {
+            return Ok(());
+        }
+        if workspace_owner_authorizes(self.workspace_owner(), owner) {
+            return Ok(());
+        }
+        Err(format!(
+            "a workspace-target source-control action requires the workspace owner Core \
+             published (GUI-CORE-027, `runtime.workspace_owner`); the command carried \
+             workspace `{}` project `{}`\nhint: read `workspace_owner` from the runtime view \
+             and send it as the command's owner",
+            redact_id(&owner.workspace_id),
+            redact_id(&owner.project_id),
+        ))
+    }
+
     /// Records the outcome and publishes the two events every settled action
     /// produces, whichever way it settled.
     ///
@@ -265,6 +302,19 @@ impl SessionEngine {
             // guessing which of them the failure preserved.
             _ => sample_workspace_source(root),
         };
+        // A Lane's resampled source is *that Lane's*, so it is published as a
+        // Lane row rather than as the workspace source. Publishing it as
+        // `WorkspaceSourceUpdated` — which is what this did before
+        // `runtime.workspace_owner` — put a Lane worktree's branch and
+        // ahead/behind into the workspace chip, describing one tree with
+        // another tree's facts.
+        let source_fact = match &target {
+            SourceTarget::Lane { lane_id } => RuntimeEventKind::LaneSourceUpdated {
+                lane_id: lane_id.clone(),
+                source,
+            },
+            _ => RuntimeEventKind::WorkspaceSourceUpdated { source },
+        };
         vec![
             RuntimeEvent::new(
                 1,
@@ -276,7 +326,7 @@ impl SessionEngine {
                     audit_id,
                 },
             ),
-            RuntimeEvent::new(2, RuntimeEventKind::WorkspaceSourceUpdated { source }),
+            RuntimeEvent::new(2, source_fact),
         ]
     }
 
@@ -519,4 +569,18 @@ fn branch_has_upstream(root: &Path) -> bool {
         .output()
         .map(|output| output.status.success())
         .unwrap_or(false)
+}
+
+/// Renders an identifier for a refusal message without echoing an unbounded
+/// client-chosen string back onto the event stream.
+///
+/// `<none>` rather than an empty string, because "the command named no
+/// workspace" is the fact an operator needs, and an empty pair of backticks
+/// reads as a rendering bug.
+fn redact_id(value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return "<none>".to_string();
+    }
+    viden_types::truncate_for_preview(trimmed, 40)
 }

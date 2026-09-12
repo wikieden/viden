@@ -438,3 +438,70 @@ fn fixture_frontend_host_services_is_registered_and_fully_redacted() {
         );
     }
 }
+
+// --- runtime.workspace_owner (C5, GUI-CORE-027) ------------------------------
+
+/// Opening a workspace mints its identity and publishes it: the binding the
+/// host hands back carries both ids, `.viden/project.toml` holds the durable
+/// half, and the snapshot a client reads carries the owner its
+/// workspace-target commands must send.
+#[test]
+fn opening_a_workspace_mints_and_publishes_its_operator_identity() {
+    let home = temp_dir("workspace-owner-home");
+    let project = temp_dir("workspace-owner-project");
+    let host = LocalCoreHost::with_session_home(home);
+
+    let mut opened = host
+        .open_workspace(WorkspaceOpenRequest::new(project.clone()))
+        .unwrap();
+
+    let binding = opened.binding().clone();
+    assert!(binding.workspace_id.starts_with("ws_"));
+    assert!(binding.project_id.starts_with("prj_"));
+    assert!(project.join(".viden").join("project.toml").is_file());
+
+    let snapshot = opened.client().snapshot().unwrap();
+    let owner = snapshot
+        .view
+        .workspace_owner
+        .clone()
+        .expect("an opened workspace publishes its owner");
+    assert_eq!(owner.workspace_id, binding.workspace_id);
+    assert_eq!(owner.project_id, binding.project_id);
+    assert_eq!(owner.lane_id, None);
+    assert_eq!(owner.session_id, None);
+    assert_eq!(owner.task_id, None);
+    assert_eq!(owner.turn_id, None);
+}
+
+/// The workspace id names a location and the project id names the project.
+/// Reopening the same directory reproduces both; a different directory
+/// reproduces neither.
+#[test]
+fn reopening_a_workspace_reproduces_both_ids_and_a_new_one_shares_none() {
+    let home = temp_dir("workspace-owner-stable-home");
+    let project = temp_dir("workspace-owner-stable-project");
+    let other = temp_dir("workspace-owner-other-project");
+    let host = LocalCoreHost::with_session_home(home);
+
+    let first = host
+        .open_workspace(WorkspaceOpenRequest::new(project.clone()))
+        .unwrap()
+        .binding()
+        .clone();
+    let second = host
+        .open_workspace(WorkspaceOpenRequest::new(project))
+        .unwrap()
+        .binding()
+        .clone();
+    let elsewhere = host
+        .open_workspace(WorkspaceOpenRequest::new(other))
+        .unwrap()
+        .binding()
+        .clone();
+
+    assert_eq!(first.workspace_id, second.workspace_id);
+    assert_eq!(first.project_id, second.project_id);
+    assert_ne!(first.workspace_id, elsewhere.workspace_id);
+    assert_ne!(first.project_id, elsewhere.project_id);
+}

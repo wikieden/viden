@@ -1713,6 +1713,18 @@ impl SessionEngine {
                 snapshot: self.runtime_snapshot(),
             },
         )];
+        // The workspace identity is the *first* fact after the snapshot, so a
+        // client that replays only a snapshot still learns which owner its
+        // workspace-target commands must carry. Everything below this point
+        // is state that identity scopes.
+        if let Some(binding) = self.workspace_owner_binding() {
+            events.push(RuntimeEvent::new(
+                next_sequence(&events),
+                RuntimeEventKind::WorkspaceRuntimeOwnerBound {
+                    binding: binding.clone(),
+                },
+            ));
+        }
         // The layout record rides the snapshot prefix with no command id: a
         // reconnecting client learns its stored layout without asking, and
         // cannot mistake this copy for the answer to a request it has in

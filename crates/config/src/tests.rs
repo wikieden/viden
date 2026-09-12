@@ -1,7 +1,7 @@
 use super::*;
 use std::collections::BTreeMap;
 use viden_types::{
-    LaneSidebarMode, LocaleId, UiColorMode, UiDensity, UiLayoutPreferencePatch,
+    LaneSidebarMode, LocaleId, ProjectIdOrigin, UiColorMode, UiDensity, UiLayoutPreferencePatch,
     UiLayoutPreferences, UiMotion, UiPreferencePatch, UiPreferences, UiSkin,
 };
 
@@ -1506,4 +1506,68 @@ fn an_over_bound_layout_patch_is_refused_without_changing_bytes() {
 
     assert!(error.contains("16"));
     assert_eq!(fs::read_to_string(&path).unwrap(), before);
+}
+
+// --- runtime.workspace_owner: the durable project id (C5) --------------------
+
+/// A project with no id gets one minted and written, and the next open reads
+/// exactly that id back. The origin says which of the two happened, because an
+/// operator seeing a new project id in an audit trail must be able to tell
+/// "Core minted this" from "this project always had it" without diffing a file
+/// Core owns.
+#[test]
+fn a_project_id_is_minted_once_and_read_back_afterwards() {
+    let root = layout_root("project_id_mint");
+
+    let (minted, origin) = read_or_mint_project_id_at(&root).unwrap();
+
+    assert_eq!(origin, ProjectIdOrigin::Minted);
+    assert!(minted.starts_with(viden_types::PROJECT_ID_PREFIX));
+    assert!(root.join(".viden").join("project.toml").is_file());
+
+    let (existing, origin) = read_or_mint_project_id_at(&root).unwrap();
+    assert_eq!(origin, ProjectIdOrigin::Existing);
+    assert_eq!(existing, minted);
+}
+
+/// The write preserves every other key in `project.toml`, and an id already in
+/// the file is never rewritten: the project id is durable identity, so minting
+/// a second one would split one project's audit history in two.
+#[test]
+fn an_existing_project_id_is_preserved_with_the_rest_of_the_file() {
+    let root = layout_root("project_id_existing");
+    let viden = root.join(".viden");
+    fs::create_dir_all(&viden).unwrap();
+    fs::write(
+        viden.join("project.toml"),
+        "custom = 7\n\n[project]\nid = \"prj_existing\"\nlabel = \"keep-me\"\n",
+    )
+    .unwrap();
+
+    let (id, origin) = read_or_mint_project_id_at(&root).unwrap();
+
+    assert_eq!(id, "prj_existing");
+    assert_eq!(origin, ProjectIdOrigin::Existing);
+    let contents = fs::read_to_string(viden.join("project.toml")).unwrap();
+    assert!(contents.contains("custom = 7"));
+    assert!(contents.contains("keep-me"));
+}
+
+/// An id this build cannot use — empty, or not a string — is replaced by a
+/// freshly minted one rather than published as identity. An unusable id in an
+/// owner is the `RuntimeOwner::default()` failure wearing a different spelling.
+#[test]
+fn an_unusable_stored_project_id_is_replaced_by_a_minted_one() {
+    let root = layout_root("project_id_invalid");
+    let viden = root.join(".viden");
+    fs::create_dir_all(&viden).unwrap();
+    fs::write(viden.join("project.toml"), "[project]\nid = 7\n").unwrap();
+
+    let (id, origin) = read_or_mint_project_id_at(&root).unwrap();
+
+    assert_eq!(origin, ProjectIdOrigin::Minted);
+    assert!(id.starts_with(viden_types::PROJECT_ID_PREFIX));
+    let (second, origin) = read_or_mint_project_id_at(&root).unwrap();
+    assert_eq!(origin, ProjectIdOrigin::Existing);
+    assert_eq!(second, id);
 }

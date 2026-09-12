@@ -76,6 +76,14 @@ impl WorkspaceOpenRequest {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkspaceBinding {
     pub canonical_root: PathBuf,
+    /// The workspace half of the operator identity Core minted at open
+    /// (`runtime.workspace_owner`, GUI-CORE-027). Derived from
+    /// `canonical_root`, so it names this location on this machine and changes
+    /// when the repository moves.
+    pub workspace_id: String,
+    /// The durable half, read from (or minted into) `.viden/project.toml`.
+    /// This is the id an audit trail joins on, and it survives a move.
+    pub project_id: String,
     pub session_id: String,
     pub stream_id: String,
 }
@@ -199,9 +207,20 @@ impl LocalCoreHost {
         }
         let bootstrap = bootstrap_runtime(bootstrap_request).map_err(CoreHostError::Bootstrap)?;
         let mut engine = bootstrap.engine;
+        // The workspace-scoped operator identity, minted (or re-read) before
+        // the supervisor starts, so the very first snapshot prefix carries it.
+        // Without it a commit made with no Lane selected has no actor at all
+        // and is refused — GUI-CORE-027.
+        let owner_binding = viden_runtime::mint_workspace_owner_binding(&canonical_root)
+            .map_err(CoreHostError::Bootstrap)?;
+        let workspace_id = owner_binding.owner.workspace_id.clone();
+        let project_id = owner_binding.owner.project_id.clone();
+        engine.bind_workspace_owner(owner_binding);
         let session_id = engine.session_id().to_string();
         let placeholder_binding = WorkspaceBinding {
             canonical_root: canonical_root.clone(),
+            workspace_id: workspace_id.clone(),
+            project_id: project_id.clone(),
             session_id: session_id.clone(),
             stream_id: String::new(),
         };
@@ -217,6 +236,8 @@ impl LocalCoreHost {
             .map_err(CoreHostError::Snapshot)?;
         let binding = WorkspaceBinding {
             canonical_root,
+            workspace_id,
+            project_id,
             session_id,
             stream_id: snapshot.cursor.stream_id,
         };
@@ -619,6 +640,8 @@ mod tests {
     fn binding(root: &str, session_id: &str) -> WorkspaceBinding {
         WorkspaceBinding {
             canonical_root: root.into(),
+            workspace_id: format!("ws_{:016x}", session_id.len()),
+            project_id: format!("prj_{session_id}"),
             session_id: session_id.to_string(),
             stream_id: format!("stream-{session_id}"),
         }

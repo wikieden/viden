@@ -39,6 +39,7 @@ mod test_commands;
 mod trust_loop;
 mod web_commands;
 mod workflow_commands;
+mod workspace_owner;
 
 pub use bootstrap::{
     RuntimeBootstrap, RuntimeBootstrapRequest, bootstrap_runtime,
@@ -70,6 +71,7 @@ use viden_types::{
     now_timestamp,
 };
 use viden_workflows::stores::WorkflowStore;
+pub use workspace_owner::{mint_workspace_owner_binding, workspace_id_for_root};
 
 const PROVIDER_REASONING_CONTENT_KEY: &str = "__provider_reasoning_content";
 const LANE_STATE_UNAVAILABLE_MESSAGE: &str = "invalid or unreadable lane event log";
@@ -344,6 +346,11 @@ pub struct SessionEngine {
     /// not look" are different facts and the snapshot prefix must not publish
     /// the second as the first.
     ui_layout_preferences: Option<viden_types::UiLayoutPreferences>,
+    /// The workspace-scoped operator identity the host minted at open
+    /// (`runtime.workspace_owner`). `None` on every engine built without a
+    /// host binding; it is never defaulted, because an empty owner names
+    /// nobody.
+    workspace_owner_binding: Option<viden_types::WorkspaceRuntimeOwnerBinding>,
     tools: ToolRegistry,
     /// Shared handle so the registry-level permission backstop always sees
     /// the live mode and rules; see `permission_gate`.
@@ -508,6 +515,7 @@ impl SessionEngine {
             ui_cli_override: None,
             ui_system_context: UiPreferences::client_default(),
             ui_layout_preferences: None,
+            workspace_owner_binding: None,
             tools,
             permissions,
             store,
