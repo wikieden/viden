@@ -631,12 +631,22 @@ fn live_turn_preview_state(provider: &str, model: &str, theme_name: &str) -> Tui
     state.runtime.lanes.clear();
     state.ui.input = "Add a note about the validation result".into();
     // A built-in-provider turn *in flight*, which is what this preview is for.
-    // Core publishes no turn-liveness fact for that path and never settles the
-    // unscoped stream, so streamed text alone cannot distinguish a running turn
-    // from a finished one — the client's own dispatched command id is what
-    // says the turn is live. Without this the preview modelled residue and
+    // Streamed text alone cannot distinguish a running turn from a finished
+    // one, so the liveness here is the Core fact `runtime.turn_lifecycle`
+    // publishes: one `active_turns` entry in the session scope, exactly what
+    // `TurnStarted` reduces to. Without it the preview modelled residue and
     // rendered an idle composer.
-    state.native_turn.begin("tui-preview-live-turn");
+    state.runtime.active_turns.push(viden_core::TurnView {
+        turn_id: "turn_preview_live".to_string(),
+        owner: viden_core::RuntimeOwner {
+            workspace_id: "ws_preview".to_string(),
+            project_id: "prj_preview".to_string(),
+            turn_id: Some("turn_preview_live".to_string()),
+            ..viden_core::RuntimeOwner::default()
+        },
+        source: viden_core::TurnSource::UserInput,
+        started_at: 1_700_000_000,
+    });
     state
 }
 

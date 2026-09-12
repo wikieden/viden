@@ -107,9 +107,22 @@ fn composer_rows(state: &TuiState, width: usize) -> Vec<String> {
                 } else {
                     queued_prompt_count_label(count)
                 };
+            // Two different promises, because Core drains the session queue
+            // only behind a *completed* session-scoped turn
+            // (`runtime.turn_lifecycle`). While such a turn runs, the queue is
+            // next; with no session turn running — after a failure, a
+            // cancellation, or a Lane's turn that never arms the drain — it
+            // waits for the next completed one. Saying "runs after the current
+            // turn" in the second case would promise execution Core has
+            // already decided against.
+            let key = if super::state::session_turn_is_active(state) {
+                "composer.queued"
+            } else {
+                "composer.queued.waiting"
+            };
             vec![super::i18n::translate(
                 state,
-                "composer.queued",
+                key,
                 &[("count", count.as_str())],
             )]
         }
@@ -434,6 +447,21 @@ mod tests {
         state
     }
 
+    /// One session-scoped turn Core is running, as `TurnStarted` reduces it.
+    fn session_turn(turn_id: &str) -> viden_core::TurnView {
+        viden_core::TurnView {
+            turn_id: turn_id.to_string(),
+            owner: viden_core::RuntimeOwner {
+                workspace_id: "ws_fixture".to_string(),
+                project_id: "prj_fixture".to_string(),
+                turn_id: Some(turn_id.to_string()),
+                ..viden_core::RuntimeOwner::default()
+            },
+            source: viden_core::TurnSource::UserInput,
+            started_at: 1_700_000_000,
+        }
+    }
+
     fn mark_active(state: &mut TuiState) {
         state.runtime.active_tool_calls.push(ToolCallView {
             tool_call_id: "tool-1".to_string(),
@@ -508,7 +536,27 @@ mod tests {
         render_composer(&mut frame, &state, 1);
         let rendered = frame.to_string();
 
-        assert!(rendered.contains("1 prompt queued; type another prompt"));
+        // No session-scoped turn is running here — the activity is a tool
+        // call — so the queue is waiting for the next completed turn rather
+        // than for this one. Core drains the session queue only behind a
+        // completed session-scoped `TurnFinished`.
+        assert!(
+            rendered.contains("1 prompt queued; waits for the next completed turn"),
+            "{rendered}"
+        );
+
+        state
+            .runtime
+            .active_turns
+            .push(session_turn("turn_session_composer"));
+        let mut frame = Frame::new(120, 40);
+        render_composer(&mut frame, &state, 1);
+        let rendered = frame.to_string();
+
+        assert!(
+            rendered.contains("1 prompt queued; runs after the current turn"),
+            "{rendered}"
+        );
 
         state.runtime.snapshot.ui_preferences.locale = viden_core::LocaleId::ZhCn;
         let mut frame = Frame::new(120, 40);

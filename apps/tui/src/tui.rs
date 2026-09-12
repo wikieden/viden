@@ -25,7 +25,6 @@ mod lane;
 mod lane_presenter;
 #[allow(dead_code)]
 mod modal;
-mod native_turn;
 mod operator_git;
 mod ops_screen;
 mod palette;

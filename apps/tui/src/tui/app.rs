@@ -1527,17 +1527,12 @@ fn submit_composer<C: CoreClient>(
             },
         )?;
     } else {
-        let command = command_for_composer(state, &content);
-        let starts_a_turn = matches!(command, RuntimeCommand::SubmitUserInput { .. });
-        let command_id = dispatch_intent(driver, command)?;
-        // The built-in provider publishes no turn-liveness fact, so this
-        // client's own dispatched command id is the only thing that says its
-        // turn is running. `native_turn` holds that window and documents where
-        // it closes; without it the composer would read Core's unsettled
-        // `assistant_stream` residue as a live turn forever.
-        if starts_a_turn {
-            state.native_turn.begin(command_id);
-        }
+        // Liveness is Core's answer, not this client's dispatch: Core
+        // publishes `TurnStarted` immediately after the `CommandAccepted` for
+        // this command and `TurnFinished` on every exit
+        // (`runtime.turn_lifecycle`), so nothing is recorded locally about the
+        // turn that was just asked for.
+        dispatch_intent(driver, command_for_composer(state, &content))?;
     }
     state.ui.lens = Lens::Session;
     state.ui.input.clear();
@@ -2457,11 +2452,6 @@ fn observe_driver_events<C: CoreClient>(
         // Confirm-on-fact: a supervision decision settles only when Core
         // publishes the business fact it asked for, never on the receipt.
         state.supervision.observe_event(event);
-        // The composer's own native turn closes its liveness window here. It
-        // correlates on this client's command id and on the terminal batch Core
-        // emits for the turn; it settles no business fact and claims nothing
-        // about what Core produced.
-        state.native_turn.observe_event(event);
         // The operator source-control slot correlates on this client's own
         // command id, so a `/git` action and a supervision decision never
         // settle each other and neither can block the other.
@@ -2675,10 +2665,10 @@ fn apply_pump_outcome<C: CoreClient>(
         // outside this client's view of the stream, so it must not arrive in
         // the transcript as a completion the operator watched.
         PumpOutcome::Recovered(_) => {
-            // The ordered stream this correlation was reading is gone, so the
-            // events that would close the native turn's window are not coming.
-            // Stopping the wait is not a claim that the turn finished.
-            state.native_turn.reset();
+            // Turn liveness needs no repair here: a replacement snapshot
+            // re-lists the turns Core is running now in `active_turns`, so a
+            // recovered client reads the same Core fact as a connected one and
+            // this client holds no window that could be stranded.
             seed_settled_agent_sessions(state, driver.view());
         }
         PumpOutcome::Idle | PumpOutcome::Applied(_) => {}
@@ -8760,6 +8750,68 @@ mod tests {
         assert!(
             state.runtime.lanes[0].is_active(),
             "the lifecycle fact holds"
+        );
+        assert!(matches!(
+            command_for_composer(&state, "second"),
+            RuntimeCommand::SubmitUserInput { content } if content == "second"
+        ));
+    }
+
+    /// E1 defect 2, closed by the Core fact rather than by a client window.
+    ///
+    /// The turn is bracketed by `runtime.turn_lifecycle`, so routing follows
+    /// Core's own `active_turns`: while the turn runs the next prompt queues,
+    /// and the `TurnFinished` Core publishes on every exit puts the composer
+    /// back to submitting. The events are pushed through the real reducer, not
+    /// assigned to the view, so what is asserted is what a client that
+    /// received those facts would hold.
+    #[test]
+    fn core_turn_brackets_decide_whether_the_next_prompt_queues_or_submits() {
+        let mut state = TuiState::default();
+        let owner = RuntimeOwner {
+            workspace_id: "ws_fixture".to_string(),
+            project_id: "prj_fixture".to_string(),
+            lane_id: None,
+            session_id: None,
+            task_id: None,
+            turn_id: Some("turn_first".to_string()),
+        };
+        let turn = viden_core::TurnView {
+            turn_id: "turn_first".to_string(),
+            owner: owner.clone(),
+            source: viden_core::TurnSource::UserInput,
+            started_at: 1_700_000_001,
+        };
+
+        state.runtime.apply_event(&RuntimeEvent::new(
+            1,
+            RuntimeEventKind::TurnStarted { turn },
+        ));
+        // Streamed text beside the turn is display, not the liveness fact.
+        state.runtime.assistant_stream = "Applied the requested change.".to_string();
+
+        assert!(matches!(
+            command_for_composer(&state, "second"),
+            RuntimeCommand::QueueFollowUp { content } if content == "second"
+        ));
+
+        state.runtime.apply_event(&RuntimeEvent::new(
+            2,
+            RuntimeEventKind::TurnFinished {
+                turn_id: "turn_first".to_string(),
+                owner,
+                outcome: viden_core::TurnOutcome::Completed,
+                finished_at: 1_700_000_005,
+            },
+        ));
+
+        assert!(
+            state.runtime.active_turns.is_empty(),
+            "TurnFinished removes the turn"
+        );
+        assert!(
+            state.runtime.assistant_stream.is_empty(),
+            "the session-scoped end settles the unscoped stream"
         );
         assert!(matches!(
             command_for_composer(&state, "second"),
