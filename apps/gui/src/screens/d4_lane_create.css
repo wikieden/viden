@@ -1,7 +1,13 @@
 @import "../../../../docs/viden-design/Viden/GUI/gui-kit.css";
 
 .d4-frame {
-  min-height: 720px;
+  /*
+   * The wizard replaces the window, so it fills it. The old fixed floor left
+   * bare page below the footer on a 900px viewport, which reads as a screen
+   * that failed to finish rendering; the 720px floor is kept as the minimum so
+   * a shorter window still scrolls rather than crushing the three columns.
+   */
+  min-height: max(720px, 100vh);
   color: var(--fg-primary);
   background: var(--bg-base);
   font-family: var(--font-sans);
@@ -44,6 +50,12 @@
 }
 
 .d4-layout {
+  /*
+   * The three columns take whatever the titlebar and footer leave. Without
+   * this the layout stops at its own floor and the footer floats in the middle
+   * of the window with the frame's background below it.
+   */
+  flex: 1 1 auto;
   display: grid;
   grid-template-columns: minmax(12rem, 0.7fr) minmax(24rem, 1.8fr) minmax(16rem, 0.9fr);
   min-height: 610px;

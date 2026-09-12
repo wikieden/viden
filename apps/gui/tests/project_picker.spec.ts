@@ -79,6 +79,27 @@ describe("project picker", () => {
     document.body.innerHTML = "";
   });
 
+  // `0.3.4` moved D11 here from the New Lane popover's "Full setup…": D11
+  // configures a project, and this is the project surface.
+  test("offers project configuration beside the open project, only with a handler", () => {
+    const onConfigureProject = vi.fn();
+    const { controller } = mount({}, { onConfigureProject });
+
+    const row = panel().querySelector<HTMLButtonElement>("[data-picker-configure]")!;
+    expect(row).not.toBeNull();
+    expect(row.textContent).toContain("Configure this project…");
+    row.click();
+    expect(onConfigureProject).toHaveBeenCalledTimes(1);
+    // It replaces the window, so the popover does not outlive it.
+    expect(document.querySelector("[data-project-picker]")).toBeNull();
+    controller.close();
+
+    // No handler, no row: a control that opens nothing is worse than absence.
+    const bare = mount();
+    expect(panel().querySelector("[data-picker-configure]")).toBeNull();
+    bare.controller.close();
+  });
+
   test("renders the design's three columns against Core facts", () => {
     const { controller } = mount();
 

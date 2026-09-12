@@ -28,8 +28,6 @@ export interface CockpitTopbar {
   commandPaletteToggle: HTMLButtonElement;
 }
 
-/** Registered `IFocus` glyph, added to the canonical set for this control. */
-
 export interface CockpitTopbarOptions {
   /// Opens a restored screen, optionally preselecting one Core id.
   onNavigate?: (route: string, arg?: string) => void;
