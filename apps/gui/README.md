@@ -262,7 +262,7 @@ Task 9 makes D1 the persistent application shell and canonical work surface.
 It renders first with D6 connecting/disconnected state or the host-owned
 no-project welcome. A bound project with no Lanes remains D1, while D4 is the
 project-only creation workflow and D11 is explicit configuration. The activity
-rail, Lane rail, Environment, Live Work,
+rail, Lane rail, the tabbed context dock, Live Work,
 transcript/tool rows, queue state, evidence, and composer are transport-safe
 projections of Core's latest `RuntimeViewState`.
 The webview owns only focus, draft, layout, bounded-row, and scroll-anchor
@@ -523,6 +523,89 @@ explicit unavailable fact; D1 never fabricates a successful placeholder. The
 row claiming otherwise would be a stale statement about Core rather than a
 fact. `diff` and `apply` still appear against a Core build that really
 publishes neither capability, and then name the capability itself.
+
+### Context dock
+
+The right pane is the design's `.rail.dock`: a `.docktabs` strip over one
+`.dockbody` panel. The strip carries **all six** tabs the design's `ALLTABS`
+names, in its order — Environment, Files, Terminal, Code, Diff, Docs. Three
+are live and three are disabled carrying the exact reason they cannot open:
+Terminal is the design's summon dock, registered with a roadmap mark
+(`D-RAILNAV` ⑥) and with no Core PTY fact behind it; Code needs
+`runtime.workspace_file_reads`, which this build does not consume yet; Docs has
+no Core workspace-document fact at all. None of the three is hidden — a tab
+that vanishes makes the dock look finished — and none is enabled-and-inert.
+
+The open tab is in memory and deliberately not persisted: it is a posture the
+operator takes for one look, not a preference, so it is neither a
+`localStorage` key (the frontend contract makes Core the single preference
+authority) nor part of C5's `UiLayoutPreferences`. Focus mode still takes the
+whole dock off the grid and behind its right-edge hot zone; see
+[Navigation shell](#navigation-shell).
+
+**Chords.** `⌥⌘E`, `⌘P` and `⌘D` open Environment, Files and Diff. Those are
+the design's own bindings for those three tabs. Three of the design's six are
+not bound, and each omission is a collision rather than an oversight: `⌘J`
+(Terminal) and `⌘/` (Docs) would promise panels that cannot open, and `⌘O`
+(Code) is already the Welcome screen's folder picker, so the earlier binding
+keeps the chord. `⌘P` is bound on the *meta* key alone, because `⌃P` is the
+command palette's scope chord and keeps it. A dock chord also reveals the dock
+it switched — peeking the hot zone under focus mode, opening the drawer on a
+narrow window — because a keystroke that changes something off screen has
+changed nothing the operator can see.
+
+**Environment panel.** The design's collapsible `.envsec` sections, in its
+order, each backed by one named fact:
+
+| Section | Fact behind it | With the fact absent |
+| --- | --- | --- |
+| Environment | `environment` (provider, model, mode, permission, tokens, cost) | individual em-dashes, as before |
+| Changes | `contextDock.source.added`/`.deleted` for `+n −m`; `QueryWorkspaceDiff` entries for the rows, with per-file `+a −b` where the structured diff gave them | four separate sentences: no host bound, no `runtime.structured_diff`, the read is out, Core answered with none ("No changes"), or Core's own refusal verbatim |
+| Local | the selected Lane's `lane_sources` row (C5) when Core published one, else the workspace sample — and the section **says which** | "No source facts are available." |
+| Commit or push | `runtime.operator_git` plus a Core-published owner and a source; the row routes to DiffReview's commit bar and focuses its message field, or the titlebar sync chip when the bar drew none | disabled with the reason **on screen**, not only in a tooltip |
+| PR status | none — `frontend-contract-v1` publishes no forge status | always the sentence saying so |
+| Context | `contextDock.context`, drawn as the design's `.envctx` bar with Core's used/limit and percent of the hard limit | "No typed context budget is available."; a null cost keeps `D-BUDGET-BLIND`'s named blind spot instead of an estimate |
+| Subagents | none — the embedded tree is deferred to the fleet family (`D-RAILNAV` ④) | one row naming the deferral; never a fabricated tree |
+| Sources | `contextDock.source` counts, unchanged from before | "No source facts are available." |
+| Lane agent | the exact Core owner binding, unchanged from before | "no Agent owner" |
+| MCP | Core's own MCP row, which on this contract is *only ever* `Unavailable` plus a `detail_key`; the dock localizes that key and never shows "connected" | the sentence saying Core published no MCP fact |
+| LSP | `contextDock.services` of kind `lsp` | "No services are available." |
+| Todo | `contextDock.checklist` | "No task checklist is available." |
+
+Clicking a Changes row opens DiffReview **on that file**. That is one route,
+not a second entry point into the view: `navigate("review", path)` seeds the
+cockpit's own `reviewSelectedPath` and DiffReview resolves it against the page
+Core answers, so a path the next page does not carry simply is not selected.
+Clicking another row while the review is already open moves the selection
+rather than closing the view.
+
+**Files panel.** The tree comes from `QueryWorkspaceFiles`, one page per
+directory the operator opens — `prefix` is the `/`-terminated directory, and
+the root is no prefix at all. Reading the whole tree at once would be one
+bounded page with no way to see past the bound; `complete: false` on any page
+renders Core's own truncation sentence where it happened. A file row selects
+and nothing more: the inspector names the file and keeps its Open disabled
+with `runtime.workspace_file_reads` written out, which G7 turns into a real
+read. `WorkspaceFilesQuery` carries no target, so the panel is always the
+workspace root and says so — a Lane-scoped inventory is a Core contract
+request, not something a client may synthesize from a path.
+
+**Diff panel.** `QueryWorkspaceDiff` for the same target, one entry per changed
+file, **collapsed by default**: the panel answers "which files", and a wall of
+rows in a 300px column answers nothing. Expanding draws the shared `diff_rows`
+body — the same rows DiffReview, the permission dock and D2 use — which scrolls
+inside its own container. Selecting a file fills the inspector with File, Diff
+and "Open in review"; Stage and Revert render disabled and named, because Core
+publishes no per-file stage or revert command.
+
+**One diff read, three readers.** The Changes section, the Diff panel and
+DiffReview all render one `QueryWorkspaceDiff` page per target. Since the dock
+lists changed files without being opened, the cockpit issues that read once at
+mount — Core decides it non-interactively, returning a rejection rather than
+parking the client behind an approval prompt — and opening the review reuses
+the page instead of shelling out to git again. The staleness re-query rule is
+unchanged and still applies only while the review owns the centre pane.
+
 
 ## Navigation shell
 
@@ -799,9 +882,12 @@ overlay owns focus.
 | `⌘E` | EvidenceView (toggles) | no host is bound, or Core published no `runtime.evidence_reads` |
 | `⌘F` | focuses the evidence search box | EvidenceView does not own the centre pane |
 | `⌘G` | the Decisions queue (toggles) | no router and no secondary host is bound |
+| `⌥⌘E` | the dock's Environment panel | an overlay owns focus |
+| `⌘P` | the dock's Files panel (meta key only; `⌃P` stays the palette's) | an overlay owns focus |
+| `⌘D` | the dock's Diff panel | an overlay owns focus |
 | `⌘.` | focus mode (toggles) | an overlay owns focus |
 | `⌃⇥` / `⌃⇧⇥` | next / previous Lane | an overlay owns focus, or there is nothing to switch to |
-| `⌘O` | the folder picker | only bound on the no-project Welcome |
+| `⌘O` | the folder picker | only bound on the no-project Welcome — it keeps the chord the design gives the dock's Code tab, which cannot open |
 | `Esc` | the priority list below | — |
 
 `Esc` is handled in exactly one place, and the order *is* the contract:

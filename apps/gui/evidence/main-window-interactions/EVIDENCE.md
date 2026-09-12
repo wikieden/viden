@@ -115,7 +115,9 @@ one carries an inline comment in `qa.ts` naming the fixture it mirrors.
 | `d14-raw-fallback` | `capabilityAvailable` cleared with no rows and an idle outcome — absence, not emptiness | `audit_mode_is_unavailable_and_sends_nothing_without_the_core_capability` in `tests/d14_audit_trail.rs` |
 | `d11`, `d11-recent` | the shared two-project `RecentWorkResult` handed to the screen's recent-work port | the loaded-rows fixture in `tests/d11_intake.spec.ts` |
 | `palette` | one cross-Lane merge gate and one ask handed to `loadPaletteCrossLane` | the gate fixture in `tests/d12_integration_gate.spec.ts` and the single `liveWork.approvals` entry the D1 fixture already carries |
-| `palette`, `palette-files` | six real Viden paths in Core's lexicographic order with fixed byte sizes, handed to `loadPaletteFiles` | the loaded-inventory fixture in `tests/command_palette.spec.ts` and the page shape asserted in `tests/workspace_files.rs` |
+| `palette`, `palette-files`, `dock-files` | six real Viden paths in Core's lexicographic order with fixed byte sizes, handed to `loadWorkspaceFiles` with no prefix | the loaded-inventory fixture in `tests/command_palette.spec.ts` and the page shape asserted in `tests/workspace_files.rs` |
+| `dock-files` | a second inventory page for the `apps/` prefix — the three real directories under it, with `complete: false`, because Core's page really does stop before that subtree does | the prefixed read asserted in `a_prefixed_read_sends_cores_own_prefix_and_keeps_the_page_clamp` in `tests/workspace_files.rs` |
+| `dock-environment`, `dock-files`, `dock-diff` | the `REVIEW_PAGE` diff the review states already use, handed to the same `workspaceDiff` read pair — the dock and DiffReview render one page, so the capture uses one fixture | the page shape asserted in `tests/workspace_diff.rs` |
 | `d10-ticker` | one four-record audit page over two interleaved projects, applied through the screen's own `applyEvents` | the canonical `audit-ordering.json` fixture and `audit_ordering_fixture_orders_two_projects_as_one_newest_first_timeline` in `crates/core/tests/frontend_contract_v1.rs` |
 | `lane-rail`, `project-picker`, `project-switch-confirm` | a two-project `RecentWorkResult` whose timestamps are offsets from the frozen clock, so the rendered ages are stable. The open root is included on purpose — the picker must drop it from Recent rather than offer a switch to the project already open | the `RecentWorkLoaded` payloads asserted in `tests/recent_work.rs` |
 
@@ -163,6 +165,10 @@ All URLs share the prefix
 | `centre-lane-tabs` | `…/qa.html?state=centre-lane-tabs` | the `.tabstrip.lanebar` Lane tab strip over the transcript: one tab per Lane with its own recorded branch and bound agent, the current tab marked, the trailing `＋`, and the meta slot carrying the project, Core's published budget and the resolved work mode once |
 | `centre-tool-diff` | `…/qa.html?state=centre-tool-diff` | the transcript's `.tool` blocks: a workspace change with its header disclosed over the shared hunk rows, and a failed check run with the command, the status chip, and the three `.testrow`s including Core's failing location |
 | `centre-focus-mode` | `…/qa.html?state=centre-focus-mode` | focus mode entered from the titlebar control: two grid tracks, the pinned Lane column given back, the context dock behind its right-edge hot zone, and the `IFocus` control pressed |
+| `dock-environment` | `…/qa.html?state=dock-environment` | the context dock's Environment panel: the six-tab strip with Environment / Files / Diff live and Terminal / Code / Docs struck through and named, then Changes with Core's `+3 −1` and one row per changed file, Local saying which tree it shows, the Commit-or-push route, the PR-status absence, and the `.envctx` budget bar. The environment facts section is collapsed in the capture — the panel is taller than 900px with it open, and collapsing it is what the design's `.envhd` is for |
+| `dock-files` | `…/qa.html?state=dock-files` | the Files tab with `apps/` opened: three directories that exist only because `apps/` was asked for as its own Core page, Core's truncation sentence where its page stopped, and the inspector on a selected file with Open disabled and `runtime.workspace_file_reads` written out on screen |
+| `dock-diff` | `…/qa.html?state=dock-diff` | the Diff tab: one entry per changed file, the first expanded over the shared `diff_rows` body with Git's own `@@` header and per-side numbers, the second left collapsed with its real `+1284 −0`, and the inspector's File / Diff / "Open in review" beside a disabled Stage and Revert |
+| `dock-unavailable` | `…/qa.html?state=dock-unavailable` | the same panel on a host with no diff read and no operator git bound: Changes says no host is bound, Commit or push is disabled with its reason **on screen** rather than only in a tooltip, and PR status keeps its own absence sentence. Four absences, four sentences |
 | `d4-from-popover` | `…/qa.html?state=d4-from-popover` | the D4 wizard entered from "Full setup…": the Lane named after the popover's task, the agent step listing Core's adapters with the popover's pick marked, and the sentence stating that the create command carries no agent binding |
 | `lane-rail` | `…/qa.html?state=lane-rail` | `D-SIDEBAR` **pinned** mode: the sidebar as a real layout column at the design's 218px, pushing the work surface rather than covering it, with the activity rail's pin marked pressed. It shows the one `.wsroot` project group named `viden` with its `▾` collapse, its Lane count, the per-group `＋`, the Lane nested beneath it, and the `＋ Add project…` footer — and no second group and no "Global" section |
 | `project-picker` | `…/qa.html?state=project-picker` | the picker open under the titlebar `▾` selector with all three columns visible at once: `Add directory…` enabled beside the two disabled rows naming `GUI-CORE-023`, the single "In workspace" row for the open project with its lane count, and one Recent row with its relative age |
@@ -942,6 +948,111 @@ The 43 re-taken files, in one list so the claim is checkable:
 - `d1-mode-menu-1440x900-dark-en.png`
 - `d1-model-menu-1440x900-dark-en.png`
 - `d4-1440x900-dark-en.png`
+- `d6-actions-1440x900-dark-en.png`
+- `d6-error-1440x900-dark-en.png`
+- `evidence-1440x900-dark-en.png`
+- `evidence-1440x900-light-zh-CN.png`
+- `evidence-empty-1440x900-dark-en.png`
+- `evidence-rejected-1440x900-dark-en.png`
+- `evidence-summary-only-1440x900-dark-en.png`
+- `evidence-text-1440x900-dark-en.png`
+- `evidence-unavailable-1440x900-dark-en.png`
+- `lane-rail-1440x900-dark-en.png`
+- `nav-d14-in-cockpit-1440x900-dark-en.png`
+- `nav-d2-in-cockpit-1440x900-dark-en.png`
+- `nav-d2-in-cockpit-1440x900-light-zh-CN.png`
+- `nav-sidebar-floating-peek-1440x900-dark-en.png`
+- `nav-statusbar-config-1440x900-dark-en.png`
+- `palette-1440x900-dark-en.png`
+- `palette-files-1440x900-dark-en.png`
+- `palette-files-1440x900-light-zh-CN.png`
+- `permission-ask-1440x900-dark-en.png`
+- `permission-deny-redirect-1440x900-dark-en.png`
+- `permission-deny-redirect-1440x900-light-zh-CN.png`
+- `project-picker-1440x900-dark-en.png`
+- `project-switch-confirm-1440x900-dark-en.png`
+- `review-1440x900-dark-en.png`
+- `review-1440x900-light-zh-CN.png`
+- `review-commit-1440x900-dark-en.png`
+- `review-commit-completed-1440x900-dark-en.png`
+- `review-commit-completed-1440x900-light-zh-CN.png`
+- `review-commit-pending-approval-1440x900-dark-en.png`
+- `review-empty-1440x900-dark-en.png`
+- `review-omitted-1440x900-dark-en.png`
+- `review-push-no-upstream-1440x900-dark-en.png`
+- `review-rejected-1440x900-dark-en.png`
+- `review-rejected-action-1440x900-dark-en.png`
+- `settings-1440x900-dark-en.png`
+- `settings-1440x900-light-zh-CN.png`
+- `settings-unavailable-1440x900-dark-en.png`
+
+The five new files are listed in the table above.
+
+## Context dock captures (G5)
+
+Captured 2026-09-12 with the same headless Chrome procedure
+(`--headless --disable-gpu --hide-scrollbars --window-size=1440,900
+--virtual-time-budget=6000`) against the vite dev server on **port 4176**
+(4173 and 4175 belong to other worktrees), then opened and read one by one.
+These are the first images of the dock as the design draws it: the six-tab
+`.docktabs` strip, the Environment panel's `.envsec` sections, the Files tree,
+and the Diff panel with the shared hunk rows.
+
+Two fixtures back them, both beside the ones they mirror in `qa.ts`:
+
+- `PALETTE_FILES_APPS` is a second `QueryWorkspaceFiles` page, for the `apps/`
+  prefix, answered only when that directory is opened. Without a second page
+  the Files tab could be a client-side filter of the first, which is exactly
+  what the client boundary forbids.
+- the diff states reuse `REVIEW_PAGE`, the page the review captures already
+  use, because the dock and DiffReview really do render one page per target.
+
+| File | State | Viewport | Mode | Locale |
+| --- | --- | --- | --- | --- |
+| [dock-environment-1440x900-dark-en.png](dock-environment-1440x900-dark-en.png) | dock-environment | 1440x900 | dark | en |
+| [dock-environment-1440x900-light-zh-CN.png](dock-environment-1440x900-light-zh-CN.png) | dock-environment | 1440x900 | light | zh-CN |
+| [dock-files-1440x900-dark-en.png](dock-files-1440x900-dark-en.png) | dock-files | 1440x900 | dark | en |
+| [dock-diff-1440x900-dark-en.png](dock-diff-1440x900-dark-en.png) | dock-diff | 1440x900 | dark | en |
+| [dock-unavailable-1440x900-dark-en.png](dock-unavailable-1440x900-dark-en.png) | dock-unavailable | 1440x900 | dark | en |
+
+Each image exists to make one claim falsifiable:
+
+| Image | The claim it proves |
+| --- | --- |
+| `dock-environment` | the dock is **tabbed and honest about all six tabs**. Environment / Files / Diff are live; Terminal / Code / Docs are struck through and carry their reason in the title. Below them Changes shows Core's `+3 -1` over two real file rows with per-file counts, Core's byte-bound sentence, Local naming the workspace root it is showing, the Commit-or-push route, the PR-status absence, and the `.envctx` bar at `42.1k / 128k` with `33 per cent used` and the spend Core published |
+| `dock-environment` (light/zh-CN) | the locale proof for every string this batch added, tab labels included: `环境 / 文件 / 终端 / 源码 / 对比 / 文档`, `变更`, `本地`, `提交或推送`, `PR 状态`, `上下文`. Paths, branch names and token counts stay exactly as Core published them |
+| `dock-files` | the tree is **one Core page per directory**. `apps/` is open and shows `cli`, `gui` and `tui` — rows that exist only because that prefix was asked for — and Core's `complete: false` renders as "the page ended before this tree did". The selected file fills the inspector, whose Open is disabled with `runtime.workspace_file_reads` written out on screen rather than hidden in a tooltip |
+| `dock-diff` | the panel is a **file list first**. Two entries, the second still collapsed with its real `+1284 -0`, the first expanded over the shared `diff_rows` body with Git's own `@@` header and per-side line numbers, and the inspector's File / Diff / "Open in review" beside a Stage and Revert that are disabled because Core publishes no per-file command for either |
+| `dock-unavailable` | four absences, four sentences. Changes says no host is bound; Commit or push is disabled **and** says why on screen; PR status keeps its own absence sentence; the Local section still renders, because the workspace source is a fact Core did publish |
+
+One state reads oddly on purpose and is worth naming: `review-empty`'s dock
+shows `Lines +3 -1` above "No changes". Both are Core's, from two different
+reads — the workspace source sample and the structured diff page — and the
+section labels them separately rather than reconciling them. A client that
+silently zeroed the counts to match the page would be inventing agreement
+Core never published.
+
+### Cockpit recapture after the context dock (2026-09-12, G5)
+
+The dock is in every cockpit-bearing frame, so all **46** of them were
+re-taken against the same live server and every one was opened and read before
+committing. The standalone D-screen families (`d2-*`, `d4-*`, `d10-*`,
+`d11-*`, `d12-*`, `d13-*`, `d14-*`) are full-window renderers with no dock, so
+nothing in this batch could have moved them and they were left alone. Every
+output was screened by file size for the Chrome error page's signature
+(~28 KB against a real frame's 110-210 KB) — no suspects.
+
+The 46 re-taken files, in one list so the claim is checkable:
+
+- `approval-hunks-1440x900-dark-en.png`
+- `centre-focus-mode-1440x900-dark-en.png`
+- `centre-lane-tabs-1440x900-dark-en.png`
+- `centre-lane-tabs-1440x900-light-zh-CN.png`
+- `centre-tool-diff-1440x900-dark-en.png`
+- `d1-1440x900-dark-en.png`
+- `d1-1440x900-light-zh-CN.png`
+- `d1-mode-menu-1440x900-dark-en.png`
+- `d1-model-menu-1440x900-dark-en.png`
 - `d6-actions-1440x900-dark-en.png`
 - `d6-error-1440x900-dark-en.png`
 - `evidence-1440x900-dark-en.png`

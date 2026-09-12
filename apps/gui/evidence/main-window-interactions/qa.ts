@@ -546,7 +546,13 @@ function mountCockpit(options: CockpitOptions): D1Controller {
       loadPaletteCrossLane: options.crossLane
         ? async () => PALETTE_CROSS_LANE
         : undefined,
-      loadPaletteFiles: options.files ? async () => PALETTE_FILES : undefined,
+      // The dock's Files tab reads one directory at a time, so the harness
+      // answers per prefix: the root inventory, and one fixed subtree page for
+      // `apps/`. Both are fixed, so the capture cannot move after it settles.
+      loadWorkspaceFiles: options.files
+        ? async (prefix: string | null) =>
+            prefix === null ? PALETTE_FILES : PALETTE_FILES_APPS
+        : undefined,
       // The same read pair the shell injects: `read` answers the capability
       // and the staleness check with no Core traffic, `query` answers the
       // actual `QueryWorkspaceDiff`. Both resolve to one fixed page, so the
@@ -631,6 +637,29 @@ const PALETTE_FILES: PaletteWorkspaceFiles = {
     { path: "crates/types/src/workspace_files.rs", kind: "file", sizeBytes: 5_632 },
   ],
   complete: true,
+  loaded: true,
+  pendingCommandId: null,
+  capabilityAvailable: true,
+};
+
+/**
+ * One opened directory of the same inventory, for the dock's Files tab.
+ *
+ * Delta on this repository's own tree: the paths are real Viden paths under
+ * `apps/`, in the lexicographic order Core's walk produces. `complete: false`
+ * is deliberate — Core's page really does stop before this subtree does, and
+ * the tab has to say so rather than implying the directory ends there.
+ */
+const PALETTE_FILES_APPS: PaletteWorkspaceFiles = {
+  outcome: { state: "confirmed", reason: null },
+  entries: [
+    { path: "apps/cli", kind: "dir", sizeBytes: null },
+    { path: "apps/gui", kind: "dir", sizeBytes: null },
+    { path: "apps/gui/AGENTS.md", kind: "file", sizeBytes: 3_994 },
+    { path: "apps/gui/README.md", kind: "file", sizeBytes: 88_678 },
+    { path: "apps/tui", kind: "dir", sizeBytes: null },
+  ],
+  complete: false,
   loaded: true,
   pendingCommandId: null,
   capabilityAvailable: true,
@@ -2518,6 +2547,77 @@ async function renderState(): Promise<void> {
       cockpit.openCenterView("d2");
       await waitFor("[data-rail-route='d2'] [data-rail-badge]");
       await waitFor("[data-sb-gate]");
+
+    case "dock-environment": {
+      // The dock's Environment panel as the design draws it: the tab strip
+      // with three live tabs and three disabled-and-named ones, then Changes
+      // with Core's `+2 −0` and one row per changed file, Local naming which
+      // tree it is showing, the Commit-or-push route, the PR-status absence,
+      // the budget bar, the deferred Subagents row and the MCP absence.
+      mountCockpit({
+        projection: d1Base(),
+        preferencesAvailable: true,
+        workspaceDiff: REVIEW_PAGE,
+        operatorGit: OPERATOR_GIT_READY,
+        files: true,
+      });
+      await waitFor("[data-changes-row]");
+      // The environment facts are the one section that is *not* new here, and
+      // the panel is taller than 900px with it open. Collapsing it — which the
+      // design's `.envhd` is built to do — brings Changes through the budget
+      // bar into one frame, which is what this capture has to show.
+      click("[data-context-section='environment'] [data-context-section-toggle]");
+      await waitFor("[data-budget-bar]");
+      return;
+    }
+
+    case "dock-files": {
+      // The Files tab with one directory opened, which is one extra Core page
+      // rather than a client-side filter of the first. `apps/` answers
+      // `complete: false`, so the capture also shows the truncation sentence.
+      mountCockpit({
+        projection: d1Base(),
+        preferencesAvailable: true,
+        workspaceDiff: REVIEW_PAGE,
+        files: true,
+      });
+      click("[data-dock-tab='files']");
+      await waitFor("[data-file-row='apps']");
+      click("[data-file-row='apps']");
+      // The subtree is a second Core page, not a filter of the first: the
+      // three directories under `apps/` appear only because `apps/` was asked
+      // for. Then a file is selected, so the capture also carries the
+      // inspector and the capability its Open is waiting on.
+      await waitFor("[data-file-row='apps/tui']");
+      click("[data-file-row='AGENTS.md']");
+      await waitFor("[data-inspector-open]");
+      return;
+    }
+
+    case "dock-diff": {
+      // The Diff tab: one entry per changed file, collapsed by default, with
+      // the first expanded and selected so the capture shows both the shared
+      // hunk rows and the inspector's route and inert actions.
+      mountCockpit({
+        projection: d1Base(),
+        preferencesAvailable: true,
+        workspaceDiff: REVIEW_PAGE,
+        files: true,
+      });
+      click("[data-dock-tab='diff']");
+      await waitFor("[data-diff-entry]");
+      click(`[data-diff-toggle='${REVIEW_PAGE.entries[0]!.path}']`);
+      click(`[data-diff-select='${REVIEW_PAGE.entries[0]!.path}']`);
+      await waitFor("[data-inspector-review]");
+      return;
+    }
+
+    case "dock-unavailable": {
+      // A Core build that publishes neither the structured diff nor an
+      // operator git action, and a host with no inventory read bound: every
+      // panel states its own absence instead of showing an empty list.
+      mountCockpit({ projection: d1Base(), preferencesAvailable: true });
+      await waitFor('[data-typed-empty="changes-unbound"]');
       return;
     }
 

@@ -860,6 +860,104 @@ G3 重拍过的那 **42** 张带驾驶舱图像再次全部重拍，另加 `d4-1
 
 五个新文件列在上表中。
 
+## 上下文坞截图（G5）
+
+2026-09-12 以同一套 headless Chrome 流程拍摄
+（`--headless --disable-gpu --hide-scrollbars --window-size=1440,900
+--virtual-time-budget=6000`），针对 **4176** 端口上的 vite dev server（4173 与
+4175 属于其他 worktree），随后逐张打开阅读。这是上下文坞与设计对齐后的第一批图像：
+六标签 `.docktabs` 条、环境面板的 `.envsec` 节、文件树，以及带共享 hunk 行的对比面板。
+
+支撑它们的是两份 fixture，都在 `qa.ts` 中与其镜像的对象并列：
+
+- `PALETTE_FILES_APPS` 是针对 `apps/` prefix 的第二份 `QueryWorkspaceFiles` page，
+  只有展开该目录时才会作答。没有第二份 page，文件标签就可能只是对第一份的客户端过滤，
+  而那正是客户端边界所禁止的。
+- 对比相关状态复用 `REVIEW_PAGE`——评审截图已经在用的那一页——因为坞与 DiffReview
+  确实按 target 渲染同一页。
+
+| 文件 | 状态 | 视口 | 模式 | 语言 |
+| --- | --- | --- | --- | --- |
+| [dock-environment-1440x900-dark-en.png](dock-environment-1440x900-dark-en.png) | dock-environment | 1440x900 | dark | en |
+| [dock-environment-1440x900-light-zh-CN.png](dock-environment-1440x900-light-zh-CN.png) | dock-environment | 1440x900 | light | zh-CN |
+| [dock-files-1440x900-dark-en.png](dock-files-1440x900-dark-en.png) | dock-files | 1440x900 | dark | en |
+| [dock-diff-1440x900-dark-en.png](dock-diff-1440x900-dark-en.png) | dock-diff | 1440x900 | dark | en |
+| [dock-unavailable-1440x900-dark-en.png](dock-unavailable-1440x900-dark-en.png) | dock-unavailable | 1440x900 | dark | en |
+
+每张图都让一个主张可被证伪：
+
+| 图像 | 它证明的主张 |
+| --- | --- |
+| `dock-environment` | 坞**已分标签，并且对全部六个标签都如实说明**。环境 / 文件 / 对比可用；终端 / 源码 / 文档带删除线，原因写在 title 里。其下变更节在两条真实文件行（含逐文件计数）之上显示 Core 的 `+3 -1`，随后是 Core 的字节上限说明、点名当前显示工作区根的本地节、提交或推送路由、PR 状态缺失，以及 `42.1k / 128k` 的 `.envctx` 条带「已用 33」与 Core 发布的花费 |
+| `dock-environment`（light/zh-CN） | 本批次新增的每一条文案的语言证明，标签名也在内：`环境 / 文件 / 终端 / 源码 / 对比 / 文档`、`变更`、`本地`、`提交或推送`、`PR 状态`、`上下文`。路径、分支名与 token 计数保持 Core 发布时的原样 |
+| `dock-files` | 文件树是**每个目录一份 Core page**。`apps/` 已展开并显示 `cli`、`gui`、`tui`——这些行之所以存在，只因为请求了该 prefix——而 Core 的 `complete: false` 渲染为「该页在这棵树结束之前就截止了」。选中的文件填充检视面板，其 Open 处于禁用并把 `runtime.workspace_file_reads` 写在屏幕上，而不是藏在 tooltip 里 |
+| `dock-diff` | 该面板**先是一份文件列表**。两个条目，第二个仍折叠并显示真实的 `+1284 -0`，第一个展开在共享 `diff_rows` 主体之上（带 Git 自己的 `@@` 头与逐侧行号），检视面板的文件 / 差异 / 「在评审中打开」旁是禁用的暂存与还原——因为 Core 未为二者发布任何逐文件命令 |
+| `dock-unavailable` | 四种缺失，四句话。变更节说明未绑定 host；提交或推送禁用**并**在屏幕上说明原因；PR 状态保留自己的缺失句；本地节仍然渲染，因为工作区 source 是 Core 确实发布过的事实 |
+
+有一个状态故意读起来别扭，值得点名：`review-empty` 的坞在「没有变更」之上显示
+`行数 +3 -1`。两者都来自 Core，只是出自两次不同的读取——工作区 source 采样与结构化
+diff page——该节分别标注它们，而不去调和。客户端若为了与 page 一致而悄悄把计数清零，
+那就是在编造 Core 从未发布过的一致性。
+
+### 上下文坞之后的驾驶舱重拍（2026-09-12，G5）
+
+坞出现在每一帧带驾驶舱的画面里，因此全部 **46** 张都针对同一台运行中的服务器重拍，
+且每一张在提交前都被打开阅读过。独立 D 屏家族（`d2-*`、`d4-*`、`d10-*`、
+`d11-*`、`d12-*`、`d13-*`、`d14-*`）是不带坞的全窗口渲染器，本批次不可能影响它们，
+故未改动。每个输出都按文件大小筛查过 Chrome 错误页的特征（约 28 KB，而真实帧为
+110-210 KB）——没有可疑对象。
+
+重拍的 46 个文件，列在一处以便核对：
+
+- `approval-hunks-1440x900-dark-en.png`
+- `centre-focus-mode-1440x900-dark-en.png`
+- `centre-lane-tabs-1440x900-dark-en.png`
+- `centre-lane-tabs-1440x900-light-zh-CN.png`
+- `centre-tool-diff-1440x900-dark-en.png`
+- `d1-1440x900-dark-en.png`
+- `d1-1440x900-light-zh-CN.png`
+- `d1-mode-menu-1440x900-dark-en.png`
+- `d1-model-menu-1440x900-dark-en.png`
+- `d6-actions-1440x900-dark-en.png`
+- `d6-error-1440x900-dark-en.png`
+- `evidence-1440x900-dark-en.png`
+- `evidence-1440x900-light-zh-CN.png`
+- `evidence-empty-1440x900-dark-en.png`
+- `evidence-rejected-1440x900-dark-en.png`
+- `evidence-summary-only-1440x900-dark-en.png`
+- `evidence-text-1440x900-dark-en.png`
+- `evidence-unavailable-1440x900-dark-en.png`
+- `lane-rail-1440x900-dark-en.png`
+- `nav-d14-in-cockpit-1440x900-dark-en.png`
+- `nav-d2-in-cockpit-1440x900-dark-en.png`
+- `nav-d2-in-cockpit-1440x900-light-zh-CN.png`
+- `nav-sidebar-floating-peek-1440x900-dark-en.png`
+- `nav-statusbar-config-1440x900-dark-en.png`
+- `palette-1440x900-dark-en.png`
+- `palette-files-1440x900-dark-en.png`
+- `palette-files-1440x900-light-zh-CN.png`
+- `permission-ask-1440x900-dark-en.png`
+- `permission-deny-redirect-1440x900-dark-en.png`
+- `permission-deny-redirect-1440x900-light-zh-CN.png`
+- `project-picker-1440x900-dark-en.png`
+- `project-switch-confirm-1440x900-dark-en.png`
+- `review-1440x900-dark-en.png`
+- `review-1440x900-light-zh-CN.png`
+- `review-commit-1440x900-dark-en.png`
+- `review-commit-completed-1440x900-dark-en.png`
+- `review-commit-completed-1440x900-light-zh-CN.png`
+- `review-commit-pending-approval-1440x900-dark-en.png`
+- `review-empty-1440x900-dark-en.png`
+- `review-omitted-1440x900-dark-en.png`
+- `review-push-no-upstream-1440x900-dark-en.png`
+- `review-rejected-1440x900-dark-en.png`
+- `review-rejected-action-1440x900-dark-en.png`
+- `settings-1440x900-dark-en.png`
+- `settings-1440x900-light-zh-CN.png`
+- `settings-unavailable-1440x900-dark-en.png`
+
+五个新文件列在上方表格中。
+
 ### 关于 `nav-statusbar-config` 这个文件，直说
 
 本批次的第一个提交里，`nav-statusbar-config-1440x900-dark-en.png` 是看过且正确的；

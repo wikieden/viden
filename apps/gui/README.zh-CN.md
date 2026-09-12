@@ -220,7 +220,7 @@ project switching 现通过 Core-owned `LocalCoreHost::open_workspace` 完成；
 
 Task 9 让 D1 成为常驻应用外壳和唯一主工作面。它先显示 D6 连接中/断开状态，或
 host-owned 无项目欢迎页。已绑定但没有 Lane 的项目仍是 D1；D4 只从项目内创建入口进入，
-D11 只用于显式配置。Activity rail、Lane rail、Environment、Live Work、
+D11 只用于显式配置。Activity rail、Lane rail、分标签的上下文坞、Live Work、
 transcript/tool rows、排队状态、evidence 与 composer 都是 Core 最新
 `RuntimeViewState` 的 transport-safe 投影。Webview 只持有焦点、draft、布局、有界行窗口
 与滚动锚点，不解析显示字符串，不持久化第二套 workspace 模型，也不会把 command
@@ -400,6 +400,68 @@ reference。它还包含一个补充 Context Dock bottom-state capture，用于�
 这些缺口，再保留只会是关于 Core 的过期陈述而不是事实。面对真正没有这两项能力的 Core
 构建，`diff` 与 `apply` 仍会出现，并直接指名那项能力。
 
+### 上下文坞
+
+右侧面板即设计稿的 `.rail.dock`：`.docktabs` 标签条位于单个 `.dockbody` 面板之上。
+标签条按设计稿 `ALLTABS` 的顺序渲染**全部六个**标签——环境、文件、终端、源码、对比、
+文档。其中三个可用，另外三个禁用并直接写出打不开的确切原因：终端属于设计稿的召唤坞，
+登记时带 roadmap 标（`D-RAILNAV` ⑥），且 Core 没有 PTY 事实；源码需要
+`runtime.workspace_file_reads`，本版本尚未消费；文档则完全没有 Core 工作区文档事实。
+三者都不隐藏——消失的标签会让坞看起来已经完工——也都不是「可点击却无响应」。
+
+当前打开的标签只存在内存中，且有意不持久化：它是操作者看一眼时采取的姿态，不是偏好，
+因此既不写 `localStorage`（前端契约规定 Core 是唯一偏好权威），也不属于 C5 的
+`UiLayoutPreferences`。专注模式仍会把整个坞移出网格、收到右缘热区之后，见
+[导航外壳](#导航外壳)。
+
+**组合键。** `⌥⌘E`、`⌘P`、`⌘D` 分别打开环境、文件、对比，正是设计稿给这三个标签的
+绑定。设计稿六个键中有三个未绑定，每一处都是冲突而非遗漏：`⌘J`（终端）与 `⌘/`（文档）
+会承诺打不开的面板；`⌘O`（源码）已经是 Welcome 的文件夹选择器，先前的绑定保留该键。
+`⌘P` 只绑 meta 键，因为 `⌃P` 是命令面板的作用域键并予保留。坞组合键同时会**显示**它
+刚切换的坞——专注模式下峰显热区，窄窗口下打开抽屉——因为改变屏幕外的东西等于什么都
+没改。
+
+**环境面板。** 按设计稿顺序排列的可折叠 `.envsec` 节，每一节背后都有一条具名事实：
+
+| 节 | 背后的事实 | 事实缺失时 |
+| --- | --- | --- |
+| 环境 | `environment`（提供方、模型、模式、权限、token、成本） | 与此前一致，逐项显示破折号 |
+| 变更 | `+n −m` 取 `contextDock.source.added`/`.deleted`；文件行取 `QueryWorkspaceDiff` 条目，逐文件 `+a −b` 仅在结构化 diff 给出时显示 | 四句互不相同的话：未绑定 host、Core 未发布 `runtime.structured_diff`、读取进行中、Core 回答为空（「没有变更」），或 Core 自己的拒绝原文 |
+| 本地 | Core 发布了 C5 `lane_sources` 行时取所选 Lane 自己的行，否则取工作区采样——并**说明当前显示的是哪一个** | 「没有可用的来源事实。」 |
+| 提交或推送 | `runtime.operator_git` 加上 Core 发布的 owner 与一份 source；该行路由到 DiffReview 的提交栏并聚焦其消息框，提交栏未绘制时聚焦顶栏 sync 芯片 | 禁用，并把原因**显示在屏幕上**，不只放在 tooltip 里 |
+| PR 状态 | 没有——`frontend-contract-v1` 不发布 forge 状态 | 始终显示说明该缺失的句子 |
+| 上下文 | `contextDock.context`，按设计稿 `.envctx` 条渲染 Core 的已用/上限与占硬上限的百分比 | 「没有可用的类型化上下文预算。」；成本为空时保留 `D-BUDGET-BLIND` 的具名计量盲区，而不是给出估值 |
+| 子代理 | 没有——内嵌树已延后到 fleet 家族（`D-RAILNAV` ④） | 一行说明该延后；绝不编造一棵树 |
+| 来源 | `contextDock.source` 计数，与此前一致 | 「没有可用的来源事实。」 |
+| Lane 执行身份 | 精确的 Core owner 绑定，与此前一致 | 「没有 Agent owner」 |
+| MCP | Core 自己的 MCP 行——本契约上它**只可能**是 `Unavailable` 加一个 `detail_key`；坞把该键本地化，绝不显示「已连接」 | 说明 Core 未发布 MCP 事实的句子 |
+| LSP | `contextDock.services` 中 kind 为 `lsp` 的行 | 「没有可用的服务。」 |
+| Todo | `contextDock.checklist` | 「没有可用的任务清单。」 |
+
+点击变更行会在 DiffReview 中打开**该文件**。这是一条路由，不是进入该视图的第二个入口：
+`navigate("review", path)` 先写入驾驶舱自己的 `reviewSelectedPath`，DiffReview 再把它
+与 Core 回答的 page 对照解析——下一页不包含的路径就是未被选中而已。评审已打开时点击另
+一行会移动选择，而不是关闭视图。
+
+**文件面板。** 文件树来自 `QueryWorkspaceFiles`，操作者每展开一个目录读一页——`prefix`
+是以 `/` 结尾的目录，根目录则完全不带 prefix。一次读完整棵树只会得到一页有界结果，且
+无法越过该上限；任何一页 `complete: false` 都会在发生处渲染 Core 自己的截断说明。文件行
+只做选中：检视面板写出文件名，并让 Open 保持禁用、写明 `runtime.workspace_file_reads`
+——G7 会把它变成真正的读取。`WorkspaceFilesQuery` 不带 target，因此该面板始终是工作区根
+并如实说明；按 Lane 限定的清单是一条 Core 契约请求，不是客户端可以从路径合成的东西。
+
+**对比面板。** 对同一 target 的 `QueryWorkspaceDiff`，每个变更文件一个条目，**默认折叠**：
+该面板回答「是哪些文件」，而 300px 列里的一墙行什么也回答不了。展开后绘制共享的
+`diff_rows` 主体——与 DiffReview、Permission Dock、D2 相同的行——并在自己的容器内横向滚动。
+选中文件后检视面板显示文件、差异与「在评审中打开」；暂存与还原渲染为禁用并具名，因为
+Core 未发布逐文件的暂存或还原命令。
+
+**一次 diff 读取，三个读者。** 变更节、对比面板与 DiffReview 都渲染同一 target 的同一份
+`QueryWorkspaceDiff` page。由于坞在未被打开时就要列出变更文件，驾驶舱在挂载时发出这一次
+读取——Core 以非交互方式裁决它，返回拒绝而不是让客户端停在审批提示前——打开评审时复用
+该 page，而不是再跑一次 git。过期重查规则未变，仍然只在评审占有中央面板时生效。
+
+
 ## 导航外壳
 
 Activity rail 是驾驶舱的路由器（`D-RAILNAV`），它指名的每一个目的地都渲染在驾驶舱**内部**。
@@ -486,9 +548,12 @@ Close 控件；再次按下同一个 rail 槽位同样返回转录。`⌘G` / `�
 | `⌘E` | EvidenceView（切换） | 未绑定 host，或 Core 未发布 `runtime.evidence_reads` |
 | `⌘F` | 聚焦证据搜索框 | EvidenceView 未占有中央面板 |
 | `⌘G` | 决策队列（切换） | 未绑定路由与次级宿主 |
+| `⌥⌘E` | 坞的环境面板 | 浮层持有焦点 |
+| `⌘P` | 坞的文件面板（只绑 meta 键；`⌃P` 仍属命令面板） | 浮层持有焦点 |
+| `⌘D` | 坞的对比面板 | 浮层持有焦点 |
 | `⌘.` | 专注模式（切换） | 浮层持有焦点 |
 | `⌃⇥` / `⌃⇧⇥` | 下一条 / 上一条 Lane | 浮层持有焦点，或没有可切换目标 |
-| `⌘O` | 文件夹选择器 | 仅在无项目 Welcome 上绑定 |
+| `⌘O` | 文件夹选择器 | 仅在无项目 Welcome 上绑定——它保留设计稿给坞「源码」标签的那个键，而该标签打不开 |
 | `Esc` | 上文优先级列表 | — |
 
 **Lane 侧栏双模式（`D-SIDEBAR`）。** `floating` 是该决策的默认值，也是驾驶舱的默认值：侧栏
