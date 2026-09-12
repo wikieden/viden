@@ -986,6 +986,19 @@ fixture；九个冻结基线 fixture 的字节未变，`scripts/tui-regression.s
    `"café 你好"` 写入正确，读回却是乱码。写入是正确的，磁盘上的字节是合法 UTF-8，因此修复
    只在读取侧，无需迁移。它影响会话恢复、基线 `runtime.transcript_page` 与
    `runtime.transcript_rows`。C11 批次负责修复并覆盖三条读取路径的重放。
+   **2026-09-12 由 C11 关闭。** `parse_json_string_from`
+   （`crates/types/src/transcript.rs:477`）现按 UTF-8 字符而非字节解码转义区间；不指名
+   任何字符的 `\u` 转义——未配对的代理项，或十六进制位数不足——重放为 U+FFFD，而不是按其
+   字节重放（`crates/types/src/tests.rs:1404` 与 `:1501`、
+   `crates/types/src/transcript.rs:506`）。三条读取路径各有一个测试：会话恢复
+   （`crates/runtime/src/tests/transcript_contract_tests.rs:149`）、基线
+   `runtime.transcript_page`
+   （`crates/runtime/src/tests/runtime_contract_tests.rs:5011`）与
+   `runtime.transcript_rows`
+   （`crates/runtime/src/tests/transcript_rows_tests.rs:669`），其下是 store 自身的往返
+   （`crates/session/src/tests.rs:533`）；C8 的字符边界裁剪测试现在裁剪真正的多字节正文
+   （`crates/runtime/src/tests/transcript_rows_tests.rs:698`），不再使用它当时只能使用的
+   ASCII 替身。只改读取侧：磁盘格式不变、无需迁移，也没有 capability、fixture 或计数变化。
 
 `context-budgets` fixture 为 `ContextScope` 与 `ContextBudgetRecord` 的 frontend-neutral
 facade 导出提供依据。Budget 只能通过该 Lane 精确绑定的 runtime owner 所指名的 typed task

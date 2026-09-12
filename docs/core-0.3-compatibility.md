@@ -1303,6 +1303,22 @@ provider. Each was reproduced, not inferred; none was fixed in E1.
    read-side only and needs no migration. It reaches session resume, the base
    `runtime.transcript_page`, and `runtime.transcript_rows`. Batch C11 owns
    the fix with replay coverage across all three readers.
+   **Closed 2026-09-12 by C11.** `parse_json_string_from`
+   (`crates/types/src/transcript.rs:477`) decodes the escaped span as UTF-8
+   characters instead of bytes, and a `\u` escape that names no character — an
+   unpaired surrogate, or too few hex digits — replays as U+FFFD rather than as
+   its own bytes (`crates/types/src/tests.rs:1404` and `:1501`,
+   `crates/types/src/transcript.rs:506`). One test per reader: session resume
+   (`crates/runtime/src/tests/transcript_contract_tests.rs:149`), the base
+   `runtime.transcript_page`
+   (`crates/runtime/src/tests/runtime_contract_tests.rs:5011`), and
+   `runtime.transcript_rows`
+   (`crates/runtime/src/tests/transcript_rows_tests.rs:669`), over the store's
+   own round trip (`crates/session/src/tests.rs:533`); C8's character-boundary
+   bound test now cuts a real multi-byte body
+   (`crates/runtime/src/tests/transcript_rows_tests.rs:698`) instead of the
+   ASCII stand-in it had to use. Read side only: no on-disk change, no
+   migration, and no capability, fixture, or count change.
 
 
 The `context-budgets` fixture backs the frontend-neutral facade export of

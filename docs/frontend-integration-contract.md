@@ -333,6 +333,11 @@ a contract change, not a refactor.
   surfaces the count as a system fact, and recent work reports
   `recent.quarantined_transcript_lines`. Nothing is lost, because transcripts
   are append-only and a load never rewrites the file.
+- **Persisted transcript text replays as UTF-8.** A persisted string is decoded
+  as the UTF-8 it was written as, so a non-ASCII body comes back byte-equal from
+  session resume, `runtime.transcript_page`, and `runtime.transcript_rows`
+  alike; an escape naming no character replays as U+FFFD rather than as its
+  bytes.
 - **Batch semantics are unchanged by quarantine.** A quarantined line inside a
   transcript batch still invalidates that whole batch atomically; only
   committed, complete batches are replayed.

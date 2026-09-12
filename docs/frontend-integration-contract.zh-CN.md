@@ -289,6 +289,10 @@ flowchart LR
   `RuntimeWireEvent`。隔离绝不静默：会话 hydrate 以 system fact 呈现数量，recent work
   上报 `recent.quarantined_transcript_lines`。数据不会丢失，因为 transcript 是
   append-only，加载过程从不重写文件。
+- **已持久化的 transcript 文本以 UTF-8 重放。** 持久化字符串按写入时的 UTF-8 解码，
+  因此非 ASCII 正文在会话恢复、`runtime.transcript_page` 与
+  `runtime.transcript_rows` 三条读取路径上都逐字节一致地读回；不指名任何字符的转义
+  重放为 U+FFFD，而不是按其字节重放。
 - **batch 语义不因隔离而改变。** transcript batch 内被隔离的行仍然整体作废该 batch；
   只有已 commit 且完整的 batch 才会被回放。
 - **面向 wire 的 enum 使用 `#[non_exhaustive]`。** `RuntimeEventKind` 与
