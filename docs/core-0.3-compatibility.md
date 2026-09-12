@@ -1086,6 +1086,15 @@ provider. Each was reproduced, not inferred; none was fixed in E1.
    the *content read's* own hash check against `source_hash`. They are different
    facts and the screen states neither relationship. Visible in
    `apps/gui/evidence/main-window-interactions/evidence-unavailable-1440x900-dark-en.png`.
+10. **An Agent-reported patch is canonicalized live but not durably** (Core,
+   found during C7, 2026-09-12). `viden-agents` writes its own durable ACP
+   runtime-event log before the runtime's sink sees the batch, so the artifact
+   on disk keeps `canonical: None` while the completed row and its
+   `EvidenceCanonicalized` reach the live bus and the fixture. The native path
+   is fully durable, which is what GUI-CORE-028 and E2 turn on. Closing this
+   needs the ingestion to own that artifact write or a durable-append handle
+   threaded through the agent sink; it is a follow-up for the ACP artifact
+   seam's owner, not for a client.
 
 
 The `context-budgets` fixture backs the frontend-neutral facade export of

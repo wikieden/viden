@@ -821,6 +821,12 @@ GUI 的 EvidenceView 归档行与 D14 审批行属于 G7，TUI 的证据检视�
    判定；下方内容区携带的是**内容读取**自身对 `source_hash` 的哈希校验。这是
    两个不同的事实，而界面没有说明两者的关系。可见于
    `apps/gui/evidence/main-window-interactions/evidence-unavailable-1440x900-dark-en.png`。
+10. **Agent 上报的补丁只在实时流中被规范化，未持久化**（Core，C7 期间发现，
+   2026-09-12）。`viden-agents` 在运行时的汇看到批次之前就写入了自己的持久 ACP
+   运行时事件日志，因此磁盘上的产物仍保持 `canonical: None`，而补全后的行及其
+   `EvidenceCanonicalized` 到达实时总线与 fixture。原生路径已完全持久化，这正是
+   GUI-CORE-028 与 E2 所依赖的。封闭此项需要由摄取方拥有该产物写入，或把一个持久
+   追加句柄穿过 agent 汇；这是 ACP 产物接缝所有者的后续项，而不是客户端的。
 
 `context-budgets` fixture 为 `ContextScope` 与 `ContextBudgetRecord` 的 frontend-neutral
 facade 导出提供依据。Budget 只能通过该 Lane 精确绑定的 runtime owner 所指名的 typed task

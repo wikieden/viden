@@ -592,3 +592,29 @@ marked; this section is what shipped.
 - **Known cost:** `sha256` covers the whole file, streamed in 64 KiB chunks,
   so a very large file is bounded in memory but not in time. A NUL first
   appearing after the 8 KiB sniff window is not caught by the sniff.
+
+### C7 `runtime.durable_work_evidence` (accepted on review, 2026-09-12)
+
+- **`EvidenceCanonicalized` keeps its shipped shape `{ evidence_id, item_id,
+  content_sha256 }`.** Changing a live event's payload is a breaking wire
+  change; the full reference is on the `EvidenceRecorded` row it follows.
+- **Audit outcome is `Success`, not `Applied`**, which the enum does not
+  have; `Denied` means a policy refused, and an operator's deny is a decision
+  that was carried out.
+- **Audit objects are the permission request id, the tool name, and the job
+  id, not the tool call id.** No tool call id exists on the approval path;
+  the job id is the real join to the work the decision released.
+- **`producer.task_id` is the owner's task when the turn has one, else the
+  turn id, else the tool call id.** A literal turn id could never satisfy a
+  task-keyed merge gate; a session-scoped turn still names no task and is
+  refused with `MissingProducer`.
+- **ACP canonicalization is live-only in this batch** (compatibility
+  follow-up 10). The native path is fully durable.
+- **`bundle_id`** is the turn's last context bundle for a native row and the
+  store handle id for an agent row; never fabricated.
+- **Supervised turns now persist the same durable set as the command path**,
+  including context projections and `system`/`command` evidence rows; an
+  over-cap batch surfaces as an `Error` rather than a silent drop.
+- **Lane approvals resolved through `LaneSupervisor` are not audited by this
+  handle**; that is a separate seam.
+- **E1 defect 5 closed alongside defect 4**: both are the same delivery.
