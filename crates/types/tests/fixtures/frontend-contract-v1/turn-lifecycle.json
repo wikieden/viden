@@ -1,0 +1,753 @@
+{
+  "fixture_id": "turn-lifecycle",
+  "schema_version": 1,
+  "required_capabilities": [
+    "runtime.commands",
+    "runtime.events",
+    "runtime.queued_input",
+    "runtime.snapshot",
+    "runtime.turn_lifecycle"
+  ],
+  "initial_snapshot": {
+    "cwd": "workspace/viden",
+    "provider_family": "deepseek",
+    "model_label": "deepseek-v4-flash",
+    "work_mode": "build",
+    "permission_mode": "default",
+    "permission_level": "ask",
+    "config_summary": "{\"design_entry\":{\"d11\":\"onboarding subordinate\",\"gui\":\"GUI index -> component library -> D1 desktop cockpit\",\"hierarchy\":[\"docs/viden-design/Viden/index.html\",\"client design index\",\"component library\",\"TUI unified prototype or GUI D1 desktop cockpit\"],\"tui\":\"TUI index -> component library -> unified prototype\"},\"ui\":{\"density\":[\"compact\",\"regular\",\"comfy\"],\"effective\":{\"density\":\"regular\",\"locale\":\"zh-CN\",\"mode\":\"dark\",\"motion\":\"reduced\",\"skin\":\"aurora\"},\"locales\":[\"en\",\"zh-CN\"],\"motion\":[\"system\",\"reduced\",\"full\"],\"skin_mode_pairs\":[[\"aurora\",\"dark\"],[\"aurora\",\"light\"],[\"ice\",\"dark\"],[\"ice\",\"light\"],[\"mono\",\"dark\"],[\"mono\",\"light\"],[\"amber\",\"dark\"],[\"phosphor\",\"dark\"]]}}",
+    "loaded_config_files": [
+      "config/viden.toml"
+    ],
+    "startup_overrides": [
+      "--provider=deepseek"
+    ],
+    "ui_preferences": {
+      "locale": "zh-CN",
+      "skin": "aurora",
+      "mode": "dark",
+      "density": "regular",
+      "motion": "reduced",
+      "diagnostics": []
+    }
+  },
+  "events": [
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "ws_4f3c1a09b8d27e65",
+        "project_id": "prj_contract_v1_workspace",
+        "lane_id": null,
+        "session_id": null,
+        "task_id": null,
+        "turn_id": null
+      },
+      "cursor": {
+        "stream_id": "fixture:turn-lifecycle",
+        "sequence": 1
+      },
+      "event": {
+        "sequence": 1,
+        "timestamp": 1700005001,
+        "kind": {
+          "type": "command_accepted",
+          "payload": {
+            "command_id": "submit_first",
+            "command": {
+              "type": "submit_user_input",
+              "content": "describe the change"
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "ws_4f3c1a09b8d27e65",
+        "project_id": "prj_contract_v1_workspace",
+        "lane_id": null,
+        "session_id": null,
+        "task_id": null,
+        "turn_id": "turn_first"
+      },
+      "cursor": {
+        "stream_id": "fixture:turn-lifecycle",
+        "sequence": 2
+      },
+      "event": {
+        "sequence": 2,
+        "timestamp": 1700005002,
+        "kind": {
+          "type": "turn_started",
+          "payload": {
+            "turn": {
+              "turn_id": "turn_first",
+              "owner": {
+                "workspace_id": "ws_4f3c1a09b8d27e65",
+                "project_id": "prj_contract_v1_workspace",
+                "lane_id": null,
+                "session_id": null,
+                "task_id": null,
+                "turn_id": "turn_first"
+              },
+              "source": {
+                "kind": "user_input"
+              },
+              "started_at": 1700005002
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "ws_4f3c1a09b8d27e65",
+        "project_id": "prj_contract_v1_workspace",
+        "lane_id": null,
+        "session_id": null,
+        "task_id": null,
+        "turn_id": null
+      },
+      "cursor": {
+        "stream_id": "fixture:turn-lifecycle",
+        "sequence": 3
+      },
+      "event": {
+        "sequence": 3,
+        "timestamp": 1700005003,
+        "kind": {
+          "type": "assistant_delta",
+          "payload": {
+            "message_id": "message_first",
+            "task_id": null,
+            "content": "Applied the "
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "ws_4f3c1a09b8d27e65",
+        "project_id": "prj_contract_v1_workspace",
+        "lane_id": null,
+        "session_id": null,
+        "task_id": null,
+        "turn_id": null
+      },
+      "cursor": {
+        "stream_id": "fixture:turn-lifecycle",
+        "sequence": 4
+      },
+      "event": {
+        "sequence": 4,
+        "timestamp": 1700005004,
+        "kind": {
+          "type": "assistant_delta",
+          "payload": {
+            "message_id": "message_first",
+            "task_id": null,
+            "content": "requested change."
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "ws_4f3c1a09b8d27e65",
+        "project_id": "prj_contract_v1_workspace",
+        "lane_id": null,
+        "session_id": null,
+        "task_id": null,
+        "turn_id": "turn_first"
+      },
+      "cursor": {
+        "stream_id": "fixture:turn-lifecycle",
+        "sequence": 5
+      },
+      "event": {
+        "sequence": 5,
+        "timestamp": 1700005005,
+        "kind": {
+          "type": "turn_finished",
+          "payload": {
+            "turn_id": "turn_first",
+            "owner": {
+              "workspace_id": "ws_4f3c1a09b8d27e65",
+              "project_id": "prj_contract_v1_workspace",
+              "lane_id": null,
+              "session_id": null,
+              "task_id": null,
+              "turn_id": "turn_first"
+            },
+            "outcome": {
+              "kind": "completed"
+            },
+            "finished_at": 1700005005
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "ws_4f3c1a09b8d27e65",
+        "project_id": "prj_contract_v1_workspace",
+        "lane_id": null,
+        "session_id": null,
+        "task_id": null,
+        "turn_id": null
+      },
+      "cursor": {
+        "stream_id": "fixture:turn-lifecycle",
+        "sequence": 6
+      },
+      "event": {
+        "sequence": 6,
+        "timestamp": 1700005006,
+        "kind": {
+          "type": "command_accepted",
+          "payload": {
+            "command_id": "submit_second",
+            "command": {
+              "type": "submit_user_input",
+              "content": "now run the checks"
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "ws_4f3c1a09b8d27e65",
+        "project_id": "prj_contract_v1_workspace",
+        "lane_id": null,
+        "session_id": null,
+        "task_id": null,
+        "turn_id": "turn_second"
+      },
+      "cursor": {
+        "stream_id": "fixture:turn-lifecycle",
+        "sequence": 7
+      },
+      "event": {
+        "sequence": 7,
+        "timestamp": 1700005007,
+        "kind": {
+          "type": "turn_started",
+          "payload": {
+            "turn": {
+              "turn_id": "turn_second",
+              "owner": {
+                "workspace_id": "ws_4f3c1a09b8d27e65",
+                "project_id": "prj_contract_v1_workspace",
+                "lane_id": null,
+                "session_id": null,
+                "task_id": null,
+                "turn_id": "turn_second"
+              },
+              "source": {
+                "kind": "user_input"
+              },
+              "started_at": 1700005007
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "ws_4f3c1a09b8d27e65",
+        "project_id": "prj_contract_v1_workspace",
+        "lane_id": null,
+        "session_id": null,
+        "task_id": null,
+        "turn_id": null
+      },
+      "cursor": {
+        "stream_id": "fixture:turn-lifecycle",
+        "sequence": 8
+      },
+      "event": {
+        "sequence": 8,
+        "timestamp": 1700005008,
+        "kind": {
+          "type": "input_queued",
+          "payload": {
+            "input": {
+              "id": "queued_first",
+              "content_preview": "then commit it",
+              "created_at": 1700005008,
+              "owner": {
+                "workspace_id": "ws_4f3c1a09b8d27e65",
+                "project_id": "prj_contract_v1_workspace",
+                "lane_id": null,
+                "session_id": null,
+                "task_id": null,
+                "turn_id": null
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "ws_4f3c1a09b8d27e65",
+        "project_id": "prj_contract_v1_workspace",
+        "lane_id": null,
+        "session_id": null,
+        "task_id": null,
+        "turn_id": null
+      },
+      "cursor": {
+        "stream_id": "fixture:turn-lifecycle",
+        "sequence": 9
+      },
+      "event": {
+        "sequence": 9,
+        "timestamp": 1700005009,
+        "kind": {
+          "type": "input_queued",
+          "payload": {
+            "input": {
+              "id": "queued_second",
+              "content_preview": "then push it",
+              "created_at": 1700005009,
+              "owner": {
+                "workspace_id": "ws_4f3c1a09b8d27e65",
+                "project_id": "prj_contract_v1_workspace",
+                "lane_id": null,
+                "session_id": null,
+                "task_id": null,
+                "turn_id": null
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "ws_4f3c1a09b8d27e65",
+        "project_id": "prj_contract_v1_workspace",
+        "lane_id": null,
+        "session_id": null,
+        "task_id": null,
+        "turn_id": "turn_second"
+      },
+      "cursor": {
+        "stream_id": "fixture:turn-lifecycle",
+        "sequence": 10
+      },
+      "event": {
+        "sequence": 10,
+        "timestamp": 1700005010,
+        "kind": {
+          "type": "turn_finished",
+          "payload": {
+            "turn_id": "turn_second",
+            "owner": {
+              "workspace_id": "ws_4f3c1a09b8d27e65",
+              "project_id": "prj_contract_v1_workspace",
+              "lane_id": null,
+              "session_id": null,
+              "task_id": null,
+              "turn_id": "turn_second"
+            },
+            "outcome": {
+              "kind": "completed"
+            },
+            "finished_at": 1700005010
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "ws_4f3c1a09b8d27e65",
+        "project_id": "prj_contract_v1_workspace",
+        "lane_id": null,
+        "session_id": null,
+        "task_id": null,
+        "turn_id": null
+      },
+      "cursor": {
+        "stream_id": "fixture:turn-lifecycle",
+        "sequence": 11
+      },
+      "event": {
+        "sequence": 11,
+        "timestamp": 1700005011,
+        "kind": {
+          "type": "input_dequeued",
+          "payload": {
+            "input_id": "queued_first"
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "ws_4f3c1a09b8d27e65",
+        "project_id": "prj_contract_v1_workspace",
+        "lane_id": null,
+        "session_id": null,
+        "task_id": null,
+        "turn_id": "turn_queued_first"
+      },
+      "cursor": {
+        "stream_id": "fixture:turn-lifecycle",
+        "sequence": 12
+      },
+      "event": {
+        "sequence": 12,
+        "timestamp": 1700005012,
+        "kind": {
+          "type": "turn_started",
+          "payload": {
+            "turn": {
+              "turn_id": "turn_queued_first",
+              "owner": {
+                "workspace_id": "ws_4f3c1a09b8d27e65",
+                "project_id": "prj_contract_v1_workspace",
+                "lane_id": null,
+                "session_id": null,
+                "task_id": null,
+                "turn_id": "turn_queued_first"
+              },
+              "source": {
+                "kind": "queued_input",
+                "input_id": "queued_first"
+              },
+              "started_at": 1700005012
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "ws_4f3c1a09b8d27e65",
+        "project_id": "prj_contract_v1_workspace",
+        "lane_id": null,
+        "session_id": null,
+        "task_id": null,
+        "turn_id": "turn_queued_first"
+      },
+      "cursor": {
+        "stream_id": "fixture:turn-lifecycle",
+        "sequence": 13
+      },
+      "event": {
+        "sequence": 13,
+        "timestamp": 1700005013,
+        "kind": {
+          "type": "turn_finished",
+          "payload": {
+            "turn_id": "turn_queued_first",
+            "owner": {
+              "workspace_id": "ws_4f3c1a09b8d27e65",
+              "project_id": "prj_contract_v1_workspace",
+              "lane_id": null,
+              "session_id": null,
+              "task_id": null,
+              "turn_id": "turn_queued_first"
+            },
+            "outcome": {
+              "kind": "completed"
+            },
+            "finished_at": 1700005013
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "ws_4f3c1a09b8d27e65",
+        "project_id": "prj_contract_v1_workspace",
+        "lane_id": null,
+        "session_id": null,
+        "task_id": null,
+        "turn_id": null
+      },
+      "cursor": {
+        "stream_id": "fixture:turn-lifecycle",
+        "sequence": 14
+      },
+      "event": {
+        "sequence": 14,
+        "timestamp": 1700005014,
+        "kind": {
+          "type": "input_dequeued",
+          "payload": {
+            "input_id": "queued_second"
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "ws_4f3c1a09b8d27e65",
+        "project_id": "prj_contract_v1_workspace",
+        "lane_id": null,
+        "session_id": null,
+        "task_id": null,
+        "turn_id": "turn_queued_second"
+      },
+      "cursor": {
+        "stream_id": "fixture:turn-lifecycle",
+        "sequence": 15
+      },
+      "event": {
+        "sequence": 15,
+        "timestamp": 1700005015,
+        "kind": {
+          "type": "turn_started",
+          "payload": {
+            "turn": {
+              "turn_id": "turn_queued_second",
+              "owner": {
+                "workspace_id": "ws_4f3c1a09b8d27e65",
+                "project_id": "prj_contract_v1_workspace",
+                "lane_id": null,
+                "session_id": null,
+                "task_id": null,
+                "turn_id": "turn_queued_second"
+              },
+              "source": {
+                "kind": "queued_input",
+                "input_id": "queued_second"
+              },
+              "started_at": 1700005015
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "ws_4f3c1a09b8d27e65",
+        "project_id": "prj_contract_v1_workspace",
+        "lane_id": null,
+        "session_id": null,
+        "task_id": null,
+        "turn_id": "turn_queued_second"
+      },
+      "cursor": {
+        "stream_id": "fixture:turn-lifecycle",
+        "sequence": 16
+      },
+      "event": {
+        "sequence": 16,
+        "timestamp": 1700005016,
+        "kind": {
+          "type": "turn_finished",
+          "payload": {
+            "turn_id": "turn_queued_second",
+            "owner": {
+              "workspace_id": "ws_4f3c1a09b8d27e65",
+              "project_id": "prj_contract_v1_workspace",
+              "lane_id": null,
+              "session_id": null,
+              "task_id": null,
+              "turn_id": "turn_queued_second"
+            },
+            "outcome": {
+              "kind": "completed"
+            },
+            "finished_at": 1700005016
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "ws_4f3c1a09b8d27e65",
+        "project_id": "prj_contract_v1_workspace",
+        "lane_id": null,
+        "session_id": null,
+        "task_id": null,
+        "turn_id": null
+      },
+      "cursor": {
+        "stream_id": "fixture:turn-lifecycle",
+        "sequence": 17
+      },
+      "event": {
+        "sequence": 17,
+        "timestamp": 1700005017,
+        "kind": {
+          "type": "input_queued",
+          "payload": {
+            "input": {
+              "id": "queued_after_cancel",
+              "content_preview": "and open a pull request",
+              "created_at": 1700005017,
+              "owner": {
+                "workspace_id": "ws_4f3c1a09b8d27e65",
+                "project_id": "prj_contract_v1_workspace",
+                "lane_id": null,
+                "session_id": null,
+                "task_id": null,
+                "turn_id": null
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "ws_4f3c1a09b8d27e65",
+        "project_id": "prj_contract_v1_workspace",
+        "lane_id": null,
+        "session_id": null,
+        "task_id": null,
+        "turn_id": null
+      },
+      "cursor": {
+        "stream_id": "fixture:turn-lifecycle",
+        "sequence": 18
+      },
+      "event": {
+        "sequence": 18,
+        "timestamp": 1700005018,
+        "kind": {
+          "type": "command_accepted",
+          "payload": {
+            "command_id": "submit_third",
+            "command": {
+              "type": "submit_user_input",
+              "content": "re-run the failing check"
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "ws_4f3c1a09b8d27e65",
+        "project_id": "prj_contract_v1_workspace",
+        "lane_id": null,
+        "session_id": null,
+        "task_id": null,
+        "turn_id": "turn_third"
+      },
+      "cursor": {
+        "stream_id": "fixture:turn-lifecycle",
+        "sequence": 19
+      },
+      "event": {
+        "sequence": 19,
+        "timestamp": 1700005019,
+        "kind": {
+          "type": "turn_started",
+          "payload": {
+            "turn": {
+              "turn_id": "turn_third",
+              "owner": {
+                "workspace_id": "ws_4f3c1a09b8d27e65",
+                "project_id": "prj_contract_v1_workspace",
+                "lane_id": null,
+                "session_id": null,
+                "task_id": null,
+                "turn_id": "turn_third"
+              },
+              "source": {
+                "kind": "user_input"
+              },
+              "started_at": 1700005019
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "ws_4f3c1a09b8d27e65",
+        "project_id": "prj_contract_v1_workspace",
+        "lane_id": null,
+        "session_id": null,
+        "task_id": null,
+        "turn_id": null
+      },
+      "cursor": {
+        "stream_id": "fixture:turn-lifecycle",
+        "sequence": 20
+      },
+      "event": {
+        "sequence": 20,
+        "timestamp": 1700005020,
+        "kind": {
+          "type": "command_accepted",
+          "payload": {
+            "command_id": "cancel_third",
+            "command": {
+              "type": "cancel_active_turn"
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "ws_4f3c1a09b8d27e65",
+        "project_id": "prj_contract_v1_workspace",
+        "lane_id": null,
+        "session_id": null,
+        "task_id": null,
+        "turn_id": "turn_third"
+      },
+      "cursor": {
+        "stream_id": "fixture:turn-lifecycle",
+        "sequence": 21
+      },
+      "event": {
+        "sequence": 21,
+        "timestamp": 1700005021,
+        "kind": {
+          "type": "turn_finished",
+          "payload": {
+            "turn_id": "turn_third",
+            "owner": {
+              "workspace_id": "ws_4f3c1a09b8d27e65",
+              "project_id": "prj_contract_v1_workspace",
+              "lane_id": null,
+              "session_id": null,
+              "task_id": null,
+              "turn_id": "turn_third"
+            },
+            "outcome": {
+              "kind": "cancelled"
+            },
+            "finished_at": 1700005021
+          }
+        }
+      }
+    }
+  ],
+  "expected_final_cursor": {
+    "stream_id": "fixture:turn-lifecycle",
+    "sequence": 21
+  },
+  "expected_view_sha256": "946f68640b6a299b35c00c9bef105ea3b64ee7b642e47d26ac003078b48f4603"
+}

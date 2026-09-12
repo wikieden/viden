@@ -6,7 +6,7 @@ frontend_schema_version = 1
 base_contract_checkpoint = "5bd2b80b0953f4194d082940a7b9164c7231ca2d"
 contract_implementation_checkpoint = "1cec82185bbe860d6b8536a63741bc01f1edf2f6"
 compatibility = "additive_capability_gated"
-capabilities = ["core.workspace_host", "runtime.agent_adapters", "runtime.agent_conversation", "runtime.agent_permission_bridge", "runtime.agent_session_input", "runtime.agent_sessions", "runtime.audit", "runtime.cockpit_context_v1", "runtime.conflict_content", "runtime.credential_handles", "runtime.credential_staging", "runtime.evidence_reads", "runtime.lane_lifecycle", "runtime.lane_owner_projection", "runtime.operator_git", "runtime.project_onboarding", "runtime.recent_work", "runtime.starter_lane_preview", "runtime.structured_diff", "runtime.trust_loop", "runtime.workspace_eligibility", "runtime.workspace_files", "runtime.workspace_owner", "ui.layout_preferences", "ui.preference_persistence"]
+capabilities = ["core.workspace_host", "runtime.agent_adapters", "runtime.agent_conversation", "runtime.agent_permission_bridge", "runtime.agent_session_input", "runtime.agent_sessions", "runtime.audit", "runtime.cockpit_context_v1", "runtime.conflict_content", "runtime.credential_handles", "runtime.credential_staging", "runtime.evidence_reads", "runtime.lane_lifecycle", "runtime.lane_owner_projection", "runtime.operator_git", "runtime.project_onboarding", "runtime.recent_work", "runtime.starter_lane_preview", "runtime.structured_diff", "runtime.trust_loop", "runtime.turn_lifecycle", "runtime.workspace_eligibility", "runtime.workspace_files", "runtime.workspace_owner", "ui.layout_preferences", "ui.preference_persistence"]
 
 [cockpit_context]
 capability = "runtime.cockpit_context_v1"
@@ -74,13 +74,20 @@ payload_sha256 = "d5a0c1c647107ecb9e6b05fa5aafa828fc889a981415337e9d81d1db31cb00
 view_sha256 = "9b5f05de93a51ba44a96b969a23868e0ae70e2237c6314fb0c0f6762cbd2316d"
 final_cursor = 6
 
+# The 0.3.4 contract increment's second batch (C6).
+[fixtures.turn_lifecycle]
+path = "../types/tests/fixtures/frontend-contract-v1/turn-lifecycle.json"
+payload_sha256 = "fb40f5de446bce9c0bf81e2e6b56a75e6e7b59ac7c787570bebab971fdb9b9db"
+view_sha256 = "946f68640b6a299b35c00c9bef105ea3b64ee7b642e47d26ac003078b48f4603"
+final_cursor = 21
+
 [verification]
 date = "2026-09-10"
 core_gates = "passed"
 workspace_gate = "passed"
 workspace_baseline = "13795abce263bd60f0e4785e4af0f3f852cb3009"
 base_fixture_bytes = "nine frozen frontend-contract-v1 fixtures byte-equal to their apps/tui/release-manifest.toml digests"
-capability_count = "15 frozen base + 25 extensions"
+capability_count = "15 frozen base + 26 extensions"
 integration_branch = "claude/int-0.3.3"
 on_main = false
 tag_authorized = false

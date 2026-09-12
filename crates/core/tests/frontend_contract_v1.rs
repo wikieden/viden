@@ -33,11 +33,11 @@ use viden_types::{
     RuntimeErrorView, RuntimeEvent, RuntimeEventEnvelope, RuntimeEventKind, RuntimeOwner,
     RuntimeSnapshot, RuntimeViewState, RuntimeWireEvent, SchemaVersion, SourceTarget,
     StarterLanePreview, StarterLanePreviewInvalidationReason, StarterLaneReceipt, TokenCostView,
-    TokenUsage, UiColorMode, UiDensity, UiLayoutPreferencePatch, UiLayoutPreferences, UiMotion,
-    UiPreferenceDiagnostic, UiPreferences, UiSkin, WorkMode, WorkspaceChangeKind,
-    WorkspaceDiffEntry, WorkspaceDiffPage, WorkspaceDiffQuery, WorkspaceDiffScope,
-    WorkspaceEligibility, WorkspaceFileEntry, WorkspaceFileKind, WorkspaceFilePage,
-    WorkspaceFilesQuery, WorkspaceRuntimeOwnerBinding,
+    TokenUsage, TurnOutcome, TurnSource, TurnView, UiColorMode, UiDensity, UiLayoutPreferencePatch,
+    UiLayoutPreferences, UiMotion, UiPreferenceDiagnostic, UiPreferences, UiSkin, WorkMode,
+    WorkspaceChangeKind, WorkspaceDiffEntry, WorkspaceDiffPage, WorkspaceDiffQuery,
+    WorkspaceDiffScope, WorkspaceEligibility, WorkspaceFileEntry, WorkspaceFileKind,
+    WorkspaceFilePage, WorkspaceFilesQuery, WorkspaceRuntimeOwnerBinding,
 };
 
 const FIXTURE_DIR: &str = "tests/fixtures/frontend-contract-v1";
@@ -207,6 +207,10 @@ fn frontend_host_capabilities_are_schema_one_core_0_3_6_and_additive() {
         // byte-identical.
         "runtime.structured_diff",
         "runtime.trust_loop",
+        // The turn bracket, C6. Compatibility follow-ups 3 and 5: a native
+        // turn had no terminal fact and the session queue was never drained,
+        // so both clients guessed liveness from display residue.
+        "runtime.turn_lifecycle",
         "runtime.workspace_eligibility",
         // GUI-CORE-022. The frozen base list above is unchanged, which is what
         // keeps the nine base fixtures byte-identical.
@@ -6729,4 +6733,346 @@ fn owned_envelopes_per_event(
             }
         })
         .collect()
+}
+
+/// The turn bracket, and the queue that hangs off it (`runtime.turn_lifecycle`).
+///
+/// Four facts a client would otherwise have to guess at, and which this fixture
+/// separates: a turn is running; a turn ended and its reply is settled; a
+/// queued prompt left the queue and became a turn of its own; and a turn that
+/// was cancelled released nothing behind it.
+#[test]
+fn turn_lifecycle_fixture_brackets_every_turn_and_drains_only_behind_a_completion() {
+    let name = "turn-lifecycle.json";
+    let root = fixture_root();
+    let fixture_bytes = fs::read(root.join(name)).expect("read turn lifecycle fixture bytes");
+    let fixture_sha256 = format!("{:x}", Sha256::digest(&fixture_bytes));
+    let extension_manifest = include_str!("../frontend-contract-extensions.toml");
+    assert!(
+        extension_manifest.contains(&format!(
+            "turn_lifecycle_fixture_sha256 = \"{fixture_sha256}\""
+        )),
+        "the extension manifest must register the exact turn lifecycle fixture bytes"
+    );
+    assert!(extension_manifest.contains("turn_lifecycle_fixture = \"turn-lifecycle.json\""));
+
+    let fixture = read_fixture(&root, name);
+    assert_fixture_identity(name, &fixture);
+    assert_capabilities_are_sorted_unique_and_advertised(name, &fixture);
+    assert_cursors_are_contiguous(name, &fixture);
+
+    let (view, first_cursor, first_digest) = replay_fixture(&fixture);
+    let (second_view, second_cursor, second_digest) = replay_fixture(&fixture);
+    assert_eq!(view, second_view);
+    assert_eq!(first_cursor, second_cursor);
+    assert_eq!(first_digest, second_digest);
+    assert_eq!(first_cursor, fixture.expected_final_cursor);
+    assert_eq!(first_digest, fixture.expected_view_sha256);
+    assert!(
+        extension_manifest.contains(&format!("turn_lifecycle_view_sha256 = \"{first_digest}\"")),
+        "the extension manifest must register the replayed view digest"
+    );
+
+    // Five turns, each opened once and closed once, and none of them left
+    // running at the end.
+    let opened = fixture
+        .events
+        .iter()
+        .filter_map(|envelope| match &envelope.event {
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::TurnStarted { turn },
+                ..
+            }) => Some(turn.clone()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let closed = fixture
+        .events
+        .iter()
+        .filter_map(|envelope| match &envelope.event {
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind:
+                    RuntimeEventKind::TurnFinished {
+                        turn_id, outcome, ..
+                    },
+                ..
+            }) => Some((turn_id.clone(), outcome.clone())),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(opened.len(), 5);
+    assert_eq!(closed.len(), 5);
+    for (turn, (closed_id, _)) in opened.iter().zip(closed.iter()) {
+        assert_eq!(&turn.turn_id, closed_id, "a turn closes under its own id");
+        assert_eq!(turn.owner.lane_id, None, "the composer turn names no Lane");
+        assert_eq!(turn.owner.turn_id.as_deref(), Some(turn.turn_id.as_str()));
+    }
+    assert!(
+        view.active_turns.is_empty(),
+        "every turn in this fixture ended, so nothing is running"
+    );
+
+    // The reply is settled by the turn's end rather than left as residue: the
+    // deltas of the first turn are gone from the unscoped stream.
+    assert!(
+        fixture.events.iter().any(|envelope| matches!(
+            &envelope.event,
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::AssistantDelta { .. },
+                ..
+            })
+        )),
+        "the fixture streams a reply"
+    );
+    assert!(view.assistant_stream.is_empty());
+
+    // Two prompts queued while the second turn ran are drained behind its
+    // completion, oldest first, each announced before the turn it started and
+    // each naming the queue entry it came from.
+    let dequeued = fixture
+        .events
+        .iter()
+        .filter_map(|envelope| match &envelope.event {
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::InputDequeued { input_id },
+                ..
+            }) => Some(input_id.clone()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(dequeued, vec!["queued_first", "queued_second"]);
+    assert_eq!(
+        opened[2].source,
+        TurnSource::QueuedInput {
+            input_id: "queued_first".to_string()
+        }
+    );
+    assert_eq!(
+        opened[3].source,
+        TurnSource::QueuedInput {
+            input_id: "queued_second".to_string()
+        }
+    );
+    let announced = fixture
+        .events
+        .iter()
+        .position(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::InputDequeued { input_id },
+                    ..
+                }) if input_id == "queued_first"
+            )
+        })
+        .expect("the first drain is announced");
+    let ran = fixture
+        .events
+        .iter()
+        .position(|envelope| matches!(
+            &envelope.event,
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::TurnStarted { turn },
+                ..
+            }) if turn.source == TurnSource::QueuedInput { input_id: "queued_first".to_string() }
+        ))
+        .expect("the first drained turn starts");
+    assert!(
+        announced < ran,
+        "a client is never shown a turn quoting a queue entry it has not been told left the queue"
+    );
+
+    // The cancelled fifth turn releases nothing: the prompt queued before it
+    // is still queued, and the snapshot prefix would re-list it.
+    assert_eq!(closed[4].1, TurnOutcome::Cancelled);
+    assert_eq!(view.queued_inputs.len(), 1);
+    assert_eq!(view.queued_inputs[0].id, "queued_after_cancel");
+    assert!(
+        fixture
+            .events
+            .iter()
+            .skip(announced)
+            .all(|envelope| !matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::InputDequeued { input_id },
+                    ..
+                }) if input_id == "queued_after_cancel"
+            )),
+        "nothing runs behind a cancelled turn"
+    );
+}
+
+#[test]
+#[ignore = "manual turn lifecycle fixture refresh; normal tests validate committed JSON only"]
+fn refresh_turn_lifecycle_extension_fixture() {
+    let root = fixture_root();
+    fs::create_dir_all(&root).unwrap();
+    let fixture = turn_lifecycle_fixture();
+    fs::write(
+        root.join("turn-lifecycle.json"),
+        serde_json::to_string_pretty(&fixture).unwrap() + "\n",
+    )
+    .unwrap();
+}
+
+/// `runtime.turn_lifecycle`, as bytes.
+///
+/// Five turns over one session-scoped owner: a typed turn whose reply settles
+/// on its own end, a second typed turn that two prompts are queued behind and
+/// which drains both on completing, and a fifth that is cancelled and therefore
+/// leaves the prompt queued behind it exactly where it is.
+fn turn_lifecycle_fixture() -> FrontendContractFixtureOut {
+    let fixture_id = "turn-lifecycle";
+    let owner = RuntimeOwner {
+        workspace_id: "ws_4f3c1a09b8d27e65".to_string(),
+        project_id: "prj_contract_v1_workspace".to_string(),
+        lane_id: None,
+        session_id: None,
+        task_id: None,
+        turn_id: None,
+    };
+    let turn_owner = |turn_id: &str| RuntimeOwner {
+        turn_id: Some(turn_id.to_string()),
+        ..owner.clone()
+    };
+    let started = |turn_id: &str, source: TurnSource, at: u64| {
+        (
+            RuntimeEventKind::TurnStarted {
+                turn: TurnView {
+                    turn_id: turn_id.to_string(),
+                    owner: turn_owner(turn_id),
+                    source,
+                    started_at: at,
+                },
+            },
+            turn_owner(turn_id),
+        )
+    };
+    let finished = |turn_id: &str, outcome: TurnOutcome, at: u64| {
+        (
+            RuntimeEventKind::TurnFinished {
+                turn_id: turn_id.to_string(),
+                owner: turn_owner(turn_id),
+                outcome,
+                finished_at: at,
+            },
+            turn_owner(turn_id),
+        )
+    };
+    let submit = |command_id: &str, content: &str| {
+        (
+            RuntimeEventKind::CommandAccepted {
+                command_id: command_id.to_string(),
+                command: RuntimeCommand::SubmitUserInput {
+                    content: content.to_string(),
+                },
+            },
+            owner.clone(),
+        )
+    };
+    let queued = |input_id: &str, content: &str, at: u64| {
+        (
+            RuntimeEventKind::InputQueued {
+                input: QueuedInputView {
+                    id: input_id.to_string(),
+                    content_preview: content.to_string(),
+                    created_at: Some(at),
+                    owner: Some(owner.clone()),
+                },
+            },
+            owner.clone(),
+        )
+    };
+    let dequeued = |input_id: &str| {
+        (
+            RuntimeEventKind::InputDequeued {
+                input_id: input_id.to_string(),
+            },
+            owner.clone(),
+        )
+    };
+
+    let owned_events: Vec<(RuntimeEventKind, RuntimeOwner)> = vec![
+        // A typed turn, its streamed reply, and its end. The end is what
+        // settles the reply; before this capability the stream simply kept it.
+        submit("submit_first", "describe the change"),
+        started("turn_first", TurnSource::UserInput, 1_700_005_002),
+        (
+            RuntimeEventKind::AssistantDelta {
+                message_id: "message_first".to_string(),
+                task_id: None,
+                session_id: None,
+                content: "Applied the ".to_string(),
+            },
+            owner.clone(),
+        ),
+        (
+            RuntimeEventKind::AssistantDelta {
+                message_id: "message_first".to_string(),
+                task_id: None,
+                session_id: None,
+                content: "requested change.".to_string(),
+            },
+            owner.clone(),
+        ),
+        finished("turn_first", TurnOutcome::Completed, 1_700_005_005),
+        // A second turn, with two prompts queued behind it while it runs.
+        submit("submit_second", "now run the checks"),
+        started("turn_second", TurnSource::UserInput, 1_700_005_007),
+        queued("queued_first", "then commit it", 1_700_005_008),
+        queued("queued_second", "then push it", 1_700_005_009),
+        finished("turn_second", TurnOutcome::Completed, 1_700_005_010),
+        // The drain: announced, then run, oldest first, each turn naming the
+        // queue entry it came from so text nobody just typed is explicable.
+        dequeued("queued_first"),
+        started(
+            "turn_queued_first",
+            TurnSource::QueuedInput {
+                input_id: "queued_first".to_string(),
+            },
+            1_700_005_012,
+        ),
+        finished("turn_queued_first", TurnOutcome::Completed, 1_700_005_013),
+        dequeued("queued_second"),
+        started(
+            "turn_queued_second",
+            TurnSource::QueuedInput {
+                input_id: "queued_second".to_string(),
+            },
+            1_700_005_015,
+        ),
+        finished("turn_queued_second", TurnOutcome::Completed, 1_700_005_016),
+        // A prompt queued behind a turn the operator then cancels. The
+        // cancellation is a decision about that turn, not an instruction to
+        // run what is waiting, so the queue stays exactly where it is.
+        queued(
+            "queued_after_cancel",
+            "and open a pull request",
+            1_700_005_017,
+        ),
+        submit("submit_third", "re-run the failing check"),
+        started("turn_third", TurnSource::UserInput, 1_700_005_019),
+        (
+            RuntimeEventKind::CommandAccepted {
+                command_id: "cancel_third".to_string(),
+                command: RuntimeCommand::CancelActiveTurn,
+            },
+            owner.clone(),
+        ),
+        finished("turn_third", TurnOutcome::Cancelled, 1_700_005_021),
+    ];
+
+    fixture(
+        fixture_id,
+        &[
+            "runtime.commands",
+            "runtime.events",
+            "runtime.queued_input",
+            "runtime.snapshot",
+            "runtime.turn_lifecycle",
+        ],
+        snapshot(WorkMode::Build),
+        owned_envelopes_per_event(fixture_id, owned_events, 1_700_005_000),
+    )
 }
