@@ -165,7 +165,7 @@ URL 与尺寸，不在该运行时之外调用浏览器自动化。
 | `evidence-rejected` | `…/qa.html?state=evidence-rejected` | Core 对越界 `kinds` 的拒绝原文放进 `role=alert`，其 `hint:` 行保持独立成行，什么都未加载，没有翻页脚，也没有空档案的句子 |
 | `nav-d2-in-cockpit` | `…/qa.html?state=nav-d2-in-cockpit` | 决策队列作为**中央面板视图**：四周驾驶舱 chrome 原封不动——带 source 块的标题栏、`决策` 槽位标记 `aria-current` 并带上 Core 自己的待处理计数徽标的活动 rail、上下文坞、仍然对准选中 Lane 的 composer、带待审闸芯片的状态栏——外加该视图自己的头部与 Close 控件（位置与 DiffReview 的一致） |
 | `nav-d14-in-cockpit` | `…/qa.html?state=nav-d14-in-cockpit` | 同一外壳中的审计轨迹，也就是 `D-AUDIT` 从证据行或 D12 基线芯片单向链接如今落到的地方：rail 的 `审计时间线` 槽位标记为当前，视图头部之下是模式切换与三条审计行，而对话只差一个 `Esc` |
-| `nav-sidebar-floating-peek` | `…/qa.html?state=nav-sidebar-floating-peek` | `D-SIDEBAR` 浮动模式经键盘路径（Lane rail 槽位）peek 打开：侧栏是**覆盖在转录之上的浮层**而非布局列，12px 热区连同 `.edgehint` 提示条贴在活动 rail 右缘，头部 pin 控件处于未固定态 |
+| `nav-sidebar-floating-peek` | `…/qa.html?state=nav-sidebar-floating-peek` | `D-SIDEBAR` **浮动**模式——该决策的默认值——经键盘路径（Lane rail 槽位）peek 打开：侧栏是**覆盖在整宽转录之上的浮层**而非布局列，12px 热区连同 `.edgehint` 提示条贴在活动 rail 右缘，rail 上（设置齿轮之上）的 pin 读作未固定 |
 | `nav-statusbar-config` | `…/qa.html?state=nav-statusbar-config` | `D-STATUSBAR` 配置齿轮打开：`.sbcfg` 弹层列出六个环境段及其勾选框，页脚写明身份项与可操作项始终固定，而 `MODE`、`PERM`、`LANE` 与待审闸芯片就在其后的状态栏上、却不在列表中 |
 | `palette` | `…/qa.html?state=palette` | 从标题栏按钮打开、覆盖在驾驶舱之上的 ⌘K 命令面板，四个分区全部可见——动作、跳转到（跨 Lane 的闸与询问，加上本 Lane）、设置，以及列出 Core 已发布工作区清单的「文件」分区 |
 | `palette-files` | `…/qa.html?state=palette-files` | 同一个面板但预先限定到 `~`，单独框出 Core 发布的清单：六条路径按 Core 的字典序排列，每条带 Core 报告的条目类型，没有任何一条是客户端自行发现的（`GUI-CORE-022`） |
@@ -180,7 +180,7 @@ URL 与尺寸，不在该运行时之外调用浏览器自动化。
 | `review-rejected` | `…/qa.html?state=review-rejected` | Core 的拒绝在 `role=alert` 中原样呈现，表头没有文件计数，也没有空树句子 |
 | `review-empty` | `…/qa.html?state=review-empty` | 「工作区没有变更」—— 唯一可以这样渲染的状态，且建立在 Core 确实回答过的页之上 |
 | `approval-hunks` | `…/qa.html?state=approval-hunks` | D1 权限坞把 `decision_context` 渲染成 hunk 行，上方是「预览基于 … 计算」，`input_preview` 在其上、决策行固定在其下（`GUI-CORE-012`） |
-| `lane-rail` | `…/qa.html?state=lane-rail` | 侧栏被固定展开（它默认自动隐藏），显示名为 `viden` 的唯一 `.wsroot` 项目分组、`▾` 折叠控件、Lane 计数、分组内 `＋`、嵌套其下的 Lane，以及 `＋ 添加项目…` 页脚；没有第二个分组，也没有「Global」分区 |
+| `lane-rail` | `…/qa.html?state=lane-rail` | `D-SIDEBAR` **pinned** 模式：侧栏作为真正的布局列（设计默认 218px），把工作面推开而不是覆盖它，活动 rail 的 pin 标记为已按下。画面显示 Core 监督的那一个 `.wsroot` 项目分组 `viden`，其 `▾` 折叠、Lane 计数、分组内 `＋`、嵌套其下的 Lane，以及 `＋ 添加项目…` 页脚——没有第二个分组，也没有「Global」小节 |
 | `project-picker` | `…/qa.html?state=project-picker` | 选择器在标题栏 `▾` 之下展开，三列同时可见：可用的 `添加目录…` 与两行点名 `GUI-CORE-023` 的禁用行、当前打开项目的唯一「工作区内」行及其 lane 计数，以及一行带相对时间的「最近」 |
 | `project-switch-confirm` | `…/qa.html?state=project-switch-confirm` | 同一选择器在点击最近项目后进入内联确认：目标根目录、点名 `GUI-CORE-023` 的替换说明、正在运行的工作计数，以及「取消」与「切换工作区」两个按钮 |
 
@@ -684,9 +684,90 @@ D2 与 D14 的投影就是独立屏截图已经用过的那份**生成**投影
 | `nav-d2-in-cockpit` | chrome 在切换中**存活**。G3 之前这块屏幕会替换整个窗口；这里标题栏、活动 rail、上下文坞、composer 与状态栏都仍在它旁边，composer 也仍然指名选中的 Lane。Rail 把 `决策` 标记为当前并带 `2`——来自 Core 自己的 `pendingGateCount`，是 rail 唯一被允许展示的已发布数字 |
 | `nav-d2-in-cockpit`（light/zh-CN） | 新增文案的语言证明：视图头部、Close 控件的可访问名称与 rail 新槽位名都会翻译，而 Core 的 id、原始动作键与能力名保持 Core 发布时的原样 |
 | `nav-d14-in-cockpit` | 返回路径有地方可回。`D-AUDIT` 的链接是单向的——审计行链接证据，不反向——因此从证据行或 D12 芯片跟过去的操作者过去会丢掉对话；这里轨迹渲染在对话之上，`Esc` 或 Close 控件把转录带回来 |
-| `nav-sidebar-floating-peek` | `D-SIDEBAR` 的浮动模式是浮层，不是第二套布局。Peek 打开的侧栏之后转录保持完整宽度，12px 热区连同 `.edgehint` 贴在活动 rail 右缘，头部 pin 控件读作未固定——同一个组件，不同的宿主 |
+| `nav-sidebar-floating-peek` | `D-SIDEBAR` 的浮动模式是浮层，不是第二套布局。Peek 打开的侧栏之后转录保持完整宽度（网格仍是三条轨道），12px 热区连同 `.edgehint` 贴在活动 rail 右缘，齿轮之上的 rail pin 读作未固定——同一个组件，不同的宿主。请与 `lane-rail` 对读，那是同一决策的 pinned 另一半 |
 | `nav-statusbar-config` | `D-STATUSBAR` 按**可操作性**而不是紧急程度切分状态栏。弹层恰好提供六个环境段；`MODE`、`PERM`、`LANE` 与待审闸芯片就在其后的状态栏上，且不在列表中，因为可以被关掉的控件就是操作者在需要时够不到的控件（`O-B6`） |
 
-没有重拍任何既有截图。Rail 增加了槽位、状态栏增加了齿轮，因此每一张带驾驶舱的图像在这
-两条上都落后一个修订；这里把它们保留为 G3 之前外壳样貌的记录，而不是悄悄刷新，重拍应当
-与下一次改动它们所记录内容的批次一同进行。
+G3 之前拍摄的带驾驶舱截图已在同一批次内重拍，见下文重拍小节。
+
+## 导航外壳之后的驾驶舱重拍（2026-09-12）
+
+本目录中每一张带驾驶舱的图像都在 **2026-09-12** 经 qa 采集脚本
+（`evidence/main-window-interactions/qa.ts`）针对 4173 端口上的 vite dev server
+重拍，流程与既有的 headless Chrome 一致
+（`--headless --window-size=1440,900 --virtual-time-budget=6000`，等待
+`data-capture-ready`），且每一张在提交前都被打开逐一看过。
+
+原因不是外观微调。G3 改动了两块出现在**每一帧**里的 chrome：
+
+- **活动 rail** 成为 `D-RAILNAV` 的路由器。它在既有的 Review/Evidence 一对与
+  spacer 之间新增了五个目的地槽位（`决策`、`Lane 监视`、`集成闸`、`舰队看板`、
+  `审计时间线`），并在设置齿轮正上方新增了 Lane 侧栏的 **pin**；
+- **状态栏**在起始边新增了 `D-STATUSBAR` 的配置齿轮。
+
+因此本批次之前拍摄的每一张图，展示的都是一个已经不存在的 rail 与状态栏。42 个文件
+全部发生变化，没有一张字节相同。它们背后的生成投影没有改动——改的只是外面的外壳
+——这正是它属于重拍而不是新主张的原因。
+
+`evidence/0.1.0-rc.3/` 是历史发布包，刻意未动。
+
+| 文件 | 重拍日期 | 图中变了什么 |
+| --- | --- | --- |
+| `approval-hunks-1440x900-dark-en.png` | 2026-09-12 | rail 槽位 + pin，状态栏齿轮 |
+| `d1-1440x900-dark-en.png` | 2026-09-12 | rail 槽位 + pin，状态栏齿轮；这是新 rail 顺序的基准帧 |
+| `d1-1440x900-light-zh-CN.png` | 2026-09-12 | 同上，浅色皮肤与 zh-CN，新槽位名与 pin 的标题在此翻译 |
+| `d1-mode-menu-1440x900-dark-en.png` | 2026-09-12 | rail 槽位 + pin，状态栏齿轮；模式菜单本身未变 |
+| `d1-model-menu-1440x900-dark-en.png` | 2026-09-12 | rail 槽位 + pin，状态栏齿轮；模型菜单本身未变 |
+| `d6-actions-1440x900-dark-en.png` | 2026-09-12 | rail 槽位 + pin，状态栏齿轮；agent 停止界面未变 |
+| `d6-error-1440x900-dark-en.png` | 2026-09-12 | 同上，Core 的重启拒绝仍在动作下方 |
+| `evidence-1440x900-dark-en.png` | 2026-09-12 | rail 槽位 + pin，状态栏齿轮；`Evidence` 现在是路由目的地并被标记为当前 |
+| `evidence-1440x900-light-zh-CN.png` | 2026-09-12 | 同上，light/zh-CN |
+| `evidence-empty-1440x900-dark-en.png` | 2026-09-12 | 同上；空档案的回答未变 |
+| `evidence-rejected-1440x900-dark-en.png` | 2026-09-12 | 同上；Core 的拒绝文案未变 |
+| `evidence-summary-only-1440x900-dark-en.png` | 2026-09-12 | 同上；仅展示型报告未变 |
+| `evidence-text-1440x900-dark-en.png` | 2026-09-12 | 同上；内容被截断的提示未变 |
+| `evidence-unavailable-1440x900-dark-en.png` | 2026-09-12 | 同上；校验失败的内容回答未变 |
+| `lane-rail-1440x900-dark-en.png` | 2026-09-12 | **是行为改变，不只是 chrome**：该状态现在以 `laneSidebarMode: "pinned"` 挂载，Lane 侧栏成为真正的第四条网格轨道（`52px 218px …`）并把工作区向右推开，而不再是过去的浮层。齿轮之上的 rail pin 读作已按下 |
+| `nav-d14-in-cockpit-1440x900-dark-en.png` | 2026-09-12 | 在 D-SIDEBAR 修正之后重拍，使 rail 与本批次其余图像一致 |
+| `nav-d2-in-cockpit-1440x900-dark-en.png` | 2026-09-12 | 同上 |
+| `nav-d2-in-cockpit-1440x900-light-zh-CN.png` | 2026-09-12 | 同上 |
+| `nav-sidebar-floating-peek-1440x900-dark-en.png` | 2026-09-12 | **按修正后的默认值重拍**：该状态不再传入任何模式，因此它证明的是"调用方不表态时驾驶舱就是 `floating`" |
+| `nav-statusbar-config-1440x900-dark-en.png` | 2026-09-12 | **替换了一个损坏的文件**——见下方说明 |
+| `palette-1440x900-dark-en.png` | 2026-09-12 | 遮罩之后的 rail 槽位 + pin 与状态栏齿轮；命令面板自身的动作列表本就列出 D2/D4/D10/D11/D12/D13/D14，未变 |
+| `palette-files-1440x900-dark-en.png` | 2026-09-12 | 同上 |
+| `palette-files-1440x900-light-zh-CN.png` | 2026-09-12 | 同上，light/zh-CN |
+| `permission-ask-1440x900-dark-en.png` | 2026-09-12 | rail 槽位 + pin，状态栏齿轮；权限坞未变 |
+| `permission-deny-redirect-1440x900-dark-en.png` | 2026-09-12 | 同上；改写后的 composer 占位文案未变 |
+| `permission-deny-redirect-1440x900-light-zh-CN.png` | 2026-09-12 | 同上，light/zh-CN |
+| `project-picker-1440x900-dark-en.png` | 2026-09-12 | rail 槽位 + pin，状态栏齿轮；项目选择弹层未变 |
+| `project-switch-confirm-1440x900-dark-en.png` | 2026-09-12 | 同上；切换确认未变 |
+| `review-1440x900-dark-en.png` | 2026-09-12 | rail 槽位 + pin，状态栏齿轮；`Review` 现在是路由目的地并被标记为当前 |
+| `review-1440x900-light-zh-CN.png` | 2026-09-12 | 同上，light/zh-CN |
+| `review-commit-1440x900-dark-en.png` | 2026-09-12 | 同上；可用的"提交 / 提交并推送"一对未变 |
+| `review-commit-completed-1440x900-dark-en.png` | 2026-09-12 | 同上；完成行与 Git 输出折叠未变 |
+| `review-commit-completed-1440x900-light-zh-CN.png` | 2026-09-12 | 同上，light/zh-CN |
+| `review-commit-pending-approval-1440x900-dark-en.png` | 2026-09-12 | 同上；等待批准行未变 |
+| `review-empty-1440x900-dark-en.png` | 2026-09-12 | 同上；干净工作区的回答未变 |
+| `review-omitted-1440x900-dark-en.png` | 2026-09-12 | 同上；超出字节上限的行提示未变 |
+| `review-push-no-upstream-1440x900-dark-en.png` | 2026-09-12 | 同上；无 upstream 的解释与其唯一恢复动作未变 |
+| `review-rejected-1440x900-dark-en.png` | 2026-09-12 | 同上；Core 对 `git_diff` 的拒绝未变 |
+| `review-rejected-action-1440x900-dark-en.png` | 2026-09-12 | 同上；Core 对 `git_add` 的拒绝未变 |
+| `settings-1440x900-dark-en.png` | 2026-09-12 | 对话框之后的 rail 槽位 + pin 与状态栏齿轮；设置对话框未变 |
+| `settings-1440x900-light-zh-CN.png` | 2026-09-12 | 同上，light/zh-CN |
+| `settings-unavailable-1440x900-dark-en.png` | 2026-09-12 | 同上；`ui.preference_persistence` 提示未变 |
+
+### 关于 `nav-statusbar-config` 这个文件，直说
+
+本批次的第一个提交里，`nav-statusbar-config-1440x900-dark-en.png` 是看过且正确的；
+但随后工作区收到了同一路径的第二次、**损坏的**写入：一次重拍在 dev server 已被停掉
+之后才启动，于是 Chrome 渲染了它自己的"This site can't be reached /
+ERR_CONNECTION_REFUSED"页面，采集脚本把那个页面存成了证据。它落盘的时间晚于上一轮
+最后一次工作区检查，因此从未被看到。本次提交中的文件是在 vite 运行状态下拍摄、并在
+提交前读过的；它展示的是六个环境段之上的 `.sbcfg` 弹层，也就是上表所声称的内容。
+2026-09-12 这一轮对重演做了防护：开跑之前先确认 dev server 处于运行状态，跑完之后
+再按文件大小筛查每一个输出是否带有错误页的特征（约 28 KB，而真实帧是 100–200 KB）
+——没有可疑项。该防护存在于一次性的采集脚本里，并不在仓库中；真正长期有效的保护仍然是
+那条规则：报告里列出的每一张 PNG 都必须被打开看过。
+
+本目录中的 27 张独立屏截图（`d2-*`、`d4-*`、`d10-*`、`d11-*`、`d12-*`、`d13-*`、
+`d14-*`）**不**带驾驶舱——它们是没有 rail、没有状态栏的整窗渲染——G3 不可能改动它们，
+因此未动。

@@ -160,7 +160,7 @@ All URLs share the prefix
 | `review-rejected` | `…/qa.html?state=review-rejected` | Core's refusal verbatim in a `role=alert`, with no file count in the header and no empty-tree sentence |
 | `review-empty` | `…/qa.html?state=review-empty` | "No changes in the working tree" — the only state drawn that way, over a page Core actually answered |
 | `approval-hunks` | `…/qa.html?state=approval-hunks` | the D1 permission dock rendering `decision_context` as hunk rows under the "Preview computed against" note, with `input_preview` above and the decision row pinned below (`GUI-CORE-012`) |
-| `lane-rail` | `…/qa.html?state=lane-rail` | the rail pinned open (it auto-hides), showing the one `.wsroot` project group named `viden` with its `▾` collapse, its Lane count, the per-group `＋`, the Lane nested beneath it, and the `＋ Add project…` footer — and no second group and no "Global" section |
+| `lane-rail` | `…/qa.html?state=lane-rail` | `D-SIDEBAR` **pinned** mode: the sidebar as a real layout column at the design's 218px, pushing the work surface rather than covering it, with the activity rail's pin marked pressed. It shows the one `.wsroot` project group named `viden` with its `▾` collapse, its Lane count, the per-group `＋`, the Lane nested beneath it, and the `＋ Add project…` footer — and no second group and no "Global" section |
 | `project-picker` | `…/qa.html?state=project-picker` | the picker open under the titlebar `▾` selector with all three columns visible at once: `Add directory…` enabled beside the two disabled rows naming `GUI-CORE-023`, the single "In workspace" row for the open project with its lane count, and one Recent row with its relative age |
 | `project-switch-confirm` | `…/qa.html?state=project-switch-confirm` | the same picker after choosing the recent project, showing the inline confirmation: the target root, the replacement sentence naming `GUI-CORE-023`, the running-work counts, and Cancel beside Switch workspace |
 | `permission-ask` | `…/qa.html?state=permission-ask` | the permission dock as Core published it, before any verdict: the command, the typed facts row, and the five actions with `Always`/`Edit` disabled under `GUI-CORE-003` — the baseline the redirect state is read against |
@@ -197,7 +197,7 @@ All URLs share the prefix
 | `evidence-rejected` | `…/qa.html?state=evidence-rejected` | Core's over-limit `kinds` refusal verbatim in a `role=alert`, its `hint:` line kept on its own line, with nothing loaded, no paging foot, and no empty-archive sentence |
 | `nav-d2-in-cockpit` | `…/qa.html?state=nav-d2-in-cockpit` | the decision queue as a **centre-pane view**: the cockpit chrome unchanged around it — titlebar with the source block, activity rail with `Decisions` marked `aria-current` and carrying Core's own pending count as its badge, context dock, composer still addressed to the selected Lane, statusbar with its gate chip — plus the view's own `AUDIT`-style head and the Close control in the position DiffReview puts its own |
 | `nav-d14-in-cockpit` | `…/qa.html?state=nav-d14-in-cockpit` | the audit trail in the same shell, which is where `D-AUDIT`'s one-way link from an evidence row or a D12 baseline chip now lands: the rail's `Audit timeline` slot marked current, the mode toggle and the three audit rows below the view head, and the conversation still one `Esc` away |
-| `nav-sidebar-floating-peek` | `…/qa.html?state=nav-sidebar-floating-peek` | `D-SIDEBAR` floating mode with the peek open through the keyboard path (the Lanes rail slot): the sidebar as an **overlay above the transcript** rather than a layout column, the 12px hot zone with its `.edgehint` cue against the activity rail, and the header's pin control in its unpinned state |
+| `nav-sidebar-floating-peek` | `…/qa.html?state=nav-sidebar-floating-peek` | `D-SIDEBAR` **floating** mode — the decision's default — with the peek open through the keyboard path (the Lanes rail slot): the sidebar as an **overlay above a full-width transcript** rather than a layout column, the 12px hot zone with its `.edgehint` cue against the activity rail, and the rail's pin (above the settings gear) reading unpinned |
 | `nav-statusbar-config` | `…/qa.html?state=nav-statusbar-config` | the `D-STATUSBAR` config gear open: the `.sbcfg` popover listing the six ambient segments with their checkboxes, the footer sentence saying identity and actionable items are always pinned, and `MODE`, `PERM`, `LANE`, and the pending-gate chip visible on the bar behind it while absent from the list |
 
 `mode=dark|light` and `locale=en|zh-CN` are accepted on every state and resolve
@@ -786,11 +786,103 @@ Each image exists to make one claim falsifiable:
 | `nav-d2-in-cockpit` | the chrome **survives** the switch. Before G3 this screen replaced the window; here the titlebar, the activity rail, the context dock, the composer, and the statusbar are all still on screen beside it, and the composer still names the selected Lane. The rail marks `Decisions` current and carries `2` — Core's own `pendingGateCount`, the one published number the rail is allowed to show |
 | `nav-d2-in-cockpit` (light/zh-CN) | the locale proof for the added copy: the view head, the Close control's accessible name, and the rail's new slot names translate, while Core's ids, the raw action keys, and the capability names stay exactly as Core published them |
 | `nav-d14-in-cockpit` | the return path has somewhere to return **to**. `D-AUDIT`'s link runs one way — audit rows link evidence, not the reverse — so an operator who follows it from an evidence row or a D12 chip used to lose the conversation; here the trail renders over it and `Esc` or the Close control brings the transcript back |
-| `nav-sidebar-floating-peek` | `D-SIDEBAR`'s floating mode is an overlay, not a second layout. The transcript keeps its full width behind the peeked sidebar, the 12px hot zone with its `.edgehint` sits against the activity rail, and the header's pin control reads unpinned — the same component, a different host |
+| `nav-sidebar-floating-peek` | `D-SIDEBAR`'s floating mode is an overlay, not a second layout. The transcript keeps its full width behind the peeked sidebar (the grid stays three tracks), the 12px hot zone with its `.edgehint` sits against the activity rail, and the rail's pin above the gear reads unpinned — the same component, a different host. Read it against `lane-rail`, which is the pinned half of the same decision |
 | `nav-statusbar-config` | `D-STATUSBAR` splits the bar by **actionability**, not urgency. The popover offers exactly the six ambient segments; `MODE`, `PERM`, `LANE`, and the pending-gate chip are on the bar behind it and are not in the list, because a control that can be switched off is a control the operator cannot reach when it matters (`O-B6`) |
 
-No existing capture was re-taken. The rail gained slots and the statusbar
-gained a gear, so every cockpit-bearing image is now one revision behind on
-those two strips; they are left as the record of what the shell looked like
-before G3 rather than silently refreshed, and the recapture belongs with the
-batch that next changes what they document.
+The cockpit-bearing captures that predate G3 were re-taken in the same batch;
+see the recapture section below.
+
+## Cockpit recapture after the navigation shell (2026-09-12)
+
+Every cockpit-bearing image in this directory was re-taken on **2026-09-12**
+through the qa harness (`evidence/main-window-interactions/qa.ts`) against the
+vite dev server on port 4173, with the same headless Chrome procedure
+(`--headless --window-size=1440,900 --virtual-time-budget=6000`,
+`data-capture-ready` gate), and each one was opened and read before it was
+committed.
+
+The reason is not cosmetic. G3 changed two pieces of chrome that appear in
+every single one of these frames:
+
+- the **activity rail** became the router of `D-RAILNAV`. It gained five
+  destination slots (`Decisions`, `Lane monitor`, `Integration gate`,
+  `Fleet board`, `Audit timeline`) between the existing Review/Evidence pair
+  and the spacer, and a **pin** for the Lane sidebar directly above the
+  settings gear;
+- the **statusbar** gained the `D-STATUSBAR` config gear at its leading edge.
+
+So every image taken before this batch showed a rail and a statusbar that no
+longer exist. All 42 files moved; none came out byte-identical. The generated
+projections behind them did not change — only the shell around them — which is
+what makes this a recapture and not a new claim.
+
+`evidence/0.1.0-rc.3/` is a historical release bundle and was deliberately left
+untouched.
+
+| File | Recaptured | What moved in it |
+| --- | --- | --- |
+| `approval-hunks-1440x900-dark-en.png` | 2026-09-12 | rail slots + pin, statusbar gear |
+| `d1-1440x900-dark-en.png` | 2026-09-12 | rail slots + pin, statusbar gear; this is the reference frame for the new rail order |
+| `d1-1440x900-light-zh-CN.png` | 2026-09-12 | same, in the light skin and zh-CN, where the new slot names and the pin's title translate |
+| `d1-mode-menu-1440x900-dark-en.png` | 2026-09-12 | rail slots + pin, statusbar gear; the mode menu itself is unchanged |
+| `d1-model-menu-1440x900-dark-en.png` | 2026-09-12 | rail slots + pin, statusbar gear; the model menu itself is unchanged |
+| `d6-actions-1440x900-dark-en.png` | 2026-09-12 | rail slots + pin, statusbar gear; the agent-stopped surface is unchanged |
+| `d6-error-1440x900-dark-en.png` | 2026-09-12 | same, with Core's restart refusal still below the actions |
+| `evidence-1440x900-dark-en.png` | 2026-09-12 | rail slots + pin, statusbar gear; `Evidence` is now a router destination and is marked current |
+| `evidence-1440x900-light-zh-CN.png` | 2026-09-12 | same, light/zh-CN |
+| `evidence-empty-1440x900-dark-en.png` | 2026-09-12 | same; the empty archive answer is unchanged |
+| `evidence-rejected-1440x900-dark-en.png` | 2026-09-12 | same; Core's refusal text is unchanged |
+| `evidence-summary-only-1440x900-dark-en.png` | 2026-09-12 | same; the display-only report is unchanged |
+| `evidence-text-1440x900-dark-en.png` | 2026-09-12 | same; the cut-content notice is unchanged |
+| `evidence-unavailable-1440x900-dark-en.png` | 2026-09-12 | same; the failed-verification content answer is unchanged |
+| `lane-rail-1440x900-dark-en.png` | 2026-09-12 | **behaviour change, not only chrome**: this state now mounts `laneSidebarMode: "pinned"`, so the Lane sidebar is a real fourth grid column (`52px 218px …`) that pushes the work surface right, instead of the overlay it used to be. The rail pin above the gear reads pressed |
+| `nav-d14-in-cockpit-1440x900-dark-en.png` | 2026-09-12 | re-taken after the D-SIDEBAR fix so the rail matches the rest of the batch |
+| `nav-d2-in-cockpit-1440x900-dark-en.png` | 2026-09-12 | same |
+| `nav-d2-in-cockpit-1440x900-light-zh-CN.png` | 2026-09-12 | same |
+| `nav-sidebar-floating-peek-1440x900-dark-en.png` | 2026-09-12 | **re-taken against the corrected default**: the state no longer passes a mode at all, so it proves `floating` is what the cockpit does with no caller preference |
+| `nav-statusbar-config-1440x900-dark-en.png` | 2026-09-12 | **replaces a broken file** — see the note below |
+| `palette-1440x900-dark-en.png` | 2026-09-12 | rail slots + pin, statusbar gear behind the scrim; the palette's own action list already named D2/D4/D10/D11/D12/D13/D14 and is unchanged |
+| `palette-files-1440x900-dark-en.png` | 2026-09-12 | same |
+| `palette-files-1440x900-light-zh-CN.png` | 2026-09-12 | same, light/zh-CN |
+| `permission-ask-1440x900-dark-en.png` | 2026-09-12 | rail slots + pin, statusbar gear; the permission dock is unchanged |
+| `permission-deny-redirect-1440x900-dark-en.png` | 2026-09-12 | same; the redirected composer placeholder is unchanged |
+| `permission-deny-redirect-1440x900-light-zh-CN.png` | 2026-09-12 | same, light/zh-CN |
+| `project-picker-1440x900-dark-en.png` | 2026-09-12 | rail slots + pin, statusbar gear; the picker popover is unchanged |
+| `project-switch-confirm-1440x900-dark-en.png` | 2026-09-12 | same; the switch confirmation is unchanged |
+| `review-1440x900-dark-en.png` | 2026-09-12 | rail slots + pin, statusbar gear; `Review` is now a router destination and is marked current |
+| `review-1440x900-light-zh-CN.png` | 2026-09-12 | same, light/zh-CN |
+| `review-commit-1440x900-dark-en.png` | 2026-09-12 | same; the enabled Commit / Commit & Push pair is unchanged |
+| `review-commit-completed-1440x900-dark-en.png` | 2026-09-12 | same; the completion line and Git output disclosure are unchanged |
+| `review-commit-completed-1440x900-light-zh-CN.png` | 2026-09-12 | same, light/zh-CN |
+| `review-commit-pending-approval-1440x900-dark-en.png` | 2026-09-12 | same; the pending-approval line is unchanged |
+| `review-empty-1440x900-dark-en.png` | 2026-09-12 | same; the clean-tree answer is unchanged |
+| `review-omitted-1440x900-dark-en.png` | 2026-09-12 | same; the over-the-bound row notice is unchanged |
+| `review-push-no-upstream-1440x900-dark-en.png` | 2026-09-12 | same; the no-upstream explanation and its single recovery action are unchanged |
+| `review-rejected-1440x900-dark-en.png` | 2026-09-12 | same; Core's `git_diff` denial is unchanged |
+| `review-rejected-action-1440x900-dark-en.png` | 2026-09-12 | same; Core's `git_add` denial is unchanged |
+| `settings-1440x900-dark-en.png` | 2026-09-12 | rail slots + pin behind the dialog, statusbar gear; the Settings dialog is unchanged |
+| `settings-1440x900-light-zh-CN.png` | 2026-09-12 | same, light/zh-CN |
+| `settings-unavailable-1440x900-dark-en.png` | 2026-09-12 | same; the `ui.preference_persistence` notice is unchanged |
+
+### The `nav-statusbar-config` file, stated plainly
+
+The first commit of this batch shipped a
+`nav-statusbar-config-1440x900-dark-en.png` that was reviewed and correct, but
+the working tree then received a second, **broken** write of the same path: a
+recapture run that started after the dev server had already been stopped, so
+Chrome rendered its own "This site can't be reached / ERR_CONNECTION_REFUSED"
+page and the driver saved that as the evidence. It landed after the last
+working-tree check of the previous round, so it was never looked at. The file
+in this commit was taken with vite up and read before committing; it shows the
+`.sbcfg` popover over the six ambient segments, which is what the row above
+claims. The 2026-09-12 run guarded against a repeat: the dev server was
+verified live before the batch started, and every output was screened by file
+size afterwards for the error page's signature (~28 KB against a real frame's
+100-200 KB) — no suspects. That guard lives in the throwaway capture driver,
+not in the repository; the durable protection is still the rule that every PNG
+listed in a report has been opened and read.
+
+The 27 standalone screen captures in this directory (`d2-*`, `d4-*`, `d10-*`,
+`d11-*`, `d12-*`, `d13-*`, `d14-*`) are **not** cockpit-bearing — they are the
+full-window renderers with no rail and no statusbar — so nothing in G3 could
+have moved them and they were left alone.
