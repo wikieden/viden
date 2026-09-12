@@ -194,9 +194,15 @@ None of these were fixed in E1. Each is reproduced, not inferred, and each is
 written into `docs/core-0.3-compatibility.md` as a numbered open follow-up.
 
 1. **A session-level queued follow-up is never executed** (Core, blocking).
-   `RuntimeCommand::QueueFollowUp` pushes onto
-   `SessionEngine::queued_runtime_inputs` and nothing ever removes or runs it;
-   the only `InputDequeued` producer is the Lane worker's own queue.
+   **Fixed by C6 (Core), 2026-09-12; clients adopt in G7/T2.**
+   `RuntimeCommand::QueueFollowUp` pushed onto
+   `SessionEngine::queued_runtime_inputs` and nothing ever removed or ran it;
+   the only `InputDequeued` producer was the Lane worker's own queue.
+   `runtime.turn_lifecycle` publishes a terminal fact for every native turn and
+   drains the session queue behind a completed one, oldest first, each entry
+   announced by `InputDequeued` and run as its own bracketed turn. A failed or
+   cancelled turn keeps the queue. The GUI composer and the TUI's active-work
+   predicate read `active_turns` instead of display residue in G7 and T2.
 2. **The TUI composer stops submitting for the rest of a session** (TUI,
    blocking). `command_for_composer` queues whenever
    `state::runtime_has_active_work` is true, and that is true when a completed

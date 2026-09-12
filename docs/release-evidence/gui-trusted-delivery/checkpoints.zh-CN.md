@@ -180,9 +180,13 @@ fixture 现在会让发布记录失败。
 带编号的开放后续项写入 `docs/core-0.3-compatibility.zh-CN.md`。
 
 1. **会话级排队的后续输入永远不会被执行**（Core，阻断级）。
-   `RuntimeCommand::QueueFollowUp` 压入 `SessionEngine::queued_runtime_inputs`，
-   而没有任何地方移除或执行它；`InputDequeued` 的唯一生产者是 Lane worker 自己的
-   队列。
+   **已由 C6（Core）于 2026-09-12 修复；客户端在 G7/T2 中接入。**
+   `RuntimeCommand::QueueFollowUp` 曾压入 `SessionEngine::queued_runtime_inputs`，
+   而没有任何地方移除或执行它；`InputDequeued` 当时的唯一生产者是 Lane worker
+   自己的队列。`runtime.turn_lifecycle` 为每一次原生回合发布终结事实，并在一次
+   已完成的回合之后按最旧优先排空会话队列：每一条先由 `InputDequeued` 宣告，再
+   作为自带起止括号的回合运行。失败或被取消的回合则保留队列。GUI 输入框与 TUI
+   的活动工作判定将在 G7 与 T2 中改读 `active_turns`，而不再读显示残留。
 2. **TUI 的输入框在一次会话余下的时间里不再提交**（TUI，阻断级）。
    `command_for_composer` 在 `state::runtime_has_active_work` 为真时一律入队，而
    该判定在以下情况为真：一次已完成的内置回合的文本仍留在 `assistant_stream` 中、

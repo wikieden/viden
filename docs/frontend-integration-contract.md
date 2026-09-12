@@ -345,8 +345,8 @@ a contract change, not a refactor.
 | User intent | Frontend sends | Core owns |
 | --- | --- | --- |
 | Start a normal turn | `SubmitUserInput` | provider loop, context bundle, tools, transcript |
-| Add input while work runs | `QueueFollowUp` | queue ordering and later dequeue |
-| Cancel current work | `CancelActiveTurn` with the selected Lane's exact bound envelope owner, or `CancelAgentTask` | exact owner validation, request cancellation, and task/Lane state |
+| Add input while work runs | `QueueFollowUp` | queue ordering, and the drain behind a completed turn: `InputDequeued` then a `TurnStarted { QueuedInput }` of its own |
+| Cancel current work | `CancelActiveTurn` with the selected Lane's exact bound envelope owner, or `CancelAgentTask` | exact owner validation, request cancellation, task/Lane state, and a `TurnFinished { Cancelled }` that releases nothing queued behind it |
 | Start supervised workflow | `StartAgentDag` then `StartAgentTask` | DAG validation, dependencies, workflow events |
 | Change mode/permissions | `SetWorkMode`, `SetPermissionLevel` | permission mode mapping and policy enforcement |
 | Approve or deny a tool | `RespondToApproval` | decision recording and gated execution |
@@ -894,9 +894,9 @@ reports `Completed`, and never infers success from output text.
 
 ## Workspace Identity, Turn Lifecycle, And Durable Evidence
 
-The `0.3.4` Core increment adds three facts the `0.3.3` real task stopped on.
-This section is written as each batch lands; the headed placeholders below name
-what is not delivered yet rather than implying it is.
+The `0.3.4` Core increment adds the facts the `0.3.3` real task stopped on. This
+section is written as each batch lands; the headed placeholder below names what
+is not delivered yet rather than implying it is.
 
 ### Workspace identity (`runtime.workspace_owner`, GUI-CORE-027)
 
@@ -984,11 +984,66 @@ Rules a frontend must honor:
 - Absent `layout_preferences` means Core published no record, which is a
   different fact from "Core says floating".
 
-### Turn lifecycle (C6)
+### Turn lifecycle (`runtime.turn_lifecycle`)
 
-Not delivered. `runtime.turn_lifecycle` is designed in
-`docs/release-0.3.4-contract-design.md` section 3 and lands in batch C6; this
-section is written when it does.
+Core publishes a matched pair for every turn on every execution path:
+`TurnStarted { turn }` immediately after the turn's `CommandAccepted`, and
+`TurnFinished { turn_id, owner, outcome, finished_at }` as the last fact of the
+turn on every exit — completion, failure, and cancellation alike. `TurnView`
+carries `turn_id`, `owner`, `source`, and `started_at`, and reduces into
+`RuntimeViewState.active_turns`, which is skipped when empty.
+
+Before this capability exactly one kind of turn published a terminal fact: an
+Agent session. A built-in native turn published none, so both clients inferred
+liveness from display residue.
+
+Rules a frontend must honor:
+
+- **Liveness is `active_turns`, never residue.** A composer is busy when
+  `active_turns` holds an entry whose owner is in the scope it targets. Match on
+  the scope — workspace, project, Lane, session — and ignore `turn_id`, which is
+  a fresh per-turn value present so an audit row has something to join on. Do
+  not read `assistant_stream`, a lingering `turn_id`, or the shape of the last
+  event.
+- **The three outcomes are three facts.** `completed`, `failed { reason }`, and
+  `cancelled` are not interchangeable: only `completed` releases the queue
+  behind the turn. An unmodeled future outcome must be rendered as "ended, cause
+  unknown" and never as success, or a client will promise a queued prompt that
+  Core has already decided not to run. `reason` is sanitized and bounded to 500
+  characters.
+- **`TurnSource` explains text nobody typed.** `user_input`,
+  `queued_input { input_id }`, and `agent_session { session_id }`. A drained
+  turn puts a prompt in the transcript that the operator sent earlier; render
+  which queue entry it came from. `input_id` is the exact id `InputQueued` and
+  `InputDequeued` carry.
+- **The stream settles on the turn's end.** A `TurnFinished` whose owner names
+  no Lane clears the unscoped `assistant_stream`, the same settlement a terminal
+  Agent-session fact performs. A Lane-scoped turn does not touch it.
+- **The trailing `SnapshotUpdated` is no longer the end.** It keeps its place;
+  `TurnFinished` is what a client reads as the end of the turn.
+
+**The session queue.** On a `TurnFinished { completed }` for the session-scoped
+owner, Core pops the oldest entry of `RuntimeViewState.queued_inputs`, publishes
+`InputDequeued { input_id }` before starting anything, and runs it as its own
+bracketed turn naming that entry, repeating until the queue is empty or a turn
+does not complete. A drained turn is a turn in every other respect: it holds the
+active job, so `CancelActiveTurn` stops it, and it raises approvals through the
+same path, so an operator answers one exactly as they would a typed turn's. It
+publishes no `CommandAccepted`, because no client sent a command for it.
+
+A failed or cancelled turn keeps the queue, and the snapshot prefix re-lists it;
+nothing runs behind a turn that did not complete. Render "queued · waits for the
+next completed turn" rather than implying imminent execution. Because Core's
+supervisor is a single worker, a `QueueFollowUp` sent while a turn is running is
+still in flight when that turn ends: a completed session-scoped turn arms the
+drain, and such a follow-up runs as soon as it is queued. A Lane's own queue is
+the Lane worker's and is unchanged.
+
+**Crash safety.** A turn is never resumed across a restart and leaves no durable
+trace: neither fact is persisted, because a stored `TurnStarted` whose process
+died before its `TurnFinished` would replay as a turn that is still running — a
+phantom Core cannot cancel and a client cannot clear. A reconnecting client sees
+the turns Core is running now, and a queue it can inspect.
 
 ### Durable work evidence (C7)
 

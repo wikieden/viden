@@ -94,6 +94,7 @@ runtime.recent_work
 runtime.starter_lane_preview
 runtime.structured_diff
 runtime.trust_loop
+runtime.turn_lifecycle
 runtime.workspace_eligibility
 runtime.workspace_files
 runtime.workspace_owner
@@ -546,6 +547,7 @@ registered schema-1 extension fixtures are:
 | `evidence-reads` | Two pages tiling one three-row archive through the exact opaque cursor the first published; a kind-filtered page `complete` for its filter while the unfiltered archive is not; three content reads answering bounded text, parsed diff rows for a `patch` row, and `Unavailable { SummaryOnly }` for display-only evidence; and an over-limit `kinds` query answered by `CommandRejected` with no page at all | `b15cb2fd024f60a1abb3a5a39b5c5736fca8bec443ae1a99a69e99f51edf8ef9` | `4d33513151bda26aa8e11242a9963d7fde25cc332980a40306f6393e6fc4caa0` |
 | `workspace-owner` | A minted workspace identity published as the first fact after the snapshot, a Lane created afterwards whose binding carries the same two ids, a workspace-target `Commit` settled and audited under that owner, and a Lane-target `Stage` answered with the Lane's own source row while the workspace chip keeps describing the workspace | `0866370b2f4a9c85b1a577688e7cce42f51243b711440c7f3a033a5e75515a87` | `b8ac58db0fc8d3780d514e75531b21d98d7592e7e44b8aebd7bab69094777286` |
 | `ui-layout-preferences` | The snapshot prefix's copy with no command id, a stored record Core applied but could not write (pinned, the non-default mode, so a stored choice is distinguishable from an absent one), an over-bound hidden-segment list refused by command id before anything was written, and a reset landing back on the floating default (`D-SIDEBAR`) — with an unrecognized segment name kept verbatim | `9b5f05de93a51ba44a96b969a23868e0ae70e2237c6314fb0c0f6762cbd2316d` | `d5a0c1c647107ecb9e6b05fa5aafa828fc889a981415337e9d81d1db31cb000b` |
+| `turn-lifecycle` | Five turns over one session-scoped owner, each opened once and closed once: a typed turn whose streamed reply is settled by its own end rather than left as residue, a second typed turn that two prompts are queued behind and which drains both on completing — announced oldest first, each drained turn naming the queue entry it came from — and a turn the operator cancels, which leaves the prompt queued behind it exactly where it is | `946f68640b6a299b35c00c9bef105ea3b64ee7b642e47d26ac003078b48f4603` | `fb40f5de446bce9c0bf81e2e6b56a75e6e7b59ac7c787570bebab971fdb9b9db` |
 
 Semantics fix 2026-09-07 (review finding 4): `RuntimeViewState.assistant_stream`
 had no lifecycle — it was append-only for the life of the view, so startup
@@ -739,6 +741,61 @@ Neither client has adopted these two yet — the GUI commit bar and sync chip
 its recorded checkpoint, because the Core `0.3.7` checkpoint is declared once by
 the release step (E2) rather than per batch.
 
+`runtime.turn_lifecycle` gives every execution path a terminal fact. Before it,
+exactly one kind of turn published one: an Agent session, which ends in
+`AgentSessionCompleted`, `AgentSessionFailed`, or a cancelled
+`AgentSessionUpdated`. A built-in native turn published none, so both clients
+guessed liveness from display residue — the TUI from `assistant_stream` still
+holding a finished turn's text, the GUI from `turn_id` heuristics — and two
+failures followed, recorded below as follow-ups 3 and 5. `TurnStarted { turn }`
+and `TurnFinished { turn_id, owner, outcome, finished_at }` are a matched pair
+on every exit, including cancellation and failure, and reduce into
+`RuntimeViewState.active_turns`, which is skipped when empty so no view that
+never saw a turn changed shape.
+
+`TurnOutcome` names three ends rather than one because only `Completed` releases
+the queue behind a turn; a client that collapsed them would tell an operator a
+queued prompt is about to run when Core has already decided it is not, and an
+unmodeled future outcome must be read as "ended, cause unknown" rather than as
+success. `TurnSource` separates a typed prompt from one an earlier
+`QueueFollowUp` put in line and from an Agent session run, because a drained
+turn puts text in the transcript that nobody typed just now and without the
+source that reads as Core inventing work. A `TurnFinished` whose owner names no
+Lane clears the unscoped `assistant_stream` — the same settlement a terminal
+Agent-session fact has performed since the 2026-09-07 lifecycle fix, now
+reaching the path that never had one; a Lane-scoped turn deliberately leaves it
+alone, since a Lane's reply lives in the owner-scoped conversation.
+
+The session queue drains behind a completed session-scoped turn, oldest first:
+Core pops the oldest entry, announces it with `InputDequeued` before starting
+anything, and runs it as its own bracketed turn naming the entry it came from,
+repeating until the queue is empty or a turn does not complete. A drained turn
+is a turn in every other respect — it acquires its own active job, so
+`CancelActiveTurn` stops it, and it prompts through the same approver, so an
+operator answers its approval exactly as they would a typed turn's — but it
+announces no `CommandAccepted`, because no client sent a command for it. A
+failed or cancelled turn keeps the queue and the snapshot prefix re-lists it.
+The Lane worker's own queue is untouched. Because the supervisor is one worker,
+a follow-up queued *while* a turn runs is still in its channel when that turn
+ends; a completed session-scoped turn therefore arms the drain and a follow-up
+that lands while it is armed runs as soon as it is queued, while a turn that
+does not complete disarms it.
+
+A turn is never resumed across a restart and leaves no durable trace: neither
+fact is written to the session JSONL or to the ACP runtime-event log that
+snapshot assembly replays, because a persisted `TurnStarted` whose process died
+before its `TurnFinished` would rebuild as a turn that is still running — a
+phantom Core cannot cancel and a client cannot clear. A reconnecting client sees
+the turns Core is running now and a queue it can inspect.
+
+0.3.4 contract increment, batch C6, landed 2026-09-12 on `claude/int-0.3.4`.
+`runtime.turn_lifecycle` moves the advertised extension set from 25 to 26 and
+adds the `turn-lifecycle` fixture listed in the corpus table, with the nine
+frozen base fixtures byte-unchanged and the capability count gate in
+`scripts/tui-regression.sh` moved 25 -> 26. Neither client has adopted it yet:
+the GUI composer's `active_turns` predicate and queue copy are G7, and the TUI's
+`native_turn` residue window is replaced in T2.
+
 Open follow-ups recorded 2026-09-10. Each was confirmed during the `0.3.3`
 batches and deliberately left out of them, so none is rediscovered later as a
 new finding:
@@ -754,11 +811,14 @@ new finding:
    gated on the capability actually being absent rather than on a page that has
    not been loaded yet. "Not read" and "not offered" are different facts and
    the copy currently reads as the second for both.
-3. **A native built-in turn has no turn-liveness fact** (found during H1). The
-   built-in local provider publishes no Agent session and no task, so the TUI's
-   active-work predicate depends on `assistant_stream` residue for that path.
-   Closing it needs a Core turn-liveness fact, not a client-side guess. See the
-   deferred-follow-up item 2 above for the full reasoning.
+3. **A native built-in turn has no turn-liveness fact** (found during H1).
+   **Closed 2026-09-12 by C6.** The built-in local provider published no Agent
+   session and no task, so the TUI's active-work predicate depended on
+   `assistant_stream` residue for that path. `runtime.turn_lifecycle` publishes
+   `TurnStarted`/`TurnFinished` for every native exit and settles the unscoped
+   stream on the session-scoped end, so the predicate is a Core fact rather
+   than a client-side guess. The TUI adopts `active_turns` in T2 and the GUI in
+   G7.
 4. **The durable evidence archive is empty in an offline native session**
    (found during T1b). **Decided 2026-09-10 and deferred to `0.3.4` as
    GUI-CORE-028**; the E1 release-evidence run reproduced it against a real
@@ -782,13 +842,15 @@ real task through the TUI against a temporary Git repository with the `fallback`
 provider. Each was reproduced, not inferred; none was fixed in E1.
 
 5. **A session-level queued follow-up is never executed** (Core, blocking).
-   `RuntimeCommand::QueueFollowUp` pushes onto
-   `SessionEngine::queued_runtime_inputs` (`crates/runtime/src/runtime_contract.rs:643`)
-   and replays it into the view (`:1762`). Nothing removes it and nothing runs
-   it: the only producer of `InputDequeued` is the Lane worker's own queue
-   (`crates/lanes/src/lane_worker.rs:979`). So `RuntimeViewState.queued_inputs`
-   grows monotonically for the built-in path, and a queued prompt is a fact Core
-   publishes and never acts on.
+   **Closed 2026-09-12 by C6.** `RuntimeCommand::QueueFollowUp` pushed onto
+   `SessionEngine::queued_runtime_inputs` and replayed it into the view;
+   nothing removed it and nothing ran it, because the only producer of
+   `InputDequeued` was the Lane worker's own queue
+   (`crates/lanes/src/lane_worker.rs:979`), so `RuntimeViewState.queued_inputs`
+   grew monotonically for the built-in path. Core now drains that queue behind
+   a completed session-scoped turn, oldest first, announcing each entry with
+   `InputDequeued` and running it as its own bracketed turn; a failed or
+   cancelled turn keeps the queue and the snapshot prefix still re-lists it.
 6. **The TUI composer stops submitting for the rest of a session** (TUI,
    blocking, and a consequence of 5 and of item 3 above).
    **Fixed in TUI (T1c, 2026-09-10).** `command_for_composer` routed to

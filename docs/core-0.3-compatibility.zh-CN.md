@@ -86,6 +86,7 @@ runtime.recent_work
 runtime.starter_lane_preview
 runtime.structured_diff
 runtime.trust_loop
+runtime.turn_lifecycle
 runtime.workspace_eligibility
 runtime.workspace_files
 runtime.workspace_owner
@@ -415,6 +416,7 @@ Fixture 文件位于 `crates/types/tests/fixtures/frontend-contract-v1/`。下�
 | `evidence-reads` | 两页以第一页发布的那个不透明 cursor 原样拼接同一份三行归档；一页按 kind 过滤、对其过滤而言 `complete`，而未过滤的归档并非如此；三次内容读取分别回答有界文本、`patch` 行的已解析 diff 行、以及仅供展示证据的 `Unavailable { SummaryOnly }`；另有一次越界 `kinds` 查询以 `CommandRejected` 回答且完全不发布 page | `b15cb2fd024f60a1abb3a5a39b5c5736fca8bec443ae1a99a69e99f51edf8ef9` | `4d33513151bda26aa8e11242a9963d7fde25cc332980a40306f6393e6fc4caa0` |
 | `workspace-owner` | 铸造出的工作区身份作为快照之后的第一条事实发布；随后创建的 Lane，其绑定携带同样的两个 id；一次 Workspace 目标的 `Commit` 在该 owner 下结算并被审计；一次 Lane 目标的 `Stage` 以该 Lane 自己的 source 行作答，而工作区芯片仍描述工作区 | `0866370b2f4a9c85b1a577688e7cce42f51243b711440c7f3a033a5e75515a87` | `b8ac58db0fc8d3780d514e75531b21d98d7592e7e44b8aebd7bab69094777286` |
 | `ui-layout-preferences` | 快照前缀的副本不带 command id；一条 Core 已应用但写入失败的记录（pinned，即非默认模式，因此已存选择与记录缺席可以区分）；一次越界的隐藏段列表在写入任何内容之前按 command id 被拒；一次 reset 落回 floating 默认值（`D-SIDEBAR`） —— 其中一个无法识别的段名被原样保留 | `9b5f05de93a51ba44a96b969a23868e0ae70e2237c6314fb0c0f6762cbd2316d` | `d5a0c1c647107ecb9e6b05fa5aafa828fc889a981415337e9d81d1db31cb000b` |
+| `turn-lifecycle` | 同一个会话作用域 owner 下的五次回合，每一次都只开启一次、只关闭一次：一次键入的回合，其流式回复由回合自身的结束来结算，而不是留作残留；第二次键入的回合背后排了两条提示，它完成时把两条都排空 —— 按最旧优先宣告，每一次被排空的回合都指名它来自哪一条队列条目 —— 以及一次被操作者取消的回合，它背后排队的提示原样留在队列里 | `946f68640b6a299b35c00c9bef105ea3b64ee7b642e47d26ac003078b48f4603` | `fb40f5de446bce9c0bf81e2e6b56a75e6e7b59ac7c787570bebab971fdb9b9db` |
 
 2026-09-07 语义修正（评审发现 4）：`RuntimeViewState.assistant_stream` 此前没有生命
 周期——它在整个 view 生命期内只追加，因此启动重放会把每个历史会话的回复串接成一整块
@@ -556,6 +558,48 @@ Lane 会携带它们 —— 而客户端已经指名的 owner 永不改写，自
 记录的 checkpoint，因为 Core `0.3.7` 的 checkpoint 由发布步骤（E2）一次性声明，
 而不是逐批次声明。
 
+`runtime.turn_lifecycle` 让每条执行路径都有终结事实。在此之前，只有一种回合会发布
+终结事实：Agent session，它以 `AgentSessionCompleted`、`AgentSessionFailed` 或一条
+被取消的 `AgentSessionUpdated` 结束。内置原生回合完全没有，于是两个客户端都从显示
+残留去猜测活动状态 —— TUI 看 `assistant_stream` 里仍留着的已完成回合文本，GUI 看
+`turn_id` 启发式 —— 并由此产生了两处失效，即下文的第 3 与第 5 条跟进项。
+`TurnStarted { turn }` 与 `TurnFinished { turn_id, owner, outcome, finished_at }`
+在每一种出口上成对出现，取消与失败也不例外，并归约进
+`RuntimeViewState.active_turns`；该字段为空时被跳过，因此从未见过回合的 view 形状未变。
+
+`TurnOutcome` 给出三种结束而不是一种，因为只有 `Completed` 会释放回合背后的队列：
+把三者合并的客户端会在 Core 已经决定不运行时，告诉操作者排队的提示即将运行；遇到
+未建模的将来结果，必须读作「已结束、原因未知」，而不是读作成功。`TurnSource` 把
+键入的提示、由更早的 `QueueFollowUp` 排入队列的提示，以及一次 Agent session 运行
+区分开，因为被排空的回合会把没人刚刚键入的文本放进转录，没有来源的话那读起来就像
+Core 在凭空造活。owner 不指名任何 Lane 的 `TurnFinished` 会清空无作用域的
+`assistant_stream` —— 这正是 2026-09-07 生命周期修正以来终结性 Agent session 事实
+一直在做的结算，现在延伸到了此前没有结算的那条路径；Lane 作用域的回合刻意不做这件
+事，因为 Lane 的回复存在于 owner 作用域的会话里。
+
+会话队列在一次已完成的会话作用域回合之后按最旧优先排空：Core 弹出最旧的条目，在
+启动任何东西之前用 `InputDequeued` 宣告它，再把它作为自带起止括号、并指名其来源
+条目的回合运行，如此反复，直到队列为空或某次回合没有完成。被排空的回合在其余各方面
+都是回合 —— 它获取自己的 active job，因此 `CancelActiveTurn` 能停下它；它经由同一个
+审批器提示，因此操作者回答它的审批与回答键入回合的审批完全一致 —— 唯独不发布
+`CommandAccepted`，因为没有客户端为它发送过命令。失败或被取消的回合保留队列，快照
+前缀仍会重新列出它。Lane worker 自己的队列不受影响。由于 supervisor 只有一个 worker，
+在回合运行**期间**排入的后续输入，在该回合结束时仍停留在它的 channel 里；因此一次
+已完成的会话作用域回合会「武装」排空，此后落地的后续输入在入队时即刻运行，而未完成
+的回合会解除武装。
+
+回合永远不会跨重启恢复，也不留下任何持久痕迹：两条事实都不写入会话 JSONL，也不写入
+快照装配会重放的 ACP 运行时事件日志 —— 因为一条被持久化的 `TurnStarted`，若其进程
+在 `TurnFinished` 之前死亡，就会被重建成一个仍在运行的回合：Core 取消不掉、客户端也
+清不掉的幽灵。重连的客户端看到的是 Core 此刻正在运行的回合，以及一份它可以查看的队列。
+
+0.3.4 契约增量的 C6 批次已于 2026-09-12 落到 `claude/int-0.3.4`。
+`runtime.turn_lifecycle` 把对外通告的扩展集合从 25 项推到 26 项，并新增语料表中
+列出的 `turn-lifecycle` fixture；九个冻结基线 fixture 的字节未变，
+`scripts/tui-regression.sh` 中的能力计数门由 25 移到 26。两个客户端都尚未采纳：
+GUI 输入框的 `active_turns` 判定与队列文案属于 G7，TUI 的 `native_turn` 残留窗口
+在 T2 中被替换。
+
 2026-09-10 记录的未决跟进项。每一条都是在 `0.3.3` 各批次中确认、并被刻意留在
 批次之外的，因此它们不会日后被当作新发现重新提出：
 
@@ -568,10 +612,12 @@ Lane 会携带它们 —— 而客户端已经指名的 owner 永不改写，自
    该字串说 Core 未发布审计时间线，但它必须以「能力确实缺失」为条件，而不是
    以「页面尚未加载」为条件。「未读取」与「未提供」是两种不同的事实，而当前
    文案对两者都读作后者。
-3. **原生内建轮次没有轮次存活事实**（H1 期间发现）。内建本地 provider 不发布
-   Agent session 也不发布任务，因此 TUI 的活动判定在该路径上依赖
-   `assistant_stream` 的残留。关闭它需要 Core 提供轮次存活事实，而不是客户端
-   的猜测。完整推理见上文延后跟进项的第 2 条。
+3. **原生内建轮次没有轮次存活事实**（H1 期间发现）。**已于 2026-09-12 由 C6
+   关闭。** 内建本地 provider 不发布 Agent session 也不发布任务，因此 TUI 的活动
+   判定在该路径上曾依赖 `assistant_stream` 的残留。`runtime.turn_lifecycle` 为每
+   一种原生出口发布 `TurnStarted`/`TurnFinished`，并在会话作用域的结束处结算无
+   作用域的流，因此该判定成为 Core 的事实，而不再是客户端的猜测。TUI 在 T2、GUI
+   在 G7 中采纳 `active_turns`。
 4. **离线原生会话中的持久证据归档为空**（T1b 期间发现）。**已于 2026-09-10
    决策，作为 GUI-CORE-028 推迟到 `0.3.4`**；E1 发布证据回合在真实仓库上复现了
    它。任何经 `RuntimeSupervisor` 驱动的工作 —— 原生 Lane 回合、ACP 会话 ——
@@ -590,14 +636,14 @@ Lane 会携带它们 —— 而客户端已经指名的 owner 永不改写，自
 使用 `fallback` provider，通过 TUI 跑了一次真实任务。每一条都是复现出来的，不是
 推断出来的；E1 中一条也没有修复。
 
-5. **会话级排队的后续输入永远不会被执行**（Core，阻断级）。
-   `RuntimeCommand::QueueFollowUp` 把内容压入
-   `SessionEngine::queued_runtime_inputs`（`crates/runtime/src/runtime_contract.rs:643`）
-   并重放进视图（`:1762`）。没有任何地方移除它，也没有任何地方执行它：
-   `InputDequeued` 的唯一生产者是 Lane worker 自己的队列
-   （`crates/lanes/src/lane_worker.rs:979`）。因此对内置路径而言，
-   `RuntimeViewState.queued_inputs` 只增不减，排队的提示是 Core 发布出来却从不
-   处理的事实。
+5. **会话级排队的后续输入永远不会被执行**（Core，阻断级）。**已于 2026-09-12
+   由 C6 关闭。** `RuntimeCommand::QueueFollowUp` 曾把内容压入
+   `SessionEngine::queued_runtime_inputs` 并重放进视图；没有任何地方移除它，也没
+   有任何地方执行它，因为 `InputDequeued` 当时的唯一生产者是 Lane worker 自己的
+   队列（`crates/lanes/src/lane_worker.rs:979`），于是对内置路径而言
+   `RuntimeViewState.queued_inputs` 只增不减。现在 Core 会在一次已完成的会话作用域
+   回合之后按最旧优先排空该队列：每一条先由 `InputDequeued` 宣告，再作为自带起止
+   括号的回合运行；失败或被取消的回合保留队列，快照前缀仍会重新列出它。
 6. **TUI 的输入框在一次会话余下的时间里不再提交**（TUI，阻断级，是第 5 条与上文
    第 3 条的后果）。**已在 TUI 修复（T1c，2026-09-10）。**
    `command_for_composer` 在 `state::runtime_has_active_work` 为真时一律路由到

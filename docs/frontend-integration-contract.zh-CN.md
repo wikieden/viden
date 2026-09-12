@@ -299,8 +299,8 @@ flowchart LR
 | 用户意图 | 前端发送 | Core 负责 |
 | --- | --- | --- |
 | 启动普通 turn | `SubmitUserInput` | provider loop、context bundle、tools、transcript |
-| 工作运行时追加输入 | `QueueFollowUp` | queue ordering 和后续 dequeue |
-| 取消当前工作 | 携带所选 Lane 精确 bound envelope owner 的 `CancelActiveTurn`，或 `CancelAgentTask` | 精确 owner 校验、request cancellation 与 task/Lane state |
+| 工作运行时追加输入 | `QueueFollowUp` | queue ordering，以及一次已完成回合之后的排空：先 `InputDequeued`，再为它单独发布 `TurnStarted { QueuedInput }` |
+| 取消当前工作 | 携带所选 Lane 精确 bound envelope owner 的 `CancelActiveTurn`，或 `CancelAgentTask` | 精确 owner 校验、request cancellation、task/Lane state，以及一条不释放其后任何排队项的 `TurnFinished { Cancelled }` |
 | 启动受监督 workflow | `StartAgentDag` 然后 `StartAgentTask` | DAG validation、dependencies、workflow events |
 | 修改 mode/permissions | `SetWorkMode`、`SetPermissionLevel` | permission mode mapping 和 policy enforcement |
 | 批准或拒绝 tool | `RespondToApproval` | decision recording 和 gated execution |
@@ -733,7 +733,7 @@ agent 工具调用所走的同一个 tool registry 执行：
 
 ## 工作区身份、Turn 生命周期与持久工作证据
 
-`0.3.4` 的 Core 增量补上了 `0.3.3` 真实任务停在那里的三类事实。本节随各批次
+`0.3.4` 的 Core 增量补上了 `0.3.3` 真实任务停在那里的各类事实。本节随各批次
 落地而逐步写成；下文带标题的占位条目指名的是尚未交付的内容，而不是暗示它已
 交付。
 
@@ -809,10 +809,56 @@ Lane，其 source 就是 `workspace_source`，因此没有行；空 map 意味�
 - `layout_preferences` 缺席意味着 Core 没有发布记录，这与「Core 说是 floating」
   是不同的事实。
 
-### Turn 生命周期（C6）
+### Turn 生命周期（`runtime.turn_lifecycle`）
 
-尚未交付。`runtime.turn_lifecycle` 的设计见
-`docs/release-0.3.4-contract-design.md` 第 3 节，将在 C6 批次落地；届时再写本节。
+Core 为每条执行路径上的每一次回合发布成对事实：在该回合的 `CommandAccepted` 之后
+紧接着发布 `TurnStarted { turn }`，并在每一种出口 —— 完成、失败、取消都一样 ——
+以 `TurnFinished { turn_id, owner, outcome, finished_at }` 作为该回合的最后一条事实。
+`TurnView` 携带 `turn_id`、`owner`、`source` 与 `started_at`，并归约进
+`RuntimeViewState.active_turns`；该字段为空时被跳过。
+
+在此能力之前，只有一种回合会发布终结事实：Agent session。内置原生回合完全没有，
+因此两个客户端都从显示残留推断活动状态。
+
+前端必须遵守的规则：
+
+- **活动状态看 `active_turns`，绝不看残留。** 当 `active_turns` 中存在一条 owner
+  落在输入框所针对作用域内的条目时，该输入框才是忙的。匹配作用域 —— 工作区、
+  项目、Lane、session —— 并忽略 `turn_id`：它是每次回合新生成的值，存在的意义是
+  让审计行有东西可以关联。不要读 `assistant_stream`、残留的 `turn_id`，也不要读
+  最后一条事件的形状。
+- **三种结果是三类事实。** `completed`、`failed { reason }` 与 `cancelled` 不可
+  互换：只有 `completed` 会释放该回合背后的队列。遇到未建模的将来结果，必须渲染成
+  「已结束、原因未知」，绝不能渲染成成功，否则客户端会承诺一条 Core 已经决定不运行
+  的排队提示。`reason` 已清洗并限制在 500 字符以内。
+- **`TurnSource` 解释没人刚刚键入的文本。** `user_input`、
+  `queued_input { input_id }` 与 `agent_session { session_id }`。被排空的回合会把
+  操作者更早发送的提示放进转录；请渲染它来自哪一条队列条目。`input_id` 就是
+  `InputQueued` 与 `InputDequeued` 携带的那个 id。
+- **流在回合结束时结算。** owner 不指名任何 Lane 的 `TurnFinished` 会清空无作用域
+  的 `assistant_stream`，与终结性 Agent session 事实所做的结算一致。Lane 作用域的
+  回合不触碰它。
+- **末尾的 `SnapshotUpdated` 不再是结束。** 它保持原位；客户端应把 `TurnFinished`
+  读作回合的结束。
+
+**会话队列。** 在会话作用域 owner 的一条 `TurnFinished { completed }` 之后，Core
+弹出 `RuntimeViewState.queued_inputs` 中最旧的条目，在启动任何东西之前发布
+`InputDequeued { input_id }`，再把它作为指名该条目、自带起止括号的回合运行，如此
+反复，直到队列为空或某次回合没有完成。被排空的回合在其余各方面都是回合：它持有
+active job，因此 `CancelActiveTurn` 能停下它；它经由同一条路径发起审批，因此操作者
+回答它与回答键入回合完全一致。它不发布 `CommandAccepted`，因为没有客户端为它发送
+过命令。
+
+失败或被取消的回合保留队列，快照前缀会重新列出它；没有任何东西会在未完成的回合
+之后运行。请渲染「已排队 · 等待下一次完成的回合」，而不要暗示即将执行。由于 Core
+的 supervisor 只有一个 worker，在回合运行期间发送的 `QueueFollowUp` 在该回合结束时
+仍在途中：一次已完成的会话作用域回合会「武装」排空，因此这样的后续输入在入队时即刻
+运行。Lane 自己的队列属于 Lane worker，未作改动。
+
+**崩溃安全。** 回合永远不会跨重启恢复，也不留下任何持久痕迹：两条事实都不持久化，
+因为一条被存储的 `TurnStarted`，若其进程在 `TurnFinished` 之前死亡，重放时就会变成
+一个仍在运行的回合：Core 取消不掉、客户端也清不掉的幽灵。重连的客户端看到的是 Core
+此刻正在运行的回合，以及一份它可以查看的队列。
 
 ### 持久工作证据（C7）
 
