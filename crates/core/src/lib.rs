@@ -34,35 +34,37 @@ pub use viden_types::{
     ContextOmittedSourceRecord, ContextScope, ContextSourceRecord, ContractDecision,
     ContractRecord, CoreHandshake, CostLedgerTotals, CostMeterability, CostUsageRecord,
     CredentialHandle, CredentialRequestId, CredentialStatus, DEFAULT_EVIDENCE_PAGE_SIZE,
-    DEFAULT_WORKSPACE_DIFF_BYTES, DataEgressPolicy, DecisionContext, DependencyRecord,
-    DependencyState, DiffDocument, DiffFile, DiffHunk, DiffLine, DiffLineKind, EventCursor,
-    EvidenceContent, EvidenceCursor, EvidencePage, EvidenceQualityStatus, EvidenceQuery,
-    EvidenceUnavailableReason, EvidenceVerificationState, EvidenceView, ExecutionTarget,
-    FRONTEND_SCHEMA_V1, GapRecovery, GateStrength, HandoffAcceptance, HandoffRecord, LaneBudget,
-    LaneConflictView, LaneRunStats, LaneRuntimeOwnerBinding, LaneSidebarMode, LaneStatus, LocaleId,
-    MAX_CONFLICT_CONTENT_BYTES, MAX_EVIDENCE_CONTENT_BYTES, MAX_EVIDENCE_PAGE_SIZE,
-    MAX_EVIDENCE_QUERY_KINDS, MAX_HIDDEN_STATUSBAR_SEGMENT_BYTES, MAX_HIDDEN_STATUSBAR_SEGMENTS,
-    MAX_OPERATOR_COMMIT_MESSAGE_BYTES, MAX_OPERATOR_GIT_OUTPUT_BYTES,
-    MAX_TURN_FAILURE_REASON_CHARS, MAX_WORKSPACE_DIFF_BYTES, MergeGatePolicySnapshot,
-    MergeGateRecord, MergeGateStatus, MergeGateType, MergeGateValidator, MutationPolicy,
-    OperatorGitAction, OperatorGitFailureClass, OperatorGitOutcome, PROJECT_ID_PREFIX,
-    PermissionLevel, PermissionMode, ProjectConfigPreview, ProjectConfigState, ProjectIdOrigin,
-    ProjectProbe, ProviderHealthView, QueuedInputView, RecentProjectSummary, RecentSessionSummary,
-    RecentWorkQuery, ReplayBatch, ReplayRequest, ResolvedUiPreferences, RevertRecord,
-    ReviewRequestRecord, ReviewRequestStatus, ReviewVerdict, ReviewedEvidenceBinding,
-    RuntimeCommand, RuntimeCommandEnvelope, RuntimeErrorView, RuntimeEvent, RuntimeEventEnvelope,
-    RuntimeEventKind, RuntimeOwner, RuntimeServiceHealthView, RuntimeServiceKind,
-    RuntimeServiceStatus, RuntimeSnapshot, RuntimeSnapshotEnvelope, RuntimeViewState,
-    RuntimeWireEvent, SchemaVersion, SourceTarget, StarterLanePreset, StarterLanePreview,
-    StarterLanePreviewInvalidationReason, StarterLaneReceipt, StarterLaneRequest, TokenCostView,
-    ToolCallView, TranscriptPage, TranscriptPageRequest, TranscriptRow, TranscriptRowId,
-    TranscriptRowKind, TuiColorDepth, TurnOutcome, TurnSource, TurnView, UiColorMode, UiDensity,
-    UiLayoutPreferencePatch, UiLayoutPreferences, UiMotion, UiPreferenceDiagnostic,
-    UiPreferencePatch, UiPreferences, UiSkin, WORKSPACE_ID_DIGEST_CHARS, WORKSPACE_ID_PREFIX,
-    WorkMode, WorkspaceChangeKind, WorkspaceChangeView, WorkspaceDiffEntry, WorkspaceDiffPage,
-    WorkspaceDiffQuery, WorkspaceDiffScope, WorkspaceEligibility, WorkspaceFileEntry,
-    WorkspaceFileKind, WorkspaceFilePage, WorkspaceFilesQuery, WorkspaceRuntimeOwnerBinding,
-    WorkspaceSourceStatus, WorkspaceSourceView, workspace_owner_authorizes,
+    DEFAULT_WORKSPACE_DIFF_BYTES, DEFAULT_WORKSPACE_FILE_BYTES, DataEgressPolicy, DecisionContext,
+    DependencyRecord, DependencyState, DiffDocument, DiffFile, DiffHunk, DiffLine, DiffLineKind,
+    EventCursor, EvidenceContent, EvidenceCursor, EvidencePage, EvidenceQualityStatus,
+    EvidenceQuery, EvidenceUnavailableReason, EvidenceVerificationState, EvidenceView,
+    ExecutionTarget, FRONTEND_SCHEMA_V1, GapRecovery, GateStrength, HandoffAcceptance,
+    HandoffRecord, LaneBudget, LaneConflictView, LaneRunStats, LaneRuntimeOwnerBinding,
+    LaneSidebarMode, LaneStatus, LocaleId, MAX_CONFLICT_CONTENT_BYTES, MAX_EVIDENCE_CONTENT_BYTES,
+    MAX_EVIDENCE_PAGE_SIZE, MAX_EVIDENCE_QUERY_KINDS, MAX_HIDDEN_STATUSBAR_SEGMENT_BYTES,
+    MAX_HIDDEN_STATUSBAR_SEGMENTS, MAX_OPERATOR_COMMIT_MESSAGE_BYTES,
+    MAX_OPERATOR_GIT_OUTPUT_BYTES, MAX_TURN_FAILURE_REASON_CHARS, MAX_WORKSPACE_DIFF_BYTES,
+    MAX_WORKSPACE_FILE_BYTES, MergeGatePolicySnapshot, MergeGateRecord, MergeGateStatus,
+    MergeGateType, MergeGateValidator, MutationPolicy, OperatorGitAction, OperatorGitFailureClass,
+    OperatorGitOutcome, PROJECT_ID_PREFIX, PermissionLevel, PermissionMode, ProjectConfigPreview,
+    ProjectConfigState, ProjectIdOrigin, ProjectProbe, ProviderHealthView, QueuedInputView,
+    RecentProjectSummary, RecentSessionSummary, RecentWorkQuery, ReplayBatch, ReplayRequest,
+    ResolvedUiPreferences, RevertRecord, ReviewRequestRecord, ReviewRequestStatus, ReviewVerdict,
+    ReviewedEvidenceBinding, RuntimeCommand, RuntimeCommandEnvelope, RuntimeErrorView,
+    RuntimeEvent, RuntimeEventEnvelope, RuntimeEventKind, RuntimeOwner, RuntimeServiceHealthView,
+    RuntimeServiceKind, RuntimeServiceStatus, RuntimeSnapshot, RuntimeSnapshotEnvelope,
+    RuntimeViewState, RuntimeWireEvent, SchemaVersion, SourceTarget, StarterLanePreset,
+    StarterLanePreview, StarterLanePreviewInvalidationReason, StarterLaneReceipt,
+    StarterLaneRequest, TokenCostView, ToolCallView, TranscriptPage, TranscriptPageRequest,
+    TranscriptRow, TranscriptRowId, TranscriptRowKind, TuiColorDepth, TurnOutcome, TurnSource,
+    TurnView, UiColorMode, UiDensity, UiLayoutPreferencePatch, UiLayoutPreferences, UiMotion,
+    UiPreferenceDiagnostic, UiPreferencePatch, UiPreferences, UiSkin, WORKSPACE_ID_DIGEST_CHARS,
+    WORKSPACE_ID_PREFIX, WorkMode, WorkspaceChangeKind, WorkspaceChangeView, WorkspaceDiffEntry,
+    WorkspaceDiffPage, WorkspaceDiffQuery, WorkspaceDiffScope, WorkspaceEligibility,
+    WorkspaceFileBody, WorkspaceFileContent, WorkspaceFileEntry, WorkspaceFileKind,
+    WorkspaceFilePage, WorkspaceFileReadQuery, WorkspaceFileUnavailableReason, WorkspaceFilesQuery,
+    WorkspaceRuntimeOwnerBinding, WorkspaceSourceStatus, WorkspaceSourceView,
+    workspace_owner_authorizes,
 };
 
 /// Temporary compatibility imports for the pre-v3 TUI bootstrap.
@@ -121,6 +123,19 @@ mod tests {
         assert!(std::any::type_name::<WorkspaceFileEntry>().contains("WorkspaceFileEntry"));
         assert!(std::any::type_name::<WorkspaceFileKind>().contains("WorkspaceFileKind"));
         assert!(CORE_EXTENSION_CAPABILITIES.contains(&"runtime.workspace_files"));
+        // C9: one file's bytes behind the inventory. `WorkspaceFileBody` is
+        // what lets a client tell text from binary from absent instead of
+        // rendering an empty editor over all three.
+        assert!(std::any::type_name::<WorkspaceFileReadQuery>().contains("WorkspaceFileReadQuery"));
+        assert!(std::any::type_name::<WorkspaceFileContent>().contains("WorkspaceFileContent"));
+        assert!(std::any::type_name::<WorkspaceFileBody>().contains("WorkspaceFileBody"));
+        assert!(
+            std::any::type_name::<WorkspaceFileUnavailableReason>()
+                .contains("WorkspaceFileUnavailableReason")
+        );
+        assert_eq!(DEFAULT_WORKSPACE_FILE_BYTES, 256 * 1024);
+        assert_eq!(MAX_WORKSPACE_FILE_BYTES, 1024 * 1024);
+        assert!(CORE_EXTENSION_CAPABILITIES.contains(&"runtime.workspace_file_reads"));
         // GUI-CORE-012: the typed diff substrate. A frontend must render hunk
         // rows from Core facts instead of parsing unified diff text itself,
         // which would put a second parser and a second definition of "hunk"

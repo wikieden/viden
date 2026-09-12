@@ -18,8 +18,9 @@ use crate::{
     StarterLaneReceipt, StarterLaneRequest, ToolCallId, TranscriptPage, TranscriptPageRequest,
     TurnOutcome, TurnView, UiLayoutPreferencePatch, UiLayoutPreferences, UiPreferenceDiagnostic,
     UiPreferencePatch, UiPreferences, WorkMode, WorkspaceChangeView, WorkspaceDiffPage,
-    WorkspaceDiffQuery, WorkspaceEligibility, WorkspaceFilePage, WorkspaceFilesQuery,
-    WorkspaceRuntimeOwnerBinding, WorkspaceSourceView, now_timestamp,
+    WorkspaceDiffQuery, WorkspaceEligibility, WorkspaceFileContent, WorkspaceFilePage,
+    WorkspaceFileReadQuery, WorkspaceFilesQuery, WorkspaceRuntimeOwnerBinding, WorkspaceSourceView,
+    now_timestamp,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -127,6 +128,18 @@ pub enum RuntimeCommand {
     /// in Plan mode.
     QueryWorkspaceDiff {
         query: WorkspaceDiffQuery,
+    },
+    /// Read-only content of exactly one file in the workspace or one Lane
+    /// worktree (`runtime.workspace_file_reads`).
+    ///
+    /// Permission-gated like `QueryWorkspaceDiff`, and under the *agent's* own
+    /// non-mutating `read_file` spec taken from the live tool registry with the
+    /// resolved absolute path as the input path, so one `viden.toml` rule set
+    /// governs an operator opening a file and an agent reading it. It mutates
+    /// nothing, so it stays answerable in Plan mode. The path is
+    /// target-relative and refused rather than repaired when it is not.
+    ReadWorkspaceFile {
+        query: WorkspaceFileReadQuery,
     },
     /// One operator source-control action against the workspace or one Lane
     /// worktree (`runtime.operator_git`, GUI-CORE-020).
@@ -823,6 +836,19 @@ pub enum RuntimeEventKind {
         command_id: String,
         page: WorkspaceDiffPage,
     },
+    /// Answer to `ReadWorkspaceFile` (`runtime.workspace_file_reads`). A query
+    /// result like the pages above: bounded, re-read on demand, and
+    /// deliberately never folded into `RuntimeViewState`, so publishing one
+    /// moves no snapshot digest and a reopened file is re-read rather than
+    /// served from a view that outlived the bytes it described.
+    WorkspaceFileLoaded {
+        /// The exact `ReadWorkspaceFile` command id this answer belongs to.
+        /// Required, like `WorkspaceDiffLoaded`: this event is new, so a
+        /// client opening two files never has to attribute an answer by
+        /// arrival order.
+        command_id: String,
+        file: WorkspaceFileContent,
+    },
     /// The settled answer to a `RunOperatorGitAction`
     /// (`runtime.operator_git`, GUI-CORE-020).
     ///
@@ -1507,6 +1533,12 @@ impl RuntimeViewState {
             // re-asked whenever a reviewer opens a file, so folding it into
             // view state would keep a stale diff alive after the tree moved.
             RuntimeEventKind::WorkspaceDiffLoaded { .. } => {}
+            // And again for one file's bytes: answered on demand and re-asked
+            // whenever the file is reopened. Storing them would keep an
+            // arbitrary blob alive in view state and in every snapshot after
+            // it, for content that is only ever rendered once and that the
+            // tree can change underneath.
+            RuntimeEventKind::WorkspaceFileLoaded { .. } => {}
             // A settled operator action is an answer to one command, not a
             // fact about the workspace. The workspace fact it produced arrives
             // as the `WorkspaceSourceUpdated` below and *is* reduced; folding

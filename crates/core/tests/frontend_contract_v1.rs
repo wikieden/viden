@@ -212,6 +212,10 @@ fn frontend_host_capabilities_are_schema_one_core_0_3_6_and_additive() {
         // so both clients guessed liveness from display residue.
         "runtime.turn_lifecycle",
         "runtime.workspace_eligibility",
+        // One file's bytes behind the inventory, C9. The Files and Code tabs
+        // need content, not just a path list, and a client must not read the
+        // operator's tree itself.
+        "runtime.workspace_file_reads",
         // GUI-CORE-022. The frozen base list above is unchanged, which is what
         // keeps the nine base fixtures byte-identical.
         "runtime.workspace_files",

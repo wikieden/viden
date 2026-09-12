@@ -50,6 +50,7 @@ pub const FRONTEND_V1_EXTENSION_CAPABILITIES: &[&str] = &[
     "runtime.trust_loop",
     "runtime.turn_lifecycle",
     "runtime.workspace_eligibility",
+    "runtime.workspace_file_reads",
     "runtime.workspace_files",
     "runtime.workspace_owner",
     "ui.layout_preferences",
@@ -349,6 +350,13 @@ fn is_known_runtime_event_type(event_type: &str) -> bool {
             // as an unknown event reads to a reviewer as "nothing changed",
             // which is the one thing a diff surface must never say wrongly.
             | "workspace_diff_loaded"
+            // The answer to a `ReadWorkspaceFile`
+            // (`runtime.workspace_file_reads`). Quarantining it leaves a
+            // client that opened a file with no answer at all, and an empty
+            // editor is indistinguishable from an empty file — so the one
+            // event that can honestly say "binary", "missing", or "not
+            // readable" must never arrive as unknown.
+            | "workspace_file_loaded"
             // The settled answer to a `RunOperatorGitAction`. Quarantining it
             // leaves a client that asked for a push with no answer at all, and
             // an operator reads "no answer" as "it worked" — the worst reading

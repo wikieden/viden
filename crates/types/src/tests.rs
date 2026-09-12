@@ -5191,6 +5191,275 @@ fn a_workspace_files_query_rejects_a_prefix_that_leaves_the_workspace() {
     }
 }
 
+/// One file's bytes ride the wire as a known event, with every body variant
+/// distinguishable after a round trip.
+///
+/// The three bodies are the point: a client that could not tell text from
+/// binary from absent would render an empty editor over all three, which is
+/// exactly the fabricated content this capability exists to prevent.
+#[test]
+fn a_workspace_file_read_answer_survives_the_wire_with_every_body_variant() {
+    let bodies = [
+        WorkspaceFileBody::Text {
+            text: "pub fn main() {}\n".to_string(),
+            truncated: false,
+        },
+        WorkspaceFileBody::Text {
+            text: "pub fn main".to_string(),
+            truncated: true,
+        },
+        WorkspaceFileBody::Binary,
+        WorkspaceFileBody::Unavailable {
+            reason: WorkspaceFileUnavailableReason::NotFound,
+        },
+        WorkspaceFileBody::Unavailable {
+            reason: WorkspaceFileUnavailableReason::Directory,
+        },
+        WorkspaceFileBody::Unavailable {
+            reason: WorkspaceFileUnavailableReason::Unreadable,
+        },
+    ];
+    for body in bodies {
+        let unavailable = matches!(body, WorkspaceFileBody::Unavailable { .. });
+        let envelope = RuntimeEventEnvelope {
+            schema_version: FRONTEND_SCHEMA_V1,
+            owner: RuntimeOwner {
+                workspace_id: "workspace-viden".to_string(),
+                project_id: "project-viden".to_string(),
+                ..Default::default()
+            },
+            cursor: EventCursor {
+                stream_id: "stream-workspace-file-reads".to_string(),
+                sequence: 1,
+            },
+            event: RuntimeWireEvent::Known(RuntimeEvent::new(
+                1,
+                RuntimeEventKind::WorkspaceFileLoaded {
+                    command_id: "client-file-1".to_string(),
+                    file: WorkspaceFileContent {
+                        path: "crates/types/src/lib.rs".to_string(),
+                        // Absent for every unavailable case: there is no file
+                        // to measure and no bytes to hash, and `0` plus `""`
+                        // would render as an empty file rather than as none.
+                        size: (!unavailable).then_some(17),
+                        sha256: (!unavailable).then(|| "a".repeat(64)),
+                        content: body.clone(),
+                    },
+                },
+            )),
+        };
+        let encoded = serde_json::to_string(&envelope).unwrap();
+        let decoded: RuntimeEventEnvelope = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(decoded, envelope);
+        assert!(matches!(decoded.event, RuntimeWireEvent::Known(_)));
+    }
+}
+
+/// The body tag names are contract, not an implementation detail: a client
+/// matches on them, so a rename is a breaking change rather than a refactor.
+#[test]
+fn workspace_file_body_serde_names_are_stable() {
+    assert_eq!(
+        serde_json::to_value(WorkspaceFileBody::Text {
+            text: "x".to_string(),
+            truncated: true,
+        })
+        .unwrap(),
+        serde_json::json!({"kind": "text", "text": "x", "truncated": true})
+    );
+    assert_eq!(
+        serde_json::to_value(WorkspaceFileBody::Binary).unwrap(),
+        serde_json::json!({"kind": "binary"})
+    );
+    assert_eq!(
+        serde_json::to_value(WorkspaceFileBody::Unavailable {
+            reason: WorkspaceFileUnavailableReason::Directory,
+        })
+        .unwrap(),
+        serde_json::json!({"kind": "unavailable", "reason": "directory"})
+    );
+    for (reason, name) in [
+        (WorkspaceFileUnavailableReason::NotFound, "not_found"),
+        (WorkspaceFileUnavailableReason::Directory, "directory"),
+        (WorkspaceFileUnavailableReason::Unreadable, "unreadable"),
+    ] {
+        assert_eq!(
+            serde_json::to_value(reason).unwrap(),
+            serde_json::Value::String(name.to_string())
+        );
+    }
+}
+
+/// An unavailable answer omits `size` and `sha256` entirely rather than
+/// publishing zero and an empty hash, which a client would render as a real
+/// empty file with a real digest.
+#[test]
+fn an_unavailable_workspace_file_answer_omits_size_and_hash() {
+    let encoded = serde_json::to_value(WorkspaceFileContent {
+        path: "docs".to_string(),
+        size: None,
+        sha256: None,
+        content: WorkspaceFileBody::Unavailable {
+            reason: WorkspaceFileUnavailableReason::Directory,
+        },
+    })
+    .unwrap();
+    assert_eq!(
+        encoded,
+        serde_json::json!({
+            "path": "docs",
+            "content": {"kind": "unavailable", "reason": "directory"}
+        })
+    );
+}
+
+/// The command id is required from day one, like `WorkspaceDiffLoaded`: an
+/// answer with no id is not one this build can attribute, and a client opening
+/// two files must never have to guess which answer is which.
+#[test]
+fn a_workspace_file_answer_without_a_command_id_is_rejected() {
+    let idless = r#"{
+        "sequence": 1,
+        "timestamp": 1700000000,
+        "kind": {
+            "type": "workspace_file_loaded",
+            "payload": {"file": {"path": "README.md", "content": {"kind": "binary"}}}
+        }
+    }"#;
+    let decoded: Result<RuntimeEvent, _> = serde_json::from_str(idless);
+    assert!(
+        decoded.is_err(),
+        "a file answer must never decode without the read it answers"
+    );
+}
+
+/// One file's bytes answer one read. Folding them into view state would keep
+/// an arbitrary blob alive in every snapshot after it and let a stale body
+/// outlive the bytes on disk, so the reducer deliberately ignores the event.
+#[test]
+fn a_workspace_file_answer_never_folds_into_the_view_state() {
+    let snapshot: RuntimeSnapshot = serde_json::from_value(runtime_snapshot_json()).unwrap();
+    let before = RuntimeViewState::new(snapshot.clone());
+    let mut after = RuntimeViewState::new(snapshot);
+    after.apply_event(&RuntimeEvent::new(
+        1,
+        RuntimeEventKind::WorkspaceFileLoaded {
+            command_id: "client-file-1".to_string(),
+            file: WorkspaceFileContent {
+                path: "README.md".to_string(),
+                size: Some(12),
+                sha256: Some("b".repeat(64)),
+                content: WorkspaceFileBody::Text {
+                    text: "readme bytes".to_string(),
+                    truncated: false,
+                },
+            },
+        },
+    ));
+    assert_eq!(before, after);
+}
+
+/// The byte bound is clamped rather than rejected, the diff-read precedent: a
+/// caller asking for too many bytes still means something answerable, and an
+/// absent bound means the default rather than the whole file.
+#[test]
+fn a_workspace_file_read_query_clamps_its_byte_limit_and_defaults_when_absent() {
+    let unbounded = WorkspaceFileReadQuery {
+        path: "README.md".to_string(),
+        byte_limit: Some(u32::MAX),
+        ..WorkspaceFileReadQuery::default()
+    };
+    assert_eq!(unbounded.clamped_byte_limit(), MAX_WORKSPACE_FILE_BYTES);
+    let zero = WorkspaceFileReadQuery {
+        path: "README.md".to_string(),
+        byte_limit: Some(0),
+        ..WorkspaceFileReadQuery::default()
+    };
+    assert_eq!(zero.clamped_byte_limit(), 1);
+    assert_eq!(
+        WorkspaceFileReadQuery {
+            path: "README.md".to_string(),
+            ..WorkspaceFileReadQuery::default()
+        }
+        .clamped_byte_limit(),
+        DEFAULT_WORKSPACE_FILE_BYTES
+    );
+    assert_eq!(DEFAULT_WORKSPACE_FILE_BYTES, 256 * 1024);
+    assert_eq!(MAX_WORKSPACE_FILE_BYTES, 1024 * 1024);
+}
+
+/// A path is refused, never repaired.
+///
+/// Normalizing `../../etc/passwd` to `etc/passwd` would serve a different file
+/// than the one asked for under the asked-for name, and answering `not_found`
+/// would claim the operator's own tree lacks a file that may well exist. Only
+/// a stated refusal is honest about either.
+#[test]
+fn a_workspace_file_read_query_rejects_a_path_that_cannot_mean_what_it_says() {
+    let rejected = [
+        "",
+        "   ",
+        "/etc/passwd",
+        "\\server\\share",
+        "C:\\Windows\\win.ini",
+        "../secrets",
+        "crates/../../etc/passwd",
+        "crates\\types\\src\\lib.rs",
+        "crates/types/\u{0}lib.rs",
+        "crates/\u{7}types",
+        ".",
+        "./",
+        "././.",
+    ];
+    for path in rejected {
+        let query = WorkspaceFileReadQuery {
+            path: path.to_string(),
+            ..WorkspaceFileReadQuery::default()
+        };
+        assert!(
+            query.validate().is_err(),
+            "path `{path}` must be refused, not silently reinterpreted"
+        );
+    }
+    for path in [
+        "README.md",
+        "crates/types/src/lib.rs",
+        "./crates/types/src/lib.rs",
+        "docs/viden-design/Viden/tokens.css",
+        "a..b/c",
+    ] {
+        let query = WorkspaceFileReadQuery {
+            path: path.to_string(),
+            ..WorkspaceFileReadQuery::default()
+        };
+        assert!(query.validate().is_ok(), "path `{path}` must be legal");
+    }
+    // `.` and empty segments are dropped so one file has one spelling in the
+    // answer; `..` never reaches this because validation refused it first.
+    assert_eq!(
+        WorkspaceFileReadQuery {
+            path: "./crates//types/src/lib.rs".to_string(),
+            ..WorkspaceFileReadQuery::default()
+        }
+        .normalized_path(),
+        "crates/types/src/lib.rs"
+    );
+}
+
+/// `runtime.workspace_file_reads` is a post-checkpoint addition, so it belongs
+/// to the extension list and never to the frozen base capabilities.
+#[test]
+fn the_workspace_file_reads_capability_is_an_advertised_extension() {
+    assert!(FRONTEND_V1_EXTENSION_CAPABILITIES.contains(&"runtime.workspace_file_reads"));
+    assert!(!FRONTEND_V1_CAPABILITIES.contains(&"runtime.workspace_file_reads"));
+    assert!(
+        FRONTEND_V1_EXTENSION_CAPABILITIES
+            .windows(2)
+            .all(|pair| pair[0] < pair[1]),
+        "extension capabilities must stay sorted and unique"
+    );
+}
+
 /// Builds a session view in one status for the assistant-stream lifecycle tests.
 fn stream_lifecycle_session(session_id: &str, status: AgentSessionStatus) -> AgentSessionView {
     AgentSessionView {

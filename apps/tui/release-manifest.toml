@@ -55,6 +55,7 @@ capabilities = [
   "runtime.trust_loop",
   "runtime.turn_lifecycle",
   "runtime.workspace_eligibility",
+  "runtime.workspace_file_reads",
   "runtime.workspace_files",
   "runtime.workspace_owner",
   "ui.layout_preferences",

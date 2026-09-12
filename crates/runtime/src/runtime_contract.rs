@@ -1203,7 +1203,14 @@ impl SessionEngine {
                 )]);
             }
             RuntimeCommand::RetrieveContext { .. } => unreachable!("handled before acceptance"),
-            RuntimeCommand::CancelActiveTurn | RuntimeCommand::RespondToApproval { .. } => {
+            // The shapes land before the producer, as `runtime.turn_lifecycle`
+            // did: the command is declared and refused rather than silently
+            // accepted, so a client that sends one against this build gets a
+            // stated refusal carrying its own command id instead of an answer
+            // that never arrives.
+            RuntimeCommand::ReadWorkspaceFile { .. }
+            | RuntimeCommand::CancelActiveTurn
+            | RuntimeCommand::RespondToApproval { .. } => {
                 return Ok(vec![command_rejected(
                     command_id,
                     "runtime command is declared but not implemented in core yet".to_string(),
@@ -6129,6 +6136,14 @@ pub(crate) fn redacted_runtime_command_for_event(command: &RuntimeCommand) -> Ru
         // identifier redactor over them would publish a *different* query
         // than the one Core answered.
         RuntimeCommand::QueryWorkspaceDiff { query } => RuntimeCommand::QueryWorkspaceDiff {
+            query: query.clone(),
+        },
+        // Same reasoning once more: the path is a target-relative fragment
+        // the operator selected in their own client and Core already
+        // validated. Running the identifier redactor over it would strip the
+        // separators and dots and publish an accepted command naming a
+        // *different* file than the one Core answered.
+        RuntimeCommand::ReadWorkspaceFile { query } => RuntimeCommand::ReadWorkspaceFile {
             query: query.clone(),
         },
         // Nothing is scrubbed here and that is deliberate. The paths are

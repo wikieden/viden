@@ -109,8 +109,10 @@ pub use workflow::{
     TaskPriority, TaskRecord, TaskStatus,
 };
 pub use workspace_files::{
-    DEFAULT_WORKSPACE_FILE_PAGE_SIZE, MAX_WORKSPACE_FILE_PAGE_SIZE, WorkspaceFileEntry,
-    WorkspaceFileKind, WorkspaceFilePage, WorkspaceFilesQuery,
+    DEFAULT_WORKSPACE_FILE_BYTES, DEFAULT_WORKSPACE_FILE_PAGE_SIZE, MAX_WORKSPACE_FILE_BYTES,
+    MAX_WORKSPACE_FILE_PAGE_SIZE, WorkspaceFileBody, WorkspaceFileContent, WorkspaceFileEntry,
+    WorkspaceFileKind, WorkspaceFilePage, WorkspaceFileReadQuery, WorkspaceFileUnavailableReason,
+    WorkspaceFilesQuery,
 };
 pub use workspace_owner::{
     PROJECT_ID_PREFIX, ProjectIdOrigin, WORKSPACE_ID_DIGEST_CHARS, WORKSPACE_ID_PREFIX,
