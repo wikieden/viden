@@ -1305,3 +1305,104 @@ could not be corrected in place. It is dropped from the active manifest and its
 `0.1.0-rc.4` snapshot, authored for this release step; the frozen rc.2 and rc.3
 snapshots keep it as the record of what those versions claimed, and the module
 stays recoverable from Git history.
+
+## Lane monitor actions
+
+D10's cards carry the design's action row. Two of its four controls exist on
+`frontend-contract-v1` and two do not, and the row is built so a reader can
+tell which is which without clicking.
+
+| Control | What it is |
+| --- | --- |
+| **Attach** | Not a Core command. It calls the cockpit's own `selectLane` — the path the Lane rail, the Lane tab strip and `⌃⇥` share — and then the router's `conversation` route, so the composer ends up addressing that Lane with the transcript back in the centre pane. |
+| **Stop** | `RuntimeCommand::CancelAgentSession` for the Lane's own Agent session, sent under a `gui-d10-stop-…` command id. The outcome shown is the answering event's: accepted, or Core's own refusal text. |
+| **Pause** | No Core command exists. Rendered disabled, naming that. |
+| **Kill** | No Core command exists. Rendered disabled, naming that, and saying that Stop cancels through `CancelAgentSession` rather than implying Stop is the same verb. |
+
+Stop's target is resolved fail-closed from the Lane's published sessions, the
+same way the cockpit resolves its owner binding: exactly one session is a
+target, zero says there is nothing to stop, and more than one says the client
+will not choose. Without a bound host every control in the row is disabled and
+says so, rather than being hidden or left enabled and inert.
+
+`RuntimeCommand` carries no pause and no kill for an Agent session
+(`crates/types/src/runtime.rs`); the two disabled controls are the honest
+rendering of that, not a placeholder. The event ticker's own
+`eventsUnavailable` copy is unchanged here — it belongs to the hygiene batch.
+
+## Fleet drill
+
+A D13 node opens the Lane its task is bound to. Core publishes no
+node-to-Lane edge, so the GUI projection joins on the binding Core does
+publish — `AgentLaneRecord::task_id` — and carries the result per node as
+`laneIds`, deliberately as a list rather than an `Option`:
+
+| `laneIds` | What the node does |
+| --- | --- |
+| exactly one | `role="button"`, focusable, click or `Enter` hands off through the cockpit's `selectLane`; a visible `Open Lane <id> ↗` line names the destination before the click |
+| empty | states that Core bound no Lane to this task; not focusable, not clickable |
+| more than one | states that Core bound several and lists them; the client does not choose |
+
+Absence is not an error and not a dead control: a node that cannot open a Lane
+never renders as one that can. Without a bound host every node states that
+instead. `Space` is deliberately not bound — on a non-button element it is the
+webview's own scroll, and taking it costs more than the chord is worth.
+
+## Audit filters
+
+D14 offers the design's actor and time chips over **the page the client is
+holding**, and every label on the bar says so. `AuditQuery` carries
+`project_id`, `lane_id`, `object` and the `before` cursor — no actor filter and
+no time range (GUI-CORE-024) — so a server-side filter is not available, and a
+client-side one that stayed quiet about its scope would misreport "no records
+for this actor" whenever the matching record sits on a page nobody loaded.
+
+- **Actor chips** are the `actorKind` values the loaded page actually carries,
+  plus a neutral `All actors`. A kind that is legal on the contract but absent
+  from the page is not offered: a chip that could only ever filter to nothing
+  misstates what is loaded. The values render as Core's own words, unlocalized,
+  for the same reason the `action` key does.
+- **Time chips** are `All time`, `Today (UTC)`, `Last 24 hours` and
+  `Last 7 days`, cut on the rows' own Core timestamps. `Today` is the UTC
+  calendar day rather than a rolling day, because the rows print a UTC clock
+  and two readers comparing evidence must mean the same day by it.
+- **The rollup** counts outcomes for what is drawn beneath it and its caption
+  always names the loaded page — `Outcomes on the loaded page · N`, or
+  `…, filtered · N of M`. It is never a total, because the audit store is
+  larger than any page.
+- **Filtering to empty** says no row on the loaded page matches. That is a
+  different sentence from Core recorded no audit entry for this view, and the
+  two never share one.
+- **Export** is registered in the design's filter bar with no command behind
+  it, so it renders disabled naming GUI-CORE-024.
+
+The filters are held for the mount only and are never persisted: Core is the
+single preference authority, and a remembered filter is also how an operator
+returns to a trail that is quietly hiding half of itself. Raw replay mode is
+untouched — it is the diagnostic event log, and its value is the Core stream
+position rather than an actor or a wall clock.
+
+## Decision queue badge
+
+The activity rail's D2 slot carries the count Core publishes as
+`D1StatusbarProjection.pendingGateCount`, which is the same number the
+statusbar's `⏸` segment prints. The field is `number | null`, and the three
+states are three different renderings:
+
+| Value | Rail | Statusbar |
+| --- | --- | --- |
+| above zero | the design's `.badge` with Core's number | the `⏸` segment |
+| `0` | no badge | no segment |
+| `null` | no badge, and the slot's name says Core published no decision count | no segment |
+
+`null` is what the shell's pre-connection placeholder projection carries. It
+used to be `0`, which rendered as an empty decision queue before anything had
+been counted; absence and zero are different facts and are now drawn
+differently.
+
+One caveat, recorded rather than hidden: the D2 view's own `pendingTotal` is a
+*different* sum — approvals plus pending reviews, where the badge is approvals
+plus open non-dormant merge gates — so the badge and the view's header can
+legitimately differ. Reconciling them is a projection question for the batch
+that owns those counts; counting a second time in the rail would only make the
+rail disagree with the statusbar as well.

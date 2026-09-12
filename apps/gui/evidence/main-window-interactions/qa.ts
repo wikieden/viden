@@ -1071,6 +1071,65 @@ async function d10Monitor(): Promise<D10LaneMonitorProjection> {
   return (await response.json()) as D10LaneMonitorProjection;
 }
 
+/// The monitor with one Lane Core published an Agent session for.
+///
+/// Delta on the generated page, whose two Lanes both carry an empty
+/// `agents` list: the ACP Lane gets the session shape
+/// `multi-lane.json` publishes for an agent route, so `Stop` has a real
+/// target, while the terminal Lane keeps none — the two states
+/// `tests/d10_lane_actions.spec.ts` covers.
+async function d10Actionable(): Promise<D10LaneMonitorProjection> {
+  const monitor = await d10Monitor();
+  return {
+    ...monitor,
+    lanes: monitor.lanes.map((lane) =>
+      lane.route === "acp"
+        ? {
+            ...lane,
+            agents: [
+              {
+                sessionId: "session_lane_review",
+                agentId: "codex-acp",
+                model: "gpt-5.3-codex",
+                status: "running",
+              },
+            ],
+          }
+        : lane,
+    ),
+  };
+}
+
+/// The fleet board with both Lane-binding answers on one column.
+///
+/// Delta on the generated DAG: the first node is bound to `lane_core`, which
+/// is exactly what `d13_binds_each_node_to_every_lane_core_gave_that_task`
+/// asserts in `tests/d13_fleet_workflow.rs`, and a copy of that same generated
+/// node keeps its empty binding so the non-navigating answer is in the frame
+/// too. No node field other than `taskId`, `title` and `laneIds` is touched.
+async function d13Drillable(): Promise<D13FleetWorkflowProjection> {
+  const fleet = await d13Fleet();
+  const workflow = fleet.workflows[0]!;
+  const bound = workflow.nodes[0]!;
+  return {
+    ...fleet,
+    workflows: [
+      {
+        ...workflow,
+        nodes: [
+          { ...bound, laneIds: ["lane_core"] },
+          {
+            ...bound,
+            taskId: `${bound.taskId}_unbound`,
+            title: `${bound.title} (no Lane bound)`,
+            laneIds: [],
+          },
+        ],
+      },
+    ],
+  };
+}
+
 async function d10Unobserved(): Promise<D10LaneMonitorProjection> {
   const monitor = await d10Monitor();
   // Delta: the same blind lane before Core observed any run. Absence must read
@@ -2360,6 +2419,105 @@ async function renderState(): Promise<void> {
       );
       click('[data-d4-step="1"]');
       await waitFor('[data-d4-agent="codex-acp"][data-d4-agent-chosen="true"]');
+      return;
+    }
+
+    /* ---------------------------------------------------------------- */
+    /* G6 secondary views                                                */
+    /* ---------------------------------------------------------------- */
+
+    case "d10-actions": {
+      // The card action row, in the cockpit where the monitor now lives. The
+      // capture must show all four controls on both cards and the two
+      // different reasons Stop can be unavailable for: one Lane carries an
+      // Agent session Core published, the other carries none.
+      const monitor = await d10Actionable();
+      const cockpit = mountCockpit({
+        projection: d1Base(),
+        preferencesAvailable: true,
+        secondaryViews: (route, container) => {
+          if (route !== "d10") throw new Error(`unexpected route ${route}`);
+          renderD10LaneMonitor(container, monitor, locale, () => undefined, null, {
+            attach: () => undefined,
+            stop: never<{ state: string; reason: string | null }>,
+          });
+        },
+      });
+      cockpit.openCenterView("d10");
+      await waitFor("[data-secondary-view='d10'] [data-d10-action='attach']");
+      await waitFor("[data-d10-lane='lane_review'] [data-d10-stop-session]");
+      return;
+    }
+
+    case "d13-drill": {
+      // The fleet board's drill. The capture must show both answers side by
+      // side: the node Core bound to a Lane, which is a control, and the node
+      // it bound none to, which says so and is not one.
+      const fleet = await d13Drillable();
+      const cockpit = mountCockpit({
+        projection: d1Base(),
+        preferencesAvailable: true,
+        secondaryViews: (route, container) => {
+          if (route !== "d13") throw new Error(`unexpected route ${route}`);
+          renderD13FleetWorkflow(container, fleet, locale, () => undefined);
+        },
+      });
+      cockpit.openCenterView("d13");
+      await waitFor("[data-secondary-view='d13'] [data-d13-node][role='button']");
+      await waitFor("[data-d13-drill='none'] [data-d13-drill-note]");
+      return;
+    }
+
+    case "d14-filtered": {
+      // The audit trail with the client-side actor filter engaged. The capture
+      // has to show the whole honesty claim in one frame: the actor chips are
+      // the values this page carries, the rollup says "loaded page, filtered ·
+      // 1 of 3", the note under the bar states that the cut is the page rather
+      // than the store, and Export is disabled naming GUI-CORE-024.
+      const audit = await d14Audit();
+      const raw = await d14Raw();
+      const cockpit = mountCockpit({
+        projection: d1Base(),
+        preferencesAvailable: true,
+        secondaryViews: (route, container) => {
+          if (route !== "d14") throw new Error(`unexpected route ${route}`);
+          renderD14(container, audit, locale, {
+            queryAudit: async () => audit,
+            loadOlderAudit: async () => audit,
+            loadRaw: async () => raw,
+          });
+        },
+      });
+      cockpit.openCenterView("d14");
+      await waitFor("[data-secondary-view='d14'] [data-d14-actor-filter='agent']");
+      click("[data-d14-actor-filter='agent']");
+      await waitFor("[data-d14-rollup='filtered']");
+      return;
+    }
+
+    case "d2-rail-badge": {
+      // One Core number in the three places that print it: the rail's D2
+      // badge, the statusbar's `⏸` segment, and the decision queue's own
+      // header. The count is deliberately not the shared fixture's, so the
+      // capture shows the badge reading the projection rather than a constant.
+      const queue = await d2Queue();
+      const base = d1Base();
+      const cockpit = mountCockpit({
+        projection: {
+          ...base,
+          // Delta: a larger pending count than the shared statusbar fixture's
+          // two, mirroring `tests/rail_decision_badge.spec.ts`.
+          statusbar: { ...base.statusbar, pendingGateCount: 7 },
+        },
+        preferencesAvailable: true,
+        secondaryViews: (route, container) => {
+          if (route !== "d2") throw new Error(`unexpected route ${route}`);
+          renderD2Decisions(container, queue, never<D2IntentResult>, locale);
+        },
+      });
+      cockpit.openCenterView("d2");
+      await waitFor("[data-rail-route='d2'] [data-rail-badge]");
+      await waitFor("[data-sb-gate]");
       return;
     }
 

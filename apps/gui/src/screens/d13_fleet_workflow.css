@@ -147,3 +147,10 @@
   outline: 2px solid var(--accent-bright, var(--accent));
   outline-offset: 2px;
 }
+
+.d13-drill-open {
+  margin: 6px 0 0;
+  font-family: var(--mono, monospace);
+  font-size: 10.5px;
+  color: var(--accent-bright, var(--accent));
+}

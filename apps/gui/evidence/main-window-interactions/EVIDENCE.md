@@ -203,6 +203,10 @@ All URLs share the prefix
 | `nav-d14-in-cockpit` | `…/qa.html?state=nav-d14-in-cockpit` | the audit trail in the same shell, which is where `D-AUDIT`'s one-way link from an evidence row or a D12 baseline chip now lands: the rail's `Audit timeline` slot marked current, the mode toggle and the three audit rows below the view head, and the conversation still one `Esc` away |
 | `nav-sidebar-floating-peek` | `…/qa.html?state=nav-sidebar-floating-peek` | `D-SIDEBAR` **floating** mode — the decision's default — with the peek open through the keyboard path (the Lanes rail slot): the sidebar as an **overlay above a full-width transcript** rather than a layout column, the 12px hot zone with its `.edgehint` cue against the activity rail, and the rail's pin (above the settings gear) reading unpinned |
 | `nav-statusbar-config` | `…/qa.html?state=nav-statusbar-config` | the `D-STATUSBAR` config gear open: the `.sbcfg` popover listing the six ambient segments with their checkboxes, the footer sentence saying identity and actionable items are always pinned, and `MODE`, `PERM`, `LANE`, and the pending-gate chip visible on the bar behind it while absent from the list |
+| `d10-actions` | `…/qa.html?state=d10-actions` | the Lane monitor's card action row in the cockpit: **Attach / Stop / Pause / Kill on both cards**, with Stop live on the Lane Core published an Agent session for and disabled on the Lane it published none for, and Pause and Kill disabled on both naming the commands `RuntimeCommand` does not carry (G6) |
+| `d13-drill` | `…/qa.html?state=d13-drill` | both Lane-binding answers on one column: the node Core bound to a Lane carrying its visible `Open Lane lane_core ↗` line and `role="button"`, and a copy of the same generated node with the binding removed saying Core bound no Lane and offering no click (G6) |
+| `d14-filtered` | `…/qa.html?state=d14-filtered` | the audit trail with the `agent` actor chip engaged: the actor chips are the values **this page** carries (`All actors`, `operator`, `agent` — no `system`, because no row on the page is one), the four time chips with `All time` pressed, the note saying the cut is the loaded page and naming `GUI-CORE-024`, the rollup reading `Outcomes on the loaded page, filtered · 1 of 3 · denied 1`, one remaining row, and `Export` disabled (G6) |
+| `d2-rail-badge` | `…/qa.html?state=d2-rail-badge` | one Core number in the places that print it: the rail's D2 badge reading `7`, the statusbar's `⏸ 7 gate waiting` segment, and the decision queue open in the centre pane. The count is deliberately not the shared fixture's `2`, so the capture shows the badge reading the projection rather than a constant (G6) |
 
 `mode=dark|light` and `locale=en|zh-CN` are accepted on every state and resolve
 through the shared `resolveTheme` path, so the harness never ships a second
@@ -1000,3 +1004,63 @@ The 27 standalone screen captures in this directory (`d2-*`, `d4-*`, `d10-*`,
 `d11-*`, `d12-*`, `d13-*`, `d14-*`) are **not** cockpit-bearing — they are the
 full-window renderers with no rail and no statusbar — so nothing in G3 could
 have moved them and they were left alone.
+
+## Secondary-view captures (G6)
+
+Captured 2026-09-12 with headless Chrome
+(`--disable-gpu --hide-scrollbars --window-size=1440,900
+--virtual-time-budget=6000`) against the vite dev server on port 4177 — 4173,
+4175 and 4176 were checked with `lsof` first — then visually reviewed (all
+five opened and read).
+
+Two of the five (`d10-actions`, `d14-filtered` dark/en) were taken with the
+old `--headless`; the other three with `--headless=new`, because the old mode
+started hanging indefinitely while a second Chrome was capturing on this host
+and a hung driver is how a broken file gets committed unseen. Every other flag
+is identical and the rendering is the same page; the mode is recorded here
+only so the method matches what was run.
+
+| File | State | Viewport | Mode | Locale |
+| --- | --- | --- | --- | --- |
+| [d10-actions-1440x900-dark-en.png](d10-actions-1440x900-dark-en.png) | d10-actions | 1440x900 | dark | en |
+| [d13-drill-1440x900-dark-en.png](d13-drill-1440x900-dark-en.png) | d13-drill | 1440x900 | dark | en |
+| [d14-filtered-1440x900-dark-en.png](d14-filtered-1440x900-dark-en.png) | d14-filtered | 1440x900 | dark | en |
+| [d14-filtered-1440x900-light-zh-CN.png](d14-filtered-1440x900-light-zh-CN.png) | d14-filtered | 1440x900 | light | zh-CN |
+| [d2-rail-badge-1440x900-dark-en.png](d2-rail-badge-1440x900-dark-en.png) | d2-rail-badge | 1440x900 | dark | en |
+
+| Image | The claim it proves |
+| --- | --- |
+| `d10-actions` | the action row is **four controls on every card**, and the two that cannot act say so. `lane_core` (terminal route, no published session) shows Attach live and Stop dimmed; `lane_review` (ACP route, one published session) shows both live. Pause and Kill are dimmed on both cards — visible, in the positions the design draws them, and carrying the sentence naming the command `RuntimeCommand` does not have. Read it against `d10-blind`, which is the same two cards before the row existed |
+| `d13-drill` | both Lane-binding answers in one frame. The upper node carries `Open Lane lane_core ↗` and is the control; the lower one — the same generated node with its binding removed — carries "Core bound no Lane to this task, so there is nothing to open." and no affordance at all. The difference is in the frame rather than in a hover state, which is the point of the visible cue |
+| `d14-filtered` | the whole loaded-page claim at once: the actor chips are `All actors / operator / agent` — no `system` chip, because no row on this page is one — the four time chips sit behind `All time`, the note under the bar states that the cut is the loaded page and names `GUI-CORE-024`, the rollup reads `Outcomes on the loaded page, filtered · 1 of 3` with `denied 1`, exactly one row survives the filter, and `Export` is dimmed at the end of the bar |
+| `d14-filtered` (light/zh-CN) | the locale and skin proof for the added copy: the chip labels, the loaded-page note, the rollup caption and the export control translate, while every Core value in the surviving row — the dotted `evidence.rejected` key, the actor word `agent`, the agent id `codex-acp`, the outcome `denied`, the object and argument chips — stays exactly as Core published it, and the timestamp keeps its fixed `UTC` format in both locales |
+| `d2-rail-badge` | one number, one source, two places: the rail's D2 slot carries `7` and the statusbar reads `⏸ 7 gate waiting`. `7` is not the shared fixture's `2`, so the badge is demonstrably reading `statusbar.pendingGateCount` rather than a constant. **Read the queue's own `2 awaiting you` header in the same frame as the recorded divergence, not as a bug:** `D2DecisionsProjection.pendingTotal` is a different sum (approvals plus pending reviews) from `pendingGateCount` (approvals plus open non-dormant merge gates), which the README states and which the batch owning those counts has to reconcile. This capture is the visible proof that the two are not the same number today |
+
+Two facts in this batch have no capture and are covered by vitest instead,
+stated here rather than implied:
+
+- **the absent decision count.** `pendingGateCount: null` renders as *no*
+  badge and no statusbar segment, with the reason on the slot's accessible
+  name. A screenshot of an absence is indistinguishable from a screenshot of a
+  zero, so the distinction is pinned by
+  [`../../tests/rail_decision_badge.spec.ts`](../../tests/rail_decision_badge.spec.ts)
+  instead of by a PNG.
+- **a settled Stop.** The harness's host callbacks never resolve on purpose,
+  so `d10-actions` shows the row before any command is sent. The pending line,
+  Core's acceptance, and Core's verbatim refusal are pinned by
+  [`../../tests/d10_lane_actions.spec.ts`](../../tests/d10_lane_actions.spec.ts)
+  and the command-id correlation by
+  [`../../tests/lane_handoff.spec.ts`](../../tests/lane_handoff.spec.ts).
+
+`d14-filtered`'s rows are the generated page's own 2023 timestamps, so the
+three narrow time ranges would empty it. The capture therefore shows the time
+chips present with `All time` pressed rather than a range engaged; no newer
+timestamp was invented to make a prettier frame. The range rule itself is
+covered by `filterAuditRows` in
+[`../../tests/d14_audit_filters.spec.ts`](../../tests/d14_audit_filters.spec.ts),
+which pins `today`, `24h` and `7d` against a frozen clock.
+
+The `d13-drill` and `d10-actions` states are cockpit-bearing: both screens are
+centre-pane views since G3, and the captures show the titlebar, activity rail,
+Lane sidebar, context dock, composer and statusbar unchanged around them, with
+the view's own Close control in the position DiffReview puts its own.

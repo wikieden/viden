@@ -709,6 +709,18 @@ this actor" whenever the matching record sits on a page that was never loaded.
 D14 therefore ships neither, rather than shipping a filter that lies about
 completeness.
 
+**Amended 2026-09-12 (`0.3.4`, batch G6).** D14 now ships both chips as an
+explicit *loaded-page* filter rather than not at all. The property this entry
+protects is unchanged and is what made the change admissible: every label on
+the bar names the loaded page, the outcome rollup's caption says
+`Outcomes on the loaded page` and never a total, and filtering to empty says
+"no row on the loaded page matches" — a different sentence from "Core recorded
+no audit entry for this view". Nothing here claims completeness, so the
+misreport this entry warned about cannot be made. The request stays as written:
+a server-side filter applied before pagination is still what would let the
+chips describe the timeline instead of the page, and the export control the
+design draws beside them stays disabled and labelled until a command exists.
+
 Close this request when Core publishes:
 
 1. **a command id on `AuditPageLoaded`**, so a page is attributable to the exact

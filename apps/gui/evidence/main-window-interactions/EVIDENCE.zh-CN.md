@@ -167,6 +167,10 @@ URL 与尺寸，不在该运行时之外调用浏览器自动化。
 | `nav-d14-in-cockpit` | `…/qa.html?state=nav-d14-in-cockpit` | 同一外壳中的审计轨迹，也就是 `D-AUDIT` 从证据行或 D12 基线芯片单向链接如今落到的地方：rail 的 `审计时间线` 槽位标记为当前，视图头部之下是模式切换与三条审计行，而对话只差一个 `Esc` |
 | `nav-sidebar-floating-peek` | `…/qa.html?state=nav-sidebar-floating-peek` | `D-SIDEBAR` **浮动**模式——该决策的默认值——经键盘路径（Lane rail 槽位）peek 打开：侧栏是**覆盖在整宽转录之上的浮层**而非布局列，12px 热区连同 `.edgehint` 提示条贴在活动 rail 右缘，rail 上（设置齿轮之上）的 pin 读作未固定 |
 | `nav-statusbar-config` | `…/qa.html?state=nav-statusbar-config` | `D-STATUSBAR` 配置齿轮打开：`.sbcfg` 弹层列出六个环境段及其勾选框，页脚写明身份项与可操作项始终固定，而 `MODE`、`PERM`、`LANE` 与待审闸芯片就在其后的状态栏上、却不在列表中 |
+| `d10-actions` | `…/qa.html?state=d10-actions` | 驾驶舱中的 Lane 监视器卡片动作行：**两张卡片上都有 接管 / 停止 / 暂停 / 终止**，在 Core 发布了 Agent 会话的那条 Lane 上「停止」可用、在未发布会话的那条上禁用，两张卡片的「暂停」「终止」都禁用并注明 `RuntimeCommand` 并不携带的命令（G6） |
+| `d13-drill` | `…/qa.html?state=d13-drill` | 同一列里同时给出两种 Lane 绑定答案：Core 绑定了 Lane 的节点带着可见的 `Open Lane lane_core ↗` 一行与 `role="button"`；同一个生成节点去掉绑定后的副本说明 Core 未绑定任何 Lane，也不提供点击（G6） |
+| `d14-filtered` | `…/qa.html?state=d14-filtered` | 启用了 `agent` 执行者筛选的审计轨迹：执行者标签是**本页**携带的值（`全部执行者`、`operator`、`agent`——没有 `system`，因为本页没有这类行），四个时间标签中 `全部时间` 处于按下态，筛选条下的说明点明切分范围是已加载页并注明 `GUI-CORE-024`，结果分布条读作 `已加载页（已筛选）的结果分布 · 1 of 3 · denied 1`，剩下一行记录，`导出` 禁用（G6） |
+| `d2-rail-badge` | `…/qa.html?state=d2-rail-badge` | 同一个 Core 数字出现在打印它的几处：侧栏 D2 气泡显示 `7`、状态栏 `⏸ 7 gate waiting` 段落，以及在中央面板打开的决策队列。该计数刻意不取共享 fixture 的 `2`，以便截图证明气泡读的是投影而不是常量（G6） |
 | `palette` | `…/qa.html?state=palette` | 从标题栏按钮打开、覆盖在驾驶舱之上的 ⌘K 命令面板，四个分区全部可见——动作、跳转到（跨 Lane 的闸与询问，加上本 Lane）、设置，以及列出 Core 已发布工作区清单的「文件」分区 |
 | `palette-files` | `…/qa.html?state=palette-files` | 同一个面板但预先限定到 `~`，单独框出 Core 发布的清单：六条路径按 Core 的字典序排列，每条带 Core 报告的条目类型，没有任何一条是客户端自行发现的（`GUI-CORE-022`） |
 | `d10-ticker` | `…/qa.html?state=d10-ticker` | Lane 卡片下方的 D10 事件走马灯：Core 审计时间线的一页有界 newest-first 记录，两个项目交错出现，因此该条展示的是跨项目的同一个顺序而不是按项目分组的列表；每行携带 Core 的稳定 id、原样的点分 action key、owner 与时间戳（`GUI-CORE-014`） |
@@ -872,3 +876,56 @@ ERR_CONNECTION_REFUSED"页面，采集脚本把那个页面存成了证据。它
 本目录中的 27 张独立屏截图（`d2-*`、`d4-*`、`d10-*`、`d11-*`、`d12-*`、`d13-*`、
 `d14-*`）**不**带驾驶舱——它们是没有 rail、没有状态栏的整窗渲染——G3 不可能改动它们，
 因此未动。
+
+## 二级视图截图（G6）
+
+2026-09-12 使用 headless Chrome 拍摄
+（`--disable-gpu --hide-scrollbars --window-size=1440,900
+--virtual-time-budget=6000`），对应端口 4177 上的 vite dev server——4173、4175
+与 4176 先用 `lsof` 检查过——随后逐张视觉复核（五张全部打开看过）。
+
+五张中的两张（`d10-actions` 与 dark/en 的 `d14-filtered`）使用旧的
+`--headless` 拍摄，其余三张使用 `--headless=new`：在本机上有第二个 Chrome 同时
+采集时，旧模式开始出现无限挂起，而挂起的采集驱动正是让损坏文件在没人看的情况下
+被提交的原因。其余参数完全一致、渲染的是同一个页面；此处记录模式，只是为了让方法
+与实际执行一致。
+
+| 文件 | 状态 | 视口 | 模式 | 语言 |
+| --- | --- | --- | --- | --- |
+| [d10-actions-1440x900-dark-en.png](d10-actions-1440x900-dark-en.png) | d10-actions | 1440x900 | dark | en |
+| [d13-drill-1440x900-dark-en.png](d13-drill-1440x900-dark-en.png) | d13-drill | 1440x900 | dark | en |
+| [d14-filtered-1440x900-dark-en.png](d14-filtered-1440x900-dark-en.png) | d14-filtered | 1440x900 | dark | en |
+| [d14-filtered-1440x900-light-zh-CN.png](d14-filtered-1440x900-light-zh-CN.png) | d14-filtered | 1440x900 | light | zh-CN |
+| [d2-rail-badge-1440x900-dark-en.png](d2-rail-badge-1440x900-dark-en.png) | d2-rail-badge | 1440x900 | dark | en |
+
+| 图 | 它证明的主张 |
+| --- | --- |
+| `d10-actions` | 动作行在**每张卡片上都是四个控件**，其中无法执行的两个会如实说明。`lane_core`（terminal 路由、无已发布会话）显示「接管」可用、「停止」变暗；`lane_review`（ACP 路由、一个已发布会话）两者都可用。两张卡片的「暂停」「终止」都变暗——它们仍在设计稿给出的位置上，并带着说明 `RuntimeCommand` 缺少哪个命令的句子。可与 `d10-blind` 对照，那是动作行存在之前的同两张卡片 |
+| `d13-drill` | 两种 Lane 绑定答案出现在同一帧里。上面的节点带 `Open Lane lane_core ↗`，它是控件；下面那个——同一个生成节点去掉绑定后的副本——带着「Core 未为该任务绑定任何 Lane，没有可打开的对象。」，且完全没有可点击暗示。差异在画面里而不是在 hover 状态里，这正是可见提示的意义 |
+| `d14-filtered` | 已加载页这一整套主张同时成立：执行者标签是 `全部执行者 / operator / agent`——没有 `system` 标签，因为本页没有这类行——四个时间标签停在 `全部时间` 上，筛选条下的说明点明切分范围是已加载页并注明 `GUI-CORE-024`，结果分布条读作 `已加载页（已筛选）的结果分布 · 1 of 3` 与 `denied 1`，筛选后恰好剩一行，`导出` 在筛选条末端变暗 |
+| `d14-filtered`（light/zh-CN） | 新增文案的语言与皮肤验证：标签文字、已加载页说明、结果分布标题与导出控件都会翻译，而存留行里的每个 Core 值——点分键 `evidence.rejected`、执行者词 `agent`、agent id `codex-acp`、结果 `denied`、对象与参数芯片——都与 Core 发布时完全一致，时间戳在两种语言下都保持固定的 `UTC` 格式 |
+| `d2-rail-badge` | 一个数字、一个来源、两处显示：侧栏 D2 槽位显示 `7`，状态栏显示 `⏸ 7 gate waiting`。`7` 不是共享 fixture 的 `2`，因此可以证明气泡读的确实是 `statusbar.pendingGateCount` 而不是常量。**同一帧里队列自身的 `2 awaiting you` 标题应读作已记录的差异，而不是 bug：** `D2DecisionsProjection.pendingTotal` 与 `pendingGateCount` 是两个不同的和（前者为审批加待处理复查，后者为审批加未休眠的开放合并闸），README 已写明这一点，其对齐属于拥有这些计数的批次。本张截图正是「二者今天并不是同一个数」的可见证据 |
+
+本批次有两个事实没有截图、改由 vitest 覆盖，这里如实写出而不是含糊带过：
+
+- **缺失的决策计数。** `pendingGateCount: null` 渲染为*没有*气泡、也没有状态栏
+  段落，原因写在槽位的可访问名称里。一张「缺失」的截图与一张「零」的截图无法
+  区分，因此该区别由
+  [`../../tests/rail_decision_badge.spec.ts`](../../tests/rail_decision_badge.spec.ts)
+  固定，而不是由 PNG。
+- **已落定的停止结果。** harness 的宿主回调刻意永不 resolve，因此
+  `d10-actions` 呈现的是命令发出之前的动作行。等待中的提示、Core 的接受与
+  Core 的原文拒绝由
+  [`../../tests/d10_lane_actions.spec.ts`](../../tests/d10_lane_actions.spec.ts)
+  固定，command id 关联由
+  [`../../tests/lane_handoff.spec.ts`](../../tests/lane_handoff.spec.ts) 固定。
+
+`d14-filtered` 的行使用生成页自身 2023 年的时间戳，因此三个较窄的时间区间都会
+把它筛空。于是截图呈现的是时间标签存在、`全部时间` 处于按下态，而不是启用某个
+区间；没有为了画面更好看而编造更新的时间戳。区间规则本身由
+[`../../tests/d14_audit_filters.spec.ts`](../../tests/d14_audit_filters.spec.ts)
+中的 `filterAuditRows` 针对冻结时钟覆盖 `today`、`24h` 与 `7d`。
+
+`d13-drill` 与 `d10-actions` 两个状态是带驾驶舱的：自 G3 起这两个屏都是中央面板
+视图，截图中标题栏、活动侧栏、Lane 侧栏、上下文坞、输入区与状态栏在其四周保持
+不变，视图自身的 Close 控件也在 DiffReview 放置自己那一个的位置上。

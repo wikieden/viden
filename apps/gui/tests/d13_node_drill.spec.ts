@@ -69,6 +69,11 @@ describe("D13 node drill", () => {
     expect(card.dataset.d13Drill).toBe("lane-core");
     expect(card.getAttribute("role")).toBe("button");
     expect(card.tabIndex).toBe(0);
+    // The cue is visible, not hover-only: a still frame and a reader who never
+    // hovers both have to be able to tell that this node opens something.
+    expect(card.querySelector<HTMLElement>("[data-d13-drill-open]")?.textContent).toContain(
+      "Open Lane lane-core",
+    );
     card.click();
 
     expect(onOpenLane).toHaveBeenCalledWith("lane-core");

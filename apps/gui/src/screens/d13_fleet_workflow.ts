@@ -200,6 +200,14 @@ export function renderD13FleetWorkflow(
       const name = `${copy.openLane} ${laneId}`;
       card.title = name;
       card.setAttribute("aria-label", `${item.title} — ${name}`);
+      // A visible cue, not only a cursor: the drill has to be legible in a
+      // still frame and to a reader who never hovers, and it names the exact
+      // Lane Core bound so the destination is known before the click.
+      const open = document.createElement("p");
+      open.className = "d13-drill-open";
+      open.dataset.d13DrillOpen = laneId;
+      open.textContent = `${name} ↗`;
+      card.append(open);
       card.addEventListener("click", () => onOpenLane(laneId));
       card.addEventListener("keydown", (event) => {
         // Enter only: Space is the webview's own scroll on a non-button
