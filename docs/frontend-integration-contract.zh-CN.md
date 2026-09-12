@@ -774,9 +774,10 @@ Core 现在在 open 时铸造该身份并发布它：
   能力，而不只是知道被拒；该动作追加的审计记录指名那个 owner。
 
 **按 Lane 的 source。** `LaneSourceUpdated { lane_id, source }` 归约进
-`RuntimeViewState.lane_sources` —— 一个以 Lane id 为键的 map。Core 在采样工作区
-source 的一切位置采样它 —— 连接时、每次快照时、每条已完成的受监督命令之后 ——
-并在针对该 Lane 的操作者 git 动作之后再采样一次。`WorkspaceSourceUpdated`
+`RuntimeViewState.lane_sources` —— 一个以 Lane id 为键的 map。Core 在某个 Lane
+的 worktree 首次被宣告时采样它，并在采样工作区 source 的一切位置采样它 ——
+连接时、每次快照时、每条已完成的受监督命令之后 —— 以及在针对该 Lane 的操作者
+git 动作之后再采样一次。`WorkspaceSourceUpdated`
 保持其原义 —— 仅指工作区根目录 —— 因此 Lane 动作不再把一棵树的分支与
 ahead/behind 放进另一棵树的芯片里。没有自己 worktree 的 Lane 是直接工作区
 Lane，其 source 就是 `workspace_source`，因此没有行；空 map 意味着 Core 没有

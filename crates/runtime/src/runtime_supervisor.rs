@@ -544,8 +544,26 @@ impl RuntimeSupervisor {
         });
         let lane_permissions = Arc::new(Mutex::new(engine.lane_permission_engine()));
         let lane_event_bus = event_bus.clone();
-        let lane_events = Arc::new(move |owner, kind| {
-            emit_event(&lane_event_bus, owner, kind);
+        let lane_events = Arc::new(move |owner: RuntimeOwner, kind: RuntimeEventKind| {
+            // A Lane's first source row is published here, at the moment its
+            // worktree is announced. The periodic sampling in
+            // `frontend_status_lifecycle_events` runs at connect, at every
+            // snapshot, and after every completed supervised command, but Lane
+            // creation is dispatched to an asynchronous Lane worker and reaches
+            // none of those — so without this hook a freshly created Lane would
+            // show no branch until something unrelated happened.
+            let unsampled = first_lane_worktree_to_sample(&lane_event_bus, &kind);
+            emit_event(&lane_event_bus, owner.clone(), kind);
+            if let Some((lane_id, worktree)) = unsampled {
+                emit_event(
+                    &lane_event_bus,
+                    owner,
+                    RuntimeEventKind::LaneSourceUpdated {
+                        lane_id,
+                        source: crate::frontend_status::sample_workspace_source(&worktree),
+                    },
+                );
+            }
         });
         let lane_mode_state = Arc::clone(&event_bus.state);
         let lane_mode = Arc::new(move || {
@@ -3477,6 +3495,91 @@ fn emit_events(bus: &RuntimeEventBus, owner: RuntimeOwner, events: Vec<RuntimeEv
     for event in events {
         emit_known_event(bus, owner.clone(), event);
     }
+}
+
+/// The Lane whose worktree this fact announces for the first time, if any.
+///
+/// Deliberately once per Lane per session: `sample_workspace_source` spawns
+/// several bounded `git` invocations, and a Lane's status changes often enough
+/// that sampling on every `LaneUpdated` would put those on the lane worker's
+/// hot path. A row that already exists is refreshed by the periodic sampling
+/// instead, which is where every other Lane's row comes from.
+fn first_lane_worktree_to_sample(
+    bus: &RuntimeEventBus,
+    kind: &RuntimeEventKind,
+) -> Option<(String, std::path::PathBuf)> {
+    let RuntimeEventKind::LaneUpdated { lane } = kind else {
+        return None;
+    };
+    if !lane.is_active() {
+        return None;
+    }
+    let worktree = std::path::PathBuf::from(lane.worktree.as_ref()?);
+    // A Lane with no worktree of its own is the workspace; a worktree the
+    // effect has not created yet is sampled by the next periodic pass rather
+    // than published as `Unavailable`.
+    if !worktree.is_dir() {
+        return None;
+    }
+    let already_sampled = {
+        let state = bus.state.lock().ok()?;
+        state.live_view.lane_sources.contains_key(&lane.id)
+    };
+    if already_sampled {
+        return None;
+    }
+    Some((lane.id.clone(), worktree))
+}
+
+/// Runs the Lane-announcement sampling above over a list of facts and returns
+/// the source rows it would publish.
+///
+/// Exists so the once-per-Lane rule can be tested without standing up a whole
+/// supervisor and a Lane worker thread, which is what the rule is *about*
+/// avoiding work on.
+#[cfg(test)]
+pub(crate) fn lane_source_rows_for_test(
+    facts: Vec<RuntimeEventKind>,
+) -> Vec<(String, viden_types::WorkspaceSourceView)> {
+    let (sender, _receiver) = mpsc::channel();
+    let bus = RuntimeEventBus {
+        sender,
+        state: Arc::new(Mutex::new(RuntimeEventState {
+            journal: RuntimeEventJournal::default_with_stream("test:lane-source"),
+            live_view: RuntimeViewState::new(viden_types::RuntimeSnapshot {
+                cwd: std::path::PathBuf::from("workspace"),
+                provider_family: String::new(),
+                model_label: String::new(),
+                work_mode: WorkMode::Build,
+                permission_mode: viden_types::PermissionMode::Default,
+                permission_level: viden_types::PermissionLevel::Ask,
+                config_summary: String::new(),
+                loaded_config_files: Vec::new(),
+                startup_overrides: Vec::new(),
+                ui_preferences: viden_types::ResolvedUiPreferences::default(),
+            }),
+            lane_agent_bindings: BTreeMap::new(),
+            lane_agent_store: None,
+        })),
+    };
+    let mut rows = Vec::new();
+    for kind in facts {
+        let unsampled = first_lane_worktree_to_sample(&bus, &kind);
+        emit_event(&bus, RuntimeOwner::default(), kind);
+        if let Some((lane_id, worktree)) = unsampled {
+            let source = crate::frontend_status::sample_workspace_source(&worktree);
+            emit_event(
+                &bus,
+                RuntimeOwner::default(),
+                RuntimeEventKind::LaneSourceUpdated {
+                    lane_id: lane_id.clone(),
+                    source: source.clone(),
+                },
+            );
+            rows.push((lane_id, source));
+        }
+    }
+    rows
 }
 
 /// Fills a bare envelope owner in with the workspace identity Core published.

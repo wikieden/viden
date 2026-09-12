@@ -943,10 +943,10 @@ Core now mints the identity at open and publishes it:
   they were refused, and the audit record the action appends names that owner.
 
 **Per-Lane source.** `LaneSourceUpdated { lane_id, source }` reduces into
-`RuntimeViewState.lane_sources`, a map keyed by Lane id. Core samples it
-wherever it samples the workspace source — at connect, at every snapshot, and
-after every completed supervised command — and again after an operator git
-action targeting that Lane. `WorkspaceSourceUpdated` keeps its meaning, the
+`RuntimeViewState.lane_sources`, a map keyed by Lane id. Core samples it when a
+Lane's worktree is first announced, wherever it samples the workspace source —
+at connect, at every snapshot, and after every completed supervised command —
+and again after an operator git action targeting that Lane. `WorkspaceSourceUpdated` keeps its meaning, the
 workspace root only, so a Lane action no longer puts one tree's branch and
 ahead/behind into another tree's chip. A Lane with no worktree of its own is a
 direct-workspace Lane whose source *is* `workspace_source`, so it has no row;

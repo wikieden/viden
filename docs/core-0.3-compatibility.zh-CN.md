@@ -523,8 +523,9 @@ Lane 会携带它们 —— 而客户端已经指名的 owner 永不改写，自
 不动。`SourceTarget::Workspace` 的 `RunOperatorGitAction`，在其 owner 指名了已
 发布的工作区时被接受；在它谁也没指名、或指名了另一个工作区时，在任何进程启动
 之前被拒，拒绝理由中援引 GUI-CORE-027。同一能力还新增 `LaneSourceUpdated` 与
-`RuntimeViewState.lane_sources`，使 Lane worktree 的分支与 ahead/behind 不再
-覆盖工作区芯片：`WorkspaceSourceUpdated` 保持其原义 —— 仅指工作区根目录。没有
+`RuntimeViewState.lane_sources` —— 在某个 Lane 的 worktree 首次被宣告时、以及
+在每一个采样工作区 source 的位置采样 —— 使 Lane worktree 的分支与 ahead/behind
+不再覆盖工作区芯片：`WorkspaceSourceUpdated` 保持其原义 —— 仅指工作区根目录。没有
 自己 worktree 的 Lane 就是工作区本身，因此没有行；空 map 意味着 Core 没有采样
 任何 Lane，而绝不意味着每个 Lane 都是干净的。
 

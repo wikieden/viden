@@ -562,3 +562,73 @@ fn register_lane(
         ))
         .unwrap();
 }
+
+/// A Lane's first source row is published when its worktree is announced, not
+/// at the next unrelated command. Lane creation is dispatched to an
+/// asynchronous Lane worker and reaches none of the periodic sampling points,
+/// so without that hook a freshly created Lane would show no branch at all.
+/// The row is published once: the periodic sampling refreshes it afterwards.
+#[test]
+fn a_new_lane_worktree_is_sampled_once_when_it_is_announced() {
+    let (cwd, engine, _owner) = bound_workspace("workspace_owner_new_lane");
+    let worktree = cwd.join(".worktrees").join("lane-new");
+    git(
+        &cwd,
+        &[
+            "worktree",
+            "add",
+            "-b",
+            "codex/lane-new",
+            worktree.to_str().unwrap(),
+        ],
+    );
+    let lane = viden_types::AgentLaneRecord {
+        id: "lane_new".to_string(),
+        task_id: None,
+        role: viden_types::AgentRole::Coder,
+        route: viden_types::AgentRoute::BuiltIn,
+        gate_strength: viden_types::GateStrength::Full,
+        mutation_policy: viden_types::MutationPolicy::ProposeOnly,
+        worktree: Some(worktree.to_string_lossy().to_string()),
+        branch: Some("codex/lane-new".to_string()),
+        target: viden_types::ExecutionTarget::Local,
+        data_egress: viden_types::DataEgressPolicy::Deny,
+        status: viden_types::LaneStatus::Running,
+        budget: viden_types::LaneBudget::default(),
+        active_session_ids: Vec::new(),
+        summary: "freshly created Lane".to_string(),
+        evidence: Vec::new(),
+        run_stats: None,
+    };
+    drop(engine);
+
+    let published = crate::runtime_supervisor::lane_source_rows_for_test(vec![
+        RuntimeEventKind::LaneUpdated { lane: lane.clone() },
+        RuntimeEventKind::LaneUpdated { lane: lane.clone() },
+        RuntimeEventKind::LaneUpdated {
+            lane: viden_types::AgentLaneRecord {
+                id: "lane_direct".to_string(),
+                worktree: None,
+                ..lane.clone()
+            },
+        },
+        RuntimeEventKind::LaneUpdated {
+            lane: viden_types::AgentLaneRecord {
+                id: "lane_done".to_string(),
+                status: viden_types::LaneStatus::Done,
+                ..lane
+            },
+        },
+    ]);
+
+    assert_eq!(
+        published
+            .iter()
+            .map(|(lane_id, _)| lane_id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["lane_new"],
+        "one row for the new worktree, none for a repeat, a direct-workspace \
+         Lane, or a terminal Lane"
+    );
+    assert_eq!(published[0].1.branch.as_deref(), Some("codex/lane-new"));
+}

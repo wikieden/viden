@@ -697,9 +697,10 @@ alone. A `RunOperatorGitAction` with `SourceTarget::Workspace` is accepted when
 its owner names the published workspace and refused before any process spawns
 when it names none or names another one, with the refusal quoting GUI-CORE-027.
 The same capability adds `LaneSourceUpdated` and
-`RuntimeViewState.lane_sources`, so a Lane worktree's branch and ahead/behind
-stop overwriting the workspace chip: `WorkspaceSourceUpdated` keeps its meaning,
-the workspace root only. A Lane with no worktree of its own is the workspace and
+`RuntimeViewState.lane_sources`, sampled when a Lane's worktree is first
+announced and at every point the workspace source is sampled, so a Lane
+worktree's branch and ahead/behind stop overwriting the workspace chip:
+`WorkspaceSourceUpdated` keeps its meaning, the workspace root only. A Lane with no worktree of its own is the workspace and
 has no row; an empty map means Core sampled no Lane, never that every Lane is
 clean.
 
