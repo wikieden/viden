@@ -494,7 +494,7 @@ export function renderD4LaneCreate(
       // injection fact anywhere on `frontend-contract-v1`, and
       // `StarterLaneRequest` has no field for one. The step is drawn and
       // stated as unavailable rather than filled with a list this client would
-      // have invented (GUI-CORE-030).
+      // have invented.
       const section = stepSection("skills", translate(locale, "d4.step.skills.lead", {}));
       const unavailable = document.createElement("p");
       unavailable.dataset.d4Unavailable = "skills";

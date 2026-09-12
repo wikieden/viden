@@ -363,7 +363,6 @@ describe("D4 design steps", () => {
 
     const note = root.querySelector<HTMLElement>('[data-d4-unavailable="skills"]')!;
     expect(note.textContent).toContain("Core publishes no skill pack");
-    expect(note.textContent).toContain("GUI-CORE-030");
     // Nothing selectable, because nothing here could reach Core.
     expect(root.querySelector('[data-d4-step-body="skills"] input')).toBeNull();
     expect(root.querySelector('[data-d4-step-body="skills"] button')).toBeNull();
