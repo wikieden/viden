@@ -133,6 +133,35 @@ runtime 来绕开这些缺口。
 剩余开放请求只阻塞各自点名的生产屏，不阻塞 framework-neutral、fixture-only 的
 Task 2-3 及其证据；spike 结果不能授权生产 mutation 或 persistence。
 
+## `0.3.4` 的 Core 消费方（G7）
+
+G7 批次采纳了 Core 在 `0.3.4` 中新增的五项能力。下表列出每一项由什么消费，以及
+——更要紧的那一半——当某个 Core **完全不发布**它时界面显示什么：缺席、空、在途与
+拒绝在这里同样是四句不同的话。
+
+| 能力 | 由什么消费 | 该能力缺席时 |
+| --- | --- | --- |
+| `runtime.workspace_owner`（C5） | 工作区目标的 `RunOperatorGitAction` 以 `RuntimeViewState.workspace_owner` 的身份发出（`src-tauri/src/adapter.rs` 的 `operator_git_owner`），因此未选中任何 Lane 时 DiffReview 提交栏与标题栏同步胶囊都可用 —— 在客户端侧关闭 `GUI-CORE-027` | `D1-OPERATOR-GIT-NO-WORKSPACE-OWNER`：两者保持可见、禁用并标注缺失的 Core 事实，且不发送任何内容。绝不使用 `RuntimeOwner::default()` —— 那会把一次已授权的变更审计成「不属于任何人」 |
+| `lane_sources`（C5） | Lane 页签条打印该 Lane 自己 worktree 的分支与它自己的 `↑ahead ↓behind`，坞的「本地」小节优先使用它而不是工作区样本，并说明当前显示的是哪棵树 | 页签保留其记录的分支但不带位置，「本地」说明它显示的是工作区根。标题栏的胶囊属于工作区，绝不会打印在某个 Lane 上 |
+| `ui.layout_preferences`（C5） | Lane 侧栏模式与状态栏被隐藏的环境段落在挂载时以及每次有序唤醒时都从 Core 的记录读取；侧栏图钉与配置齿轮发送只携带被改动那一个轴的 `SetUiLayoutPreferences` patch，布局在 Core 回答时移动，而不是在点击时 | 开关保持会话内本地 —— 即 G3 的行为 —— 并如实说明。Core 已应用但无法写入的记录（`persisted: false`）有它自己的一句话，拒绝也有，用的都是 Core 自己的措辞 |
+| `runtime.turn_lifecycle`（C6） | 编辑器的忙判定是 `active_turns` 中属于该编辑器目标的一条；实时工作条说出该回合的来源（键入／排队／agent），并从 Core 的 `started_at` 计时；未正常完成的 `TurnFinished` 把它的原因留成一条转录行 | 没有回合事实，于是该条不带来源，并退回客户端观察到的时钟，同时标记 `data-work-elapsed-source="client"`，因此二者绝不会被混淆。被撤下的旧谓词读的是 `owner.turn_id`，而绑定在工作结束之后仍然保留它 |
+| `runtime.durable_work_evidence`（C7） | 不需要任何新东西：EvidenceView 早已读取 `runtime.evidence_reads`，因此运行时开始写入的归档 `patch` 行连同其规范引用一并出现，其字节被画成 Core 解析好的 diff 行。D14 逐字保留 `approval.*` 行，权限坞按权限对象链接轨迹 —— 在客户端侧关闭 `GUI-CORE-028` | 归档只是行更少，这是关于工作区的事实，而不是关于客户端的。坞里的审计 id 仍然是一条打印出来的事实，控件说明该行在决定被应用时写入 |
+| `runtime.transcript_rows`（C8） | D1 的转录为所选 Lane（或会话的不限定作用域）绘制 Core 的有序行，沿 Core 自己的 `older` 游标向后翻页，为被 Core 8 KiB 上限截断的行提供其规范证据，并复用 G4 的工具块 —— 在客户端侧关闭 `GUI-CORE-009` | `transcript_user` 与 `transcript_assistant` 两个不可用行照旧成立，与 C8 之前完全一样：它们是关于 Core 的断言，因此只在该断言不再为真之处撤下 |
+| `runtime.workspace_file_reads`（C9） | 坞检查器的「打开文件」为所选 Lane worktree 中的所选路径发送一次 `ReadWorkspaceFile`，「源码」页签以只读方式打开同一个答案，命令面板的 `~` 文件行读入该检查器 | 「打开文件」保持禁用，并把能力名称显示在界面上 —— 不只在 tooltip 里 ——「源码」页签同样保持禁用并标注。客户端从不自行遍历或打开任何工作区路径 |
+
+三条规则贯穿全部五项：
+
+**同时只有一次读取在途，按 `command_id` 相关联。** 上述每一个答案都指名它所属的那次
+读取，因此属于另一次读取的答案会被丢弃，而不是被渲染在当前作用域的名下；第二次并发
+读取在发送任何东西之前就被本地拒绝。
+
+**路径与游标被拒绝，而不是被修正。** 文件读取在发送之前先跑 Core 自己的校验器，
+因此 `../` 在两侧都是同一句拒绝；转录的 `older` 游标逐字带回，从不被解析、构造或比较。
+
+**未建模的变体被指名，而不是就近匹配。** 本构建无法命名的转录行种类、文件正文形态、
+不可用原因、回合来源与回合结果，都按它们自己的样子渲染 —— `unknown`，并带上原始值 ——
+因为 `#[non_exhaustive]` 意味着更新的 Core 会发布新的一种。
+
 ## D11 项目接入
 
 Task 7 在固定 Core `0.3.2` integration checkpoint 之后实现 D11 项目内显式配置流程。
@@ -292,8 +321,12 @@ Core Lane 已投影后才发送原生 `submit` 或 ACP `start_agent_session`。T
 诊断，并且只有用户点击“重试 ACP 检测”才再次执行。ACP 启动被拒绝时，其 Lane 创建后仍
 会在 D1 typed rejection surface 上显示原因。
 
-当 assistant stream、tool、task、approval 或 queued input 仍活跃时，composer 仍可编辑。
-此时 Enter 发送 `QueueFollowUp`，空闲时发送 `SubmitUserInput`；Shift+Enter 保留多行输入，
+有工作在途时 composer 仍可编辑。自 G7 起，「在途」是 Core 自己的事实：`active_turns`
+中有一条其 owner 指向该 composer 目标的回合 —— 所选 Lane，或会话 composer 的「无 Lane」
+—— 或该 Lane 上有一个运行中的 Agent 会话（`runtime.turn_lifecycle`，C6）。被撤下的旧
+谓词读的是 owner 绑定上的 `turn_id`，而绑定在工作结束之后仍然保留它；这正是 composer
+过去在回合已经结束之后还继续排队的原因。此时 Enter 发送 `QueueFollowUp`，空闲时发送
+`SubmitUserInput`；Shift+Enter 保留多行输入，
 CJK IME 组合阶段绝不提前提交；streaming Core 重绘同样会等到 `compositionend` 后再替换
 输入节点。两种命令都使用 Core 发布的精确 Lane owner，来源只能是
 live owner binding 或 D4 receipt。Cancel 更严格：只有选中 Lane 仍 active、Core 宣告
@@ -382,9 +415,10 @@ unavailable 时，整块省略，而不是渲染会被读成「干净且已同�
 `CONTEXT`（最近的工作区预算）、`EVENTS`（重放游标流位置；frontend-contract-v1 没有
 事件计数器，因此以位置标注）、`LANE`（选中 Lane、其唯一绑定 agent、状态与任务进度）、
 `LATENCY`、`TOKENS`（输入↑输出↓）、`DIAG`（运行时错误数）与 `REQ`（provider 请求/错误
-计数）。Core 事实缺失的分段渲染明确的破折号，而不是编造数字。存在待审批或开启的
-merge gate 时，右侧显示待审闸分段——状态栏唯一的可操作元素——点击打开驾驶舱内的 D2
-决策队列。状态栏起始端的齿轮打开 `D-STATUSBAR` 配置弹层，覆盖六个环境段，
+计数）。Core 事实缺失的分段渲染明确的破折号，而不是编造数字。存在待审批或待处理复查请求
+时，右侧显示 `⏸` 决策分段——状态栏唯一的可操作元素——点击打开驾驶舱内的 D2
+决策队列，且它数的正是该队列所列的东西（见[决策队列计数气泡](#决策队列计数气泡)）。
+状态栏起始端的齿轮打开 `D-STATUSBAR` 配置弹层，覆盖六个环境段，
 见[导航外壳](#导航外壳)。
 
 Transcript 最多保留 240 行。离开最新输出边缘后会设为 `follow_latest=false`、保留当前锚点，
@@ -404,10 +438,13 @@ reference。它还包含一个补充 Context Dock bottom-state capture，用于�
 
 右侧面板即设计稿的 `.rail.dock`：`.docktabs` 标签条位于单个 `.dockbody` 面板之上。
 标签条按设计稿 `ALLTABS` 的顺序渲染**全部六个**标签——环境、文件、终端、源码、对比、
-文档。其中三个可用，另外三个禁用并直接写出打不开的确切原因：终端属于设计稿的召唤坞，
-登记时带 roadmap 标（`D-RAILNAV` ⑥），且 Core 没有 PTY 事实；源码需要
-`runtime.workspace_file_reads`，本版本尚未消费；文档则完全没有 Core 工作区文档事实。
-三者都不隐藏——消失的标签会让坞看起来已经完工——也都不是「可点击却无响应」。
+文档。其中四个可以打开，另外两个禁用并直接写出打不开的确切原因：环境、文件与对比在
+任何 Core 上都可用；源码恰好在 Core 发布 `runtime.workspace_file_reads`（C9）之处打开，
+并声明它是只读的，因为本契约不发布任何工作区写入；终端属于设计稿的召唤坞，登记时带
+roadmap 标（`D-RAILNAV` ⑥），且 Core 没有 PTY 事实（`GUI-CORE-032`）；文档则完全没有
+Core 工作区文档事实（`GUI-CORE-033`）。两个禁用标签都不隐藏——消失的标签会让坞看起来
+已经完工——也都不是「可点击却无响应」。`isDockTabLive` 是标签条与驾驶舱自身切换共同
+询问的同一个谓词，因此组合键永远打不开点击也打不开的面板。
 
 当前打开的标签只存在内存中，且有意不持久化：它是操作者看一眼时采取的姿态，不是偏好，
 因此既不写 `localStorage`（前端契约规定 Core 是唯一偏好权威），也不属于 C5 的
@@ -446,15 +483,20 @@ reference。它还包含一个补充 Context Dock bottom-state capture，用于�
 **文件面板。** 文件树来自 `QueryWorkspaceFiles`，操作者每展开一个目录读一页——`prefix`
 是以 `/` 结尾的目录，根目录则完全不带 prefix。一次读完整棵树只会得到一页有界结果，且
 无法越过该上限；任何一页 `complete: false` 都会在发生处渲染 Core 自己的截断说明。文件行
-只做选中：检视面板写出文件名，并让 Open 保持禁用、写明 `runtime.workspace_file_reads`
-——G7 会把它变成真正的读取。`WorkspaceFilesQuery` 不带 target，因此该面板始终是工作区根
+选中后，检视面板写出文件名并提供「打开文件」：Core 发布 `runtime.workspace_file_reads`
+（C9）时它发送一次 `ReadWorkspaceFile` 并就地显示答案——文本正文加上整个文件的大小与
+哈希、以及 Core 上限截断它时的那句说明，二进制只给标签不给字节，「不可用」则给出各自
+带原因的句子；Core 不发布该能力时它保持禁用，并把能力名称显示在屏幕上。`WorkspaceFilesQuery` 不带 target，因此该面板始终是工作区根
 并如实说明；按 Lane 限定的清单是一条 Core 契约请求，不是客户端可以从路径合成的东西。
 
 **对比面板。** 对同一 target 的 `QueryWorkspaceDiff`，每个变更文件一个条目，**默认折叠**：
 该面板回答「是哪些文件」，而 300px 列里的一墙行什么也回答不了。展开后绘制共享的
 `diff_rows` 主体——与 DiffReview、Permission Dock、D2 相同的行——并在自己的容器内横向滚动。
-选中文件后检视面板显示文件、差异与「在评审中打开」；暂存与还原渲染为禁用并具名，因为
-Core 未发布逐文件的暂存或还原命令。
+选中文件后检视面板显示文件、差异与「在评审中打开」；暂存与还原渲染为禁用，各带自己的
+原因，因为它们是两件不同的事实。Core **确实**发布了按路径的 `Stage`
+（`runtime.operator_git`），发送它的是 DiffReview 自己的文件行——该面板不带动作端口；
+而按文件回退在 Core 侧根本没有命令。在 G7 之前两者共用一句「Core 未发布逐文件的暂存或
+还原命令」，那句话命名了一个并不存在的缺口。
 
 **一次 diff 读取，三个读者。** 变更节、对比面板与 DiffReview 都渲染同一 target 的同一份
 `QueryWorkspaceDiff` page。由于坞在未被打开时就要列出变更文件，驾驶舱在挂载时发出这一次
@@ -494,7 +536,8 @@ Activity rail 是驾驶舱的路由器（`D-RAILNAV`），它指名的每一个�
 只在 tooltip 里）写出所缺能力——`Diff 评审 — 不可用：Core 未发布 runtime.structured_diff`。
 审计时间线是唯一永不被能力拦住的目的地：没有 `runtime.audit` 时 D14 以原始事件回放打开，
 那是同一个问题的另一种视图，因此槽位提前说明，而不是让操作者点完才发现。唯一的徽标是
-「决策」槽位上的待处理计数，取自 `statusbar.pendingGateCount`——Core 已经发布的数字。其他
+「决策」槽位上的待处理计数，取自 `statusbar.pendingDecisionCount` —— 即
+[决策队列计数气泡](#决策队列计数气泡)所定义的那一个计数。其他
 槽位都不带徽标，因为它们没有 Core 发布的计数，而 0 会被读成「没有待办」，真相却是「没人计数」。
 
 **中央视图。** `centerView` 为 `transcript | review | evidence | d2 | d10 | d12 | d13 | d14`，
@@ -514,7 +557,7 @@ chrome、选中 Lane 与返回路径都与从 rail 进入完全一致。`?screen
 给出驾驶舱投影之后才被读取。
 
 **所有跨视图链接都落在驾驶舱内。** 命令面板的 `#` 行（合并闸到 D12、问询到 D2）、状态栏的
-待审闸段、标题栏的 worktrees 芯片、D2 与 D12 的审计轨迹链接、EvidenceView 页脚的「打开审计
+决策段、标题栏的 worktrees 芯片、D2 与 D12 的审计轨迹链接、EvidenceView 页脚的「打开审计
 轨迹」，以及 D10 卡片通往决策中心的动作，都走同一个函数——驾驶舱的 `navigate`：能承载的
 目的地切换中央视图，不能承载的则回落到外壳自己的窗口路由。各自携带的作用域都被保留：
 D14 的 `kind:id` 审计作用域仍经 `parseAuditScope`，D12 的闸 id 与 D2 的决策 id 仍是 Core
@@ -573,20 +616,27 @@ Close 控件；再次按下同一个 rail 槽位同样返回转录。`⌘G` / `�
 设计稿曾画过的侧栏顶部 `.pinbtn` 从未被渲染，其 CSS 已于 2026-07-02 删除。两种模式下
 侧栏组件是同一个节点，只有宿主不同，这正是该决策自身的规则。
 
-Token 中记录的 176–360px 拖宽**未**实现；本批次 pinned 列固定为 218px。
+Token 中记录的 176–360px 拖宽**未**实现；pinned 列固定为 218px。`UiLayoutPreferences`
+里没有宽度字段——该记录只有模式与被隐藏的状态栏段——因此可拖动的列只能把宽度存在客户端，
+而那正是契约禁止的第二套偏好模型；在 Core 发布宽度之前它保持未实现。
 
 **状态栏配置齿轮（`D-STATUSBAR`）。** 状态栏起始端的齿轮打开设计的 `.sbcfg` 弹层，列出六个
 **环境**段——`CONTEXT`、`EVENTS`、`LATENCY`、`TOKENS`、`DIAG`、`REQ`——各带一个勾选框。被钉住
-的那一半不在列表中、也无法关闭：`MODE`、`PERM`、`LANE` 与待审闸芯片是身份与动作，而
+的那一半不在列表中、也无法关闭：`MODE`、`PERM`、`LANE` 与决策芯片是身份与动作，而
 `D-STATUSBAR` 按「可操作性」而非紧急程度切分状态栏。未注入配置端口挂载的状态栏根本不渲染
 齿轮，而不是渲染一个点了没反应的齿轮。
 
-**两处内存接缝。** Lane 侧栏模式与状态栏环境段可见性是本批次保存在内存中的呈现状态，并且
-**刻意不做持久化**。前端契约规定 Core 是唯一的偏好权威，因此设计原型的 `localStorage` 键
-（`vd-leftmode`、`vd-leftw`）就是契约禁止的第二套偏好模型。Core 批次 `C5` 会加入
-`UiLayoutPreferences.lane_sidebar_mode`；届时 G7 从已解析的偏好投影读取它并写回，
-`D1RenderOptions.laneSidebarMode` 也从调用方默认值变为 Core 的取值。pinned 列的宽度——
-token 记录的 176–360 拖宽——是同一条记录的第二个字段。两处接缝在代码里都带有该注释。
+**两处已由 Core 接管的接缝。** Lane 侧栏模式与状态栏环境段可见性在 G6 之前是保存在内存中的
+呈现状态：前端契约规定 Core 是唯一的偏好权威，因此设计原型的 `localStorage` 键
+（`vd-leftmode`、`vd-leftw`）就是契约禁止的第二套偏好模型。`C5` 发布了该记录，G7 开始读它：
+`laneSidebarMode` 与被隐藏的环境段都来自 `ui.layout_preferences`，每次改动都作为一条
+`SetUiLayoutPreferences` 补丁发回、只写发生变化的那个轴（省略某个轴意味着*保持原样*，
+而绝不是*重置*——重置是它自己的命令），webview 不保留超出当前绘制帧的任何副本。三个事实
+保持区分：能力缺失（模式退回会话内，且 rail 上的 pin 明确说出这一点）、能力存在但 Core
+还没有记录、以及 `persisted: false`——Core 已应用该记录但写不进配置文件，rail 的 pin 与
+状态栏弹层都会把它说出来而不是咽下去。pinned 列宽度仍是设计默认值（`--rail-left`，218px）：
+token 记录的 176–360 拖宽在 `UiLayoutPreferences` 中**没有**字段（该记录只有模式与被隐藏的
+段），因此它保持未实现，而不是把宽度留在客户端。
 
 ## 项目、最近工作与分组侧栏
 
@@ -1114,9 +1164,20 @@ D14 在**客户端已持有的这一页**上提供设计稿的执行者与时间
 
 ## 决策队列计数气泡
 
-活动侧栏的 D2 槽位携带 Core 发布的 `D1StatusbarProjection.pendingGateCount`，
-与状态栏 `⏸` 段落打印的是同一个数。该字段现在是 `number | null`，三种取值对应
-三种不同呈现：
+**一个计数，只定义一次。** 「等待操作者的决策」就是一条*待处理审批*或一条*待处理
+复查请求* —— 恰好是 D2 队列所列的内容 —— 这个和即
+`apps/gui/src-tauri/src/projection.rs` 中的 `pending_decision_count`。活动侧栏的
+D2 气泡、状态栏的 `⏸` 段落与 D2 标题自己的总数都是这同一个数：宿主由同一个函数派生
+状态栏字段（`D1StatusbarProjection.pendingDecisionCount`）与
+`D2DecisionsProjection.pendingTotal`，因此气泡再也不会承诺其目的地并不展示的行。在
+G7 之前，气泡与段落数的是审批加未休眠的开放合并闸，而标题数的是审批加复查，同一帧
+的截图里因此出现了 `7` 与 `2 awaiting you` 并列。
+
+**开放的合并闸刻意不计入。** 合并闸在 D12 决定，而不在 D2；把它计入一个打开 D2 的
+气泡，就是在命名那个队列从不列出的工作。合并闸的*休眠*规则未被触碰，仍然管着它一直
+管的事：D12 的排序、D6 的清空状态，以及命令面板的闸行。
+
+该字段是 `number | null`，三种取值对应三种不同呈现：
 
 | 取值 | 侧栏 | 状态栏 |
 | --- | --- | --- |
@@ -1127,10 +1188,9 @@ D14 在**客户端已持有的这一页**上提供设计稿的执行者与时间
 `null` 是外壳在连接建立前的占位投影所携带的值。它此前是 `0`，于是在任何计数发
 生之前就把决策队列渲染成空队列；缺失与零是不同事实，现在也画得不同。
 
-一处如实记录而非隐藏的保留项：D2 视图自身的 `pendingTotal` 是**另一个**和
-——审批加待处理复查，而气泡是审批加未休眠的开放合并闸——因此气泡与视图标题可能
-合理地不一致。二者的对齐属于拥有这些计数的批次的投影问题；在侧栏里再数一遍，
-只会让侧栏同时与状态栏也不一致。
+没有任何界面会再数第二遍。侧栏气泡与 `⏸` 段落读投影字段，D2 标题读它自己的总数，
+两者都来自 `pending_decision_count`；因此要改变「等待你」的含义，改的是那个函数，
+而不是某个渲染器。
 
 ## H2 卫生批次
 

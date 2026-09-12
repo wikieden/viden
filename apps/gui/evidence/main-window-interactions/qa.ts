@@ -55,7 +55,20 @@ import {
   IDLE_OPERATOR_GIT,
   type OperatorGitProjection,
 } from "../../src/models/operator_git";
+import {
+  IDLE_LAYOUT_PREFERENCES,
+  type LayoutPreferencesProjection,
+} from "../../src/models/layout_preferences";
 import type { RecentWorkResult } from "../../src/models/recent_work";
+import {
+  IDLE_TRANSCRIPT_ROWS,
+  type TranscriptRowProjection,
+  type TranscriptRowsProjection,
+} from "../../src/models/transcript_rows";
+import {
+  IDLE_WORKSPACE_FILE,
+  type WorkspaceFileProjection,
+} from "../../src/models/workspace_file";
 import type { PreferenceIntentOutcome } from "../../src/preferences";
 import {
   renderD1Cockpit,
@@ -215,8 +228,15 @@ function d1Base(): D1CockpitProjection {
     statusbar: {
       ...base.statusbar,
       // Delta: the three segments the shared fixture leaves empty, so all nine
-      // statusbar segments carry a fact and the pending-gate chip renders.
+      // statusbar segments carry a fact and the `⏸` decision chip renders.
       // Mirrors the populated statusbar fixture in `tests/statusbar.spec.ts`.
+      //
+      // `pendingDecisionCount` is `2` because that is the generated D2
+      // projection's own `pendingTotal` (`../gui-screen-restore/projections/d2.json`):
+      // since G7 both sides come from `pending_decision_count`, so a harness
+      // that set a different number here would be drawing a divergence the
+      // host can no longer produce. That the two are one function is pinned by
+      // `tests/gate_dormancy.rs`, not by this fixture.
       context: { usedTokens: 42_100, hardTokenLimit: 128_000, exceeded: false },
       diagnosticsCount: 1,
       pendingDecisionCount: 2,
@@ -517,6 +537,23 @@ interface CockpitOptions {
   ) => void | Promise<void>;
   /** The `D-SIDEBAR` mode the cockpit mounts in. */
   laneSidebarMode?: "pinned" | "floating";
+  /**
+   * The `UiLayoutPreferences` record the cockpit reads (`ui.layout_preferences`,
+   * C5). Absent leaves the layout session-local, which is the G3 capture.
+   */
+  layout?: LayoutPreferencesProjection;
+  /**
+   * The `TranscriptRowsLoaded` page the transcript reads
+   * (`runtime.transcript_rows`, C8). Absent keeps the two unavailable rows
+   * GUI-CORE-009 reported.
+   */
+  transcriptRows?: TranscriptRowsProjection;
+  /**
+   * The `WorkspaceFileLoaded` answer the dock inspector and the Code tab read
+   * (`runtime.workspace_file_reads`, C9). Absent leaves the inspector's Open
+   * disabled and named, which is the G5 capture.
+   */
+  workspaceFile?: WorkspaceFileProjection;
 }
 
 function mountCockpit(options: CockpitOptions): D1Controller {
@@ -582,6 +619,33 @@ function mountCockpit(options: CockpitOptions): D1Controller {
             loadOlder: async () => options.evidence!,
             content: async (evidenceId) =>
               options.evidenceContent?.[evidenceId] ?? ABSENT_EVIDENCE_CONTENT,
+          }
+        : undefined,
+      // Core's own layout record. `set` answers with the same record, so a
+      // pin in the capture cannot move the frame after it settles.
+      layout: options.layout
+        ? {
+            read: async () => options.layout!,
+            set: async () => options.layout!,
+          }
+        : undefined,
+      // One fixed page for the ordered transcript: `query` and `loadOlder`
+      // answer the same rows, so a scroll cannot advance the capture.
+      transcriptRows: options.transcriptRows
+        ? {
+            read: async () => options.transcriptRows!,
+            query: async () => options.transcriptRows!,
+            loadOlder: async () => options.transcriptRows!,
+          }
+        : undefined,
+      // One fixed file answer, so a re-read cannot move the capture.
+      workspaceFile: options.workspaceFile
+        ? {
+            read: async () => ({
+              ...IDLE_WORKSPACE_FILE,
+              capabilityAvailable: options.workspaceFile!.capabilityAvailable,
+            }),
+            open: async () => options.workspaceFile!,
           }
         : undefined,
       onOpenAuditTrail: () => undefined,
@@ -1482,6 +1546,168 @@ const EVIDENCE_ARCHIVE: EvidenceArchiveProjection = {
 
 /// The fixture's own parsed patch: Core answered `Diff`, so the rows come
 /// through the shared renderer rather than as text.
+/* ---- G7 consumers of the 0.3.4 Core increments (C5-C9) ---- */
+
+/// Core's published layout record (`ui.layout_preferences`, C5): the floating
+/// sidebar `D-SIDEBAR` defaults to, no hidden statusbar segment, and a record
+/// Core really wrote. Mirrors the `ui-layout-preferences.json` fixture.
+const LAYOUT_RECORD: LayoutPreferencesProjection = {
+  ...IDLE_LAYOUT_PREFERENCES,
+  outcome: { state: "confirmed", reason: null },
+  capabilityAvailable: true,
+  laneSidebarMode: "floating",
+  hiddenStatusbarSegments: [],
+  persisted: true,
+};
+
+/// One active turn, exactly as `TurnStarted` publishes it
+/// (`runtime.turn_lifecycle`, C6): drained from the queue, scoped to the
+/// selected Lane, and started at a fixed second so the strip's elapsed readout
+/// is stable. The start is two minutes before the frozen clock, so the strip
+/// reads 2:00 in every capture.
+const LIVE_TURN = {
+  turnId: "turn_consumer_live",
+  laneId: "lane-core",
+  source: "queued_input",
+  sourceInputId: "queued-1",
+  sourceSessionId: null,
+  startedAt: FROZEN_EPOCH - 120,
+};
+
+/// One ordered transcript row page (`runtime.transcript_rows`, C8). Mirrors
+/// the `transcript-rows.json` fixture's own shapes: a user row, an assistant
+/// row Core's 8 KiB bound cut with canonical evidence behind it, a tool call
+/// and its result, a check run, and the permission row whose durable audit row
+/// C7 appends. `older` is Core's opaque cursor, carried back verbatim.
+function transcriptRow(
+  overrides: Partial<TranscriptRowProjection> & { id: string; kind: string },
+): TranscriptRowProjection {
+  return {
+    laneId: "lane-core",
+    sequence: 1,
+    timestamp: 1_700_006_000,
+    text: null,
+    truncated: false,
+    evidenceId: null,
+    toolCallId: null,
+    toolName: null,
+    inputPreview: null,
+    success: null,
+    summary: null,
+    checkId: null,
+    label: null,
+    command: null,
+    status: null,
+    failingLocation: null,
+    requestId: null,
+    decision: null,
+    auditId: null,
+    ...overrides,
+  };
+}
+
+const TRANSCRIPT_ROWS: TranscriptRowsProjection = {
+  ...IDLE_TRANSCRIPT_ROWS,
+  outcome: { state: "confirmed", reason: null },
+  capabilityAvailable: true,
+  loaded: true,
+  complete: false,
+  older: "s:41:row_consumer_user",
+  scopeLaneId: "lane-core",
+  rows: [
+    transcriptRow({
+      id: "row_consumer_user",
+      kind: "user",
+      sequence: 42,
+      text: "tighten the evidence page bound and show me the patch",
+    }),
+    transcriptRow({
+      id: "row_consumer_assistant",
+      kind: "assistant",
+      sequence: 43,
+      timestamp: 1_700_006_020,
+      text:
+        "The page clamp is now 1..=200 and the read publishes the clamp it used. " +
+        "The patch is one hunk in `EvidenceQuery::clamped_limit`, and the canonical " +
+        "bytes are archived beside it so the diff can be read back verbatim rather " +
+        "than re-derived from this answer",
+      truncated: true,
+      evidenceId: "evidence_alpha_patch",
+    }),
+    transcriptRow({
+      id: "row_consumer_call",
+      kind: "tool_call",
+      sequence: 44,
+      timestamp: 1_700_006_040,
+      toolCallId: "call_consumer_edit",
+      toolName: "edit_file",
+      inputPreview: "crates/types/src/evidence_reads.rs",
+    }),
+    transcriptRow({
+      id: "row_consumer_result",
+      kind: "tool_result",
+      sequence: 45,
+      timestamp: 1_700_006_050,
+      toolCallId: "call_consumer_edit",
+      success: true,
+      summary: "1 file changed, +1/-1",
+      evidenceId: "evidence_alpha_patch",
+    }),
+    transcriptRow({
+      id: "row_consumer_check",
+      kind: "check_run",
+      sequence: 46,
+      timestamp: 1_700_006_060,
+      checkId: "check_consumer_types",
+      label: "types",
+      command: "cargo test -p viden-types",
+      status: "passed",
+      summary: "passed",
+    }),
+    transcriptRow({
+      id: "row_consumer_permission",
+      kind: "permission",
+      sequence: 47,
+      timestamp: 1_700_006_070,
+      requestId: "approval_durable_work",
+      decision: "allow_once",
+      auditId: "audit_durable_work_approval",
+    }),
+  ],
+};
+
+/// Core's answer for one file (`runtime.workspace_file_reads`, C9): text cut
+/// at Core's byte bound, with the *whole* file's length and hash beside it.
+const WORKSPACE_FILE: WorkspaceFileProjection = {
+  ...IDLE_WORKSPACE_FILE,
+  outcome: { state: "confirmed", reason: null },
+  capabilityAvailable: true,
+  requestedPath: "AGENTS.md",
+  targetLaneId: "lane-core",
+  file: {
+    path: "AGENTS.md",
+    body: "text",
+    text:
+      "# Viden Agent Policy\n\n" +
+      "This file is the canonical cross-tool policy for every agent in this\n" +
+      "repository. Read it in full before taking action.\n\n" +
+      "## Mandatory Read Order\n\n" +
+      "1. Read this file.\n" +
+      "2. Read the nearest nested `AGENTS.md` for every file in the intended\n" +
+      "   write scope.\n" +
+      "3. Read the controlling plan, contract, design, or release-status\n" +
+      "   document for the task.\n\n" +
+      "## Core Ownership\n\n" +
+      "Core owns authoritative business state and effects. TUI and GUI are\n" +
+      "clients of the same command/event/snapshot/replay contract.\n",
+    truncated: true,
+    size: 12_288,
+    sha256: "6d5e36fb44a9dbc58031944d60c86ef6367325bf4e52ecc10e97cebd63c7b566",
+    // A text body: the typed reason belongs to an `unavailable` answer only.
+    reason: null,
+  },
+};
+
 const EVIDENCE_PATCH_CONTENT: EvidenceContentProjection = {
   ...ABSENT_EVIDENCE_CONTENT,
   outcome: { state: "confirmed", reason: null },
@@ -2524,32 +2750,6 @@ async function renderState(): Promise<void> {
       return;
     }
 
-    case "d2-rail-badge": {
-      // One Core number in the three places that print it: the rail's D2
-      // badge, the statusbar's `⏸` segment, and the decision queue's own
-      // header. The count is deliberately not the shared fixture's, so the
-      // capture shows the badge reading the projection rather than a constant.
-      const queue = await d2Queue();
-      const base = d1Base();
-      const cockpit = mountCockpit({
-        projection: {
-          ...base,
-          // Delta: a larger pending count than the shared statusbar fixture's
-          // two, mirroring `tests/rail_decision_badge.spec.ts`.
-          statusbar: { ...base.statusbar, pendingDecisionCount: 7 },
-        },
-        preferencesAvailable: true,
-        secondaryViews: (route, container) => {
-          if (route !== "d2") throw new Error(`unexpected route ${route}`);
-          renderD2Decisions(container, queue, never<D2IntentResult>, locale);
-        },
-      });
-      cockpit.openCenterView("d2");
-      await waitFor("[data-rail-route='d2'] [data-rail-badge]");
-      await waitFor("[data-sb-gate]");
-      return;
-    }
-
     case "dock-environment": {
       // The dock's Environment panel as the design draws it: the tab strip
       // with three live tabs and three disabled-and-named ones, then Changes
@@ -2620,6 +2820,12 @@ async function renderState(): Promise<void> {
       // panel states its own absence instead of showing an empty list.
       mountCockpit({ projection: d1Base(), preferencesAvailable: true });
       await waitFor('[data-typed-empty="changes-unbound"]');
+      // The environment facts are collapsed for the reason `dock-environment`
+      // collapses them, and here it is load-bearing: with the section open
+      // every absence sentence sits below the dock's fold, which made this
+      // capture byte-identical to `d1` and proved nothing (G7).
+      click("[data-context-section='environment'] [data-context-section-toggle]");
+      await waitFor("[data-typed-empty='pr-status']");
       return;
     }
 
@@ -2689,6 +2895,162 @@ async function renderState(): Promise<void> {
       });
       cockpit.openCenterView("d10");
       await waitFor("[data-d10-ticker-state='not-read']");
+      return;
+    }
+
+    /* ---------------------------------------------------------------- */
+    /* G7 consumers of the 0.3.4 Core increments                         */
+    /* ---------------------------------------------------------------- */
+
+    case "consumer-workspace-commit": {
+      // C5's three client-visible facts in one frame: the Lane tab strip
+      // printing that Lane's *own* worktree branch and position from
+      // `lane_sources`, the dock's Local section naming which tree it is
+      // showing, and the Commit-or-push row enabled because Core published a
+      // workspace owner to act as (GUI-CORE-027). The layout record is Core's,
+      // so the rail pin and the statusbar's ambient set are read rather than
+      // remembered.
+      const projection = d1Base();
+      mountCockpit({
+        projection: {
+          ...projection,
+          // Delta: the Lane's own worktree, which is what `lane_sources`
+          // publishes per Lane. Mirrors `workspace-owner.json`.
+          lanes: [
+            {
+              ...projection.lanes[0]!,
+              source: {
+                status: "ready",
+                branch: "codex/lane-core",
+                worktree: ".worktrees/lane-core",
+                ahead: 2,
+                behind: 1,
+                added: 3,
+                deleted: 1,
+                dirty: true,
+              },
+            },
+          ],
+          contextDock: {
+            ...projection.contextDock,
+            // Delta: the same fact reaching the dock's Local section, where
+            // the scope is stated rather than implied.
+            laneSource: {
+              status: "ready",
+              branch: "codex/lane-core",
+              worktree: ".worktrees/lane-core",
+              ahead: 2,
+              behind: 1,
+              added: 3,
+              deleted: 1,
+              dirty: true,
+            },
+          },
+        },
+        preferencesAvailable: true,
+        workspaceDiff: REVIEW_PAGE,
+        operatorGit: OPERATOR_GIT_READY,
+        files: true,
+        layout: LAYOUT_RECORD,
+      });
+      await waitFor("[data-changes-row]");
+      // The Environment section is collapsed for the same reason as
+      // `dock-environment`: it is the one section that is not new here, and
+      // collapsing it brings Local and Commit-or-push into one frame.
+      click("[data-context-section='environment'] [data-context-section-toggle]");
+      await waitFor("[data-context-section='local'][data-local-scope='lane']");
+      return;
+    }
+
+    case "consumer-turn-live": {
+      // C6: the LIVE WORK strip reading Core's turn rather than display
+      // residue. The source is `queued_input` — the queue drained, which is a
+      // different explanation for text appearing than a typed turn — the
+      // elapsed clock counts from Core's `started_at` (2:00 against the frozen
+      // clock, not 0:00 from this webview's mount), and the queue line says
+      // what it is waiting for.
+      const projection = d1Base();
+      mountCockpit({
+        projection: {
+          ...projection,
+          // Delta: one `TurnStarted` Core scoped to the selected Lane.
+          // Mirrors `turn-lifecycle.json`.
+          activeTurns: [LIVE_TURN],
+          turnFailure: null,
+          composer: { ...projection.composer, busy: true, canSubmitImmediately: false },
+        },
+        preferencesAvailable: true,
+        layout: LAYOUT_RECORD,
+      });
+      await waitFor("[data-work-elapsed-source='core']");
+      return;
+    }
+
+    case "consumer-evidence-patch": {
+      // C7: the archive filtered to the `patch` rows the runtime now records
+      // for a native tool edit, with the selected row's canonical reference
+      // and Core's parsed diff rows below it. Nothing here is new client
+      // vocabulary — the point of the increment is that the rows exist.
+      // Framed on the content section rather than the report: the claim is
+      // that the archived patch's *canonical bytes* come back as Core's parsed
+      // diff rows, and the report alone would not show them. The kind chips
+      // are left alone on purpose — Core applies `kinds` before it cuts the
+      // page, so a capture that pressed one while the harness answers a fixed
+      // page would show a filter the rows do not match.
+      await openEvidence(
+        EVIDENCE_ARCHIVE,
+        { evidence_alpha_patch: EVIDENCE_PATCH_CONTENT },
+        "evidence_alpha_patch",
+        "content",
+      );
+      return;
+    }
+
+    case "consumer-transcript-rows": {
+      // C8: Core's ordered rows in the transcript, which is what retires the
+      // `transcript_user` / `transcript_assistant` unavailable placeholders
+      // (GUI-CORE-009). One frame carries the user row, the assistant row
+      // Core's 8 KiB bound cut with its canonical evidence offered, the tool
+      // call and result, the check run, and the permission row whose durable
+      // audit row C7 appends — plus the backwards-paging control, because Core
+      // published a cursor.
+      mountCockpit({
+        projection: d1Base(),
+        preferencesAvailable: true,
+        layout: LAYOUT_RECORD,
+        transcriptRows: TRANSCRIPT_ROWS,
+      });
+      await waitFor("[data-transcript-row-source='core']");
+      // Framing only: the transcript keeps the newest row in view, and Core's
+      // page is *older* than the live ACP pair below it. Scrolling to the top
+      // of the region brings the oldest row, the truncated assistant row's
+      // "open evidence" affordance and the backwards-paging control into the
+      // frame. Nothing is re-rendered; the page answered is the same one.
+      const transcriptRegion = document.querySelector<HTMLElement>("[data-center-sequence]");
+      if (transcriptRegion) transcriptRegion.scrollTop = 0;
+      for (let settle = 0; settle < 8; settle += 1) await tick();
+      return;
+    }
+
+    case "consumer-file-read": {
+      // C9: the dock inspector's Open, which G5 shipped disabled with the
+      // capability named, reading one file through `ReadWorkspaceFile`. The
+      // frame carries the tree, the selected path, the tree the read came
+      // from, the whole file's size and hash, the sentence saying Core's bound
+      // cut the body, and the body itself.
+      mountCockpit({
+        projection: d1Base(),
+        preferencesAvailable: true,
+        files: true,
+        layout: LAYOUT_RECORD,
+        workspaceFile: WORKSPACE_FILE,
+      });
+      click("[data-dock-tab='files']");
+      await waitFor("[data-file-row='AGENTS.md']");
+      click("[data-file-row='AGENTS.md']");
+      await waitFor("[data-inspector-open]:not([disabled])");
+      click("[data-inspector-open]");
+      await waitFor("[data-file-answer='inspector'] [data-file-body='text']");
       return;
     }
 

@@ -15,7 +15,9 @@ are scheduled for `0.3.4` through the Core contract increment to be written
 in `docs/release-0.3.4-contract-design.md` (workspace owner, turn lifecycle,
 durable work evidence, transcript rows, workspace file reads). 013, 018,
 019, 021, 023, and 026 move to `0.3.5`; D5 gallery review will be opened as
-GUI-CORE-029 for `0.3.5` when that contract design is written.
+GUI-CORE-029 for `0.3.5` when that contract design is written. That number is
+still held for it: batch G7 numbered its four prose-only gaps 030 to 033 and
+left 029 where `docs/release-0.3.4-plan.md` reserved it.
 
 Status note 2026-09-12 (C9): the workspace file-read fact landed on the Core
 side — `runtime.workspace_file_reads` is published with its
@@ -67,6 +69,27 @@ reads them for the focused Lane (T2). C8 is the last Core batch of the `0.3.4`
 increment, so the advertised extension set is final at 29. The open register is
 013, 018, 019, 021, 023, and 026.
 
+Status note 2026-09-12 (G7): 009, 027, and 028 are closed **on the client side
+for the GUI**. The cockpit now sends a workspace-target `RunOperatorGitAction`
+under the owner Core published and dropped `D1-OPERATOR-GIT-OWNER` (027); it
+renders the archived `patch` rows with their canonical bytes, keeps the
+`approval.*` audit rows with Core's operator actor and every object, and links a
+permission's trail by that object (028); and the D1 transcript draws Core's own
+ordered rows, retiring the `transcript_user` / `transcript_assistant`
+unavailable placeholders (009). Each stays open as a *TUI* adoption item until
+T2 lands the same three. The GUI also adopted `runtime.turn_lifecycle` (C6) and
+`runtime.workspace_file_reads` (C9), neither of which was ever a numbered
+request: liveness was a residue-based client predicate, and the file read was
+adjudicated as the inventory's sibling.
+
+Four gaps the G4 and G5 batches wrote as prose and left unnumbered are numbered
+here as new OPEN entries — 030 to 033 — without being implemented. 029 was
+skipped because the `0.3.4` plan already reserved it for the D5 gallery review.
+G6 left none: its finding was the client's own decision-count divergence, which
+G7 closed by deriving the rail badge, the statusbar chip and the D2 header from
+one count. The open register is 013, 018, 019, 021, 023, 026, 030, 031, 032,
+and 033, with 029 reserved and not yet written.
+
 ## GUI-CORE-008: Selected-Lane context scope — CLOSED
 
 History: Core `0.3.5` exposed `RuntimeViewState.context_budgets`, but the
@@ -92,7 +115,7 @@ published. The statusbar's context segment is unchanged and remains the coarse
 workspace-level "latest budget" indicator its type documents, not a per-Lane
 number.
 
-## GUI-CORE-009: Owner-scoped typed transcript rows — CLOSED (Core side, 2026-09-12)
+## GUI-CORE-009: Owner-scoped typed transcript rows — CLOSED (Core 2026-09-12; GUI client 2026-09-12)
 
 History: the frontend contract exposed lane output as an untyped stream and a
 global assistant stream, and no ordered owner-scoped user/assistant transcript
@@ -133,13 +156,20 @@ composer each getting their own page and no row appearing on more than one of
 them. It also proves the page boundary and the cursor round-trip, every row
 variant, the real 8 KiB cut naming its evidence, and the cursor refusal.
 
-No client has adopted it yet. The GUI adopts it in G7, where D1's transcript
-renders ordered `User`/`Assistant` rows and retires the `transcript_user` and
-`transcript_assistant` unavailable placeholders while tool blocks keep their
-inline diff from `WorkspaceChangeView.diff`; the TUI adopts it in T2, where the
-transcript lens reads the same rows for the focused Lane. Until each lands, the
-corresponding client still declares the rows unavailable rather than inferring
-them — this entry is closed on the Core side only.
+GUI client status: adopted 2026-09-12 by batch G7. D1's transcript reads the
+newest page for the selected Lane (or unscoped for the session), pages
+backwards through Core's own `older` cursor on scroll-top and on an explicit
+control, offers the canonical evidence behind a row Core's 8 KiB bound cut, and
+draws `ToolCall` / `ToolResult` / `CheckRun` / `Permission` rows with G4's own
+blocks rather than a second rendering of the same facts
+(`apps/gui/src/components/transcript_rows.ts`,
+`apps/gui/src-tauri/src/transcript_rows.rs`). The two `transcript_user` /
+`transcript_assistant` unavailable rows are gone wherever Core publishes the
+capability, and they still stand on a Core that publishes none — they were
+claims about Core, so they retire exactly where the claim stops being true. The
+TUI adopts it in T2, where the transcript lens reads the same rows for the
+focused Lane; until then it still declares the rows unavailable rather than
+inferring them.
 
 ## GUI-CORE-010: Owner-scoped live-work facts — CLOSED
 
@@ -930,7 +960,7 @@ event that reports its outcome, and a canonical `frontend-contract-v1` fixture
 covering a staged credential that becomes a `CredentialHandle` and one that is
 refused.
 
-## GUI-CORE-027: Workspace-scoped operator identity — CLOSED (Core side, 2026-09-12)
+## GUI-CORE-027: Workspace-scoped operator identity — CLOSED (Core 2026-09-12; GUI client 2026-09-12)
 
 `RunOperatorGitAction` validates that the command's `owner` equals the
 envelope actor, and Core's validator already accepts `lane_id: None` for a
@@ -974,15 +1004,18 @@ ids, the authorized commit with its audit row, and the Lane's own
 `LaneSourceUpdated` row — which also ends `WorkspaceSourceUpdated` carrying a
 Lane worktree's branch.
 
-Clients have not adopted it yet, and both local refusals still stand until they
-do. The GUI drops `D1-OPERATOR-GIT-OWNER` and enables the DiffReview commit bar
-and the titlebar sync control on the workspace target when `workspace_owner` is
-present, in batch G7; the TUI enables its `/git` workspace rows under the same
-condition in batch T2. Neither should enable anything on a Core that publishes
-no `runtime.workspace_owner`: absence is a real answer, and the existing
-refusal text is the right one for it.
+GUI client status: adopted 2026-09-12 by batch G7. A workspace-target action
+sends the owner from `RuntimeViewState.workspace_owner`
+(`apps/gui/src-tauri/src/adapter.rs`, `operator_git_owner`), so the DiffReview
+commit bar and the titlebar sync control work with no Lane selected, and
+`D1-OPERATOR-GIT-OWNER` is gone from that path. Absence is still a refusal
+rather than a default: `D1-OPERATOR-GIT-NO-WORKSPACE-OWNER` leaves both visible,
+disabled and labelled with the missing Core fact and sends nothing, which is the
+right answer for a Core that publishes no `runtime.workspace_owner`. The TUI
+enables its `/git` workspace rows under the same condition in batch T2, and its
+own refusal stands until then.
 
-## GUI-CORE-028: Durable evidence for supervisor-driven work — CLOSED (Core side, 2026-09-12)
+## GUI-CORE-028: Durable evidence for supervisor-driven work — CLOSED (Core 2026-09-12; GUI client 2026-09-12)
 
 Opened 2026-09-10 by the E1 release-evidence pass, after the C5 adjudication of
 the same day deferred it out of `0.3.3`. Scheduled for `0.3.4`.
@@ -1064,11 +1097,98 @@ frozen `frontend-contract-v1` base fixtures are byte-identical to their bytes at
 `main` `25072a0a`, verified by digest per file; no regeneration was needed, and
 this batch adds no `RuntimeViewState` field.
 
-Clients have not adopted it yet. The GUI renders EvidenceView archive rows for
-applied work and the D14 approval rows in batch G7; the TUI's evidence inspector
-detail gains live content in batch T2. Neither should present an absent
+GUI client status: adopted 2026-09-12 by batch G7, and it needed no new client
+vocabulary — which is the point of the increment: EvidenceView already read
+`runtime.evidence_reads`, so the archived `patch` rows the runtime started
+writing appear with their canonical reference, and `ReadEvidenceContent` draws
+their bytes as Core's parsed diff rows in the shared renderer
+(`apps/gui/tests/evidence_reads.rs`, the `durable-work-evidence` fixture replay).
+D14 keeps Core's `approval.*` action, its operator actor and all three objects
+verbatim, and the permission dock links the trail by the permission object
+rather than by an audit id no filter expresses. The D2 queue item deliberately
+offers no trail: the row is appended when the decision is applied, and a
+pending item's timeline is empty. The TUI's evidence inspector detail gains live
+content in batch T2. Neither client should present an absent
 `permission_snapshot_id` as approved, or a `canonical: None` row as
 display-only evidence: both are stated facts with their own copy.
+
+## GUI-CORE-030: Agent binding on the starter-Lane request
+
+Opened 2026-09-12 by batch G7, which numbered a request batch G4 wrote as prose
+in the D4 wizard's own copy rather than as a register entry (the register was
+frozen while `0.3.4` was in flight). Not scheduled; no client work depends on
+it beyond the sentence already shipped.
+
+`StarterLaneRequest` carries a role, a mutation policy and an execution target,
+and **no agent binding**. So the design's "choose agent" step can show Core's
+published adapters and mark the one the operator picked, and creating the Lane
+still starts no Agent session: the pick reaches Core nowhere. The GUI says so on
+the step (`apps/gui/src/screens/d4_lane_create.ts`, `d4.agent.noBinding`) rather
+than offering a selection that cannot travel, and starting a session stays a
+second, explicit `StartAgentSession` against the created Lane.
+
+What a client needs: either an optional `agent_id` on `StarterLaneRequest`,
+applied under the same permission gate `StartAgentSession` passes, or Core's
+statement that the two-step flow is the contract — in which case the wizard's
+step is documentation and the register entry closes as by-design. The GUI needs
+no new event either way: `AgentSessionUpdated` already reports what started.
+
+## GUI-CORE-031: Skill packs and context injection
+
+Opened 2026-09-12 by batch G7, numbering the second half of the same G4 prose.
+Not scheduled.
+
+`frontend-contract-v1` publishes **no** skill, skill-pack, prompt-pack or
+context-injection fact anywhere — not in `RuntimeViewState`, not on any
+command, not on `StarterLaneRequest` — while the accepted design draws a "skill
+pack" step in Lane creation and the `runtime.cockpit_context_v1` capability
+covers only budgets, sources and evidence references. The GUI renders the step
+stated-unavailable with that exact reason (`d4.skills.unavailable`) and ships no
+local list, because a client-owned pack would be a second authority over what a
+Lane is allowed to read.
+
+What a client needs, in the order it could adopt them: a read of the packs Core
+holds (id, label, and what they inject), a field on the creation request naming
+one, and the fact that says which pack a running Lane resolved. Without the
+third, a client could select a pack and never show whether it took effect.
+
+## GUI-CORE-032: Integrated terminal facts
+
+Opened 2026-09-12 by batch G7, numbering a gap batch G5 stated in the context
+dock's own tab copy. Not scheduled; the design registers the surface with a
+roadmap mark (`D-RAILNAV` ⑥), so this entry exists to make the Core side of it
+lookup-able rather than to schedule it.
+
+The dock's Terminal tab cannot open because Core publishes no PTY fact at all:
+no session to attach to, no output stream, no write command, no exit status.
+`runtime.commands` carries operator *git* actions and tool approvals, and
+nothing there spawns or attaches an interactive process. The GUI keeps the tab
+visible and disabled with that sentence (`d1.dock.tab.terminal.reason`) rather
+than hiding it, because a tab that vanishes makes the dock look finished.
+
+What a client needs: a Core-owned PTY session — open/attach under the
+permission engine, ordered output chunks with a bound, a write command, and a
+terminal status fact — or the statement that the integrated terminal is out of
+scope for this contract, which would close this entry as by-design and leave the
+tab's copy as the permanent answer.
+
+## GUI-CORE-033: Workspace document facts
+
+Opened 2026-09-12 by batch G7, numbering the dock's other disabled tab from the
+same G5 pass. Not scheduled.
+
+The Docs tab has no Core fact behind it in any shape: `runtime.workspace_files`
+lists paths and `runtime.workspace_file_reads` (C9) reads one file's bytes, but
+neither says which documents *matter* — the project's own `AGENTS.md` chain, the
+design entry points, the release status document — nor renders one as a
+document. A client could guess by path, and that guess would be a second
+authority over which file is the policy for a scope, which is exactly what the
+nested-`AGENTS.md` rule makes Core's business.
+
+What a client needs: the document set for a scope (path, kind, and the scope it
+governs), read through the file read that already exists. Until then the GUI
+keeps the tab disabled and named (`d1.dock.tab.docs.reason`) and the palette's
+`~` rows stay the only way to a file.
 
 ## Retired pre-register codes
 

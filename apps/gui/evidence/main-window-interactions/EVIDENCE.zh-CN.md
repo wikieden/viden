@@ -87,7 +87,7 @@ harness 补充的每个值都是上述来源之上的 delta，`qa.ts` 中每条�
 | 状态 | Delta | 镜像自 |
 | --- | --- | --- |
 | 全部 `d1*` | `preferences.locale/skin/mode` 跟随 URL 参数 | 驾驶舱从投影而非文档元素读取语言 |
-| 全部 `d1*` | 上下文坞的一条 `ContextUsageProjection`，以及共享 fixture 留空的三个状态栏字段（`context`、`diagnosticsCount`、`pendingGateCount`） | `tests/statusbar.spec.ts` 中已填满的状态栏 fixture |
+| 全部 `d1*` | 上下文坞的一条 `ContextUsageProjection`，以及共享 fixture 留空的三个状态栏字段（`context`、`diagnosticsCount`、`pendingDecisionCount`；最后一项取生成的 D2 投影自身的 `pendingTotal`，因为 G7 之后宿主由同一个函数派生两者） | `tests/statusbar.spec.ts` 中已填满的状态栏 fixture |
 | 全部 `d1*` | `agentAdapters[0].models` | `tests/composer_controls.spec.ts` 中的适配器 fixture |
 | `d6-actions`、`d6-error` | 一个已停止的会话，其 `restart` 携带 session id、`close_lane` 携带 lane id | `tests/d6_recovery.spec.ts` 中的 `STOPPED` fixture |
 | `d12-actions` | 已记录必需证据、验证方满足，两个动作都可用且 code 为 `null` | `tests/d12_integration_gate.spec.ts` 中的 `DECIDABLE` fixture |
@@ -128,7 +128,7 @@ URL 与尺寸，不在该运行时之外调用浏览器自动化。
 
 | 状态 | URL | 截图必须体现什么 |
 | --- | --- | --- |
-| `d1` | `…/qa.html?state=d1` | 完整驾驶舱；标题栏项目选择器带分支与 dirty 标记，旁边是 `↑/↓` 与工作树 chip；九个状态栏分段全部带事实，另加待决闸提示；三个 Composer 选择器胶囊 |
+| `d1` | `…/qa.html?state=d1` | 完整驾驶舱；标题栏项目选择器带分支与 dirty 标记，旁边是 `↑/↓` 与工作树 chip；九个状态栏分段全部带事实，另加 `⏸ 2 awaiting you` 决策芯片；三个 Composer 选择器胶囊 |
 | `d1-mode-menu` | `…/qa.html?state=d1-mode-menu` | 工作模式弹层在 Composer 上方展开，当前模式标记为选中 |
 | `d1-model-menu` | `…/qa.html?state=d1-model-menu` | 模型弹层展开，同时显示提供方分组与 Core 发布的适配器分组 |
 | `permission-ask` | `…/qa.html?state=permission-ask` | Core 发布的权限坞，尚未有任何裁决：命令、类型化事实行，以及五个动作中 `Always` / `Edit` 在 `GUI-CORE-003` 之下禁用——它是读取重定向状态时的基线 |
@@ -163,14 +163,18 @@ URL 与尺寸，不在该运行时之外调用浏览器自动化。
 | `evidence-unavailable` | `…/qa.html?state=evidence-unavailable` | `patch` 行上的相反缺席：`Unavailable { HashMismatch }` 渲染为「规范字节校验失败——不予展示」，使用错误色，整屏没有任何正文 |
 | `evidence-empty` | `…/qa.html?state=evidence-empty` | 「此范围内没有证据。」——唯一可以这样画的状态，且画在 Core 确实答复过的一页之上——并把 `complete` 明说为「档案已完整」，而不是靠 `加载更早` 按钮的缺席来表示 |
 | `evidence-rejected` | `…/qa.html?state=evidence-rejected` | Core 对越界 `kinds` 的拒绝原文放进 `role=alert`，其 `hint:` 行保持独立成行，什么都未加载，没有翻页脚，也没有空档案的句子 |
-| `nav-d2-in-cockpit` | `…/qa.html?state=nav-d2-in-cockpit` | 决策队列作为**中央面板视图**：四周驾驶舱 chrome 原封不动——带 source 块的标题栏、`决策` 槽位标记 `aria-current` 并带上 Core 自己的待处理计数徽标的活动 rail、上下文坞、仍然对准选中 Lane 的 composer、带待审闸芯片的状态栏——外加该视图自己的头部与 Close 控件（位置与 DiffReview 的一致） |
+| `nav-d2-in-cockpit` | `…/qa.html?state=nav-d2-in-cockpit` | 决策队列作为**中央面板视图**：四周驾驶舱 chrome 原封不动——带 source 块的标题栏、`决策` 槽位标记 `aria-current` 并带上 Core 自己的待处理计数徽标的活动 rail、上下文坞、仍然对准选中 Lane 的 composer、带决策芯片的状态栏——外加该视图自己的头部与 Close 控件（位置与 DiffReview 的一致） |
 | `nav-d14-in-cockpit` | `…/qa.html?state=nav-d14-in-cockpit` | 同一外壳中的审计轨迹，也就是 `D-AUDIT` 从证据行或 D12 基线芯片单向链接如今落到的地方：rail 的 `审计时间线` 槽位标记为当前，视图头部之下是模式切换与三条审计行，而对话只差一个 `Esc` |
 | `nav-sidebar-floating-peek` | `…/qa.html?state=nav-sidebar-floating-peek` | `D-SIDEBAR` **浮动**模式——该决策的默认值——经键盘路径（Lane rail 槽位）peek 打开：侧栏是**覆盖在整宽转录之上的浮层**而非布局列，12px 热区连同 `.edgehint` 提示条贴在活动 rail 右缘，rail 上（设置齿轮之上）的 pin 读作未固定 |
-| `nav-statusbar-config` | `…/qa.html?state=nav-statusbar-config` | `D-STATUSBAR` 配置齿轮打开：`.sbcfg` 弹层列出六个环境段及其勾选框，页脚写明身份项与可操作项始终固定，而 `MODE`、`PERM`、`LANE` 与待审闸芯片就在其后的状态栏上、却不在列表中 |
+| `nav-statusbar-config` | `…/qa.html?state=nav-statusbar-config` | `D-STATUSBAR` 配置齿轮打开：`.sbcfg` 弹层列出六个环境段及其勾选框，页脚写明身份项与可操作项始终固定，而 `MODE`、`PERM`、`LANE` 与决策芯片就在其后的状态栏上、却不在列表中 |
 | `d10-actions` | `…/qa.html?state=d10-actions` | 驾驶舱中的 Lane 监视器卡片动作行：**两张卡片上都有 接管 / 停止 / 暂停 / 终止**，在 Core 发布了 Agent 会话的那条 Lane 上「停止」可用、在未发布会话的那条上禁用，两张卡片的「暂停」「终止」都禁用并注明 `RuntimeCommand` 并不携带的命令（G6） |
 | `d13-drill` | `…/qa.html?state=d13-drill` | 同一列里同时给出两种 Lane 绑定答案：Core 绑定了 Lane 的节点带着可见的 `Open Lane lane_core ↗` 一行与 `role="button"`；同一个生成节点去掉绑定后的副本说明 Core 未绑定任何 Lane，也不提供点击（G6） |
 | `d14-filtered` | `…/qa.html?state=d14-filtered` | 启用了 `agent` 执行者筛选的审计轨迹：执行者标签是**本页**携带的值（`全部执行者`、`operator`、`agent`——没有 `system`，因为本页没有这类行），四个时间标签中 `全部时间` 处于按下态，筛选条下的说明点明切分范围是已加载页并注明 `GUI-CORE-024`，结果分布条读作 `已加载页（已筛选）的结果分布 · 1 of 3 · denied 1`，剩下一行记录，`导出` 禁用（G6） |
-| `d2-rail-badge` | `…/qa.html?state=d2-rail-badge` | 同一个 Core 数字出现在打印它的几处：侧栏 D2 气泡显示 `7`、状态栏 `⏸ 7 gate waiting` 段落，以及在中央面板打开的决策队列。该计数刻意不取共享 fixture 的 `2`，以便截图证明气泡读的是投影而不是常量（G6） |
+| `consumer-workspace-commit` | `…/qa.html?state=consumer-workspace-commit` | `C5` 的三个客户端可见事实在同一帧里：Lane 标签条打印该 Lane **自己**的 worktree 分支与它自己的 `↑2 ↓1`（来自 `lane_sources`）、坞的本地节说明它展示的是该 **Lane** 的 worktree 并给出那棵树的数字、提交或推送可用（因为 Core 发布了可供代入的工作区 owner，`GUI-CORE-027`）。环境事实节折叠，理由与 `dock-environment` 折叠它的理由相同（G7） |
+| `consumer-turn-live` | `…/qa.html?state=consumer-turn-live` | `C6`：LIVE WORK 条读的是 Core 的回合而不是界面残留——来源写作 `queued`（队列被排空，这与手打一个回合是不同的解释）、计时读 `2:00`（来自 Core 的 `started_at`，而不是本 webview 挂载时刻的 `0:00`）、队列行写作 `1 queued · runs after the current turn`（G7） |
+| `consumer-evidence-patch` | `…/qa.html?state=consumer-evidence-patch` | `C7`：原生工具编辑现在被运行时归档为一条 `patch` 行，按其内容取景——`verification: verified`、`canonical quality: pass`、Core 解析出的 hunk diff 行、字节被校验所针对的哈希，以及 `LINKED` 里的 canonical 条目。kind 芯片刻意不动：Core 在裁页之前先应用 `kinds`，因此在 harness 只回答固定一页时点它，会显示一个与行并不匹配的筛选（G7） |
+| `consumer-transcript-rows` | `…/qa.html?state=consumer-transcript-rows` | `C8`：Core 的有序行进入 D1 转录，并滚动到该区域顶部，使一帧里同时带上 Core 的游标所换来的「加载更早」控件、用户行、带 `Over Core's 8 KiB row bound: this body is cut, not short.` 与「打开证据」入口的助手行、`edit_file` 工具调用、带同样入口的工具结果，以及检查运行——权限行及其「打开审计轨迹」在折线以下。`transcript_user` / `transcript_assistant` 两条不可用行已消失（`GUI-CORE-009`）（G7） |
+| `consumer-file-read` | `…/qa.html?state=consumer-file-read` | `C9`：坞检视器的「打开」（在 `dock-files` 中禁用）发出一条 `ReadWorkspaceFile`——树中选中 `AGENTS.md`、`lane-core worktree · 12288 bytes on disk · sha256 6d5e36fb44a9…`（**整个**文件的长度与哈希）、说明 Core 的上限裁断了正文的句子、等宽正文本身，以及标签条里不再带删除线的 `源码` 标签（G7） |
 | `palette` | `…/qa.html?state=palette` | 从标题栏按钮打开、覆盖在驾驶舱之上的 ⌘K 命令面板，四个分区全部可见——动作、跳转到（跨 Lane 的闸与询问，加上本 Lane）、设置，以及列出 Core 已发布工作区清单的「文件」分区 |
 | `palette-files` | `…/qa.html?state=palette-files` | 同一个面板但预先限定到 `~`，单独框出 Core 发布的清单：六条路径按 Core 的字典序排列，每条带 Core 报告的条目类型，没有任何一条是客户端自行发现的（`GUI-CORE-022`） |
 | `d10-ticker` | `…/qa.html?state=d10-ticker` | Lane 卡片下方的 D10 事件走马灯：Core 审计时间线的一页有界 newest-first 记录，两个项目交错出现，因此该条展示的是跨项目的同一个顺序而不是按项目分组的列表；每行携带 Core 的稳定 id、原样的点分 action key、owner 与时间戳（`GUI-CORE-014`） |
@@ -685,11 +689,11 @@ D2 与 D14 的投影就是独立屏截图已经用过的那份**生成**投影
 
 | 图像 | 它证明的主张 |
 | --- | --- |
-| `nav-d2-in-cockpit` | chrome 在切换中**存活**。G3 之前这块屏幕会替换整个窗口；这里标题栏、活动 rail、上下文坞、composer 与状态栏都仍在它旁边，composer 也仍然指名选中的 Lane。Rail 把 `决策` 标记为当前并带 `2`——来自 Core 自己的 `pendingGateCount`，是 rail 唯一被允许展示的已发布数字 |
+| `nav-d2-in-cockpit` | chrome 在切换中**存活**。G3 之前这块屏幕会替换整个窗口；这里标题栏、活动 rail、上下文坞、composer 与状态栏都仍在它旁边，composer 也仍然指名选中的 Lane。Rail 把 `决策` 标记为当前并带 `2`——来自 Core 自己的 `pendingDecisionCount`，是 rail 唯一被允许展示的已发布数字；G7 之后它与状态栏的 `⏸` 段落、队列自己的 `2 awaiting you` 标题是同一个数 |
 | `nav-d2-in-cockpit`（light/zh-CN） | 新增文案的语言证明：视图头部、Close 控件的可访问名称与 rail 新槽位名都会翻译，而 Core 的 id、原始动作键与能力名保持 Core 发布时的原样 |
 | `nav-d14-in-cockpit` | 返回路径有地方可回。`D-AUDIT` 的链接是单向的——审计行链接证据，不反向——因此从证据行或 D12 芯片跟过去的操作者过去会丢掉对话；这里轨迹渲染在对话之上，`Esc` 或 Close 控件把转录带回来 |
 | `nav-sidebar-floating-peek` | `D-SIDEBAR` 的浮动模式是浮层，不是第二套布局。Peek 打开的侧栏之后转录保持完整宽度（网格仍是三条轨道），12px 热区连同 `.edgehint` 贴在活动 rail 右缘，齿轮之上的 rail pin 读作未固定——同一个组件，不同的宿主。请与 `lane-rail` 对读，那是同一决策的 pinned 另一半 |
-| `nav-statusbar-config` | `D-STATUSBAR` 按**可操作性**而不是紧急程度切分状态栏。弹层恰好提供六个环境段；`MODE`、`PERM`、`LANE` 与待审闸芯片就在其后的状态栏上，且不在列表中，因为可以被关掉的控件就是操作者在需要时够不到的控件（`O-B6`） |
+| `nav-statusbar-config` | `D-STATUSBAR` 按**可操作性**而不是紧急程度切分状态栏。弹层恰好提供六个环境段；`MODE`、`PERM`、`LANE` 与决策芯片就在其后的状态栏上，且不在列表中，因为可以被关掉的控件就是操作者在需要时够不到的控件（`O-B6`） |
 
 G3 之前拍摄的带驾驶舱截图已在同一批次内重拍，见下文重拍小节。
 
@@ -888,7 +892,7 @@ G3 重拍过的那 **42** 张带驾驶舱图像再次全部重拍，另加 `d4-1
 
 | 图像 | 它证明的主张 |
 | --- | --- |
-| `dock-environment` | 坞**已分标签，并且对全部六个标签都如实说明**。环境 / 文件 / 对比可用；终端 / 源码 / 文档带删除线，原因写在 title 里。其下变更节在两条真实文件行（含逐文件计数）之上显示 Core 的 `+3 -1`，随后是 Core 的字节上限说明、点名当前显示工作区根的本地节、提交或推送路由、PR 状态缺失，以及 `42.1k / 128k` 的 `.envctx` 条带「已用 33」与 Core 发布的花费 |
+| `dock-environment` | 坞**已分标签，并且对全部六个标签都如实说明**。环境 / 文件 / 对比可用；终端 / 源码 / 文档带删除线，原因写在 title 里——`源码` 在这里带删除线是因为该状态没有绑定文件读取，这是关于宿主的事实而不是永久空缺（见 `consumer-file-read`）。其下变更节在两条真实文件行（含逐文件计数）之上显示 Core 的 `+3 -1`，随后是 Core 的字节上限说明、点名当前显示工作区根的本地节、提交或推送路由、PR 状态缺失，以及 `42.1k / 128k` 的 `.envctx` 条带「已用 33」与 Core 发布的花费 |
 | `dock-environment`（light/zh-CN） | 本批次新增的每一条文案的语言证明，标签名也在内：`环境 / 文件 / 终端 / 源码 / 对比 / 文档`、`变更`、`本地`、`提交或推送`、`PR 状态`、`上下文`。路径、分支名与 token 计数保持 Core 发布时的原样 |
 | `dock-files` | 文件树是**每个目录一份 Core page**。`apps/` 已展开并显示 `cli`、`gui`、`tui`——这些行之所以存在，只因为请求了该 prefix——而 Core 的 `complete: false` 渲染为「该页在这棵树结束之前就截止了」。选中的文件填充检视面板，其 Open 处于禁用并把 `runtime.workspace_file_reads` 写在屏幕上，而不是藏在 tooltip 里 |
 | `dock-diff` | 该面板**先是一份文件列表**。两个条目，第二个仍折叠并显示真实的 `+1284 -0`，第一个展开在共享 `diff_rows` 主体之上（带 Git 自己的 `@@` 头与逐侧行号），检视面板的文件 / 差异 / 「在评审中打开」旁是禁用的暂存与还原——因为 Core 未为二者发布任何逐文件命令 |
@@ -994,7 +998,6 @@ ERR_CONNECTION_REFUSED"页面，采集脚本把那个页面存成了证据。它
 | [d13-drill-1440x900-dark-en.png](d13-drill-1440x900-dark-en.png) | d13-drill | 1440x900 | dark | en |
 | [d14-filtered-1440x900-dark-en.png](d14-filtered-1440x900-dark-en.png) | d14-filtered | 1440x900 | dark | en |
 | [d14-filtered-1440x900-light-zh-CN.png](d14-filtered-1440x900-light-zh-CN.png) | d14-filtered | 1440x900 | light | zh-CN |
-| [d2-rail-badge-1440x900-dark-en.png](d2-rail-badge-1440x900-dark-en.png) | d2-rail-badge | 1440x900 | dark | en |
 
 | 图 | 它证明的主张 |
 | --- | --- |
@@ -1002,11 +1005,10 @@ ERR_CONNECTION_REFUSED"页面，采集脚本把那个页面存成了证据。它
 | `d13-drill` | 两种 Lane 绑定答案出现在同一帧里。上面的节点带 `Open Lane lane_core ↗`，它是控件；下面那个——同一个生成节点去掉绑定后的副本——带着「Core 未为该任务绑定任何 Lane，没有可打开的对象。」，且完全没有可点击暗示。差异在画面里而不是在 hover 状态里，这正是可见提示的意义 |
 | `d14-filtered` | 已加载页这一整套主张同时成立：执行者标签是 `全部执行者 / operator / agent`——没有 `system` 标签，因为本页没有这类行——四个时间标签停在 `全部时间` 上，筛选条下的说明点明切分范围是已加载页并注明 `GUI-CORE-024`，结果分布条读作 `已加载页（已筛选）的结果分布 · 1 of 3` 与 `denied 1`，筛选后恰好剩一行，`导出` 在筛选条末端变暗 |
 | `d14-filtered`（light/zh-CN） | 新增文案的语言与皮肤验证：标签文字、已加载页说明、结果分布标题与导出控件都会翻译，而存留行里的每个 Core 值——点分键 `evidence.rejected`、执行者词 `agent`、agent id `codex-acp`、结果 `denied`、对象与参数芯片——都与 Core 发布时完全一致，时间戳在两种语言下都保持固定的 `UTC` 格式 |
-| `d2-rail-badge` | 一个数字、一个来源、两处显示：侧栏 D2 槽位显示 `7`，状态栏显示 `⏸ 7 gate waiting`。`7` 不是共享 fixture 的 `2`，因此可以证明气泡读的确实是 `statusbar.pendingGateCount` 而不是常量。**同一帧里队列自身的 `2 awaiting you` 标题应读作已记录的差异，而不是 bug：** `D2DecisionsProjection.pendingTotal` 与 `pendingGateCount` 是两个不同的和（前者为审批加待处理复查，后者为审批加未休眠的开放合并闸），README 已写明这一点，其对齐属于拥有这些计数的批次。本张截图正是「二者今天并不是同一个数」的可见证据 |
 
 本批次有两个事实没有截图、改由 vitest 覆盖，这里如实写出而不是含糊带过：
 
-- **缺失的决策计数。** `pendingGateCount: null` 渲染为*没有*气泡、也没有状态栏
+- **缺失的决策计数。** `pendingDecisionCount: null` 渲染为*没有*气泡、也没有状态栏
   段落，原因写在槽位的可访问名称里。一张「缺失」的截图与一张「零」的截图无法
   区分，因此该区别由
   [`../../tests/rail_decision_badge.spec.ts`](../../tests/rail_decision_badge.spec.ts)
@@ -1051,3 +1053,133 @@ ERR_CONNECTION_REFUSED"页面，采集脚本把那个页面存成了证据。它
 H2 没有重拍任何既有截图。上文的 `evidence-unavailable` 与 `evidence-hash-mismatch`
 是**同一个** Core 答案，刻意保留：那一张取景在内容说明，这一张取景在报告区，两张
 合起来才说明两个事实现在是被联系起来的，而不只是同时存在。
+
+## G7 消费方截图与一次性整合重拍
+
+G7 批次（2026-09-12）消费了 `0.3.4` 的五项 Core 能力；下面这次重拍之所以存在，是因为
+G5 与 G6 的构建方式：坞标签（G5）与 D 视图状态加决策气泡（G6）是在**不同分支**上拍的，
+于是每一张 G6 截图里的坞都还是 G5 之前的样子，而每一张 G5 截图里都没有 G6 的气泡；两套
+截图也都拍在它们所打印的计数被统一之前。因此本目录中**每一张带驾驶舱 chrome** 的截图
+都在整合后的树上、同一次运行里重拍，并在提交前逐张打开看过：共 65 张，即既有的 59 张
+驾驶舱截图加 6 张新的 `consumer-*`。
+
+拍摄于 2026-09-12，使用 headless Chrome
+（`--headless=new --disable-gpu --hide-scrollbars --window-size=1440,900
+--virtual-time-budget=6000`）对着 4179 端口上的 vite 开发服务器，同时最多六个进程在飞；
+下表中的每一张随后都被打开读过。`welcome-fill` 保留它的第二个高度（`1440x640`），
+拍摄方式相同。
+
+**不在**本次运行里的 28 张是独立屏状态——`d2*`、`d4*`、`d10-blind*`、`d10-ticker`、
+`d11*`、`d12*`、`d13`、`d14-audit*`、`d14-raw-fallback`——它们渲染的是一块 D 屏，四周没有
+任何驾驶舱 chrome（`renderD2Decisions`、`renderD4LaneCreate` 等等）。G5、G6 与 G7 改的
+东西都到不了它们：没有标题栏、没有活动 rail、没有坞、没有状态栏，因此它们已提交的图像
+与取景当天一样有效。「带驾驶舱」指该状态挂载了驾驶舱——`mountCockpit`、`openReview`、
+`openEvidence`，或直接 `renderD1Cockpit`——重拍名单也正是据此推导，而不是靠肉眼挑。
+
+**重拍在每一张驾驶舱截图上改变了什么。** 状态栏的决策段与 rail 的 D2 气泡现在打印
+[README 定义的](../../README.zh-CN.md#决策队列计数气泡)那一个计数——`⏸ 2 awaiting you`，
+也就是生成的 D2 投影自己的总数——而 G5/G6 的截图打印的是闸计数，旁边还放着一个不同的
+队列总数。带坞的截图同时带上了 G5 的标签，带 D 视图的截图也带上了 G6 自己的 chrome。
+
+**有两张是因为自身原因而改变的：**
+
+- `dock-unavailable` 在已提交的那一套里与 `d1` 逐字节相同，因为它声称要展示的每一句缺失
+  说明，在环境事实节展开时都落在坞的折线以下。该状态现在像 `dock-environment` 那样把
+  那一节折叠，于是这一帧展示了它本来就该证明的那些句子。
+- `d2-rail-badge` **连同它的行一起被删除**。它的全部主张就是那处分歧——气泡读 `7`、队列
+  标题读 `2`——而 G7 通过让两者都从 `pending_decision_count` 派生把它关掉了。留着这个状态
+  就意味着要编造一个与 D2 投影相矛盾的状态栏计数，而那恰恰是这个状态当初被造出来揭示的
+  东西。三方一致现在由 `nav-d2-in-cockpit` 在一帧里承担，而
+  [`../../tests/rail_decision_badge.spec.ts`](../../tests/rail_decision_badge.spec.ts)
+  与 [`../../tests/gate_dormancy.rs`](../../tests/gate_dormancy.rs)
+  分别把「气泡读投影」与「只有一个计数」两条主张钉在测试里。
+
+五个新状态就是上文状态表里的 `consumer-*` 行。`consumer-transcript-rows` 同时承担本批的
+语言与外观证明：G7 新增的每一条标签——`加载更早`、8 KiB 行上限说明、`打开证据`、
+`工具结果`、检查运行的状态词、`对话完成。`——都已翻译，而行内每一个 Core 值（正文、
+工具名、路径、裁决词、审计 id）都保持 Core 发布时的原样。
+
+有两个 G7 事实没有截图、而是由测试钉住，这里写明而不是暗示：
+
+- **被拒绝的文件读取。** Core 对权限闸拒绝的路径给出的 `CommandRejected`，以及对离开目标
+  的路径给出的本地拒绝，都是句子而不是树的状态，其中一者的截图与另一者措辞的截图无法
+  区分。二者都由
+  [`../../tests/workspace_file_read.rs`](../../tests/workspace_file_read.rs)
+  与
+  [`../../tests/workspace_file_read.spec.ts`](../../tests/workspace_file_read.spec.ts)
+  钉住。
+- **Core 写不进去的布局记录。** `persisted: false` 会给 rail 的 pin 与状态栏弹层各加一句；
+  harness 没有这个状态，它由
+  [`../../tests/layout_preferences.spec.ts`](../../tests/layout_preferences.spec.ts)
+  钉住。
+
+| 文件 | 状态 | 尺寸 | 模式 | 语言 |
+| --- | --- | --- | --- | --- |
+| [approval-hunks-1440x900-dark-en.png](approval-hunks-1440x900-dark-en.png) | approval-hunks | 1440x900 | 深色 | en |
+| [centre-focus-mode-1440x900-dark-en.png](centre-focus-mode-1440x900-dark-en.png) | centre-focus-mode | 1440x900 | 深色 | en |
+| [centre-lane-tabs-1440x900-dark-en.png](centre-lane-tabs-1440x900-dark-en.png) | centre-lane-tabs | 1440x900 | 深色 | en |
+| [centre-lane-tabs-1440x900-light-zh-CN.png](centre-lane-tabs-1440x900-light-zh-CN.png) | centre-lane-tabs | 1440x900 | 浅色 | zh-CN |
+| [centre-tool-diff-1440x900-dark-en.png](centre-tool-diff-1440x900-dark-en.png) | centre-tool-diff | 1440x900 | 深色 | en |
+| [consumer-evidence-patch-1440x900-dark-en.png](consumer-evidence-patch-1440x900-dark-en.png) | consumer-evidence-patch | 1440x900 | 深色 | en |
+| [consumer-file-read-1440x900-dark-en.png](consumer-file-read-1440x900-dark-en.png) | consumer-file-read | 1440x900 | 深色 | en |
+| [consumer-transcript-rows-1440x900-dark-en.png](consumer-transcript-rows-1440x900-dark-en.png) | consumer-transcript-rows | 1440x900 | 深色 | en |
+| [consumer-transcript-rows-1440x900-light-zh-CN.png](consumer-transcript-rows-1440x900-light-zh-CN.png) | consumer-transcript-rows | 1440x900 | 浅色 | zh-CN |
+| [consumer-turn-live-1440x900-dark-en.png](consumer-turn-live-1440x900-dark-en.png) | consumer-turn-live | 1440x900 | 深色 | en |
+| [consumer-workspace-commit-1440x900-dark-en.png](consumer-workspace-commit-1440x900-dark-en.png) | consumer-workspace-commit | 1440x900 | 深色 | en |
+| [d1-1440x900-dark-en.png](d1-1440x900-dark-en.png) | d1 | 1440x900 | 深色 | en |
+| [d1-1440x900-light-zh-CN.png](d1-1440x900-light-zh-CN.png) | d1 | 1440x900 | 浅色 | zh-CN |
+| [d1-mode-menu-1440x900-dark-en.png](d1-mode-menu-1440x900-dark-en.png) | d1-mode-menu | 1440x900 | 深色 | en |
+| [d1-model-menu-1440x900-dark-en.png](d1-model-menu-1440x900-dark-en.png) | d1-model-menu | 1440x900 | 深色 | en |
+| [d10-actions-1440x900-dark-en.png](d10-actions-1440x900-dark-en.png) | d10-actions | 1440x900 | 深色 | en |
+| [d10-events-not-read-1440x900-dark-en.png](d10-events-not-read-1440x900-dark-en.png) | d10-events-not-read | 1440x900 | 深色 | en |
+| [d13-drill-1440x900-dark-en.png](d13-drill-1440x900-dark-en.png) | d13-drill | 1440x900 | 深色 | en |
+| [d14-filtered-1440x900-dark-en.png](d14-filtered-1440x900-dark-en.png) | d14-filtered | 1440x900 | 深色 | en |
+| [d14-filtered-1440x900-light-zh-CN.png](d14-filtered-1440x900-light-zh-CN.png) | d14-filtered | 1440x900 | 浅色 | zh-CN |
+| [d6-actions-1440x900-dark-en.png](d6-actions-1440x900-dark-en.png) | d6-actions | 1440x900 | 深色 | en |
+| [d6-error-1440x900-dark-en.png](d6-error-1440x900-dark-en.png) | d6-error | 1440x900 | 深色 | en |
+| [dock-diff-1440x900-dark-en.png](dock-diff-1440x900-dark-en.png) | dock-diff | 1440x900 | 深色 | en |
+| [dock-environment-1440x900-dark-en.png](dock-environment-1440x900-dark-en.png) | dock-environment | 1440x900 | 深色 | en |
+| [dock-environment-1440x900-light-zh-CN.png](dock-environment-1440x900-light-zh-CN.png) | dock-environment | 1440x900 | 浅色 | zh-CN |
+| [dock-files-1440x900-dark-en.png](dock-files-1440x900-dark-en.png) | dock-files | 1440x900 | 深色 | en |
+| [dock-unavailable-1440x900-dark-en.png](dock-unavailable-1440x900-dark-en.png) | dock-unavailable | 1440x900 | 深色 | en |
+| [evidence-1440x900-dark-en.png](evidence-1440x900-dark-en.png) | evidence | 1440x900 | 深色 | en |
+| [evidence-1440x900-light-zh-CN.png](evidence-1440x900-light-zh-CN.png) | evidence | 1440x900 | 浅色 | zh-CN |
+| [evidence-empty-1440x900-dark-en.png](evidence-empty-1440x900-dark-en.png) | evidence-empty | 1440x900 | 深色 | en |
+| [evidence-hash-mismatch-1440x900-dark-en.png](evidence-hash-mismatch-1440x900-dark-en.png) | evidence-hash-mismatch | 1440x900 | 深色 | en |
+| [evidence-rejected-1440x900-dark-en.png](evidence-rejected-1440x900-dark-en.png) | evidence-rejected | 1440x900 | 深色 | en |
+| [evidence-summary-only-1440x900-dark-en.png](evidence-summary-only-1440x900-dark-en.png) | evidence-summary-only | 1440x900 | 深色 | en |
+| [evidence-text-1440x900-dark-en.png](evidence-text-1440x900-dark-en.png) | evidence-text | 1440x900 | 深色 | en |
+| [evidence-unavailable-1440x900-dark-en.png](evidence-unavailable-1440x900-dark-en.png) | evidence-unavailable | 1440x900 | 深色 | en |
+| [lane-rail-1440x900-dark-en.png](lane-rail-1440x900-dark-en.png) | lane-rail | 1440x900 | 深色 | en |
+| [nav-d14-in-cockpit-1440x900-dark-en.png](nav-d14-in-cockpit-1440x900-dark-en.png) | nav-d14-in-cockpit | 1440x900 | 深色 | en |
+| [nav-d2-in-cockpit-1440x900-dark-en.png](nav-d2-in-cockpit-1440x900-dark-en.png) | nav-d2-in-cockpit | 1440x900 | 深色 | en |
+| [nav-d2-in-cockpit-1440x900-light-zh-CN.png](nav-d2-in-cockpit-1440x900-light-zh-CN.png) | nav-d2-in-cockpit | 1440x900 | 浅色 | zh-CN |
+| [nav-sidebar-floating-peek-1440x900-dark-en.png](nav-sidebar-floating-peek-1440x900-dark-en.png) | nav-sidebar-floating-peek | 1440x900 | 深色 | en |
+| [nav-statusbar-config-1440x900-dark-en.png](nav-statusbar-config-1440x900-dark-en.png) | nav-statusbar-config | 1440x900 | 深色 | en |
+| [palette-1440x900-dark-en.png](palette-1440x900-dark-en.png) | palette | 1440x900 | 深色 | en |
+| [palette-files-1440x900-dark-en.png](palette-files-1440x900-dark-en.png) | palette-files | 1440x900 | 深色 | en |
+| [palette-files-1440x900-light-zh-CN.png](palette-files-1440x900-light-zh-CN.png) | palette-files | 1440x900 | 浅色 | zh-CN |
+| [permission-ask-1440x900-dark-en.png](permission-ask-1440x900-dark-en.png) | permission-ask | 1440x900 | 深色 | en |
+| [permission-deny-redirect-1440x900-dark-en.png](permission-deny-redirect-1440x900-dark-en.png) | permission-deny-redirect | 1440x900 | 深色 | en |
+| [permission-deny-redirect-1440x900-light-zh-CN.png](permission-deny-redirect-1440x900-light-zh-CN.png) | permission-deny-redirect | 1440x900 | 浅色 | zh-CN |
+| [project-picker-1440x900-dark-en.png](project-picker-1440x900-dark-en.png) | project-picker | 1440x900 | 深色 | en |
+| [project-switch-confirm-1440x900-dark-en.png](project-switch-confirm-1440x900-dark-en.png) | project-switch-confirm | 1440x900 | 深色 | en |
+| [review-1440x900-dark-en.png](review-1440x900-dark-en.png) | review | 1440x900 | 深色 | en |
+| [review-1440x900-light-zh-CN.png](review-1440x900-light-zh-CN.png) | review | 1440x900 | 浅色 | zh-CN |
+| [review-commit-1440x900-dark-en.png](review-commit-1440x900-dark-en.png) | review-commit | 1440x900 | 深色 | en |
+| [review-commit-completed-1440x900-dark-en.png](review-commit-completed-1440x900-dark-en.png) | review-commit-completed | 1440x900 | 深色 | en |
+| [review-commit-completed-1440x900-light-zh-CN.png](review-commit-completed-1440x900-light-zh-CN.png) | review-commit-completed | 1440x900 | 浅色 | zh-CN |
+| [review-commit-pending-approval-1440x900-dark-en.png](review-commit-pending-approval-1440x900-dark-en.png) | review-commit-pending-approval | 1440x900 | 深色 | en |
+| [review-empty-1440x900-dark-en.png](review-empty-1440x900-dark-en.png) | review-empty | 1440x900 | 深色 | en |
+| [review-omitted-1440x900-dark-en.png](review-omitted-1440x900-dark-en.png) | review-omitted | 1440x900 | 深色 | en |
+| [review-push-no-upstream-1440x900-dark-en.png](review-push-no-upstream-1440x900-dark-en.png) | review-push-no-upstream | 1440x900 | 深色 | en |
+| [review-rejected-1440x900-dark-en.png](review-rejected-1440x900-dark-en.png) | review-rejected | 1440x900 | 深色 | en |
+| [review-rejected-action-1440x900-dark-en.png](review-rejected-action-1440x900-dark-en.png) | review-rejected-action | 1440x900 | 深色 | en |
+| [settings-1440x900-dark-en.png](settings-1440x900-dark-en.png) | settings | 1440x900 | 深色 | en |
+| [settings-1440x900-light-zh-CN.png](settings-1440x900-light-zh-CN.png) | settings | 1440x900 | 浅色 | zh-CN |
+| [settings-unavailable-1440x900-dark-en.png](settings-unavailable-1440x900-dark-en.png) | settings-unavailable | 1440x900 | 深色 | en |
+| [welcome-fill-1440x640-dark-en.png](welcome-fill-1440x640-dark-en.png) | welcome-fill | 1440x640 | 深色 | en |
+| [welcome-fill-1440x900-dark-en.png](welcome-fill-1440x900-dark-en.png) | welcome-fill | 1440x900 | 深色 | en |
+
+上表每一行都在本次运行里拍摄并逐张看过。本文档中较早的截图表记录的是每个状态*首次*
+取景的时间与目的；对带驾驶舱的状态而言，它们链接的图像就是本表中的这一张。

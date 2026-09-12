@@ -100,7 +100,7 @@ one carries an inline comment in `qa.ts` naming the fixture it mirrors.
 | State | Delta | Mirrors |
 | --- | --- | --- |
 | all `d1*` | `preferences.locale/skin/mode` follow the URL parameters | the cockpit reads its locale from the projection, not the document element |
-| all `d1*` | a `ContextUsageProjection` on the context dock and the three statusbar fields the shared fixture leaves empty (`context`, `diagnosticsCount`, `pendingGateCount`) | the populated statusbar fixture in `tests/statusbar.spec.ts` |
+| all `d1*` | a `ContextUsageProjection` on the context dock and the three statusbar fields the shared fixture leaves empty (`context`, `diagnosticsCount`, `pendingDecisionCount`, the last set to the generated D2 projection's own `pendingTotal` because since G7 the host derives both from one function) | the populated statusbar fixture in `tests/statusbar.spec.ts` |
 | all `d1*` | `agentAdapters[0].models` | the adapter fixture in `tests/composer_controls.spec.ts` |
 | `d6-actions`, `d6-error` | a stopped session whose `restart` carries a session id and `close_lane` a lane id | the `STOPPED` fixture in `tests/d6_recovery.spec.ts` |
 | `d12-actions` | required evidence recorded, validator satisfied, both actions available with a `null` code | the `DECIDABLE` fixture in `tests/d12_integration_gate.spec.ts` |
@@ -146,7 +146,7 @@ All URLs share the prefix
 
 | State | URL | What the capture must show |
 | --- | --- | --- |
-| `d1` | `…/qa.html?state=d1` | the full cockpit; the titlebar project selector with its branch and dirty marker beside the `↑/↓` and worktree chips; all nine statusbar segments carrying a fact plus the pending-gate chip; the three composer selector pills |
+| `d1` | `…/qa.html?state=d1` | the full cockpit; the titlebar project selector with its branch and dirty marker beside the `↑/↓` and worktree chips; all nine statusbar segments carrying a fact plus the `⏸ 2 awaiting you` decision chip; the three composer selector pills |
 | `d1-mode-menu` | `…/qa.html?state=d1-mode-menu` | the work-mode popover open over the composer, with the current mode marked selected |
 | `d1-model-menu` | `…/qa.html?state=d1-model-menu` | the model popover open, showing both the provider group and the adapter group Core published |
 | `palette` | `…/qa.html?state=palette` | the ⌘K command palette open over the cockpit from the titlebar toggle, with all four sections visible — Actions, Jump to (the cross-Lane gate and ask plus the Lane), Settings, and the Files section listing the workspace inventory Core published |
@@ -165,7 +165,7 @@ All URLs share the prefix
 | `centre-lane-tabs` | `…/qa.html?state=centre-lane-tabs` | the `.tabstrip.lanebar` Lane tab strip over the transcript: one tab per Lane with its own recorded branch and bound agent, the current tab marked, the trailing `＋`, and the meta slot carrying the project, Core's published budget and the resolved work mode once |
 | `centre-tool-diff` | `…/qa.html?state=centre-tool-diff` | the transcript's `.tool` blocks: a workspace change with its header disclosed over the shared hunk rows, and a failed check run with the command, the status chip, and the three `.testrow`s including Core's failing location |
 | `centre-focus-mode` | `…/qa.html?state=centre-focus-mode` | focus mode entered from the titlebar control: two grid tracks, the pinned Lane column given back, the context dock behind its right-edge hot zone, and the `IFocus` control pressed |
-| `dock-environment` | `…/qa.html?state=dock-environment` | the context dock's Environment panel: the six-tab strip with Environment / Files / Diff live and Terminal / Code / Docs struck through and named, then Changes with Core's `+3 −1` and one row per changed file, Local saying which tree it shows, the Commit-or-push route, the PR-status absence, and the `.envctx` budget bar. The environment facts section is collapsed in the capture — the panel is taller than 900px with it open, and collapsing it is what the design's `.envhd` is for |
+| `dock-environment` | `…/qa.html?state=dock-environment` | the context dock's Environment panel: the six-tab strip with Environment / Files / Diff live and Terminal / Code / Docs struck through and named (Code is struck here because this state binds no file read; `consumer-file-read` is the frame where Core publishes one and the tab opens), then Changes with Core's `+3 −1` and one row per changed file, Local saying which tree it shows, the Commit-or-push route, the PR-status absence, and the `.envctx` budget bar. The environment facts section is collapsed in the capture — the panel is taller than 900px with it open, and collapsing it is what the design's `.envhd` is for |
 | `dock-files` | `…/qa.html?state=dock-files` | the Files tab with `apps/` opened: three directories that exist only because `apps/` was asked for as its own Core page, Core's truncation sentence where its page stopped, and the inspector on a selected file with Open disabled and `runtime.workspace_file_reads` written out on screen |
 | `dock-diff` | `…/qa.html?state=dock-diff` | the Diff tab: one entry per changed file, the first expanded over the shared `diff_rows` body with Git's own `@@` header and per-side numbers, the second left collapsed with its real `+1284 −0`, and the inspector's File / Diff / "Open in review" beside a disabled Stage and Revert |
 | `dock-unavailable` | `…/qa.html?state=dock-unavailable` | the same panel on a host with no diff read and no operator git bound: Changes says no host is bound, Commit or push is disabled with its reason **on screen** rather than only in a tooltip, and PR status keeps its own absence sentence. Four absences, four sentences |
@@ -205,14 +205,18 @@ All URLs share the prefix
 | `evidence-unavailable` | `…/qa.html?state=evidence-unavailable` | the opposite absence on the `patch` row: `Unavailable { HashMismatch }` as "canonical bytes failed verification — not shown", in the error colour, with no body anywhere on the screen |
 | `evidence-empty` | `…/qa.html?state=evidence-empty` | "No evidence in this scope." — the only state drawn that way, over a page Core actually answered — with `complete` stated as "Archive complete" rather than left to the absence of a `Load older` button |
 | `evidence-rejected` | `…/qa.html?state=evidence-rejected` | Core's over-limit `kinds` refusal verbatim in a `role=alert`, its `hint:` line kept on its own line, with nothing loaded, no paging foot, and no empty-archive sentence |
-| `nav-d2-in-cockpit` | `…/qa.html?state=nav-d2-in-cockpit` | the decision queue as a **centre-pane view**: the cockpit chrome unchanged around it — titlebar with the source block, activity rail with `Decisions` marked `aria-current` and carrying Core's own pending count as its badge, context dock, composer still addressed to the selected Lane, statusbar with its gate chip — plus the view's own `AUDIT`-style head and the Close control in the position DiffReview puts its own |
+| `nav-d2-in-cockpit` | `…/qa.html?state=nav-d2-in-cockpit` | the decision queue as a **centre-pane view**: the cockpit chrome unchanged around it — titlebar with the source block, activity rail with `Decisions` marked `aria-current` and carrying Core's own pending count as its badge, context dock, composer still addressed to the selected Lane, statusbar with its decision chip — plus the view's own `AUDIT`-style head and the Close control in the position DiffReview puts its own |
 | `nav-d14-in-cockpit` | `…/qa.html?state=nav-d14-in-cockpit` | the audit trail in the same shell, which is where `D-AUDIT`'s one-way link from an evidence row or a D12 baseline chip now lands: the rail's `Audit timeline` slot marked current, the mode toggle and the three audit rows below the view head, and the conversation still one `Esc` away |
 | `nav-sidebar-floating-peek` | `…/qa.html?state=nav-sidebar-floating-peek` | `D-SIDEBAR` **floating** mode — the decision's default — with the peek open through the keyboard path (the Lanes rail slot): the sidebar as an **overlay above a full-width transcript** rather than a layout column, the 12px hot zone with its `.edgehint` cue against the activity rail, and the rail's pin (above the settings gear) reading unpinned |
-| `nav-statusbar-config` | `…/qa.html?state=nav-statusbar-config` | the `D-STATUSBAR` config gear open: the `.sbcfg` popover listing the six ambient segments with their checkboxes, the footer sentence saying identity and actionable items are always pinned, and `MODE`, `PERM`, `LANE`, and the pending-gate chip visible on the bar behind it while absent from the list |
+| `nav-statusbar-config` | `…/qa.html?state=nav-statusbar-config` | the `D-STATUSBAR` config gear open: the `.sbcfg` popover listing the six ambient segments with their checkboxes, the footer sentence saying identity and actionable items are always pinned, and `MODE`, `PERM`, `LANE`, and the decision chip visible on the bar behind it while absent from the list |
 | `d10-actions` | `…/qa.html?state=d10-actions` | the Lane monitor's card action row in the cockpit: **Attach / Stop / Pause / Kill on both cards**, with Stop live on the Lane Core published an Agent session for and disabled on the Lane it published none for, and Pause and Kill disabled on both naming the commands `RuntimeCommand` does not carry (G6) |
 | `d13-drill` | `…/qa.html?state=d13-drill` | both Lane-binding answers on one column: the node Core bound to a Lane carrying its visible `Open Lane lane_core ↗` line and `role="button"`, and a copy of the same generated node with the binding removed saying Core bound no Lane and offering no click (G6) |
 | `d14-filtered` | `…/qa.html?state=d14-filtered` | the audit trail with the `agent` actor chip engaged: the actor chips are the values **this page** carries (`All actors`, `operator`, `agent` — no `system`, because no row on the page is one), the four time chips with `All time` pressed, the note saying the cut is the loaded page and naming `GUI-CORE-024`, the rollup reading `Outcomes on the loaded page, filtered · 1 of 3 · denied 1`, one remaining row, and `Export` disabled (G6) |
-| `d2-rail-badge` | `…/qa.html?state=d2-rail-badge` | one Core number in the places that print it: the rail's D2 badge reading `7`, the statusbar's `⏸ 7 gate waiting` segment, and the decision queue open in the centre pane. The count is deliberately not the shared fixture's `2`, so the capture shows the badge reading the projection rather than a constant (G6) |
+| `consumer-workspace-commit` | `…/qa.html?state=consumer-workspace-commit` | `C5`'s three client-visible facts in one frame: the Lane tab strip printing that Lane's **own** worktree branch with its own `↑2 ↓1` from `lane_sources`, the dock's Local section saying it is showing the **Lane** worktree with that tree's numbers, and Commit-or-push enabled because Core published a workspace owner to act as (`GUI-CORE-027`). The Environment facts section is collapsed for the reason `dock-environment` collapses it (G7) |
+| `consumer-turn-live` | `…/qa.html?state=consumer-turn-live` | `C6`: the Live Work strip reading Core's turn rather than display residue — the source named `queued` (the queue drained, which is a different explanation for text appearing than a typed turn), the elapsed clock reading `2:00` from Core's `started_at` rather than `0:00` from this webview's mount, and the queue line saying `1 queued · runs after the current turn` (G7) |
+| `consumer-evidence-patch` | `…/qa.html?state=consumer-evidence-patch` | `C7`: the archived `patch` row the runtime now records for a native tool edit, framed on its content — `verification: verified`, `canonical quality: pass`, Core's parsed diff rows for the hunk, the hash the bytes were verified against, and the canonical item in `LINKED`. The kind chips are deliberately untouched: Core applies `kinds` before it cuts the page, so pressing one while the harness answers a fixed page would show a filter the rows do not match (G7) |
+| `consumer-transcript-rows` | `…/qa.html?state=consumer-transcript-rows` | `C8`: Core's ordered rows in the D1 transcript, scrolled to the top of the region so one frame carries the `Load older` control Core's cursor earned, the user row, the assistant row with `Over Core's 8 KiB row bound: this body is cut, not short.` and its `Open evidence` affordance, the `edit_file` tool call, its result with the same affordance, and the check run — with the permission row and its `Open audit trail` below the fold. The `transcript_user` / `transcript_assistant` unavailable rows are gone (`GUI-CORE-009`) (G7) |
+| `consumer-file-read` | `…/qa.html?state=consumer-file-read` | `C9`: the dock inspector's Open, disabled in `dock-files`, sending one `ReadWorkspaceFile` — the tree with `AGENTS.md` selected, `lane-core worktree · 12288 bytes on disk · sha256 6d5e36fb44a9…` (the **whole** file's length and hash), the sentence saying Core's bound cut the body, the monospace body itself, and the `Code` tab no longer struck through in the strip (G7) |
 
 `mode=dark|light` and `locale=en|zh-CN` are accepted on every state and resolve
 through the shared `resolveTheme` path, so the harness never ships a second
@@ -797,11 +801,11 @@ Each image exists to make one claim falsifiable:
 
 | Image | The claim it proves |
 | --- | --- |
-| `nav-d2-in-cockpit` | the chrome **survives** the switch. Before G3 this screen replaced the window; here the titlebar, the activity rail, the context dock, the composer, and the statusbar are all still on screen beside it, and the composer still names the selected Lane. The rail marks `Decisions` current and carries `2` — Core's own `pendingGateCount`, the one published number the rail is allowed to show |
+| `nav-d2-in-cockpit` | the chrome **survives** the switch. Before G3 this screen replaced the window; here the titlebar, the activity rail, the context dock, the composer, and the statusbar are all still on screen beside it, and the composer still names the selected Lane. The rail marks `Decisions` current and carries `2` — Core's own `pendingDecisionCount`, the one published number the rail is allowed to show, and since G7 the same number the statusbar's `⏸` segment and the queue's own `2 awaiting you` header print |
 | `nav-d2-in-cockpit` (light/zh-CN) | the locale proof for the added copy: the view head, the Close control's accessible name, and the rail's new slot names translate, while Core's ids, the raw action keys, and the capability names stay exactly as Core published them |
 | `nav-d14-in-cockpit` | the return path has somewhere to return **to**. `D-AUDIT`'s link runs one way — audit rows link evidence, not the reverse — so an operator who follows it from an evidence row or a D12 chip used to lose the conversation; here the trail renders over it and `Esc` or the Close control brings the transcript back |
 | `nav-sidebar-floating-peek` | `D-SIDEBAR`'s floating mode is an overlay, not a second layout. The transcript keeps its full width behind the peeked sidebar (the grid stays three tracks), the 12px hot zone with its `.edgehint` sits against the activity rail, and the rail's pin above the gear reads unpinned — the same component, a different host. Read it against `lane-rail`, which is the pinned half of the same decision |
-| `nav-statusbar-config` | `D-STATUSBAR` splits the bar by **actionability**, not urgency. The popover offers exactly the six ambient segments; `MODE`, `PERM`, `LANE`, and the pending-gate chip are on the bar behind it and are not in the list, because a control that can be switched off is a control the operator cannot reach when it matters (`O-B6`) |
+| `nav-statusbar-config` | `D-STATUSBAR` splits the bar by **actionability**, not urgency. The popover offers exactly the six ambient segments; `MODE`, `PERM`, `LANE`, and the decision chip are on the bar behind it and are not in the list, because a control that can be switched off is a control the operator cannot reach when it matters (`O-B6`) |
 
 The cockpit-bearing captures that predate G3 were re-taken in the same batch;
 see the recapture section below.
@@ -1019,7 +1023,7 @@ Each image exists to make one claim falsifiable:
 
 | Image | The claim it proves |
 | --- | --- |
-| `dock-environment` | the dock is **tabbed and honest about all six tabs**. Environment / Files / Diff are live; Terminal / Code / Docs are struck through and carry their reason in the title. Below them Changes shows Core's `+3 -1` over two real file rows with per-file counts, Core's byte-bound sentence, Local naming the workspace root it is showing, the Commit-or-push route, the PR-status absence, and the `.envctx` bar at `42.1k / 128k` with `33 per cent used` and the spend Core published |
+| `dock-environment` | the dock is **tabbed and honest about all six tabs**. Environment / Files / Diff are live; Terminal / Code / Docs are struck through and carry their reason in the title — Code because this state binds no file read, which is a fact about the host rather than a permanent gap (see `consumer-file-read`). Below them Changes shows Core's `+3 -1` over two real file rows with per-file counts, Core's byte-bound sentence, Local naming the workspace root it is showing, the Commit-or-push route, the PR-status absence, and the `.envctx` bar at `42.1k / 128k` with `33 per cent used` and the spend Core published |
 | `dock-environment` (light/zh-CN) | the locale proof for every string this batch added, tab labels included: `环境 / 文件 / 终端 / 源码 / 对比 / 文档`, `变更`, `本地`, `提交或推送`, `PR 状态`, `上下文`. Paths, branch names and token counts stay exactly as Core published them |
 | `dock-files` | the tree is **one Core page per directory**. `apps/` is open and shows `cli`, `gui` and `tui` — rows that exist only because that prefix was asked for — and Core's `complete: false` renders as "the page ended before this tree did". The selected file fills the inspector, whose Open is disabled with `runtime.workspace_file_reads` written out on screen rather than hidden in a tooltip |
 | `dock-diff` | the panel is a **file list first**. Two entries, the second still collapsed with its real `+1284 -0`, the first expanded over the shared `diff_rows` body with Git's own `@@` header and per-side line numbers, and the inspector's File / Diff / "Open in review" beside a Stage and Revert that are disabled because Core publishes no per-file command for either |
@@ -1137,7 +1141,6 @@ only so the method matches what was run.
 | [d13-drill-1440x900-dark-en.png](d13-drill-1440x900-dark-en.png) | d13-drill | 1440x900 | dark | en |
 | [d14-filtered-1440x900-dark-en.png](d14-filtered-1440x900-dark-en.png) | d14-filtered | 1440x900 | dark | en |
 | [d14-filtered-1440x900-light-zh-CN.png](d14-filtered-1440x900-light-zh-CN.png) | d14-filtered | 1440x900 | light | zh-CN |
-| [d2-rail-badge-1440x900-dark-en.png](d2-rail-badge-1440x900-dark-en.png) | d2-rail-badge | 1440x900 | dark | en |
 
 | Image | The claim it proves |
 | --- | --- |
@@ -1145,12 +1148,11 @@ only so the method matches what was run.
 | `d13-drill` | both Lane-binding answers in one frame. The upper node carries `Open Lane lane_core ↗` and is the control; the lower one — the same generated node with its binding removed — carries "Core bound no Lane to this task, so there is nothing to open." and no affordance at all. The difference is in the frame rather than in a hover state, which is the point of the visible cue |
 | `d14-filtered` | the whole loaded-page claim at once: the actor chips are `All actors / operator / agent` — no `system` chip, because no row on this page is one — the four time chips sit behind `All time`, the note under the bar states that the cut is the loaded page and names `GUI-CORE-024`, the rollup reads `Outcomes on the loaded page, filtered · 1 of 3` with `denied 1`, exactly one row survives the filter, and `Export` is dimmed at the end of the bar |
 | `d14-filtered` (light/zh-CN) | the locale and skin proof for the added copy: the chip labels, the loaded-page note, the rollup caption and the export control translate, while every Core value in the surviving row — the dotted `evidence.rejected` key, the actor word `agent`, the agent id `codex-acp`, the outcome `denied`, the object and argument chips — stays exactly as Core published it, and the timestamp keeps its fixed `UTC` format in both locales |
-| `d2-rail-badge` | one number, one source, two places: the rail's D2 slot carries `7` and the statusbar reads `⏸ 7 gate waiting`. `7` is not the shared fixture's `2`, so the badge is demonstrably reading `statusbar.pendingGateCount` rather than a constant. **Read the queue's own `2 awaiting you` header in the same frame as the recorded divergence, not as a bug:** `D2DecisionsProjection.pendingTotal` is a different sum (approvals plus pending reviews) from `pendingGateCount` (approvals plus open non-dormant merge gates), which the README states and which the batch owning those counts has to reconcile. This capture is the visible proof that the two are not the same number today |
 
 Two facts in this batch have no capture and are covered by vitest instead,
 stated here rather than implied:
 
-- **the absent decision count.** `pendingGateCount: null` renders as *no*
+- **the absent decision count.** `pendingDecisionCount: null` renders as *no*
   badge and no statusbar segment, with the reason on the slot's accessible
   name. A screenshot of an absence is indistinguishable from a screenshot of a
   zero, so the distinction is pinned by
@@ -1201,3 +1203,151 @@ No existing capture was retaken by H2. The `evidence-unavailable` capture above
 is the *same* Core answer as `evidence-hash-mismatch` and is deliberately kept:
 it frames the content note, this one frames the report, and the pair is what
 shows that the two facts are now related rather than merely both present.
+
+## G7 consumer captures and the integrated recapture
+
+Batch G7 (2026-09-12) consumed the five `0.3.4` Core capabilities, and the
+recapture below exists because of how G5 and G6 were built: the dock tabs (G5)
+and the D-view states plus the decision badge (G6) were captured on **separate
+branches**, so every G6 frame showed the pre-G5 dock and every G5 frame lacked
+G6's badge. Both sets were also taken before the counts they print were
+unified. Every **cockpit-bearing** frame in this directory was therefore
+retaken on the integrated tree, in one run, and viewed one by one before it was
+committed: 65 images, the 59 existing cockpit frames plus the 6 new
+`consumer-*` ones.
+
+Captured 2026-09-12 with headless Chrome
+(`--headless=new --disable-gpu --hide-scrollbars --window-size=1440,900
+--virtual-time-budget=6000`) against the vite dev server on port 4179, six
+captures in flight at a time; every image in the table below was then opened
+and read. `welcome-fill` keeps its second height (`1440x640`), captured the
+same way.
+
+The 28 frames **not** in this run are the standalone-screen states — `d2*`,
+`d4*`, `d10-blind*`, `d10-ticker`, `d11*`, `d12*`, `d13`, `d14-audit*`,
+`d14-raw-fallback` — which render one D-screen with no cockpit chrome around it
+(`renderD2Decisions`, `renderD4LaneCreate`, and so on). Nothing G5, G6 or G7
+changed reaches them: they carry no titlebar, no activity rail, no dock and no
+statusbar, so their committed images remain exactly as valid as the day they
+were framed. Cockpit-bearing means the state mounts the cockpit —
+`mountCockpit`, `openReview`, `openEvidence`, or `renderD1Cockpit` directly —
+which is also how the recapture list was derived rather than by eye.
+
+**What the recapture changes on every cockpit frame.** The statusbar's decision
+segment and the rail's D2 badge now print the one count
+[the README defines](../../README.md#decision-queue-badge) — `⏸ 2 awaiting you`,
+the generated D2 projection's own total — where the G5/G6 frames printed the
+gate count beside a different queue total. Frames that carry the dock also carry the G5
+tabs, and frames that carry a D-view carry G6's own chrome.
+
+**Two frames changed for a reason of their own:**
+
+- `dock-unavailable` was byte-identical to `d1` in the committed set, because
+  every absence sentence it claims to show sat below the dock's fold with the
+  Environment facts open. The state now collapses that section, the way
+  `dock-environment` does, and the frame shows the sentences it was always
+  supposed to prove.
+- `d2-rail-badge` is **deleted with its rows**. Its whole claim was the
+  divergence — a badge reading `7` beside a queue header reading `2` — and G7
+  closed that by deriving both from `pending_decision_count`. Keeping the state
+  would have meant fabricating a statusbar count the D2 projection contradicts,
+  which is the one thing the state was built to expose. `nav-d2-in-cockpit` now
+  carries the three-way agreement in one frame, and
+  [`../../tests/rail_decision_badge.spec.ts`](../../tests/rail_decision_badge.spec.ts)
+  and [`../../tests/gate_dormancy.rs`](../../tests/gate_dormancy.rs) keep the
+  badge-reads-the-projection and the one-count claims under test.
+
+The five new states are the `consumer-*` rows in the state table above.
+`consumer-transcript-rows` also carries the batch's locale and skin proof:
+every label G7 added — `Load older`, the 8 KiB row-bound sentence, `Open
+evidence`, `tool result`, the check-run status words, `Conversation complete.`
+— is translated, while every Core value in a row (the prose, the tool name, the
+path, the decision word, the audit id) stays exactly as Core published it.
+
+Two G7 facts have no capture and are pinned by tests instead, stated here
+rather than implied:
+
+- **a refused file read.** Core's `CommandRejected` for a path the permission
+  gate denies, and the local refusal for a path that leaves the target, are
+  sentences rather than states of the tree, and a screenshot of one is
+  indistinguishable from a screenshot of the other's wording. Both are pinned
+  by [`../../tests/workspace_file_read.rs`](../../tests/workspace_file_read.rs)
+  and
+  [`../../tests/workspace_file_read.spec.ts`](../../tests/workspace_file_read.spec.ts).
+- **a layout record Core could not write.** `persisted: false` adds one
+  sentence to the rail pin and to the statusbar popover; the harness has no
+  state for it, and it is pinned by
+  [`../../tests/layout_preferences.spec.ts`](../../tests/layout_preferences.spec.ts).
+
+| File | State | Viewport | Mode | Locale |
+| --- | --- | --- | --- | --- |
+| [approval-hunks-1440x900-dark-en.png](approval-hunks-1440x900-dark-en.png) | approval-hunks | 1440x900 | dark | en |
+| [centre-focus-mode-1440x900-dark-en.png](centre-focus-mode-1440x900-dark-en.png) | centre-focus-mode | 1440x900 | dark | en |
+| [centre-lane-tabs-1440x900-dark-en.png](centre-lane-tabs-1440x900-dark-en.png) | centre-lane-tabs | 1440x900 | dark | en |
+| [centre-lane-tabs-1440x900-light-zh-CN.png](centre-lane-tabs-1440x900-light-zh-CN.png) | centre-lane-tabs | 1440x900 | light | zh-CN |
+| [centre-tool-diff-1440x900-dark-en.png](centre-tool-diff-1440x900-dark-en.png) | centre-tool-diff | 1440x900 | dark | en |
+| [consumer-evidence-patch-1440x900-dark-en.png](consumer-evidence-patch-1440x900-dark-en.png) | consumer-evidence-patch | 1440x900 | dark | en |
+| [consumer-file-read-1440x900-dark-en.png](consumer-file-read-1440x900-dark-en.png) | consumer-file-read | 1440x900 | dark | en |
+| [consumer-transcript-rows-1440x900-dark-en.png](consumer-transcript-rows-1440x900-dark-en.png) | consumer-transcript-rows | 1440x900 | dark | en |
+| [consumer-transcript-rows-1440x900-light-zh-CN.png](consumer-transcript-rows-1440x900-light-zh-CN.png) | consumer-transcript-rows | 1440x900 | light | zh-CN |
+| [consumer-turn-live-1440x900-dark-en.png](consumer-turn-live-1440x900-dark-en.png) | consumer-turn-live | 1440x900 | dark | en |
+| [consumer-workspace-commit-1440x900-dark-en.png](consumer-workspace-commit-1440x900-dark-en.png) | consumer-workspace-commit | 1440x900 | dark | en |
+| [d1-1440x900-dark-en.png](d1-1440x900-dark-en.png) | d1 | 1440x900 | dark | en |
+| [d1-1440x900-light-zh-CN.png](d1-1440x900-light-zh-CN.png) | d1 | 1440x900 | light | zh-CN |
+| [d1-mode-menu-1440x900-dark-en.png](d1-mode-menu-1440x900-dark-en.png) | d1-mode-menu | 1440x900 | dark | en |
+| [d1-model-menu-1440x900-dark-en.png](d1-model-menu-1440x900-dark-en.png) | d1-model-menu | 1440x900 | dark | en |
+| [d10-actions-1440x900-dark-en.png](d10-actions-1440x900-dark-en.png) | d10-actions | 1440x900 | dark | en |
+| [d10-events-not-read-1440x900-dark-en.png](d10-events-not-read-1440x900-dark-en.png) | d10-events-not-read | 1440x900 | dark | en |
+| [d13-drill-1440x900-dark-en.png](d13-drill-1440x900-dark-en.png) | d13-drill | 1440x900 | dark | en |
+| [d14-filtered-1440x900-dark-en.png](d14-filtered-1440x900-dark-en.png) | d14-filtered | 1440x900 | dark | en |
+| [d14-filtered-1440x900-light-zh-CN.png](d14-filtered-1440x900-light-zh-CN.png) | d14-filtered | 1440x900 | light | zh-CN |
+| [d6-actions-1440x900-dark-en.png](d6-actions-1440x900-dark-en.png) | d6-actions | 1440x900 | dark | en |
+| [d6-error-1440x900-dark-en.png](d6-error-1440x900-dark-en.png) | d6-error | 1440x900 | dark | en |
+| [dock-diff-1440x900-dark-en.png](dock-diff-1440x900-dark-en.png) | dock-diff | 1440x900 | dark | en |
+| [dock-environment-1440x900-dark-en.png](dock-environment-1440x900-dark-en.png) | dock-environment | 1440x900 | dark | en |
+| [dock-environment-1440x900-light-zh-CN.png](dock-environment-1440x900-light-zh-CN.png) | dock-environment | 1440x900 | light | zh-CN |
+| [dock-files-1440x900-dark-en.png](dock-files-1440x900-dark-en.png) | dock-files | 1440x900 | dark | en |
+| [dock-unavailable-1440x900-dark-en.png](dock-unavailable-1440x900-dark-en.png) | dock-unavailable | 1440x900 | dark | en |
+| [evidence-1440x900-dark-en.png](evidence-1440x900-dark-en.png) | evidence | 1440x900 | dark | en |
+| [evidence-1440x900-light-zh-CN.png](evidence-1440x900-light-zh-CN.png) | evidence | 1440x900 | light | zh-CN |
+| [evidence-empty-1440x900-dark-en.png](evidence-empty-1440x900-dark-en.png) | evidence-empty | 1440x900 | dark | en |
+| [evidence-hash-mismatch-1440x900-dark-en.png](evidence-hash-mismatch-1440x900-dark-en.png) | evidence-hash-mismatch | 1440x900 | dark | en |
+| [evidence-rejected-1440x900-dark-en.png](evidence-rejected-1440x900-dark-en.png) | evidence-rejected | 1440x900 | dark | en |
+| [evidence-summary-only-1440x900-dark-en.png](evidence-summary-only-1440x900-dark-en.png) | evidence-summary-only | 1440x900 | dark | en |
+| [evidence-text-1440x900-dark-en.png](evidence-text-1440x900-dark-en.png) | evidence-text | 1440x900 | dark | en |
+| [evidence-unavailable-1440x900-dark-en.png](evidence-unavailable-1440x900-dark-en.png) | evidence-unavailable | 1440x900 | dark | en |
+| [lane-rail-1440x900-dark-en.png](lane-rail-1440x900-dark-en.png) | lane-rail | 1440x900 | dark | en |
+| [nav-d14-in-cockpit-1440x900-dark-en.png](nav-d14-in-cockpit-1440x900-dark-en.png) | nav-d14-in-cockpit | 1440x900 | dark | en |
+| [nav-d2-in-cockpit-1440x900-dark-en.png](nav-d2-in-cockpit-1440x900-dark-en.png) | nav-d2-in-cockpit | 1440x900 | dark | en |
+| [nav-d2-in-cockpit-1440x900-light-zh-CN.png](nav-d2-in-cockpit-1440x900-light-zh-CN.png) | nav-d2-in-cockpit | 1440x900 | light | zh-CN |
+| [nav-sidebar-floating-peek-1440x900-dark-en.png](nav-sidebar-floating-peek-1440x900-dark-en.png) | nav-sidebar-floating-peek | 1440x900 | dark | en |
+| [nav-statusbar-config-1440x900-dark-en.png](nav-statusbar-config-1440x900-dark-en.png) | nav-statusbar-config | 1440x900 | dark | en |
+| [palette-1440x900-dark-en.png](palette-1440x900-dark-en.png) | palette | 1440x900 | dark | en |
+| [palette-files-1440x900-dark-en.png](palette-files-1440x900-dark-en.png) | palette-files | 1440x900 | dark | en |
+| [palette-files-1440x900-light-zh-CN.png](palette-files-1440x900-light-zh-CN.png) | palette-files | 1440x900 | light | zh-CN |
+| [permission-ask-1440x900-dark-en.png](permission-ask-1440x900-dark-en.png) | permission-ask | 1440x900 | dark | en |
+| [permission-deny-redirect-1440x900-dark-en.png](permission-deny-redirect-1440x900-dark-en.png) | permission-deny-redirect | 1440x900 | dark | en |
+| [permission-deny-redirect-1440x900-light-zh-CN.png](permission-deny-redirect-1440x900-light-zh-CN.png) | permission-deny-redirect | 1440x900 | light | zh-CN |
+| [project-picker-1440x900-dark-en.png](project-picker-1440x900-dark-en.png) | project-picker | 1440x900 | dark | en |
+| [project-switch-confirm-1440x900-dark-en.png](project-switch-confirm-1440x900-dark-en.png) | project-switch-confirm | 1440x900 | dark | en |
+| [review-1440x900-dark-en.png](review-1440x900-dark-en.png) | review | 1440x900 | dark | en |
+| [review-1440x900-light-zh-CN.png](review-1440x900-light-zh-CN.png) | review | 1440x900 | light | zh-CN |
+| [review-commit-1440x900-dark-en.png](review-commit-1440x900-dark-en.png) | review-commit | 1440x900 | dark | en |
+| [review-commit-completed-1440x900-dark-en.png](review-commit-completed-1440x900-dark-en.png) | review-commit-completed | 1440x900 | dark | en |
+| [review-commit-completed-1440x900-light-zh-CN.png](review-commit-completed-1440x900-light-zh-CN.png) | review-commit-completed | 1440x900 | light | zh-CN |
+| [review-commit-pending-approval-1440x900-dark-en.png](review-commit-pending-approval-1440x900-dark-en.png) | review-commit-pending-approval | 1440x900 | dark | en |
+| [review-empty-1440x900-dark-en.png](review-empty-1440x900-dark-en.png) | review-empty | 1440x900 | dark | en |
+| [review-omitted-1440x900-dark-en.png](review-omitted-1440x900-dark-en.png) | review-omitted | 1440x900 | dark | en |
+| [review-push-no-upstream-1440x900-dark-en.png](review-push-no-upstream-1440x900-dark-en.png) | review-push-no-upstream | 1440x900 | dark | en |
+| [review-rejected-1440x900-dark-en.png](review-rejected-1440x900-dark-en.png) | review-rejected | 1440x900 | dark | en |
+| [review-rejected-action-1440x900-dark-en.png](review-rejected-action-1440x900-dark-en.png) | review-rejected-action | 1440x900 | dark | en |
+| [settings-1440x900-dark-en.png](settings-1440x900-dark-en.png) | settings | 1440x900 | dark | en |
+| [settings-1440x900-light-zh-CN.png](settings-1440x900-light-zh-CN.png) | settings | 1440x900 | light | zh-CN |
+| [settings-unavailable-1440x900-dark-en.png](settings-unavailable-1440x900-dark-en.png) | settings-unavailable | 1440x900 | dark | en |
+| [welcome-fill-1440x640-dark-en.png](welcome-fill-1440x640-dark-en.png) | welcome-fill | 1440x640 | dark | en |
+| [welcome-fill-1440x900-dark-en.png](welcome-fill-1440x900-dark-en.png) | welcome-fill | 1440x900 | dark | en |
+
+Every row above was captured in this run and viewed. The earlier capture tables
+in this document record when each state was *first* framed and what it was
+framed for; for a cockpit-bearing state, the image they link is the one in this
+table.

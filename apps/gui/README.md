@@ -152,6 +152,40 @@ The remaining open requests block only the production screens named in their
 rows. They do not block the framework-neutral, fixture-only Tasks 2-3 or their
 evidence; no spike result authorizes production mutation or persistence.
 
+## The `0.3.4` Core consumers (G7)
+
+Batch G7 adopted the five capabilities Core added in `0.3.4`. Each row names
+what consumes it and — the part that matters — what the surface shows on a Core
+that publishes it **not at all**, because absence, emptiness, pending and
+refusal are four different sentences here as everywhere else.
+
+| Capability | What consumes it | With the capability absent |
+| --- | --- | --- |
+| `runtime.workspace_owner` (C5) | a workspace-target `RunOperatorGitAction` acts as `RuntimeViewState.workspace_owner` (`src-tauri/src/adapter.rs`, `operator_git_owner`), so the DiffReview commit bar and the titlebar sync chip work with no Lane selected — closing `GUI-CORE-027` client-side | `D1-OPERATOR-GIT-NO-WORKSPACE-OWNER`: both stay visible, disabled and labelled with the missing Core fact, and nothing is sent. Never `RuntimeOwner::default()`, which would audit an authorized mutation as belonging to nobody |
+| `lane_sources` (C5) | the Lane tab strip prints that Lane's own worktree branch and its `↑ahead ↓behind`, and the dock's Local section prefers it over the workspace sample and says which tree it is showing | the tab keeps its recorded branch with no position, and Local says it is showing the workspace root. The titlebar chips are the workspace's and are never printed on a Lane |
+| `ui.layout_preferences` (C5) | the Lane sidebar mode and the statusbar's hidden ambient segments are read from Core's record at mount and on every ordered wake; the rail pin and the config gear send `SetUiLayoutPreferences` patches carrying only the axis that changed, and the layout moves on Core's answer rather than on the click | the toggle stays session-local — the G3 behaviour — and says so. A record Core applied but could not write (`persisted: false`) gets its own sentence, as does a refusal, in Core's words |
+| `runtime.turn_lifecycle` (C6) | the composer's busy predicate is an `active_turns` entry for that composer's target, and the Live Work strip names the turn's source (typed / queued / agent) and counts elapsed from Core's `started_at`; a `TurnFinished` that did not complete leaves its reason as a transcript row | no turn facts, so the strip carries no source and falls back to the client-observed clock, stamping `data-work-elapsed-source="client"` so the two are never confused. The retired predicate read `owner.turn_id`, which a binding keeps after the work ends |
+| `runtime.durable_work_evidence` (C7) | nothing new: EvidenceView already read `runtime.evidence_reads`, so the archived `patch` rows the runtime started writing appear with their canonical reference and their bytes draw as Core's parsed diff rows. D14 keeps the `approval.*` rows verbatim, and the permission dock links the trail by the permission object — closing `GUI-CORE-028` client-side | the archive simply holds fewer rows, which is a fact about the workspace rather than about the client. The dock's audit id stays a printed fact, and the control says the row is written when the decision is applied |
+| `runtime.transcript_rows` (C8) | D1's transcript draws Core's ordered rows for the selected Lane (or unscoped for the session), pages backwards through Core's own `older` cursor, offers the canonical evidence behind a row Core's 8 KiB bound cut, and reuses G4's tool blocks — closing `GUI-CORE-009` client-side | the `transcript_user` and `transcript_assistant` unavailable rows stand, exactly as they did before C8: they were claims about Core, so they retire only where the claim stops being true |
+| `runtime.workspace_file_reads` (C9) | the dock inspector's Open sends one `ReadWorkspaceFile` for the selected path in the selected Lane's worktree, the Code tab opens read-only on the same answer, and a palette `~` file row reads into that inspector | Open stays disabled with the capability named on screen — not only in a tooltip — and the Code tab stays disabled and named. The client never walks or opens a workspace path itself |
+
+Three rules run through all of them:
+
+**One read in flight, correlated by `command_id`.** Every one of these answers
+names the read it belongs to, so an answer for another read is dropped rather
+than rendered under this scope's name, and a second concurrent read is refused
+locally before anything is sent.
+
+**A path or a cursor is refused, never repaired.** The file read runs Core's own
+validator before it sends, so `../` is one refusal in one wording on both sides;
+the transcript's `older` cursor travels back verbatim and is never parsed,
+constructed or compared.
+
+**An unmodelled variant is named, never nearest-matched.** A transcript row
+kind, a file body, an unavailable reason, a turn source and a turn outcome this
+build cannot name each render as themselves — `unknown`, with the raw value —
+because `#[non_exhaustive]` means a newer Core will publish one.
+
 ## D11 project intake
 
 Task 7 implements the D11 subordinate project-configuration flow after the fixed Core
@@ -365,9 +399,14 @@ the busy state, displays the exact diagnostic in the popover, and retries only
 after the operator chooses `Retry ACP check`. ACP startup rejection remains
 visible on the typed D1 rejection surface after its Lane is created.
 
-The composer remains editable while an assistant stream, tool, task, approval,
-or queued input is active. Enter sends `QueueFollowUp` in that state and
-`SubmitUserInput` when idle; Shift+Enter preserves multiline input and CJK IME
+The composer remains editable while work is in flight. What counts as in
+flight is Core's own fact since G7: an `active_turns` entry whose owner names
+this composer's target — the selected Lane, or no Lane for the session
+composer — or a running Agent session on that Lane
+(`runtime.turn_lifecycle`, C6). The retired predicate read the owner binding's
+`turn_id`, which a binding keeps after the work ends, and that is why the
+composer used to keep queueing after a turn had finished. Enter sends
+`QueueFollowUp` in that state and `SubmitUserInput` when idle; Shift+Enter preserves multiline input and CJK IME
 composition never submits early. Streaming Core redraws likewise keep the
 focused textarea mounted until `compositionend`. Both commands use an exact
 Core-published Lane owner from a live owner binding or the D4 receipt. Cancel is stricter: it
@@ -499,9 +538,11 @@ position because frontend-contract-v1 publishes no event counter), `LANE`
 (selected Lane, its sole bound agent, status, and task progress), `LATENCY`,
 `TOKENS` (input up, output down), `DIAG` (runtime error count), and `REQ`
 (provider request/error counts). A segment whose Core fact is absent renders
-an explicit em-dash rather than a fabricated number. When approvals or open
-merge gates are waiting, the right edge shows the pending-gate segment — the
-bar's only actionable element — which opens the in-cockpit D2 decision queue. A
+an explicit em-dash rather than a fabricated number. When approvals or review
+requests are waiting, the right edge shows the `⏸` decision segment — the
+bar's only actionable element — which opens the in-cockpit D2 decision queue,
+counting exactly what that queue lists
+(see [Decision queue badge](#decision-queue-badge)). A
 gear at the leading edge opens the `D-STATUSBAR` config popover over the six
 ambient segments; see [Navigation shell](#navigation-shell).
 
@@ -528,13 +569,17 @@ publishes neither capability, and then name the capability itself.
 
 The right pane is the design's `.rail.dock`: a `.docktabs` strip over one
 `.dockbody` panel. The strip carries **all six** tabs the design's `ALLTABS`
-names, in its order — Environment, Files, Terminal, Code, Diff, Docs. Three
-are live and three are disabled carrying the exact reason they cannot open:
-Terminal is the design's summon dock, registered with a roadmap mark
-(`D-RAILNAV` ⑥) and with no Core PTY fact behind it; Code needs
-`runtime.workspace_file_reads`, which this build does not consume yet; Docs has
-no Core workspace-document fact at all. None of the three is hidden — a tab
-that vanishes makes the dock look finished — and none is enabled-and-inert.
+names, in its order — Environment, Files, Terminal, Code, Diff, Docs. Four can
+open and two are disabled carrying the exact reason they cannot: Environment,
+Files and Diff are live on every Core, Code opens exactly where Core publishes
+`runtime.workspace_file_reads` (C9) and states that it is read-only, because the
+contract publishes no workspace write; Terminal is the design's summon dock,
+registered with a roadmap mark (`D-RAILNAV` ⑥) and with no Core PTY fact behind
+it (`GUI-CORE-032`); Docs has no Core workspace-document fact at all
+(`GUI-CORE-033`). Neither disabled tab is hidden — a tab that vanishes makes the
+dock look finished — and none is enabled-and-inert. `isDockTabLive` is the one
+predicate both the strip and the cockpit's own tab switch ask, so a chord can
+never open a panel a click could not.
 
 The open tab is in memory and deliberately not persisted: it is a posture the
 operator takes for one look, not a preference, so it is neither a
@@ -595,8 +640,12 @@ file, **collapsed by default**: the panel answers "which files", and a wall of
 rows in a 300px column answers nothing. Expanding draws the shared `diff_rows`
 body — the same rows DiffReview, the permission dock and D2 use — which scrolls
 inside its own container. Selecting a file fills the inspector with File, Diff
-and "Open in review"; Stage and Revert render disabled and named, because Core
-publishes no per-file stage or revert command.
+and "Open in review"; Stage and Revert render disabled, each with its own
+reason, because they are two different facts. Core *does* publish a per-path
+`Stage` (`runtime.operator_git`) and DiffReview's own file rows are what send
+it — this panel carries no action port — while a per-file revert has no Core
+command at all. Until G7 both carried one sentence claiming Core published
+neither, which named a gap that does not exist.
 
 **One diff read, three readers.** The Changes section, the Diff panel and
 DiffReview all render one `QueryWorkspaceDiff` page per target. Since the dock
@@ -648,8 +697,8 @@ runtime.structured_diff`. Audit is the one destination that is never blocked:
 without `runtime.audit` D14 opens in raw event replay, which is a different
 view of the same question, so the slot says so up front instead of letting the
 operator discover it after the click. The only badge is the Decisions slot's
-pending count, which is `statusbar.pendingGateCount` — a number Core already
-publishes. No other slot carries one, because no other slot has a Core-published
+pending count, which is `statusbar.pendingDecisionCount` — the one count
+[Decision queue badge](#decision-queue-badge) defines. No other slot carries one, because no other slot has a Core-published
 count, and a zero would read as "nothing waiting" when the truth is "nobody
 counted".
 
@@ -678,7 +727,7 @@ when no workspace is bound — the deep link is only read once Core answered wit
 a cockpit projection.
 
 **Every cross-view link lands in the cockpit.** The palette's `#` rows (a merge
-gate to D12, an ask to D2), the statusbar's pending-gate segment, the
+gate to D12, an ask to D2), the statusbar's decision segment, the
 titlebar's worktrees chip, D2's and D12's audit-trail links, EvidenceView's
 "Open audit trail" footer, and D10's card action to the decision centre all go
 through one function — the cockpit's `navigate` — which switches the centre
@@ -740,20 +789,27 @@ column is fixed at 218 px for this batch.
 opens the design's `.sbcfg` popover listing the six *ambient* segments —
 `CONTEXT`, `EVENTS`, `LATENCY`, `TOKENS`, `DIAG`, `REQ` — with a checkbox each.
 The pinned half is not listed and cannot be switched off: `MODE`, `PERM`,
-`LANE`, and the pending-gate chip are identity and action, and `D-STATUSBAR`
+`LANE`, and the decision chip are identity and action, and `D-STATUSBAR`
 splits the bar by actionability rather than urgency. A bar mounted without the
 config port renders no gear at all, rather than a gear that does nothing.
 
-**Two in-memory seams.** The Lane sidebar mode and the statusbar's ambient
-visibility are presentation state held in memory for this batch and
-deliberately **not** persisted. The frontend contract makes Core the single
-preference authority, so the design prototype's `localStorage` keys
-(`vd-leftmode`, `vd-leftw`) would be the second preference model the contract
-forbids. Core batch `C5` adds `UiLayoutPreferences.lane_sidebar_mode`; G7 then
-reads it through the resolved preference projection and writes it back, and
-`D1RenderOptions.laneSidebarMode` becomes Core's value rather than a caller
-default. The pinned column's width — the token's 176–360 drag — is the same
-record's second field. Both seams carry that note in the code.
+**Two seams Core now owns.** The Lane sidebar mode and the statusbar's ambient
+visibility were presentation state held in memory through G6, because the
+frontend contract makes Core the single preference authority and the design
+prototype's `localStorage` keys (`vd-leftmode`, `vd-leftw`) would be the second
+preference model the contract forbids. `C5` published the record, and G7 reads
+it: `laneSidebarMode` and the hidden ambient segments come from
+`ui.layout_preferences`, every change goes back as one `SetUiLayoutPreferences`
+patch naming only the axis that moved (an omitted axis means *leave it*, never
+*reset it* — the reset is its own command), and the webview keeps no copy
+beyond the frame it is drawing. Three facts stay distinct: no capability (the
+mode is session-local and the rail pin says so), a capability with no record
+yet, and `persisted: false` — Core applied the record and could not write the
+file, which the rail pin and the statusbar popover both state rather than
+swallow. The pinned column's width is still the design default
+(`--rail-left`, 218px): the token's 176–360 drag has **no** field in
+`UiLayoutPreferences`, which carries the mode and the hidden segments and
+nothing else, so the drag stays unimplemented rather than kept client-side.
 
 ## Projects, recent work, and the grouped rail
 
@@ -1470,10 +1526,25 @@ position rather than an actor or a wall clock.
 
 ## Decision queue badge
 
-The activity rail's D2 slot carries the count Core publishes as
-`D1StatusbarProjection.pendingGateCount`, which is the same number the
-statusbar's `⏸` segment prints. The field is `number | null`, and the three
-states are three different renderings:
+**One count, defined once.** A decision awaiting the operator is a *pending
+approval* or a *pending review request* — exactly what the D2 queue lists — and
+that sum is `pending_decision_count` in
+`apps/gui/src-tauri/src/projection.rs`. The activity rail's D2 badge, the
+statusbar's `⏸` segment and the D2 header's own total are all that one number:
+the host derives the statusbar field (`D1StatusbarProjection.pendingDecisionCount`)
+and `D2DecisionsProjection.pendingTotal` from the same function, so a badge can
+no longer promise rows its destination does not show. Until G7 the badge and the
+chip counted approvals plus open non-dormant merge gates while the header
+counted approvals plus reviews, and a capture of the same frame showed `7`
+beside `2 awaiting you`.
+
+**Open merge gates are deliberately not in it.** A gate is decided in D12, not
+in D2, so counting it in a badge that opens D2 would name work that queue never
+lists. The gate *dormancy* rule is untouched and still governs what it always
+did: D12's ordering, D6's clear state, and the palette's gate rows.
+
+The field is `number | null`, and the three states are three different
+renderings:
 
 | Value | Rail | Statusbar |
 | --- | --- | --- |
@@ -1486,12 +1557,10 @@ used to be `0`, which rendered as an empty decision queue before anything had
 been counted; absence and zero are different facts and are now drawn
 differently.
 
-One caveat, recorded rather than hidden: the D2 view's own `pendingTotal` is a
-*different* sum — approvals plus pending reviews, where the badge is approvals
-plus open non-dormant merge gates — so the badge and the view's header can
-legitimately differ. Reconciling them is a projection question for the batch
-that owns those counts; counting a second time in the rail would only make the
-rail disagree with the statusbar as well.
+No surface counts a second time. The rail badge and the `⏸` segment read the
+projection field, and the D2 header reads its own total; both come from
+`pending_decision_count`, so the way to change what "awaiting you" means is to
+change that function, not a renderer.
 
 ## H2 hygiene
 

@@ -12,7 +12,9 @@
 规划注记 2026-09-12（`docs/release-0.3.4-plan.zh-CN.md`）：027、028、009 经将写入
 `docs/release-0.3.4-contract-design.zh-CN.md` 的 Core 契约增量（工作区身份、回合生命周期、
 持久工作证据、转录行、工作区文件读取）排入 `0.3.4`。013、018、019、021、023、026 移到
-`0.3.5`；D5 画廊评审将在该契约设计写成时作为 GUI-CORE-029 开给 `0.3.5`。
+`0.3.5`；D5 画廊评审将在该契约设计写成时作为 GUI-CORE-029 开给 `0.3.5`。该编号仍为它保留：
+G7 批次把自己四个只存在于正文里的缺口编为 030 至 033，029 留在 `docs/release-0.3.4-plan.md`
+为它预留的位置上。
 
 状态注记 2026-09-12（C9）：工作区文件读取这条事实已在 Core 侧落地 ——
 `runtime.workspace_file_reads` 连同其 `workspace-file-reads` fixture 已发布，
@@ -54,6 +56,21 @@
 Core 批次，因此对外通告的扩展集合最终定为 29。当前开放的登记项为
 013、018、019、021、023、026。
 
+状态注记 2026-09-12（G7）：009、027、028 已在 **GUI 客户端侧**关闭。驾驶舱现在以
+Core 发布的 owner 发出工作区目标的 `RunOperatorGitAction`，并移除了
+`D1-OPERATOR-GIT-OWNER`（027）；它渲染带规范字节的归档 `patch` 行，保留带 Core
+操作者执行者与全部对象的 `approval.*` 审计行，并按该对象链接某条权限的轨迹（028）；
+D1 转录绘制 Core 自己的有序行，撤下 `transcript_user` / `transcript_assistant`
+不可用占位符（009）。三条都作为 *TUI* 采纳项继续开放，直到 T2 落地同样三件事。GUI
+同时采纳了 `runtime.turn_lifecycle`（C6）与 `runtime.workspace_file_reads`（C9），
+二者从未是编号请求：活跃性原本是客户端基于残留的谓词，文件读取则被裁定为清单的同胞。
+
+G4 与 G5 批次以散文写下、未编号的四个缺口在此编号为新的开放条目 —— 030 至 033 ——
+但不实现。029 被跳过，因为 `0.3.4` 计划已把它预留给 D5 画廊评审。G6 没有留下这类缺口：
+它的发现是客户端自身的决策计数分歧，G7 已通过让侧栏气泡、状态栏段落与 D2 标题派生自
+同一个计数来关闭。当前开放的登记项为 013、018、019、021、023、026、030、031、032、033，
+029 已预留但尚未写出。
+
 ## GUI-CORE-008：所选 Lane 的上下文作用域 — 已关闭
 
 历史：Core `0.3.5` 已暴露 `RuntimeViewState.context_budgets`，但 frontend-neutral
@@ -75,7 +92,7 @@ GUI 状态：已在 `claude/core-contract-closures` 接线。D1 通过 Core 为�
 statusbar 的 context 段未改动，仍是其类型所记录的工作区级「最新 budget」粗粒度指示，
 不是按 Lane 的数字。
 
-## GUI-CORE-009：按 Owner 范围限定的类型化转录行 — 已关闭（Core 侧，2026-09-12）
+## GUI-CORE-009：按 Owner 范围限定的类型化转录行 — 已关闭（Core 2026-09-12；GUI 客户端 2026-09-12）
 
 历史：前端契约仅将 Lane 输出暴露为未类型化流，并暴露全局 assistant 流；它完全没有
 按 Owner 范围限定且有序的 user/assistant 转录序列。因此 D1 仅为选中的精确 Owner
@@ -106,11 +123,16 @@ schema-1 扩展 fixture `transcript-rows.json` 把这一切固化为规范，并
 与会话编辑器各得到自己的一页，没有任何一行出现在两页之上。它同样证明了分页边界与
 游标往返、每一种行变体、指名其证据的真实 8 KiB 截断，以及游标拒绝。
 
-尚无客户端采纳。GUI 在 G7 中采纳：D1 的转录渲染有序的 `User`/`Assistant` 行，并撤下
-`transcript_user` 与 `transcript_assistant` 这两个不可用占位符，同时工具块保留来自
-`WorkspaceChangeView.diff` 的内联 diff；TUI 在 T2 中采纳：转录透镜为聚焦的 Lane 读取
-同一批行。在各自落地之前，对应客户端仍然声明这些行不可用，而不是去推断它们 ——
-本条仅在 Core 侧关闭。
+GUI 客户端状态：2026-09-12 由 G7 批次采纳。D1 的转录为所选 Lane（或会话的不限定作用域）
+读取最新一页，在滚动到顶部与显式控件上都沿 Core 自己的 `older` 游标向后翻页，为被
+Core 8 KiB 上限截断的行提供其规范证据，并用 G4 自己的块绘制 `ToolCall` /
+`ToolResult` / `CheckRun` / `Permission` 行，而不是对同一批事实做第二套渲染
+（`apps/gui/src/components/transcript_rows.ts`、
+`apps/gui/src-tauri/src/transcript_rows.rs`）。凡 Core 发布该能力之处，
+`transcript_user` / `transcript_assistant` 两个不可用行都已消失；在不发布该能力的
+Core 上它们依然成立 —— 它们是关于 Core 的断言，因此恰好在该断言不再为真之处撤下。
+TUI 在 T2 中采纳：转录透镜为聚焦的 Lane 读取同一批行；在那之前它仍然声明这些行不可用，
+而不是去推断它们。
 
 ## GUI-CORE-010：按 Owner 范围限定的实时工作事实 — 已关闭
 
@@ -699,7 +721,7 @@ TUI 状态：已于 2026-09-10 采纳（T1b）。`0.3.2` 监督检查点上推�
 `CredentialHandle`」与「暂存被拒绝」两种情形的规范 `frontend-contract-v1`
 fixture。
 
-## GUI-CORE-027：工作区级操作者身份 —— 已关闭（Core 侧，2026-09-12）
+## GUI-CORE-027：工作区级操作者身份 —— 已关闭（Core 2026-09-12；GUI 客户端 2026-09-12）
 
 `RunOperatorGitAction` 校验命令的 `owner` 与信封 actor 相等，且 Core 的校验器
 已经接受 `SourceTarget::Workspace` 目标携带 `lane_id: None`。缺的东西在这道
@@ -736,13 +758,16 @@ Core 侧状态：已于 2026-09-12 由 `0.3.4` 契约增量的 C5 批次交付�
 `LaneSourceUpdated` 行 —— 后者同时终结了 `WorkspaceSourceUpdated` 携带 Lane
 worktree 分支的行为。
 
-客户端尚未采纳，两端的本地拒绝在采纳之前继续有效。GUI 将在 G7 批次移除
-`D1-OPERATOR-GIT-OWNER`，并在 `workspace_owner` 存在时对工作区目标启用
-DiffReview 提交栏与标题栏同步控件；TUI 将在 T2 批次以同样条件启用其 `/git`
-工作区行。对于不发布 `runtime.workspace_owner` 的 Core，两端都不应启用任何
-东西：缺席是一个真实的答案，既有的拒绝文案正是它对应的答案。
+GUI 客户端状态：2026-09-12 由 G7 批次采纳。工作区目标的动作以
+`RuntimeViewState.workspace_owner` 中的 owner 发出
+（`apps/gui/src-tauri/src/adapter.rs` 的 `operator_git_owner`），因此在未选中任何
+Lane 时 DiffReview 提交栏与标题栏同步控件都可用，该路径上的
+`D1-OPERATOR-GIT-OWNER` 已移除。缺席仍然是拒绝而不是默认值：
+`D1-OPERATOR-GIT-NO-WORKSPACE-OWNER` 让两者保持可见、禁用并标注缺失的 Core 事实，
+且不发送任何内容 —— 这正是不发布 `runtime.workspace_owner` 的 Core 所对应的答案。
+TUI 将在 T2 批次以同样条件启用其 `/git` 工作区行，在那之前它自己的拒绝继续有效。
 
-## GUI-CORE-028：由 supervisor 驱动的工作缺少持久证据 — 已关闭（Core 侧，2026-09-12）
+## GUI-CORE-028：由 supervisor 驱动的工作缺少持久证据 — 已关闭（Core 2026-09-12；GUI 客户端 2026-09-12）
 
 由 2026-09-10 的 E1 发布证据回合开立；同日的 C5 裁定已把它移出 `0.3.3`。排入
 `0.3.4`。
@@ -813,10 +838,78 @@ Core 状态：已于 2026-09-12 由 `0.3.4` 契约增量的 C7 批次交付（�
 `25072a0a` 处的字节逐个摘要一致；不需要任何重新生成，本批次也没有新增
 `RuntimeViewState` 字段。
 
-客户端尚未采纳。GUI 在 G7 批次渲染已应用工作的 EvidenceView 归档行与 D14 审批行；
-TUI 的证据检视详情在 T2 批次获得实时内容。两者都不得把缺席的
+GUI 客户端状态：2026-09-12 由 G7 批次采纳，且不需要任何新的客户端词汇 —— 这正是
+本增量的要点：EvidenceView 早已读取 `runtime.evidence_reads`，因此运行时开始写入的
+归档 `patch` 行连同其规范引用一并出现，`ReadEvidenceContent` 则把它们的字节作为
+Core 解析好的 diff 行交给共享渲染器（`apps/gui/tests/evidence_reads.rs` 中对
+`durable-work-evidence` fixture 的重放）。D14 逐字保留 Core 的 `approval.*` 动作、
+其操作者执行者与全部三个对象，权限坞按权限对象而不是按任何筛选器都无法表达的审计 id
+链接轨迹。D2 队列条目刻意不提供轨迹：该行是在决定被应用时追加的，而待处理条目的
+时间线是空的。TUI 的证据检视详情在 T2 批次获得实时内容。两个客户端都不得把缺席的
 `permission_snapshot_id` 呈现为「已批准」，也不得把 `canonical: None` 的行呈现为
 仅摘要证据：两者都是有各自文案的明示事实。
+
+## GUI-CORE-030：starter-Lane 请求上的 Agent 绑定
+
+2026-09-12 由 G7 批次开立：把 G4 批次写在 D4 向导自身文案里、而非登记册中的一条请求
+正式编号（`0.3.4` 在途期间登记册处于冻结状态）。未排期；除已发布的那句说明之外，
+没有客户端工作依赖它。
+
+`StarterLaneRequest` 携带角色、变更策略与执行目标，**不携带任何 Agent 绑定**。因此
+设计中的「选择 agent」步骤可以展示 Core 发布的适配器并标出操作者所选的那一个，而创建
+Lane 仍然不会启动任何 Agent 会话：这个选择在 Core 侧无处可达。GUI 在该步骤上如实说明
+（`apps/gui/src/screens/d4_lane_create.ts`），而不是提供一个无法送达的选择；启动会话
+仍然是针对已创建 Lane 的第二个显式 `StartAgentSession`。
+
+客户端需要什么：或者在 `StarterLaneRequest` 上增加可选的 `agent_id`，并走
+`StartAgentSession` 所通过的同一道权限闸；或者由 Core 声明两步流程就是契约 —— 那么
+向导的该步骤属于文档，本条目即以「按设计」关闭。无论哪种，GUI 都不需要新事件：
+`AgentSessionUpdated` 已经报告启动了什么。
+
+## GUI-CORE-031：技能包与上下文注入
+
+2026-09-12 由 G7 批次开立，为同一段 G4 散文的后半部分编号。未排期。
+
+`frontend-contract-v1` 在任何位置都**没有**发布技能、技能包、提示包或上下文注入事实 ——
+不在 `RuntimeViewState` 里，不在任何命令上，也不在 `StarterLaneRequest` 上 —— 而已接受
+的设计在 Lane 创建中画出了一个「技能包」步骤，`runtime.cockpit_context_v1` 能力只覆盖
+预算、来源与证据引用。GUI 以那句确切原因把该步骤渲染为「已声明不可用」
+（`d4.skills.unavailable`），并且不附带任何本地列表：客户端自有的技能包会成为
+「某个 Lane 被允许读取什么」的第二个权威。
+
+客户端需要什么（按可采纳顺序）：一次读取 Core 所持有的技能包（id、标签，以及它注入
+什么）、创建请求上指名其一的字段，以及说明某个运行中 Lane 解析到哪个包的那个事实。
+没有第三项，客户端可以选中一个包却永远无法显示它是否生效。
+
+## GUI-CORE-032：集成终端事实
+
+2026-09-12 由 G7 批次开立，为 G5 批次写在上下文坞页签文案里的缺口编号。未排期；
+设计以 roadmap 标记（`D-RAILNAV` ⑥）登记了该界面，因此本条目的存在是为了让它的
+Core 侧可被查阅，而不是为它排期。
+
+坞的「终端」页签打不开，因为 Core 完全没有发布 PTY 事实：没有可附着的会话、没有输出
+流、没有写入命令、没有退出状态。`runtime.commands` 承载的是操作者 *git* 动作与工具
+审批，其中没有任何东西会派生或附着一个交互式进程。GUI 让该页签保持可见且禁用，并附上
+那句原因（`d1.dock.tab.terminal.reason`），而不是隐藏它：会消失的页签会让这个坞看起来
+已经完工。
+
+客户端需要什么：一个 Core 托管的 PTY 会话 —— 在权限引擎下打开/附着、带上限的有序输出
+分片、一个写入命令，以及一个终端状态事实 —— 或者一句「集成终端不在本契约范围内」的
+声明，那将以「按设计」关闭本条目，并让该页签的文案成为永久答案。
+
+## GUI-CORE-033：工作区文档事实
+
+2026-09-12 由 G7 批次开立，为同一次 G5 回合中坞的另一个禁用页签编号。未排期。
+
+「文档」页签在任何形态上都没有 Core 事实支撑：`runtime.workspace_files` 列出路径，
+`runtime.workspace_file_reads`（C9）读取单个文件的字节，但两者都没有说明哪些文档
+**重要** —— 项目自身的 `AGENTS.md` 链条、设计入口、发布状态文档 —— 也不会把其中任何
+一个渲染为文档。客户端可以按路径去猜，而那个猜测会成为「哪个文件是某个作用域的政策」
+的第二个权威 —— 而这恰恰是嵌套 `AGENTS.md` 规则交给 Core 的事。
+
+客户端需要什么：某个作用域的文档集合（路径、种类，以及它约束的作用域），通过已经存在
+的文件读取来读取。在那之前，GUI 让该页签保持禁用并标注原因
+（`d1.dock.tab.docs.reason`），命令面板的 `~` 行仍然是通往文件的唯一路径。
 
 ## 已退役的前登记编码
 
