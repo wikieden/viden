@@ -56,7 +56,7 @@
   "d1.activity.laneMonitor": "Lane monitor",
   "d1.activity.fleet": "Fleet board",
   "d1.activity.lanes": "Lanes",
-  "d1.activity.work": "Workspace",
+  "d1.activity.work": "Conversation",
   "d1.cancel": "Cancel active turn",
   "d1.composer.placeholder": "Message the selected Lane. Shift+Enter adds a line.",
   "d1.composer.redirect": "Tell {agent} what to do instead\u2026",
@@ -528,5 +528,11 @@
   "d1.evidence.openInReview.unavailable": "Core publishes no structured diff, so the review has nothing to read.",
   "d1.evidence.openAudit": "Open audit trail",
   "d1.evidence.openAudit.scope": "Opens the audit trail scoped to this evidence object. Audit rows link evidence, never the reverse.",
-  "d1.palette.action.openEvidence": "Open evidence"
+  "d1.palette.action.openEvidence": "Open evidence",
+  "d1.activity.review": "Diff review",
+  "d1.activity.evidence": "Evidence",
+  "d1.activity.unavailable": "unavailable: Core publishes no {capability}",
+  "d1.activity.auditFallback": "falls back to raw event replay when Core publishes no runtime.audit",
+  "d1.center.close": "Close and return to the conversation",
+  "d1.center.failed": "Core did not answer this view: {reason}"
 }

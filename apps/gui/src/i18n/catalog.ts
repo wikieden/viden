@@ -534,6 +534,13 @@ export const MESSAGE_ARGUMENT_NAMES = {
   "d1.evidence.openAudit": [],
   "d1.evidence.openAudit.scope": [],
   "d1.palette.action.openEvidence": [],
+  // G3 navigation shell (rail router, centre views, D-SIDEBAR, D-STATUSBAR).
+  "d1.activity.review": [],
+  "d1.activity.evidence": [],
+  "d1.activity.unavailable": ["capability"],
+  "d1.activity.auditFallback": [],
+  "d1.center.close": [],
+  "d1.center.failed": ["reason"],
 } as const;
 
 export type MessageKey = keyof typeof MESSAGE_ARGUMENT_NAMES;

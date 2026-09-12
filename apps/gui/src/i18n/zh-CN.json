@@ -56,7 +56,7 @@
   "d1.activity.laneMonitor": "Lane \u76d1\u89c6\u5899",
   "d1.activity.fleet": "\u8230\u961f\u770b\u677f",
   "d1.activity.lanes": "Lane \u5217\u8868",
-  "d1.activity.work": "\u5de5\u4f5c\u533a",
+  "d1.activity.work": "对话",
   "d1.cancel": "\u53d6\u6d88\u5f53\u524d\u56de\u5408",
   "d1.composer.placeholder": "\u5411\u9009\u4e2d Lane \u53d1\u9001\u6d88\u606f\uff0cShift+Enter \u6362\u884c\u3002",
   "d1.composer.redirect": "\u544a\u8bc9 {agent} \u6539\u505a\u4ec0\u4e48\u2026",
@@ -528,5 +528,11 @@
   "d1.evidence.openInReview.unavailable": "Core 未发布结构化 diff，评审没有可读取的内容。",
   "d1.evidence.openAudit": "打开审计轨迹",
   "d1.evidence.openAudit.scope": "打开限定到本证据对象的审计轨迹。审计行链接证据，不反向。",
-  "d1.palette.action.openEvidence": "打开证据"
+  "d1.palette.action.openEvidence": "打开证据",
+  "d1.activity.review": "Diff 评审",
+  "d1.activity.evidence": "证据",
+  "d1.activity.unavailable": "不可用：Core 未发布 {capability}",
+  "d1.activity.auditFallback": "当 Core 未发布 runtime.audit 时，回退到原始事件回放",
+  "d1.center.close": "关闭并返回对话",
+  "d1.center.failed": "Core 未响应此视图：{reason}"
 }

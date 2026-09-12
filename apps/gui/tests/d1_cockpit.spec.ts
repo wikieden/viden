@@ -767,17 +767,21 @@ describe("D1 canonical streaming cockpit", () => {
         button.getAttribute("aria-label"),
       ),
     ).toEqual([
-      "Workspace",
-      // Each routing slot names the screen it actually opens, not a
-      // file-explorer verb it borrowed from another editor's rail.
-      "Integration gate",
+      // The `D-RAILNAV` order: the conversation, the Lane sidebar, then every
+      // registered destination, then the Settings gear below the spacer. Each
+      // slot names the screen it actually opens, not a file-explorer verb it
+      // borrowed from another editor's rail — and a destination whose Core
+      // capability is missing says so in the name a screen reader announces
+      // rather than only in a tooltip.
+      "Conversation",
       "Lanes",
+      "Diff review — unavailable: Core publishes no runtime.structured_diff",
+      "Evidence — unavailable: Core publishes no runtime.evidence_reads",
       "Decisions",
-      "Audit timeline",
       "Lane monitor",
+      "Integration gate",
       "Fleet board",
-      // The cockpit prototype closes the rail with the Settings gear below
-      // the spacer.
+      "Audit timeline — falls back to raw event replay when Core publishes no runtime.audit",
       "Settings",
     ]);
   });

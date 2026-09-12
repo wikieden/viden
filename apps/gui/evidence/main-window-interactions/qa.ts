@@ -60,6 +60,7 @@ import type { PreferenceIntentOutcome } from "../../src/preferences";
 import {
   renderD1Cockpit,
   type D1CockpitProjection,
+  type D1Controller,
   type D1IntentResult,
 } from "../../src/screens/d1_cockpit";
 import type { D6IntentResult, D6RecoveryProjection } from "../../src/screens/d6_recovery";
@@ -415,11 +416,22 @@ interface CockpitOptions {
    * answers differ, which is the whole point of the unavailable state.
    */
   evidenceContent?: Record<string, EvidenceContentProjection>;
+  /**
+   * The secondary-view host: the same seam the shell injects, mounting one
+   * registered D-screen into the cockpit's centre pane. Each state supplies
+   * exactly the one screen it frames, so an unexpected route fails visibly
+   * rather than capturing a blank pane.
+   */
+  secondaryViews?: (
+    route: "d2" | "d10" | "d12" | "d13" | "d14",
+    container: HTMLElement,
+    arg: string | null,
+  ) => void | Promise<void>;
 }
 
-function mountCockpit(options: CockpitOptions): void {
+function mountCockpit(options: CockpitOptions): D1Controller {
   const { projection } = options;
-  renderD1Cockpit(
+  return renderD1Cockpit(
     root!,
     projection,
     never<D1IntentResult>,
@@ -431,6 +443,9 @@ function mountCockpit(options: CockpitOptions): void {
       poll: false,
       showWelcome: false,
       onNavigate: () => undefined,
+      secondaryViews: options.secondaryViews
+        ? { mount: options.secondaryViews }
+        : undefined,
       sendComposerControl: (_intent: ComposerControlIntent, _laneId: string | null) =>
         never<D1IntentResult>(),
       sendD6Intent: options.d6Rejects
@@ -2109,6 +2124,49 @@ async function renderState(): Promise<void> {
     case "d10-blind-unobserved": {
       renderD10LaneMonitor(root!, await d10Unobserved(), locale, () => undefined);
       await waitFor("[data-d10-run-stats='none']");
+      return;
+    }
+
+    case "nav-d2-in-cockpit": {
+      // `D-RAILNAV` as the `0.3.4` plan resolved it: the decision queue is a
+      // view over the transcript. The capture must show the cockpit chrome
+      // unchanged around it — titlebar, activity rail with `Decisions` marked
+      // current and carrying Core's own pending count, Lane rail, context
+      // dock, composer, statusbar — plus the view's own Close control.
+      const queue = await d2Queue();
+      const cockpit = mountCockpit({
+        projection: d1Base(),
+        preferencesAvailable: true,
+        secondaryViews: (route, container) => {
+          if (route !== "d2") throw new Error(`unexpected route ${route}`);
+          renderD2Decisions(container, queue, never<D2IntentResult>, locale);
+        },
+      });
+      cockpit.openCenterView("d2");
+      await waitFor("[data-secondary-view='d2'] [data-d2-group='contract']");
+      return;
+    }
+
+    case "nav-d14-in-cockpit": {
+      // The same shell hosting the audit trail, which is where `D-AUDIT`'s
+      // one-way link from an evidence row or a D12 baseline chip now lands:
+      // the operator reads the trail without losing the conversation.
+      const audit = await d14Audit();
+      const raw = await d14Raw();
+      const cockpit = mountCockpit({
+        projection: d1Base(),
+        preferencesAvailable: true,
+        secondaryViews: (route, container) => {
+          if (route !== "d14") throw new Error(`unexpected route ${route}`);
+          renderD14(container, audit, locale, {
+            queryAudit: async () => audit,
+            loadOlderAudit: async () => audit,
+            loadRaw: async () => raw,
+          });
+        },
+      });
+      cockpit.openCenterView("d14");
+      await waitFor("[data-secondary-view='d14'] [data-d14-audit-id]");
       return;
     }
 

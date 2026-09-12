@@ -1,27 +1,82 @@
 import { translate, type Locale, type MessageKey } from "../i18n/catalog";
 
 /**
- * The rail's slots, in the accepted design's order.
+ * The centre-pane destinations the rail routes to.
  *
- * Each routing slot is labelled with the screen it actually opens. The rail
- * previously carried an editor's file-explorer vocabulary (Search, Source
- * control, Evidence, Diagnostics, Inbox) over routes that go elsewhere; a
- * label naming the wrong destination is worse than a missing one, because the
- * operator can only learn the real mapping by clicking, and every tooltip and
- * screen-reader announcement teaches it wrong until they do.
+ * `review` and `evidence` are the two secondary surfaces `D-RAILNAV`
+ * registered; the five `d*` entries are the standalone D-screens the `0.3.4`
+ * plan moved into the cockpit centre. Every one of them is a *view* over the
+ * transcript, so the id is the centre view the cockpit switches to rather than
+ * a window route.
  */
-export const D1_ACTIVITY_ITEMS = [
-  { icon: "chat", key: "d1.activity.work" },
-  { icon: "worktree", key: "d1.activity.integrationGate" },
-  { icon: "lanes", key: "d1.activity.lanes" },
-  { icon: "decide", key: "d1.activity.decisions" },
-  { icon: "evidence", key: "d1.activity.audit" },
-  { icon: "diagnostics", key: "d1.activity.laneMonitor" },
-  { icon: "fleet", key: "d1.activity.fleet" },
-] as const satisfies ReadonlyArray<{
-  icon: CanonicalGuiIcon;
-  key: MessageKey;
-}>;
+export type D1RailDestination = "review" | "evidence" | "d2" | "d10" | "d12" | "d13" | "d14";
+
+export interface D1RailSlot {
+  /** Stable slot id; equals the destination for a routing slot. */
+  readonly id: "conversation" | "lanes" | D1RailDestination;
+  readonly icon: CanonicalGuiIcon;
+  readonly key: MessageKey;
+  readonly kind: "conversation" | "lanes" | "destination";
+  /** The centre view a `destination` slot opens. */
+  readonly destination?: D1RailDestination;
+}
+
+/**
+ * The rail, top to bottom, as one ordered router table (`D-RAILNAV`).
+ *
+ * This replaced two structures that had drifted apart — a slot list and a
+ * separate route map keyed by message id — plus the ad-hoc `Work`/`Lanes`
+ * branches inside the renderer. One table is what makes "every registered
+ * destination is reachable from the rail" checkable rather than asserted: a
+ * destination that is not in this array has no slot, and a slot that is in it
+ * has exactly one destination.
+ *
+ * Each slot is labelled with the screen it actually opens and carries the
+ * registered `GUI/gui-icons.jsx` glyph closest to it. The Settings gear is not
+ * in the table: it sits below the rail spacer and opens an overlay rather than
+ * a centre view.
+ */
+export const D1_RAIL_ROUTES: readonly D1RailSlot[] = [
+  { id: "conversation", icon: "chat", key: "d1.activity.work", kind: "conversation" },
+  { id: "lanes", icon: "lanes", key: "d1.activity.lanes", kind: "lanes" },
+  {
+    id: "review",
+    icon: "review",
+    key: "d1.activity.review",
+    kind: "destination",
+    destination: "review",
+  },
+  {
+    id: "evidence",
+    icon: "evidence",
+    key: "d1.activity.evidence",
+    kind: "destination",
+    destination: "evidence",
+  },
+  {
+    id: "d2",
+    icon: "decide",
+    key: "d1.activity.decisions",
+    kind: "destination",
+    destination: "d2",
+  },
+  {
+    id: "d10",
+    icon: "diagnostics",
+    key: "d1.activity.laneMonitor",
+    kind: "destination",
+    destination: "d10",
+  },
+  {
+    id: "d12",
+    icon: "worktree",
+    key: "d1.activity.integrationGate",
+    kind: "destination",
+    destination: "d12",
+  },
+  { id: "d13", icon: "fleet", key: "d1.activity.fleet", kind: "destination", destination: "d13" },
+  { id: "d14", icon: "brief", key: "d1.activity.audit", kind: "destination", destination: "d14" },
+];
 
 export type CanonicalGuiIcon =
   | "chat"
@@ -30,10 +85,12 @@ export type CanonicalGuiIcon =
   | "review"
   | "fleet"
   | "evidence"
+  | "brief"
   | "diagnostics"
   | "inbox"
   | "settings"
   | "decide"
+  | "pin"
   | "palette"
   | "panel";
 
@@ -94,6 +151,16 @@ export function createCanonicalGuiIcon(name: CanonicalGuiIcon): SVGSVGElement {
       svgNode("path", { d: "M14 2v6h6" }),
       svgNode("path", { d: "M9 13h6M9 17h4" }),
     );
+  } else if (name === "brief") {
+    // The registered `brief` glyph: the audit trail is a record of decisions,
+    // which is a different document from the evidence archive's file.
+    svg.append(
+      svgNode("path", {
+        d: "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M9 13h6M9 17h6",
+      }),
+    );
+  } else if (name === "pin") {
+    svg.append(svgNode("path", { d: "M9 3h6M10 3v6l-3 3v2h10v-2l-3-3V3M12 16v5" }));
   } else if (name === "diagnostics") {
     svg.append(svgNode("path", { d: "M3 12h4l3 8 4-16 3 8h4" }));
   } else if (name === "fleet") {
@@ -135,45 +202,53 @@ export function createCanonicalGuiIcon(name: CanonicalGuiIcon): SVGSVGElement {
   return svg;
 }
 
-/// Rail slots that open a restored screen.
-///
-/// The destinations are honest as of this change: every slot's label, tooltip,
-/// and accessible name is the screen it opens, and each carries the registered
-/// `GUI/gui-icons.jsx` glyph closest to that screen. The `worktree` slot also
-/// matches the D12 design page, whose own rail highlights it for the
-/// integration gate.
-///
-/// What remains open is the *design* question, not the labelling one: the
-/// accepted rail has no slot for the decision queue, the audit trail, the lane
-/// monitor, or the fleet board, and the design instead reaches several of them
-/// as in-cockpit secondary views. Those four slots therefore stay a routing
-/// decision awaiting design adjudication — the screens are reachable here
-/// rather than only from a URL. Do not read the honest labels as the
-/// adjudication having happened.
-export const D1_RAIL_ROUTES: Partial<Record<string, string>> = {
-  "d1.activity.integrationGate": "d12",
-  "d1.activity.decisions": "d2",
-  "d1.activity.audit": "d14",
-  "d1.activity.laneMonitor": "d10",
-  "d1.activity.fleet": "d13",
-};
+export interface D1RailDestinationState {
+  /** True when activating the slot actually has somewhere to go. */
+  available: boolean;
+  /** True when this destination is the one the centre pane is showing. */
+  current: boolean;
+  /**
+   * A sentence appended to the tooltip and the accessible name. It states the
+   * Core capability the destination needs and does not have, or a condition
+   * the operator would otherwise only discover by opening the view.
+   */
+  note?: string;
+  /**
+   * A count Core already published, rendered as the design's `.badge`. Nothing
+   * is counted client-side: a destination with no Core-published count carries
+   * no badge rather than a zero.
+   */
+  badge?: number | null;
+}
 
 export interface ActivityRailOptions {
   lanesAvailable: boolean;
   lanesOpen: boolean;
   onToggleLanes: () => void;
-  /// Opens a restored screen. Absent while no Core projection is bound, which
-  /// keeps every routing slot disabled rather than opening an empty screen.
-  onNavigate?: (route: string) => void;
-  /// Focuses the work surface the `Work` slot already marks as current. The
-  /// rail owns no screen state, so the cockpit supplies the focus target;
-  /// without it the slot is disabled rather than enabled and inert.
+  /**
+   * Focuses the work surface the Conversation slot marks as current. The rail
+   * owns no screen state, so the cockpit supplies the focus target; without it
+   * the slot is disabled rather than enabled and inert.
+   */
   onFocusWork?: () => void;
-  /// Opens the Settings overlay from the rail's bottom gear, matching the
-  /// cockpit prototype. Absent while no host is bound, which disables the
-  /// gear rather than opening a panel that cannot reach Core. A *bound* host
-  /// always supplies it, even without the preference capability, so the
-  /// unavailable state is something the operator can open and read.
+  /** True while the transcript owns the centre pane. */
+  conversationCurrent?: boolean;
+  /**
+   * Per-destination state, resolved by the cockpit: whether the destination
+   * can be opened at all, whether it is the one showing, why it cannot be
+   * opened, and any count Core published for it. A destination missing from
+   * this map has no action behind it and renders disabled.
+   */
+  destinations?: Partial<Record<D1RailDestination, D1RailDestinationState>>;
+  /** Switches the cockpit centre pane to one destination. */
+  onOpenDestination?: (destination: D1RailDestination) => void;
+  /**
+   * Opens the Settings overlay from the rail's bottom gear, matching the
+   * cockpit prototype. Absent while no host is bound, which disables the gear
+   * rather than opening a panel that cannot reach Core. A *bound* host always
+   * supplies it, even without the preference capability, so the unavailable
+   * state is something the operator can open and read.
+   */
   onOpenSettings?: () => void;
   settingsOpen?: boolean;
 }
@@ -187,30 +262,47 @@ export function renderActivityRail(
   activity.dataset.shellLandmark = "activity-rail";
   activity.dataset.cockpitRole = "activity";
   activity.setAttribute("aria-label", translate(locale, "d1.activity", {}));
-  for (const activityItem of D1_ACTIVITY_ITEMS) {
+  // Exactly one slot is current, and the table decides which: the conversation
+  // is the home surface, so it is current precisely when no destination is.
+  // Deriving it here rather than taking two independent flags is what stops
+  // the rail from ever marking two destinations at once.
+  const conversationCurrent =
+    options.conversationCurrent ??
+    !Object.values(options.destinations ?? {}).some((state) => state?.current);
+  for (const slot of D1_RAIL_ROUTES) {
     const item = document.createElement("button");
     item.type = "button";
     item.className = "actbtn d1-action";
-    item.title = translate(locale, activityItem.key, {});
-    item.setAttribute("aria-label", translate(locale, activityItem.key, {}));
-    item.append(createCanonicalGuiIcon(activityItem.icon));
-    if (activityItem.key === "d1.activity.work") {
-      // `Work` is the screen already showing, so it stays marked current
-      // instead of routing. Activating it returns focus to the work surface;
-      // with no focus target it is disabled rather than enabled and inert.
-      item.classList.add("on");
-      item.setAttribute("aria-current", "page");
+    item.dataset.railSlot = slot.id;
+    const name = translate(locale, slot.key, {});
+    const state = slot.destination ? options.destinations?.[slot.destination] : undefined;
+    // The note is part of the name, not a decoration beside it: a slot whose
+    // destination cannot be opened must say why in the one string a screen
+    // reader announces, not only in a tooltip a pointer would have to find.
+    const label = state?.note ? `${name} — ${state.note}` : name;
+    item.title = label;
+    item.setAttribute("aria-label", label);
+    item.append(createCanonicalGuiIcon(slot.icon));
+
+    if (slot.kind === "conversation") {
+      // The transcript is the cockpit's home surface, so this slot returns to
+      // it and focuses the composer rather than routing. It is marked current
+      // only while the transcript is actually the view showing; with no focus
+      // target it is disabled rather than enabled and inert.
+      item.classList.toggle("on", conversationCurrent);
+      if (conversationCurrent) item.setAttribute("aria-current", "page");
       item.disabled = !options.onFocusWork;
       if (options.onFocusWork) {
         item.dataset.railFocusWork = "true";
         item.addEventListener("click", () => options.onFocusWork?.());
       }
-    } else if (activityItem.key === "d1.activity.lanes") {
+    } else if (slot.kind === "lanes") {
       item.dataset.lanesToggle = "true";
       item.disabled = !options.lanesAvailable;
       if (options.lanesAvailable) {
         item.setAttribute("aria-controls", "d1-lane-rail");
         item.setAttribute("aria-expanded", String(options.lanesOpen));
+        item.classList.toggle("on", options.lanesOpen);
         item.addEventListener("click", options.onToggleLanes);
         item.addEventListener("keydown", (event) => {
           if (!["Enter", " "].includes(event.key)) return;
@@ -218,12 +310,29 @@ export function renderActivityRail(
           item.click();
         });
       }
-    } else if (D1_RAIL_ROUTES[activityItem.key] && options.onNavigate) {
-      const route = D1_RAIL_ROUTES[activityItem.key] as string;
-      item.dataset.railRoute = route;
-      item.addEventListener("click", () => options.onNavigate?.(route));
+    } else if (state?.available && options.onOpenDestination) {
+      const destination = slot.destination as D1RailDestination;
+      item.dataset.railRoute = destination;
+      if (state.current) {
+        item.classList.add("on");
+        item.setAttribute("aria-current", "page");
+      }
+      item.addEventListener("click", () => options.onOpenDestination?.(destination));
     } else {
+      // No action behind it: disabled rather than enabled and inert. The label
+      // above already carries the reason when the cockpit supplied one.
       item.disabled = true;
+    }
+
+    // Counts come from Core and nowhere else. A destination the cockpit has no
+    // published count for carries no badge, never a zero that would read as
+    // "nothing waiting" when the truth is "nobody counted".
+    if (typeof state?.badge === "number" && state.badge > 0) {
+      const badge = document.createElement("span");
+      badge.className = "badge";
+      badge.dataset.railBadge = "true";
+      badge.textContent = String(state.badge);
+      item.append(badge);
     }
     activity.append(item);
   }

@@ -63,6 +63,14 @@ import "./ui/window_chrome.css";
 
 type ShellState = "connecting" | "disconnected" | "empty";
 
+/**
+ * The `?screen=` values that open the cockpit on a centre view.
+ *
+ * `d4` and `d11` are deliberately not here: they are full-window flows that
+ * replace the cockpit rather than render inside it.
+ */
+const CENTER_VIEW_SCREENS: readonly string[] = ["d2", "d10", "d12", "d13", "d14"];
+
 function shellProjection(
   preferences: ResolvedPreferences | undefined,
   shellState: ShellState,
@@ -259,7 +267,7 @@ export async function hydrateShellFromCore(
       // cannot open. The host reads it and returns an inline data URL.
       const resolveContent = async (reference: string) => await core.agentContent(reference);
 
-      const showD1 = async (laneId?: string) => {
+      const showD1 = async (laneId?: string): Promise<D1Controller | null> => {
         const projection = await core.d1Cockpit(laneId ?? null);
         if (!projection || (laneId && projection.selectedLaneId !== laneId)) {
           throw new Error(
@@ -310,20 +318,21 @@ export async function hydrateShellFromCore(
             // evidence object, the same one-way `D-AUDIT` link D12's baseline
             // chips use. The route is D14's own; nothing new is invented here.
             onOpenAuditTrail: openAuditTrail,
-            onNavigate: (route: string, arg?: string) => {
-              // Every restored screen re-reads its own Core projection before
-              // it renders; the caller only names the route and, when the
-              // palette jumped to one exact record, the Core id to preselect.
-              if (route === "d2") void showD2(arg);
-              else if (route === "d4") void showD4();
-              else if (route === "d10") void showD10();
+            // D2, D10, D12, D13, and D14 are centre-pane views of this same
+            // cockpit; the shell supplies the Core read and the screen, the
+            // cockpit supplies the chrome, the Close control, and `Esc`.
+            secondaryViews: { mount: mountSecondaryView },
+            onNavigate: (route: string) => {
+              // What is left here is the two flows that really do replace the
+              // window: D11 project intake and the D4 Lane wizard. Every other
+              // route the palette or a screen names is handled in-cockpit
+              // above and never reaches this callback.
+              if (route === "d4") void showD4();
               else if (route === "d11") void showD11();
-              else if (route === "d12") void showD12(arg);
-              else if (route === "d13") void showD13();
-              else if (route === "d14") void showD14(arg);
             },
           },
         );
+        return activeD1;
       };
 
       // D11 is the full project intake and first-run setup flow. It is entered
@@ -422,16 +431,13 @@ export async function hydrateShellFromCore(
       // `selectedId` is Core's own selection input: the projection comes back
       // carrying that decision's detail, so a palette jump lands on the record
       // it named rather than on the queue's default head.
-      const showD2 = async (selectedId?: string) => {
-        activeD1?.dispose();
-        activeD1 = null;
-        const projection = await core.d2Decisions(selectedId ?? null);
+      const showD2 = async (container: HTMLElement, selectedId: string | null) => {
+        const projection = await core.d2Decisions(selectedId);
         if (!projection) {
           throw new Error("Core did not provide the D2 decision projection");
         }
-        root.dataset.route = "d2";
         renderD2Decisions(
-          root,
+          container,
           projection,
           async (intent: D2Intent) =>
             await core.d2SendIntent(`gui-d2-${crypto.randomUUID()}`, intent),
@@ -442,15 +448,14 @@ export async function hydrateShellFromCore(
 
       // D10 watches every Lane across projects. It is read-only: every
       // actionable decision routes back into D2.
-      const showD10 = async () => {
-        activeD1?.dispose();
-        activeD1 = null;
+      const showD10 = async (container: HTMLElement) => {
         const projection = await core.d10LaneMonitor();
         if (!projection) {
           throw new Error("Core did not provide the D10 lane monitor projection");
         }
-        root.dataset.route = "d10";
-        const controller = renderD10LaneMonitor(root, projection, locale, () => void showD2());
+        const controller = renderD10LaneMonitor(container, projection, locale, () =>
+          activeD1?.openCenterView("d2"),
+        );
         // The event ticker is a Core audit read, so it resolves after the
         // cards mount rather than blocking them. A refusal degrades the strip
         // alone and states Core's own words in place of it (GUI-CORE-014).
@@ -482,19 +487,19 @@ export async function hydrateShellFromCore(
 
       // D12 is the integration-gate failure path. Accept opens only when Core
       // says every required evidence id is present.
-      const showD12 = async (gateId?: string) => {
-        activeD1?.dispose();
-        activeD1 = null;
-        const projection = await core.d12IntegrationGate(gateId ?? null);
+      const showD12 = async (container: HTMLElement, gateId: string | null) => {
+        const projection = await core.d12IntegrationGate(gateId);
         if (!projection) {
           throw new Error("Core did not provide the D12 integration gate projection");
         }
-        root.dataset.route = "d12";
         renderD12IntegrationGate(
-          root,
+          container,
           projection,
           locale,
-          (next) => void showD12(next),
+          // Selecting another gate is the same view scoped to another Core id,
+          // so it re-enters through the cockpit's router rather than rendering
+          // a second screen over this one.
+          (next) => activeD1?.openCenterView("d12", next),
           async (intent: D12Intent) =>
             await core.d12SendIntent(`gui-d12-${crypto.randomUUID()}`, intent),
           openAuditTrail,
@@ -508,17 +513,14 @@ export async function hydrateShellFromCore(
       //
       // `scope` is the route argument, `kind:id`, exactly the way the palette
       // hands D2 and D12 the one Core id to preselect.
-      const showD14 = async (scope?: string) => {
-        activeD1?.dispose();
-        activeD1 = null;
-        const parsed = parseAuditScope(scope);
+      const showD14 = async (container: HTMLElement, scope: string | null) => {
+        const parsed = parseAuditScope(scope ?? undefined);
         const audit = await queryAudit(parsed);
         // Raw mode is pre-loaded only when it is the mode D14 will open in, so
         // an available audit trail costs no replay traffic.
         const raw = audit.capabilityAvailable ? null : await core.d14AuditTimeline(null, 200);
-        root.dataset.route = "d14";
         renderD14(
-          root,
+          container,
           audit,
           locale,
           {
@@ -551,21 +553,49 @@ export async function hydrateShellFromCore(
         return { kind: raw.slice(0, separator), id: raw.slice(separator + 1) };
       };
 
+      /**
+       * `D-AUDIT`'s one-way link: an evidence row, a D2 decision, or a D12
+       * baseline chip opens the audit trail scoped to that object. It is now a
+       * centre-pane switch rather than a window route, so the operator returns
+       * to what they were reading with `Esc` instead of navigating back.
+       */
       const openAuditTrail = (scope: D14AuditScope) => {
-        void showD14(`${scope.kind}:${scope.id}`);
+        activeD1?.openCenterView("d14", `${scope.kind}:${scope.id}`);
       };
 
       // D13 is the fleet board. It is read-only: workflow mutations stay with
       // the Core commands that own the DAG.
-      const showD13 = async () => {
-        activeD1?.dispose();
-        activeD1 = null;
+      const showD13 = async (container: HTMLElement) => {
         const projection = await core.d13FleetWorkflow();
         if (!projection) {
           throw new Error("Core did not provide the D13 fleet projection");
         }
-        root.dataset.route = "d13";
-        renderD13FleetWorkflow(root, projection, locale);
+        renderD13FleetWorkflow(container, projection, locale);
+      };
+
+      /**
+       * The cockpit's secondary-view host.
+       *
+       * Each of the five screens is a Core read this boundary owns, so the
+       * shell answers "what goes in the centre pane" and the cockpit answers
+       * "where, with what chrome, and how it closes". The renderers themselves
+       * are untouched: they take a container and fill it, which is what they
+       * always did — only the container moved from the window root into D1's
+       * centre pane, so the titlebar, rails, dock, composer, and statusbar
+       * survive the switch and the composer keeps addressing the selected
+       * Lane. A rejection propagates: the cockpit renders Core's own words in
+       * place of the screen.
+       */
+      const mountSecondaryView = async (
+        route: "d2" | "d10" | "d12" | "d13" | "d14",
+        container: HTMLElement,
+        arg: string | null,
+      ): Promise<void> => {
+        if (route === "d2") await showD2(container, arg);
+        else if (route === "d10") await showD10(container);
+        else if (route === "d12") await showD12(container, arg);
+        else if (route === "d13") await showD13(container);
+        else await showD14(container, arg);
       };
 
       const pickProjectFolder = async () =>
@@ -701,16 +731,13 @@ export async function hydrateShellFromCore(
           await showD4();
         } else if (screen === "d11") {
           await showD11();
-        } else if (screen === "d2") {
-          await showD2();
-        } else if (screen === "d10") {
-          await showD10();
-        } else if (screen === "d12") {
-          await showD12();
-        } else if (screen === "d13") {
-          await showD13();
-        } else if (screen === "d14") {
-          await showD14();
+        } else if (screen && CENTER_VIEW_SCREENS.includes(screen)) {
+          // A `?screen=` deep link is an *entry point*, not a second shell:
+          // it opens the cockpit and then switches its centre pane, so the
+          // chrome, the selected Lane, and the return path are the same ones
+          // the rail produces.
+          const cockpit = await showD1();
+          cockpit?.openCenterView(screen as "d2" | "d10" | "d12" | "d13" | "d14");
         } else {
           await showD1();
         }

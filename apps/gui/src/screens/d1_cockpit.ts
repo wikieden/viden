@@ -1,5 +1,9 @@
-import { translate } from "../i18n/catalog";
-import { renderActivityRail } from "../components/activity_rail";
+import { translate, type MessageKey } from "../i18n/catalog";
+import {
+  renderActivityRail,
+  type D1RailDestination,
+  type D1RailDestinationState,
+} from "../components/activity_rail";
 import {
   orderedAgentAdapters,
   renderAgentMenu,
@@ -91,6 +95,21 @@ export type { D1Intent } from "../models/composer";
 export { BoundedTranscript } from "../models/transcript";
 export type { D1CockpitProjection } from "../models/workspace";
 
+/**
+ * The centre view's own title, taken from the rail slot that opens it.
+ *
+ * One label per destination, shared between the rail and the view head: a
+ * second string here is how a tooltip and a heading start naming the same
+ * screen differently.
+ */
+const SECONDARY_VIEW_LABELS = {
+  d2: "d1.activity.decisions",
+  d10: "d1.activity.laneMonitor",
+  d12: "d1.activity.integrationGate",
+  d13: "d1.activity.fleet",
+  d14: "d1.activity.audit",
+} as const satisfies Record<"d2" | "d10" | "d12" | "d13" | "d14", MessageKey>;
+
 export interface D1IntentResult {
   projection: D1CockpitProjection;
   pendingCommandId: string | null;
@@ -105,10 +124,31 @@ type PollD1 = (selectedLaneId?: string, waitForEvent?: boolean) => Promise<D1Int
 type SendPermissionIntent = (intent: PermissionIntent) => Promise<unknown>;
 type RecoverD6 = () => Promise<D6RecoveryProjection>;
 
+/**
+ * Which view owns D1's centre pane.
+ *
+ * `transcript` is the cockpit's home surface. Everything else is a *view over
+ * it*, not a route: the titlebar, both rails, the context dock, the composer
+ * and the statusbar stay mounted, the composer keeps addressing the selected
+ * Lane, and closing returns to the conversation rather than navigating.
+ */
+export type D1CenterView = "transcript" | D1RailDestination;
+
+/** The five D-screens the shell mounts inside the centre pane. */
+export type D1SecondaryRoute = "d2" | "d10" | "d12" | "d13" | "d14";
+
 export interface D1Controller {
   applyProjection: (projection: D1CockpitProjection) => void;
   applyResult: (result: D1IntentResult) => void;
   transcript: BoundedTranscript;
+  /**
+   * Switches the centre pane. `arg` is the one Core id the destination
+   * preselects (a D2 decision, a D12 gate, a D14 `kind:id` audit scope); the
+   * screen still re-reads its own Core projection before it renders.
+   */
+  openCenterView: (view: D1CenterView, arg?: string) => void;
+  /** Returns the centre pane to the transcript. */
+  closeCenterView: () => void;
   dispose: () => void;
 }
 
@@ -259,6 +299,28 @@ export interface D1RenderOptions {
     query: (laneId: string | null, kinds: string[]) => Promise<EvidenceArchiveProjection>;
     loadOlder: () => Promise<EvidenceArchiveProjection>;
     content: (evidenceId: string) => Promise<EvidenceContentProjection>;
+  };
+  /**
+   * Mounts one of the five secondary D-screens inside the cockpit's centre
+   * pane (`D-RAILNAV`, resolved by the `0.3.4` plan in favour of the D1
+   * flagship's own in-page view switching).
+   *
+   * The shell owns *what* is mounted, because each screen is a Core read this
+   * client boundary performs; the cockpit owns *where* — the centre pane, the
+   * chrome around it, the Close control, and the `Esc` return. Absent while no
+   * host is bound, which makes every rail destination fall back to the shell's
+   * own `onNavigate` route rather than opening a pane nothing can fill.
+   *
+   * `container` is a stable node: the cockpit keeps it across ordered Core
+   * refreshes, so a mounted screen holds its own selection and filters instead
+   * of being rebuilt under the operator on every wake.
+   */
+  secondaryViews?: {
+    mount: (
+      route: D1SecondaryRoute,
+      container: HTMLElement,
+      arg: string | null,
+    ) => void | Promise<void>;
   };
   /** Opens D14 scoped to one audit object, for EvidenceView's footer. */
   onOpenAuditTrail?: (scope: { kind: string; id: string }) => void;
@@ -561,7 +623,21 @@ export function renderD1Cockpit(
    * transcript without a navigation, so the operator never loses the
    * conversation they were reviewing for.
    */
-  let centerView: "transcript" | "review" | "evidence" = "transcript";
+  let centerView: D1CenterView = "transcript";
+  /**
+   * The one Core id the open secondary view was asked to preselect, and the
+   * key the mount is memoised under. A refresh must not re-mount the screen
+   * (it would discard its selection and re-read Core); a *different* route or
+   * argument must.
+   */
+  let secondaryArg: string | null = null;
+  let secondaryMountKey: string | null = null;
+  /** The stable host node the secondary screen renders into. */
+  let secondaryBody: HTMLElement | null = null;
+  let secondaryShell: HTMLElement | null = null;
+  /// Core's own words when a secondary read was refused, rendered in place of
+  /// the screen rather than leaving the pane blank.
+  let secondaryError: string | null = null;
   /** Core's last diff answer, or null before the first read. */
   let reviewProjection: WorkspaceDiffProjection | null = null;
   /** Selected file. Presentation state: an ordered refresh must not move it. */
@@ -750,13 +826,65 @@ export function renderD1Cockpit(
     event.preventDefault();
     root.querySelector<HTMLButtonElement>("[data-open-project]")?.click();
   };
-  const handleCancelShortcut = (event: KeyboardEvent): void => {
-    // Esc cancels the running turn, matching the affordance the strip names.
+  /**
+   * Selectors for the surfaces that own their own `Escape`.
+   *
+   * Each of these consumes the key and stops propagation, so the window-level
+   * handler below would normally never see it. They are listed anyway because
+   * "never see it" depends on where focus is: a popover open while focus sits
+   * elsewhere would otherwise let a stray `Escape` close the view behind it.
+   */
+  const ESCAPE_OWNERS =
+    "[data-settings-panel], [data-new-lane-popover], [data-control-popover]," +
+    " [data-command-palette], [data-project-picker], [data-permission-dock]";
+
+  /**
+   * The cockpit's single `Escape` handler, in one explicit priority order.
+   *
+   * There is exactly one because the alternative — a second listener per new
+   * surface — is how a key ends up doing two things at once, and because the
+   * order *is* the contract:
+   *
+   * 1. an IME composition owns the key outright;
+   * 2. an open overlay owns it (settings, palette, popovers, the project
+   *    picker, the permission dock) — a decision the operator is being asked
+   *    to make outranks any navigation;
+   * 3. the composer's cancel-turn binding, which the Live Work strip names
+   *    and which stops real work rather than moving a view;
+   * 4. the centre view's return path — only then, and only when the view
+   *    actually owns the centre pane.
+   */
+  const handleEscape = (event: KeyboardEvent): void => {
     if (event.key !== "Escape" || event.repeat || composing) return;
-    if (!projection.composer.busy) return;
-    if (!root.querySelector("[data-work-cancel]")) return;
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && active.closest(ESCAPE_OWNERS)) return;
+    if (paletteOpen || settingsOpen || pickerOpen || agentMenuOpen || openControl !== null) return;
+    if (projection.composer.busy && root.querySelector("[data-work-cancel]")) {
+      event.preventDefault();
+      cancelActiveTurn();
+      return;
+    }
+    if (centerView === "transcript") return;
     event.preventDefault();
-    cancelActiveTurn();
+    closeCenterView();
+  };
+
+  /**
+   * `⌘G` / `⌃G` opens the decision queue.
+   *
+   * The design's keyboard registry puts the decision centre on `⌘G`, and the
+   * chord was unbound in this shell. It toggles like the other view chords: a
+   * second press returns to the transcript.
+   */
+  const handleDecisionsShortcut = (event: KeyboardEvent): void => {
+    if (event.repeat || composing) return;
+    if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return;
+    if (event.key.toLowerCase() !== "g") return;
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && active.closest(ESCAPE_OWNERS)) return;
+    if (!options.secondaryViews && !options.onNavigate) return;
+    event.preventDefault();
+    openCenterView("d2");
   };
   /**
    * The palette shortcuts.
@@ -874,7 +1002,8 @@ export function renderD1Cockpit(
     field.focus();
     field.select();
   };
-  window.addEventListener("keydown", handleCancelShortcut);
+  window.addEventListener("keydown", handleEscape);
+  window.addEventListener("keydown", handleDecisionsShortcut);
   window.addEventListener("keydown", handleWindowKeydown);
   window.addEventListener("keydown", handlePaletteShortcut);
   window.addEventListener("keydown", handleReviewShortcut);
@@ -936,6 +1065,14 @@ export function renderD1Cockpit(
 
   const controller: D1Controller = {
     transcript,
+    openCenterView: (view, arg) => {
+      if (disposed) return;
+      openCenterView(view, arg);
+    },
+    closeCenterView: () => {
+      if (disposed) return;
+      closeCenterView();
+    },
     applyProjection: (next) => {
       if (disposed) return;
       const nextKey = JSON.stringify(next);
@@ -1052,7 +1189,8 @@ export function renderD1Cockpit(
       paletteController?.dispose();
       paletteController = null;
       window.removeEventListener("keydown", handleWindowKeydown);
-      window.removeEventListener("keydown", handleCancelShortcut);
+      window.removeEventListener("keydown", handleEscape);
+      window.removeEventListener("keydown", handleDecisionsShortcut);
       window.removeEventListener("keydown", handlePaletteShortcut);
       window.removeEventListener("keydown", handleReviewShortcut);
       window.removeEventListener("keydown", handleEvidenceShortcut);
@@ -1496,6 +1634,169 @@ export function renderD1Cockpit(
       window.clearTimeout(reviewStaleTimer);
       reviewStaleTimer = null;
     }
+    render(true);
+  };
+
+  const SECONDARY_ROUTES: readonly D1SecondaryRoute[] = ["d2", "d10", "d12", "d13", "d14"];
+
+  const isSecondaryRoute = (view: D1CenterView): view is D1SecondaryRoute =>
+    (SECONDARY_ROUTES as readonly string[]).includes(view);
+
+  /**
+   * Whether a rail destination has somewhere to go.
+   *
+   * The two registered secondary surfaces ride their own Core capability; the
+   * five D-screens ride the shell's secondary host. A destination with neither
+   * is disabled and labelled rather than enabled and inert.
+   */
+  const destinationAvailable = (destination: D1RailDestination): boolean => {
+    if (destination === "review") return reviewAvailable();
+    if (destination === "evidence") return evidenceAvailable();
+    return !!options.secondaryViews || !!options.onNavigate;
+  };
+
+  /** The sentence a disabled or conditional destination carries in its name. */
+  const destinationNote = (destination: D1RailDestination): string | undefined => {
+    if (destination === "review" && !reviewAvailable()) {
+      return translate(locale, "d1.activity.unavailable", {
+        capability: "runtime.structured_diff",
+      });
+    }
+    if (destination === "evidence" && !evidenceAvailable()) {
+      return translate(locale, "d1.activity.unavailable", {
+        capability: "runtime.evidence_reads",
+      });
+    }
+    // D14 is never blocked by a capability: without `runtime.audit` it opens
+    // in raw event replay, which is a different view of the same question and
+    // must be said up front rather than discovered after the click.
+    if (destination === "d14") return translate(locale, "d1.activity.auditFallback", {});
+    return undefined;
+  };
+
+  const railDestinations = (): Partial<Record<D1RailDestination, D1RailDestinationState>> => {
+    const states: Partial<Record<D1RailDestination, D1RailDestinationState>> = {};
+    for (const destination of [
+      "review",
+      "evidence",
+      ...SECONDARY_ROUTES,
+    ] as readonly D1RailDestination[]) {
+      states[destination] = {
+        available: destinationAvailable(destination),
+        current: centerView === destination,
+        note: destinationNote(destination),
+        // The only count Core already publishes for a rail destination. D2 is
+        // the decision queue and `pendingGateCount` is its size; nothing else
+        // gets a badge, because nothing else has a Core-published number.
+        badge: destination === "d2" ? projection.statusbar.pendingGateCount : null,
+      };
+    }
+    return states;
+  };
+
+  /**
+   * Opens one secondary D-screen in the centre pane.
+   *
+   * The mount is memoised on `route + arg`: an ordered Core refresh re-renders
+   * the chrome around a screen that keeps its own state, while a different
+   * route or a different preselected id is a genuinely different view and is
+   * mounted afresh.
+   */
+  const mountSecondary = (): void => {
+    if (!isSecondaryRoute(centerView) || !options.secondaryViews || !secondaryBody) return;
+    const key = `${centerView}\u0000${secondaryArg ?? ""}`;
+    if (key === secondaryMountKey) return;
+    secondaryMountKey = key;
+    secondaryError = null;
+    const route = centerView;
+    const container = secondaryBody;
+    container.replaceChildren();
+    try {
+      const mounted = options.secondaryViews.mount(route, container, secondaryArg);
+      if (mounted instanceof Promise) {
+        void mounted.catch((error: unknown) => {
+          if (disposed || centerView !== route) return;
+          secondaryError = error instanceof Error ? error.message : String(error);
+          render(false);
+        });
+      }
+    } catch (error: unknown) {
+      secondaryError = error instanceof Error ? error.message : String(error);
+    }
+  };
+
+  /**
+   * The cockpit's router.
+   *
+   * Every entry point — the rail, the statusbar's gate segment, the palette,
+   * the titlebar chips, a screen's own cross-links — comes through here, so
+   * "which destinations are in-cockpit views" is one decision in one place.
+   * A destination the cockpit cannot host falls through to the shell's own
+   * window route, which is what `?screen=d4` and `?screen=d11` still are.
+   */
+  const navigate = (route: string, arg?: string): void => {
+    if (route === "review" || route === "evidence") {
+      openCenterView(route);
+      return;
+    }
+    if (isSecondaryRoute(route as D1CenterView) && options.secondaryViews) {
+      openCenterView(route as D1SecondaryRoute, arg);
+      return;
+    }
+    // The second argument stays absent when there is none: the shell's route
+    // handlers are the same ones the palette and the D-screens already call.
+    if (arg === undefined) options.onNavigate?.(route);
+    else options.onNavigate?.(route, arg);
+  };
+
+  const openCenterView = (view: D1CenterView, arg?: string): void => {
+    if (view === "transcript") {
+      closeCenterView();
+      return;
+    }
+    // Toggling the slot that is already showing returns to the transcript, the
+    // way `⌘R` and `⌘E` already toggle their own views.
+    if (centerView === view && (arg ?? null) === secondaryArg) {
+      closeCenterView();
+      return;
+    }
+    if (view === "review") {
+      openReview();
+      return;
+    }
+    if (view === "evidence") {
+      openEvidence();
+      return;
+    }
+    if (!options.secondaryViews) {
+      if (arg === undefined) options.onNavigate?.(view);
+      else options.onNavigate?.(view, arg);
+      return;
+    }
+    centerView = view;
+    secondaryArg = arg ?? null;
+    render(false);
+    mountSecondary();
+  };
+
+  const closeCenterView = (): void => {
+    if (centerView === "review") {
+      closeReview();
+      return;
+    }
+    if (centerView === "evidence") {
+      closeEvidence();
+      return;
+    }
+    if (centerView === "transcript") return;
+    centerView = "transcript";
+    secondaryArg = null;
+    secondaryMountKey = null;
+    secondaryError = null;
+    // The host node goes with the view: a screen kept alive behind the
+    // transcript would keep reading Core for a pane nobody is looking at.
+    secondaryShell = null;
+    secondaryBody = null;
     render(true);
   };
 
@@ -2051,7 +2352,9 @@ export function renderD1Cockpit(
         returnFocus: root.querySelector<HTMLElement>("[data-command-palette-toggle]"),
       },
       {
-        onNavigate: (route, arg) => options.onNavigate?.(route, arg),
+        // The palette's `#` rows land on the same in-cockpit views the rail
+      // opens, carrying the exact Core id they named.
+      onNavigate: (route, arg) => navigate(route, arg),
         onSelectLane: (laneId) => {
           selectLane(laneId);
           // The palette is a keyboard surface: after a jump the caret belongs
@@ -2420,12 +2723,16 @@ export function renderD1Cockpit(
     const composerFocusable = !showWelcome && !showRecovery && projection.composer.editable;
 
     frame.dataset.nativeWindowShell = "true";
+    // The centre view is a fact about the cockpit, not a route: `data-route`
+    // stays `d1` on the shell root, and this names which view owns the pane.
+    frame.dataset.centerView = centerView;
     // The picker replaces the open workspace, so it exists only where there is
     // one to replace: never on the no-project Welcome, and never without the
     // host callbacks that actually reach Core.
     const projectPickerAvailable =
       !showWelcome && !!options.onPickProjectFolder && !!options.onOpenWorkspace;
-    const topbar = renderCockpitTopbar(projection, locale, showWelcome, options.onNavigate, {
+    const topbar = renderCockpitTopbar(projection, locale, showWelcome, (route, arg) =>
+      navigate(route, arg), {
       onToggleCommandPalette: () => togglePalette(""),
       commandPaletteOpen: paletteOpen,
       // The titlebar's dirty marker is the changes chip the design puts on the
@@ -2464,10 +2771,15 @@ export function renderD1Cockpit(
     const activity = renderActivityRail(locale, {
       lanesAvailable: !showWelcome,
       lanesOpen: laneRailOpen,
-      onNavigate: options.onNavigate,
+      conversationCurrent: centerView === "transcript",
+      destinations: showWelcome ? {} : railDestinations(),
+      onOpenDestination: (destination) => openCenterView(destination),
       onFocusWork: !composerFocusable
         ? undefined
         : () => {
+            // Returning to the conversation is what this slot means, so a view
+            // over the transcript is closed before the composer is focused.
+            closeCenterView();
             // Resolved at activation, not at render: the rail is built before
             // the composer node exists in this frame.
             root.querySelector<HTMLTextAreaElement>("[data-composer]")?.focus();
@@ -2661,6 +2973,65 @@ export function renderD1Cockpit(
           onOpenAuditTrail: options.onOpenAuditTrail,
         },
       );
+    } else if (isSecondaryRoute(centerView)) {
+      // The registered D-screen owns the centre pane and nothing else: the
+      // titlebar, both rails, the context dock, the composer and the statusbar
+      // are built by this same pass and stay exactly where they were, so the
+      // operator can keep telling the selected Lane what to do while reading
+      // the queue, the monitor, the gate, the fleet, or the audit trail.
+      //
+      // The shell node is kept across renders on purpose. The screens hold
+      // their own selection, filters, and mode, and each mount is a Core read;
+      // rebuilding them on every ordered wake would reset the operator's place
+      // and cost a read per event.
+      const route = centerView;
+      if (!secondaryShell || secondaryShell.dataset.secondaryView !== route) {
+        const shell = document.createElement("section");
+        shell.className = "d1-secondary";
+        shell.dataset.secondaryView = route;
+        const head = document.createElement("div");
+        head.className = "d1-secondary-head";
+        const title = document.createElement("h2");
+        title.className = "d1-secondary-title";
+        title.dataset.secondaryTitle = route;
+        head.append(title);
+        // The Close control sits where DiffReview's does — the trailing end of
+        // the view's own head — so one habit closes every centre view.
+        const close = document.createElement("button");
+        close.type = "button";
+        close.className = "review-icon d1-secondary-close";
+        close.dataset.secondaryClose = "true";
+        close.textContent = "✕";
+        close.addEventListener("click", () => closeCenterView());
+        head.append(close);
+        const body = document.createElement("div");
+        body.className = "d1-secondary-body";
+        body.dataset.secondaryBody = route;
+        shell.append(head, body);
+        secondaryShell = shell;
+        secondaryBody = body;
+        // A new host means a new mount; the memo key belongs to the old node.
+        secondaryMountKey = null;
+      }
+      const title = secondaryShell.querySelector<HTMLElement>("[data-secondary-title]")!;
+      title.textContent = translate(locale, SECONDARY_VIEW_LABELS[route], {});
+      const close = secondaryShell.querySelector<HTMLButtonElement>("[data-secondary-close]")!;
+      const closeLabel = translate(locale, "d1.center.close", {});
+      close.title = closeLabel;
+      close.setAttribute("aria-label", closeLabel);
+      secondaryShell.querySelector("[data-secondary-error]")?.remove();
+      if (secondaryError !== null) {
+        // Core's own refusal, verbatim, in place of the screen. The pane is
+        // never left blank: a blank pane reads as "nothing here", which is a
+        // different fact from "Core would not answer".
+        const alert = document.createElement("p");
+        alert.className = "d1-secondary-error";
+        alert.dataset.secondaryError = "true";
+        alert.setAttribute("role", "alert");
+        alert.textContent = translate(locale, "d1.center.failed", { reason: secondaryError });
+        secondaryShell.append(alert);
+      }
+      workSurface.append(secondaryShell);
     } else {
       const transcriptRegion = document.createElement("section");
       transcriptRegion.className = "d1-transcript";
@@ -2905,14 +3276,23 @@ export function renderD1Cockpit(
     topbar.contextDrawerToggle.setAttribute("aria-expanded", String(contextDrawerOpen));
     right.tabIndex = -1;
 
-    const status = renderStatusbar(projection.statusbar, locale, options.onNavigate);
+    const status = renderStatusbar(
+      projection.statusbar,
+      locale,
+      // The gate segment is a destination like any other, so it goes through
+      // the cockpit's router and lands on the in-cockpit decision queue rather
+      // than replacing the window the operator is working in.
+      (route) => navigate(route),
+    );
     const currentFrame = root.querySelector<HTMLElement>('[data-screen="d1-cockpit"]');
     const currentBody = currentFrame?.querySelector<HTMLElement>(":scope > .d1-body");
     const currentActivity = currentBody?.querySelector<HTMLElement>(
       ':scope > [data-shell-landmark="activity-rail"]',
     );
+    // The rail may sit directly in the body (pinned) or inside the floating
+    // hot zone, so it is resolved by landmark rather than by position.
     const currentLanes = currentBody?.querySelector<HTMLElement>(
-      ':scope > [data-shell-landmark="lane-rail"]',
+      '[data-shell-landmark="lane-rail"]',
     );
     const currentTopbar = currentFrame?.querySelector<HTMLElement>(
       ':scope > [data-shell-landmark="topbar"]',
@@ -2950,6 +3330,7 @@ export function renderD1Cockpit(
       if (regionChanged("status", status.outerHTML)) currentStatus.replaceWith(status);
       currentFrame.className = frame.className;
       currentFrame.dataset.nativeWindowShell = frame.dataset.nativeWindowShell;
+      currentFrame.dataset.centerView = frame.dataset.centerView ?? "transcript";
       currentBody.className = body.className;
       currentBody.dataset.cockpitLayout = body.dataset.cockpitLayout;
     } else {

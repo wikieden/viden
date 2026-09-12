@@ -3,29 +3,32 @@
 import { beforeEach, describe, expect, test } from "vitest";
 
 import {
-  D1_ACTIVITY_ITEMS,
   D1_RAIL_ROUTES,
   renderActivityRail,
+  type D1RailDestination,
 } from "../src/components/activity_rail";
 import { translate, type MessageKey } from "../src/i18n/catalog";
 
 /**
- * The activity rail's routing slots name the screen they actually open.
+ * The activity rail's slots name the destination they actually open.
  *
- * The rail previously carried an editor's file-explorer vocabulary — Search,
- * Source control, Evidence, Diagnostics, Inbox — over routes that go somewhere
- * else entirely. A label that names the wrong destination is worse than a
- * missing one: the operator learns the mapping by clicking, and every tooltip
- * and screen-reader announcement teaches it wrong in the meantime.
+ * The rail once carried an editor's file-explorer vocabulary — Search, Source
+ * control, Evidence, Diagnostics, Inbox — over routes that go somewhere else
+ * entirely. A label that names the wrong destination is worse than a missing
+ * one: the operator learns the mapping by clicking, and every tooltip and
+ * screen-reader announcement teaches it wrong in the meantime. G3 keeps that
+ * property while the rail becomes a router over in-cockpit views.
  */
 
-/** The screen each routing slot opens, by the route id the cockpit dispatches. */
-const DESTINATIONS: Record<string, { en: string; zh: string }> = {
-  d12: { en: "Integration gate", zh: "集成闸" },
+/** The destination each slot opens, by the centre view id it switches to. */
+const DESTINATIONS: Record<D1RailDestination, { en: string; zh: string }> = {
+  review: { en: "Diff review", zh: "Diff 评审" },
+  evidence: { en: "Evidence", zh: "证据" },
   d2: { en: "Decisions", zh: "决策" },
-  d14: { en: "Audit timeline", zh: "审计时间线" },
   d10: { en: "Lane monitor", zh: "Lane 监视墙" },
+  d12: { en: "Integration gate", zh: "集成闸" },
   d13: { en: "Fleet board", zh: "舰队看板" },
+  d14: { en: "Audit timeline", zh: "审计时间线" },
 };
 
 function rail(): HTMLElement {
@@ -33,7 +36,13 @@ function rail(): HTMLElement {
     lanesAvailable: true,
     lanesOpen: false,
     onToggleLanes: () => undefined,
-    onNavigate: () => undefined,
+    onOpenDestination: () => undefined,
+    destinations: Object.fromEntries(
+      (Object.keys(DESTINATIONS) as D1RailDestination[]).map((destination) => [
+        destination,
+        { available: true, current: false },
+      ]),
+    ),
   });
 }
 
@@ -42,13 +51,11 @@ describe("activity rail destinations", () => {
     document.body.innerHTML = "";
   });
 
-  test("labels every routing slot with the screen it opens, in both locales", () => {
-    for (const [route, names] of Object.entries(DESTINATIONS)) {
-      const key = Object.keys(D1_RAIL_ROUTES).find(
-        (candidate) => D1_RAIL_ROUTES[candidate] === route,
-      );
-      expect(key, `no rail slot routes to ${route}`).toBeDefined();
-      const messageKey = key as Extract<MessageKey, `d1.activity.${string}`>;
+  test("labels every destination with the screen it opens, in both locales", () => {
+    for (const [destination, names] of Object.entries(DESTINATIONS)) {
+      const slot = D1_RAIL_ROUTES.find((candidate) => candidate.destination === destination);
+      expect(slot, `no rail slot routes to ${destination}`).toBeDefined();
+      const messageKey = slot!.key as Extract<MessageKey, `d1.activity.${string}`>;
       expect(translate("en", messageKey, {})).toBe(names.en);
       expect(translate("zh-CN", messageKey, {})).toBe(names.zh);
     }
@@ -57,33 +64,41 @@ describe("activity rail destinations", () => {
   test("carries the destination name on the tooltip and the accessible name", () => {
     const element = rail();
 
-    for (const [route, names] of Object.entries(DESTINATIONS)) {
-      const slot = element.querySelector<HTMLButtonElement>(`[data-rail-route="${route}"]`)!;
-      expect(slot.getAttribute("aria-label")).toBe(names.en);
-      expect(slot.title).toBe(names.en);
+    for (const [destination, names] of Object.entries(DESTINATIONS)) {
+      const slot = element.querySelector<HTMLButtonElement>(
+        `[data-rail-route="${destination}"]`,
+      )!;
+      // D14 appends the raw-replay fallback, which is a fact about the
+      // destination rather than a second name for it.
+      expect(slot.getAttribute("aria-label")).toContain(names.en);
+      expect(slot.title).toContain(names.en);
     }
   });
 
-  test("routes exactly the five restored screens and leaves routing unchanged", () => {
-    // The honesty fix renames and re-glyphs; it must not silently re-point a
-    // slot at a different screen.
-    expect(Object.values(D1_RAIL_ROUTES).sort()).toEqual(["d10", "d12", "d13", "d14", "d2"]);
+  test("routes every registered destination and nothing else", () => {
+    const routed = Array.from(
+      rail().querySelectorAll<HTMLElement>("[data-rail-route]"),
+      (slot) => slot.dataset.railRoute,
+    );
+    expect(routed.sort()).toEqual(["d10", "d12", "d13", "d14", "d2", "evidence", "review"]);
   });
 
-  test("gives each destination a distinct registered glyph", () => {
-    const icons = D1_ACTIVITY_ITEMS.map((item) => item.icon);
+  test("gives each slot a distinct registered glyph", () => {
+    const icons = D1_RAIL_ROUTES.map((slot) => slot.icon);
 
     expect(new Set(icons).size).toBe(icons.length);
     // Every glyph is copied from the design package's registered
     // `GUI/gui-icons.jsx` set; no slot invents art of its own.
     expect(icons).toEqual([
       "chat",
-      "worktree",
       "lanes",
-      "decide",
+      "review",
       "evidence",
+      "decide",
       "diagnostics",
+      "worktree",
       "fleet",
+      "brief",
     ]);
   });
 
