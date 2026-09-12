@@ -335,12 +335,20 @@ describe("D1 canonical streaming cockpit", () => {
       (section) => section.dataset.contextSection,
     );
 
+    // The design's own section order inside the Environment panel
+    // (`ContextDock` in the D1 flagship): the environment facts, then
+    // Changes / Local / Commit or push / PR status, then Context, Subagents,
+    // Sources, MCP, LSP and the Todo checklist.
     expect(sections).toEqual([
       "environment",
-      "changes-source",
+      "changes",
+      "local",
+      "commit-or-push",
+      "pr-status",
       "context",
-      "lane-agent",
+      "subagents",
       "sources",
+      "lane-agent",
       "mcp",
       "lsp",
       "task-checklist",
@@ -350,12 +358,15 @@ describe("D1 canonical streaming cockpit", () => {
     expect(root.querySelector("[data-lane-agent]")?.textContent).toContain("Native");
     expect(root.querySelector("[data-lane-agent]")?.textContent).toContain("deepseek-v4-flash");
     expect(root.querySelector("[data-lane-agent]")?.textContent).toContain("Running");
-    expect(root.querySelector('[data-typed-empty="source"]')?.textContent).toBe(
+    expect(root.querySelector('[data-typed-empty="local"]')?.textContent).toBe(
       "No source facts are available.",
     );
     expect(root.querySelector('[data-typed-empty="context"]')?.textContent).toBe(
       "No typed context budget is available.",
     );
+    // MCP is only ever unavailable on this contract — Core's own MCP row
+    // carries `Unavailable` plus a detail key — so the section says that and
+    // never "connected".
     expect(root.querySelector("[data-context-section='mcp']")?.textContent).toContain(
       "Unavailable",
     );
@@ -373,7 +384,8 @@ describe("D1 canonical streaming cockpit", () => {
       button.dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true }));
       expect(button.getAttribute("aria-expanded")).toBe("true");
     }
-    expect(root.textContent).not.toContain("Subagents");
+    // The section exists and names its deferral; no subagent is ever drawn.
+    expect(root.querySelectorAll("[data-subagent]")).toHaveLength(0);
     expect(root.textContent).not.toContain("GUI-CORE-");
     controller.dispose();
   });
@@ -417,8 +429,12 @@ describe("D1 canonical streaming cockpit", () => {
     expect(contextDock.textContent).toContain("领先");
     expect(contextDock.textContent).toContain("落后");
     expect(contextDock.textContent).toContain("有变更");
-    expect(contextDock.textContent).toContain("预算");
-    expect(contextDock.textContent).toContain("剩余");
+    // The budget is the design's bar now: Core's used/limit and the percent,
+    // not a `预算`/`剩余` key-value pair.
+    expect(contextDock.querySelector("[data-budget-used]")?.textContent).toContain("64");
+    expect(contextDock.querySelector("[data-budget-bar]")?.getAttribute("data-budget-percent")).toBe(
+      "50",
+    );
     expect(contextDock.querySelector("[data-checklist-item='change-zh']")?.textContent).toContain(
       "已修改",
     );
@@ -428,6 +444,10 @@ describe("D1 canonical streaming cockpit", () => {
     expect(contextDock.textContent).not.toContain("Budget");
     expect(contextDock.textContent).not.toContain("Remaining");
     expect(contextDock.textContent).not.toContain("Lane");
+    // The tab strip translates too; the enumerated tab names are product
+    // microcopy, not terminology exempt from `D-I18N`.
+    expect(contextDock.querySelector("[data-dock-tab='environment']")?.textContent).toBe("环境");
+    expect(contextDock.querySelector("[data-dock-tab='diff']")?.textContent).toBe("对比");
     for (const row of contextDock.querySelectorAll<HTMLElement>("[data-unavailable-feature]")) {
       expect(row.textContent).not.toContain("GUI-CORE-");
       expect(row.getAttribute("title")).toBeNull();

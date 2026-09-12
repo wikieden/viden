@@ -34,7 +34,11 @@ import {
   type StatusbarAmbientSegment,
   type StatusbarAmbientVisibility,
 } from "../components/statusbar";
-import { renderContextDock } from "../components/context_dock";
+import {
+  DOCK_TABS,
+  renderContextDock,
+  type DockTab,
+} from "../components/context_dock";
 import { renderLaneRail, type LaneSidebarMode } from "../components/lane_rail";
 import { cycledLaneId, renderLaneTabs } from "../components/lane_tabs";
 import {
@@ -237,7 +241,12 @@ export interface D1RenderOptions {
     asks: PaletteCrossLane["asks"];
   }>;
   /**
-   * Reads the Core workspace file inventory the palette offers under `~`.
+   * Reads one page of the Core workspace file inventory.
+   *
+   * Two surfaces share it: the palette's `~` scope, which asks for the whole
+   * tree, and the context dock's Files tab, which asks per directory —
+   * `prefix` is the `/`-terminated directory Core scopes the page to, and
+   * `null` is the workspace root.
    *
    * The read belongs to the shell because it is a Core command, not a cockpit
    * projection. Absent while no host is bound, which states the section as
@@ -245,7 +254,7 @@ export interface D1RenderOptions {
    * the workspace itself, which is outside the client boundary and would
    * bypass Core's permission gate (GUI-CORE-022).
    */
-  loadPaletteFiles?: () => Promise<PaletteWorkspaceFiles>;
+  loadWorkspaceFiles?: (prefix: string | null) => Promise<PaletteWorkspaceFiles>;
   showWelcome?: boolean;
   poll?: boolean;
   /**
@@ -681,6 +690,33 @@ export function renderD1Cockpit(
   let lastPermissionRequestId: string | null = initial.permissionDock.request?.id ?? null;
   let contextDrawerOpen = false;
   /**
+   * Which context-dock panel is open (`Environment`, `Files`, `Diff`).
+   *
+   * **Seam.** In memory, deliberately and permanently: the dock tab is a
+   * posture the operator takes for one look, not a preference, so it is
+   * neither written to `localStorage` — the frontend contract makes Core the
+   * single preference authority — nor part of `C5`'s `UiLayoutPreferences`.
+   * A cockpit that reopens on Environment is the design's own default.
+   */
+  let dockTab: DockTab = "environment";
+  /**
+   * Core's workspace-inventory pages, keyed by the prefix each answered.
+   *
+   * `""` is the workspace root and `"crates/"` is one opened directory.
+   * `QueryWorkspaceFiles` is prefix-scoped and bounded, so the Files tab reads
+   * one page per directory the operator opens rather than one truncated page
+   * for the whole tree. The map is presentation cache over rows Core
+   * published; nothing here is derived, merged, or re-sorted.
+   */
+  const dockFilePages = new Map<string, PaletteWorkspaceFiles>();
+  /** Prefixes with a read in flight, so a second click cannot stack reads. */
+  const dockFileReads = new Set<string>();
+  const dockFilesExpanded = new Set<string>();
+  let dockFileSelected: string | null = null;
+  /** Paths whose diff rows the operator opened in the Diff tab. */
+  const dockDiffExpanded = new Set<string>();
+  let dockDiffSelected: string | null = null;
+  /**
    * Which view owns D1's centre pane.
    *
    * DiffReview is a *view* inside the cockpit, not a route: the design
@@ -748,6 +784,16 @@ export function renderD1Cockpit(
   let reviewSelectedPath: string | null = null;
   /** True while a `QueryWorkspaceDiff` is out, so a wake cannot stack reads. */
   let reviewReadInFlight = false;
+  /**
+   * The target the last diff read was *issued* for.
+   *
+   * Tracked here rather than read back from `reviewProjection.targetLaneId`,
+   * because that field is Core's echo of the resolved target and a client must
+   * not depend on an echo to decide whether it has already asked. `undefined`
+   * means nothing has been asked yet, which is a different state from "asked
+   * about the workspace root" (`null`).
+   */
+  let reviewReadTarget: string | null | undefined = undefined;
   /**
    * The debounce behind the re-query rule.
    *
@@ -1242,7 +1288,45 @@ export function renderD1Cockpit(
     event.preventDefault();
     selectLane(target);
   };
+  /**
+   * The context dock's own chords: `⌥⌘E`, `⌘P`, `⌘D`.
+   *
+   * The design's `TABMETA` binds one chord per dock tab. Three of the six are
+   * bound here, and the reasons the other three are not are worth stating
+   * because they are collisions, not omissions:
+   *
+   * - `⌥⌘E` (Environment) is free: `⌘E` is EvidenceView's and that handler
+   *   stands down whenever `altKey` is held, so the two never both fire.
+   * - `⌘P` (Files) is bound on the *meta* key only. The command palette's
+   *   scope chord is `⌃P` and keeps it, so off macOS — where `⌘` reads as
+   *   `⌃` everywhere else in this cockpit — `⌃P` still opens the palette and
+   *   the Files tab is reached from the strip.
+   * - `⌘D` (Diff) was unbound in this shell.
+   * - `⌘J` (Terminal) and `⌘/` (Docs) open tabs that cannot open at all, so
+   *   binding them would promise a panel that does not exist.
+   * - `⌘O` (Code) is already the Welcome screen's folder picker. The earlier
+   *   binding keeps the chord; the Code tab carries none.
+   *
+   * Each stands down while a modal overlay owns focus, exactly as the review
+   * and evidence chords do.
+   */
+  const handleDockTabShortcut = (event: KeyboardEvent): void => {
+    if (event.repeat || composing) return;
+    if (!(event.metaKey || event.ctrlKey) || event.shiftKey) return;
+    const key = event.key.toLowerCase();
+    let tab: DockTab | null = null;
+    if (event.altKey && key === "e") tab = "environment";
+    else if (!event.altKey && event.metaKey && !event.ctrlKey && key === "p") tab = "files";
+    else if (!event.altKey && key === "d") tab = "diff";
+    if (tab === null) return;
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && active.closest(ESCAPE_OWNERS)) return;
+    if (paletteOpen || settingsOpen || pickerOpen || agentMenuOpen || openControl !== null) return;
+    event.preventDefault();
+    setDockTab(tab, true);
+  };
   window.addEventListener("keydown", handleEscape);
+  window.addEventListener("keydown", handleDockTabShortcut);
   window.addEventListener("keydown", handleLaneCycleShortcut);
   window.addEventListener("keydown", handleNewLaneShortcut);
   window.addEventListener("keydown", handleFocusShortcut);
@@ -1439,6 +1523,7 @@ export function renderD1Cockpit(
       paletteController = null;
       window.removeEventListener("keydown", handleWindowKeydown);
       window.removeEventListener("keydown", handleEscape);
+      window.removeEventListener("keydown", handleDockTabShortcut);
       window.removeEventListener("keydown", handleLaneCycleShortcut);
       window.removeEventListener("keydown", handleNewLaneShortcut);
       window.removeEventListener("keydown", handleFocusShortcut);
@@ -1526,6 +1611,10 @@ export function renderD1Cockpit(
         if (next === reviewCapability) return;
         reviewCapability = next;
         render(false);
+        // The dock's Environment and Diff panels are the only surfaces that
+        // read without an explicit open, so a capability that resolves after
+        // the first frame still has to fill them.
+        ensureDockDiff();
       })
       .catch(() => {
         // A host that cannot answer is not a Core that lacks the capability.
@@ -1542,6 +1631,7 @@ export function renderD1Cockpit(
     if (!options.workspaceDiff || reviewReadInFlight) return;
     reviewReadInFlight = true;
     const laneId = selectedLaneId;
+    reviewReadTarget = laneId;
     void options.workspaceDiff
       .query(laneId)
       .then((projection) => {
@@ -1567,7 +1657,10 @@ export function renderD1Cockpit(
       })
       .finally(() => {
         reviewReadInFlight = false;
-        if (!disposed && centerView === "review") render(false);
+        // Redrawn whether or not the review owns the centre pane: since `G5`
+        // the context dock's Changes section and Diff tab render the same page,
+        // so an answer that only updated the dock still has to reach it.
+        if (!disposed) render(false);
       });
   };
 
@@ -1591,6 +1684,105 @@ export function renderD1Cockpit(
         }, REVIEW_RESTALE_MS);
       })
       .catch(() => undefined);
+  };
+
+  /* ---- context dock panels (G5) ---- */
+
+  /**
+   * Fills the dock's diff-backed panels from the same page DiffReview uses.
+   *
+   * One `QueryWorkspaceDiff` serves the Changes section, the Diff tab and the
+   * review view: the host allows one diff read in flight, and three surfaces
+   * asking the same question of the same target would be three answers that
+   * can disagree. The read is skipped entirely until the no-traffic capability
+   * probe says Core publishes structured diff at all, and re-run when the
+   * target Lane changes, because a page read for one worktree describes a
+   * different tree than the one now selected.
+   *
+   * Core decides this read non-interactively — a deny or an unresolved ask
+   * comes back as a rejection rather than parking the client behind an
+   * approval prompt — so the dock may issue it without an operator gesture.
+   */
+  const ensureDockDiff = (): void => {
+    if (!options.workspaceDiff) return;
+    if (reviewCapability === null) {
+      ensureReviewCapability();
+      return;
+    }
+    if (reviewCapability !== true || reviewReadInFlight) return;
+    if (reviewReadTarget === selectedLaneId) return;
+    readReview();
+  };
+
+  /**
+   * Reads one directory of the workspace inventory.
+   *
+   * `prefix` is `""` for the root and `"crates/"` for an opened directory, the
+   * same shape Core's `WorkspaceFilesQuery.prefix` takes. A prefix already in
+   * flight is not re-sent, so a double click cannot stack reads.
+   */
+  const readDockFiles = (prefix: string): void => {
+    if (!options.loadWorkspaceFiles || dockFileReads.has(prefix)) return;
+    dockFileReads.add(prefix);
+    void options
+      .loadWorkspaceFiles(prefix === "" ? null : prefix)
+      .then((answer) => {
+        if (disposed) return;
+        dockFilePages.set(prefix, answer);
+      })
+      .catch((error: unknown) => {
+        if (disposed) return;
+        // A transport failure is this client's own error, never dressed up as
+        // Core's refusal and never as an empty tree.
+        dockFilePages.set(prefix, {
+          outcome: {
+            state: "rejected",
+            reason: error instanceof Error ? error.message : String(error),
+          },
+          entries: [],
+          complete: false,
+          loaded: false,
+          pendingCommandId: null,
+          capabilityAvailable: true,
+        });
+      })
+      .finally(() => {
+        dockFileReads.delete(prefix);
+        if (!disposed) render(false);
+      });
+  };
+
+  /**
+   * Switches the dock panel and starts whatever read it needs.
+   *
+   * `reveal` is set by the chords: a keystroke has to *show* the dock it just
+   * switched, which under focus mode means peeking the right-edge panel and on
+   * a narrow window means opening the drawer. A click needs neither, because
+   * the dock the operator clicked is already on screen.
+   */
+  const setDockTab = (tab: DockTab, reveal = false): void => {
+    const definition = DOCK_TABS.find((candidate) => candidate.id === tab);
+    // The three unopenable tabs are disabled in the strip; refusing here too
+    // keeps a stray caller from opening a panel that can never fill.
+    if (!definition?.live) return;
+    dockTab = tab;
+    if (reveal) {
+      contextDrawerOpen = true;
+      if (focusMode) showDockPeek();
+    }
+    render(false);
+    if (tab === "files") readDockFiles("");
+    else ensureDockDiff();
+  };
+
+  /** Opens or closes one directory, reading its page the first time. */
+  const toggleDockDirectory = (path: string): void => {
+    if (dockFilesExpanded.has(path)) dockFilesExpanded.delete(path);
+    else {
+      dockFilesExpanded.add(path);
+      if (!dockFilePages.has(`${path}/`)) readDockFiles(`${path}/`);
+    }
+    render(false);
   };
 
   /* ---- operator git actions (GUI-CORE-020) ---- */
@@ -1875,11 +2067,60 @@ export function renderD1Cockpit(
   const reviewAvailable = (): boolean =>
     !!options.workspaceDiff && reviewCapability === true;
 
-  const openReview = (): void => {
+  /**
+   * Opens DiffReview, optionally on one exact file.
+   *
+   * `path` is the argument seam the dock's Changes rows and the Diff tab's
+   * inspector use: DiffReview already takes a `selectedPath`, so opening it on
+   * a file is a matter of seeding the cockpit's own selection before the view
+   * mounts rather than a second entry point into the view. A path Core's next
+   * page does not carry is dropped by DiffReview's own resolution, which is
+   * why nothing here validates it against a page that may not have arrived.
+   */
+  const openReview = (path?: string): void => {
     if (!options.workspaceDiff) return;
+    if (path !== undefined) reviewSelectedPath = path;
     centerView = "review";
     render(false);
+    // The dock's Environment panel already reads this page, so a review opened
+    // over a fresh page for the same target reuses it instead of shelling out
+    // to git a second time. A page read for another Lane, a stale one, or no
+    // page at all is re-read.
+    if (
+      reviewProjection?.loaded &&
+      reviewReadTarget === selectedLaneId &&
+      !reviewProjection.stale
+    ) {
+      return;
+    }
     readReview();
+  };
+
+  /**
+   * The dock's "Commit or push" route.
+   *
+   * It opens no new surface and sends no command: `D-RAILNAV ①` makes
+   * DiffReview the registered host of the operator's git actions, so the row
+   * opens that view and moves the keyboard to the control the operator came
+   * for — the commit message field when the bar rendered one, and the
+   * titlebar's sync chip otherwise, which is the same action pair's other half
+   * (a push with nothing staged is what "or push" means).
+   *
+   * Focus is taken after a frame because the view mounts in its pending state
+   * first; a `querySelector` in the same tick would find the bar that has not
+   * been drawn yet.
+   */
+  const openCommitBar = (): void => {
+    openReview();
+    window.setTimeout(() => {
+      if (disposed || centerView !== "review") return;
+      const field = root.querySelector<HTMLElement>("[data-review-commit-message]");
+      if (field) {
+        field.focus();
+        return;
+      }
+      root.querySelector<HTMLElement>("[data-topbar-sync]")?.focus();
+    }, 0);
   };
 
   const closeReview = (): void => {
@@ -2011,7 +2252,7 @@ export function renderD1Cockpit(
       return;
     }
     if (route === "review" || route === "evidence") {
-      openCenterView(route);
+      openCenterView(route, arg);
       return;
     }
     if (isSecondaryRoute(route as D1CenterView) && options.secondaryViews) {
@@ -2030,13 +2271,22 @@ export function renderD1Cockpit(
       return;
     }
     // Toggling the slot that is already showing returns to the transcript, the
-    // way `⌘R` and `⌘E` already toggle their own views.
+    // way `⌘R` and `⌘E` already toggle their own views. An open review asked
+    // for a *different* file is a new request, not a toggle: the operator
+    // clicked another row, which must move the selection rather than close.
+    if (view === "review" && centerView === "review" && arg !== undefined) {
+      openReview(arg);
+      return;
+    }
     if (centerView === view && (arg ?? null) === secondaryArg) {
       closeCenterView();
       return;
     }
     if (view === "review") {
-      openReview();
+      // The argument is a workspace-relative path here, not a Core id: the
+      // review's preselection is a file, which is what the dock's change rows
+      // and its inspector hand over.
+      openReview(arg);
       return;
     }
     if (view === "evidence") {
@@ -2799,9 +3049,9 @@ export function renderD1Cockpit(
         };
         paletteController?.setCrossLane(paletteCrossLane);
       });
-    if (!options.loadPaletteFiles) return;
+    if (!options.loadWorkspaceFiles) return;
     void options
-      .loadPaletteFiles()
+      .loadWorkspaceFiles(null)
       .then((answer) => {
         if (disposed || token !== paletteReadToken) return;
         paletteFiles = answer;
@@ -3745,11 +3995,73 @@ export function renderD1Cockpit(
           ),
         }
       : projection;
-    const right = renderContextDock(
-      contextDockProjection,
+    const right = renderContextDock({
+      projection: contextDockProjection,
       locale,
-      projectionMatchesSelectedLane,
-    );
+      matchesSelectedLane: projectionMatchesSelectedLane,
+      tab: dockTab,
+      onSelectTab: (tab) => setDockTab(tab),
+      // `C5`'s per-Lane worktree source when Core published one for the
+      // selected Lane. The workspace sample is a different tree and never
+      // stands in for it, so `null` here means the Local section says it is
+      // showing the workspace root.
+      laneSource: contextDockProjection.contextDock.laneSource ?? null,
+      diff: {
+        bound: !!options.workspaceDiff,
+        capabilityAvailable: reviewCapability,
+        // The same page the review view renders, read once for both.
+        projection: reviewProjection,
+        selectedPath: dockDiffSelected,
+        expanded: dockDiffExpanded,
+        onSelect: (path) => {
+          dockDiffSelected = path;
+          render(false);
+        },
+        onToggle: (path) => {
+          if (dockDiffExpanded.has(path)) dockDiffExpanded.delete(path);
+          else dockDiffExpanded.add(path);
+          render(false);
+        },
+        onOpenInReview: (path) => navigate("review", path),
+      },
+      files: {
+        bound: !!options.loadWorkspaceFiles,
+        capabilityAvailable: dockFilePages.get("")?.capabilityAvailable ?? null,
+        pages: dockFilePages,
+        expanded: dockFilesExpanded,
+        selectedPath: dockFileSelected,
+        onToggleDirectory: (path) => toggleDockDirectory(path),
+        onSelect: (path) => {
+          dockFileSelected = path;
+          render(false);
+        },
+        // `runtime.workspace_file_reads` (C9) is not consumed by this build;
+        // G7 turns the inspector's Open into a real read.
+        fileReadsAvailable: false,
+      },
+      commit: {
+        // The row routes rather than acts, so it is enabled exactly when the
+        // commit bar it routes to can act: Core publishes the capability, Core
+        // bound an owner this client may act as, and there is a source to
+        // commit against.
+        available:
+          !!options.operatorGit &&
+          operatorGitState.capabilityAvailable &&
+          operatorGitState.ownerAvailable &&
+          !!contextDockProjection.contextDock.source,
+        reason: !options.operatorGit
+          ? translate(locale, "d1.dock.unbound", {})
+          : !operatorGitState.capabilityAvailable
+            ? "runtime.operator_git"
+            : !operatorGitState.ownerAvailable
+              ? (operatorGitState.ownerUnavailableReason ??
+                translate(locale, "d1.topbar.sync.noOwner", {}))
+              : !contextDockProjection.contextDock.source
+                ? translate(locale, "d1.context.noSource", {})
+                : null,
+        onCommitOrPush: () => openCommitBar(),
+      },
+    });
     right.dataset.drawerOpen = String(contextDrawerOpen);
     topbar.contextDrawerToggle.setAttribute("aria-expanded", String(contextDrawerOpen));
     right.tabIndex = -1;

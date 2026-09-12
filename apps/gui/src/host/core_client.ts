@@ -80,8 +80,16 @@ export interface CoreClient {
    * gitignore-aware walk, the runtime-state exclusions, the ordering, and the
    * page clamp; the frontend never walks the workspace, shells out to a file
    * lister, or reconstructs a tree from paths seen elsewhere (GUI-CORE-022).
+   *
+   * `prefix` is the workspace-relative, `/`-terminated directory Core scopes
+   * the page to; `null` reads the whole tree, which is what the palette's `~`
+   * scope asks for. The context dock's Files tab passes one directory at a
+   * time, because the page is bounded and the tree is not.
    */
-  queryWorkspaceFiles(commandId: string): Promise<PaletteWorkspaceFiles>;
+  queryWorkspaceFiles(
+    commandId: string,
+    prefix?: string | null,
+  ): Promise<PaletteWorkspaceFiles>;
   /** Drains ordered Core events while an inventory read is still pending. */
   workspaceFilesPoll(): Promise<PaletteWorkspaceFiles>;
 

@@ -1401,16 +1401,15 @@ impl RuntimeProjection {
                 source: view
                     .workspace_source
                     .as_ref()
-                    .map(|source| D1WorkspaceSourceProjection {
-                        status: workspace_source_status(source.status),
-                        branch: source.branch.clone(),
-                        worktree: source.worktree.clone(),
-                        ahead: source.ahead,
-                        behind: source.behind,
-                        added: source.added,
-                        deleted: source.deleted,
-                        dirty: source.dirty,
-                    }),
+                    .map(workspace_source_projection),
+                // `C5`'s per-Lane worktree source, for the selected Lane only.
+                // Core publishes a row per active Lane that owns a worktree; a
+                // Lane working directly in the workspace gets none, and the
+                // workspace sample beside this field is never copied into it.
+                lane_source: selected_lane_id
+                    .as_deref()
+                    .and_then(|lane_id| view.lane_sources.get(lane_id))
+                    .map(workspace_source_projection),
                 // GUI-CORE-008: a budget belongs to the selected Lane only
                 // through the typed task scope named by the exact owner Core
                 // bound to that Lane. No exact owner, no task, or no budget in
@@ -1469,6 +1468,7 @@ impl RuntimeProjection {
         } else {
             D1ContextDockProjection {
                 source: None,
+                lane_source: None,
                 context: None,
                 lane_agent: None,
                 provider: None,
@@ -1982,6 +1982,25 @@ fn agent_session_status(status: AgentSessionStatus) -> &'static str {
         AgentSessionStatus::Completed => "completed",
         AgentSessionStatus::Failed => "failed",
         AgentSessionStatus::Cancelled => "cancelled",
+    }
+}
+
+/// One `WorkspaceSourceView` as the client DTO, field for field.
+///
+/// Shared by the workspace sample and `C5`'s per-Lane rows so the two can
+/// never drift into different shapes for the same Core fact.
+pub(crate) fn workspace_source_projection(
+    source: &viden_core::WorkspaceSourceView,
+) -> D1WorkspaceSourceProjection {
+    D1WorkspaceSourceProjection {
+        status: workspace_source_status(source.status),
+        branch: source.branch.clone(),
+        worktree: source.worktree.clone(),
+        ahead: source.ahead,
+        behind: source.behind,
+        added: source.added,
+        deleted: source.deleted,
+        dirty: source.dirty,
     }
 }
 

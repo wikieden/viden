@@ -1287,3 +1287,328 @@ button.d1-topbar-project[aria-expanded="true"] {
 .d1-content-part:not([data-content-part="image"]) {
   border-style: dashed;
 }
+
+/*
+ * The context dock's tab strip and its three panels (`G5`).
+ *
+ * The registered half of this family is already in `gui-kit.css`: `.envp`,
+ * `.envsec`, `.envhd`, `.envrow` and `.envctx` are the promoted "Cockpit
+ * 交互件" set and are used verbatim. The strip (`.docktabs` / `.dtablist` /
+ * `.dtab` / `.dockbody`), the file tree (`.ftree` / `.fr`) and `.mcprow` are
+ * still prototype-only CSS in the flagship page, so their metrics are mirrored
+ * here from `Viden - 桌面驾驶舱 (GUI).html` under the `.d1-right` scope rather
+ * than copied into the shared kit, which this batch may not edit. Promoting
+ * them to `gui-kit.css` is the design package's own recorded debt.
+ */
+.d1-right {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+}
+
+.d1-right .docktabs {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  height: 32px;
+  padding-inline: var(--sp-1);
+  background: var(--bg-void);
+  border-block-end: 1px solid var(--border-soft);
+}
+
+.d1-right .dtablist {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  overflow-x: auto;
+}
+
+/*
+ * The design's own metrics, tightened on the horizontal axis only.
+ *
+ * The flagship strip shows the *open* tabs plus a `+` menu for the rest, so
+ * three labels fit its `6px 8px 6px 10px`. This dock shows all six, because a
+ * tab that cannot open still has to carry its reason — so the padding is 5px a
+ * side and the labels fit the same 32px row at the dock's own width. The strip
+ * still scrolls (`.dtablist`) for a narrower dock or a larger font scale.
+ */
+.d1-right .dtab {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: 6px 5px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--fg-muted);
+  white-space: nowrap;
+  background: none;
+  border: 0;
+  border-block-end: 2px solid transparent;
+}
+
+.d1-right .dtab:hover:not(:disabled) {
+  color: var(--fg-secondary);
+}
+
+.d1-right .dtab.on {
+  color: var(--accent-bright);
+  border-block-end-color: var(--accent);
+}
+
+/*
+ * A disabled tab stays legible on purpose: it is carrying a reason, not
+ * decoration. `--fg-faint` is the design's own non-body tier and clears the
+ * `D-A11Y` 3:1 floor for UI text of this weight.
+ */
+.d1-right .dtab:disabled {
+  color: var(--fg-faint);
+  text-decoration: line-through;
+}
+
+.d1-right .dockbody {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 11px 13px;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+/* The registered `.envsec` rows already carry their own padding. */
+.d1-right .dockbody > section {
+  padding: var(--sec-pad-y) 0;
+  border-block-end: 0;
+}
+
+.d1-right .envhd > button {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 0;
+  font: inherit;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--fg-muted);
+  text-align: start;
+  text-transform: none;
+  letter-spacing: normal;
+  background: none;
+  border: 0;
+}
+
+.d1-right .envhd[class*="collapsed"] .caret {
+  transform: rotate(-90deg);
+}
+
+.d1-right button.envrow {
+  width: 100%;
+  background: none;
+  border: 0;
+  text-align: start;
+  font: inherit;
+  font-size: var(--fs-sm);
+  color: var(--fg-primary);
+}
+
+.d1-right button.envrow:disabled {
+  color: var(--fg-faint);
+}
+
+.d1-right .d1-dock-scope,
+.d1-right .d1-dock-reason {
+  margin: 0 0 var(--sp-2);
+  font-size: var(--fs-xs);
+  color: var(--fg-faint);
+}
+
+.d1-right .d1-dock-reason {
+  flex-basis: 100%;
+}
+
+.d1-right .d1-dock-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin-block-start: var(--sp-2);
+}
+
+.d1-right .d1-dock-actions button {
+  padding: 4px 9px;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--fg-secondary);
+  background: none;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-sm);
+}
+
+.d1-right .d1-dock-actions button:disabled {
+  color: var(--fg-faint);
+}
+
+.d1-right .dkh {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  margin: 0 0 var(--sp-2);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.d1-right .dkh .ct {
+  font-weight: 600;
+  letter-spacing: 0;
+  color: var(--fg-muted);
+}
+
+.d1-right .ftree {
+  display: flex;
+  flex-direction: column;
+}
+
+.d1-right .ftree .fr {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 4px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--fg-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  background: none;
+  border: 0;
+  border-radius: 5px;
+  text-align: start;
+}
+
+.d1-right .ftree .fr:hover {
+  background: var(--bg-base);
+}
+
+.d1-right .ftree .fr.dir {
+  font-weight: 600;
+  color: var(--fg-muted);
+}
+
+.d1-right .ftree .fr[data-file-selected="true"] {
+  color: var(--accent-bright);
+  background: var(--bg-sel);
+}
+
+.d1-right .ftree .fr .g {
+  flex: none;
+  width: 12px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.d1-right .ftree .fr .fn {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.d1-right .ftree .fr .pm {
+  margin-inline-start: auto;
+  font-size: 9.5px;
+  color: var(--fg-faint);
+}
+
+.d1-right .dkdiff {
+  margin-block-end: var(--sp-3);
+}
+
+.d1-right .dkdiff[data-diff-selected="true"] .dkh {
+  color: var(--accent-bright);
+}
+
+.d1-right .dkdiff .dkh button {
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  text-align: start;
+}
+
+.d1-right .dkdiff .dkpath {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.d1-right .mcprow {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 4px;
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--fg-primary);
+  background: none;
+  border: 0;
+}
+
+.d1-right .mcprow .dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--fg-faint);
+}
+
+.d1-right .mcprow[data-service-status="connected"] .dot,
+.d1-right .mcprow[data-service-status="ready"] .dot {
+  background: var(--success);
+}
+
+.d1-right .mcprow .st {
+  margin-inline-start: auto;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--fg-faint);
+}
+
+.d1-right .envctx .blindtag {
+  margin-inline-start: 6px;
+  padding: 1px 5px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--warning);
+  border: 1px solid color-mix(in srgb, var(--warning) 46%, transparent);
+  border-radius: 4px;
+}
+
+.d1-right .envctx .big,
+.d1-right .envctx .bar {
+  margin: 0;
+}
+
+.d1-right .envctx .bar {
+  margin-block: 7px 3px;
+}
+
+/*
+ * The shared hunk renderer inside a 300px column.
+ *
+ * `diff_rows` is the same component DiffReview draws in a full centre pane, so
+ * its rows are wider than the dock. They scroll inside their own container
+ * rather than widening the dock or wrapping code, which is the repository's
+ * rule for wide content and the only way per-side line numbers stay aligned.
+ */
+.d1-right .dkdiff .diffbody {
+  overflow-x: auto;
+}

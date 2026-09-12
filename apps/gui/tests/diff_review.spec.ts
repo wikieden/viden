@@ -526,7 +526,14 @@ describe("DiffReview re-query rule", () => {
    * a `WorkspaceSourceUpdated` or `WorkspaceChangeUpdated` since the page was
    * read, that projection comes back `stale`; the banner appears immediately
    * and one re-read fires after a 400 ms debounce — one read per burst of
-   * writes, not one per event. A closed review checks nothing at all.
+   * writes, not one per event. A closed review checks staleness not at all.
+   *
+   * The context dock's Environment panel lists the same changed files, so
+   * since `G5` exactly one `QueryWorkspaceDiff` is issued per target when the
+   * cockpit mounts, and opening the review reuses that page rather than
+   * shelling out to git again. What stays true is the discipline the rule
+   * exists for: no repeat query and no staleness probe for a pane nobody is
+   * looking at.
    */
   test("a stale projection shows the banner and re-reads once after the debounce", async () => {
     vi.useFakeTimers();
@@ -571,9 +578,12 @@ describe("DiffReview re-query rule", () => {
       await vi.advanceTimersByTimeAsync(10);
       // Exactly the one capability read the cockpit does at mount.
       const atMount = read.mock.calls.length;
+      // And exactly one page read, for the dock's Changes section. A closed
+      // review adds nothing to it.
+      expect(query).toHaveBeenCalledTimes(1);
       await vi.advanceTimersByTimeAsync(2_000);
       expect(read.mock.calls.length).toBe(atMount);
-      expect(query).not.toHaveBeenCalled();
+      expect(query).toHaveBeenCalledTimes(1);
       mounted.dispose();
     } finally {
       vi.useRealTimers();

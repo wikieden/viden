@@ -115,6 +115,11 @@ fn d1_cockpit_fixture_projects_the_exact_committed_context_dock() {
                 "deleted": 1,
                 "dirty": true
             },
+            // `C5` publishes a Lane source only for an active Lane that owns a
+            // worktree; the canonical fixture's Lane works in the workspace
+            // itself, so the field is null and nothing fills it in from the
+            // workspace sample above.
+            "laneSource": null,
             "context": null,
             "laneAgent": {
                 "laneId": "lane-d1-main",

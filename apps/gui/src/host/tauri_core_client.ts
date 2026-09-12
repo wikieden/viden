@@ -26,7 +26,8 @@ export function createTauriCoreClient(): CoreClient {
     queryRecentWork: (commandId, limit) => invoke("query_recent_work", { commandId, limit }),
     recentWorkPoll: () => invoke("recent_work_poll"),
 
-    queryWorkspaceFiles: (commandId) => invoke("query_workspace_files", { commandId }),
+    queryWorkspaceFiles: (commandId, prefix) =>
+      invoke("query_workspace_files", { commandId, prefix: prefix ?? null }),
     workspaceFilesPoll: () => invoke("workspace_files_poll"),
 
     queryWorkspaceDiff: (commandId, laneId) =>

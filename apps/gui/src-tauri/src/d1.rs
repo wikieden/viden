@@ -137,6 +137,16 @@ pub struct D1ChecklistItemProjection {
 #[serde(rename_all = "camelCase")]
 pub struct D1ContextDockProjection {
     pub source: Option<D1WorkspaceSourceProjection>,
+    /// The selected Lane's own worktree source (`runtime.workspace_owner`,
+    /// `C5`'s `lane_sources`).
+    ///
+    /// A separate field from `source`, not a replacement for it: Core samples
+    /// `source` from the workspace root and a Lane's worktree is a different
+    /// tree. `None` means Core published no source for this Lane — a Lane that
+    /// works directly in the workspace, one that is no longer active, or a
+    /// Core build without `C5` — and is never filled in from the workspace,
+    /// which would print one tree's branch under another tree's name.
+    pub lane_source: Option<D1WorkspaceSourceProjection>,
     pub context: Option<D1ContextUsageProjection>,
     pub lane_agent: Option<D1LaneAgentProjection>,
     pub provider: Option<D1ProviderHealthProjection>,

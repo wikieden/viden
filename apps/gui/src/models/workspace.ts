@@ -203,6 +203,16 @@ export interface ChecklistItemProjection {
 
 export interface ContextDockProjection {
   source: WorkspaceSourceProjection | null;
+  /**
+   * The selected Lane's own worktree source (`C5`'s `lane_sources`).
+   *
+   * A different tree than `source`, which Core samples from the workspace
+   * root, so the two never stand in for each other: `null` means Core
+   * published no source for this Lane and the dock says it is showing the
+   * workspace instead. Optional on the wire because a Core build without `C5`
+   * publishes the field at all.
+   */
+  laneSource?: WorkspaceSourceProjection | null;
   context: ContextUsageProjection | null;
   laneAgent: LaneAgentProjection | null;
   provider: ProviderHealthProjection | null;

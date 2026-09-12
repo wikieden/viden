@@ -338,7 +338,7 @@ export async function hydrateShellFromCore(
             onPickProjectFolder: pickProjectFolder,
             onOpenWorkspace: openWorkspace,
             loadPaletteCrossLane,
-            loadPaletteFiles,
+            loadWorkspaceFiles,
             workspaceDiff: workspaceDiffPort,
             operatorGit: operatorGitPort,
             evidence: evidencePort,
@@ -778,8 +778,8 @@ export async function hydrateShellFromCore(
         },
       };
 
-      const loadPaletteFiles = async () => {
-        let result = await core.queryWorkspaceFiles(`gui-files-${crypto.randomUUID()}`);
+      const loadWorkspaceFiles = async (prefix: string | null) => {
+        let result = await core.queryWorkspaceFiles(`gui-files-${crypto.randomUUID()}`, prefix);
         for (let attempt = 0; attempt < 4 && result.outcome.state === "pending"; attempt += 1) {
           result = await core.workspaceFilesPoll();
         }

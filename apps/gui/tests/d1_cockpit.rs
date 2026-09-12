@@ -1227,3 +1227,52 @@ fn same_timestamp_lane_outputs_receive_distinct_projection_row_ids() {
     assert_eq!(rows[0].content, "first");
     assert_eq!(rows[1].content, "second");
 }
+
+/// `C5`'s per-Lane worktree source reaches the context dock as its own field.
+///
+/// The workspace sample and a Lane's worktree are different trees, so they are
+/// different fields: the dock's Local section prefers the Lane's and says which
+/// one it is showing, and a Lane Core published no source for keeps `None`
+/// rather than inheriting the workspace's branch under the Lane's name.
+#[test]
+fn d1_cockpit_context_dock_carries_the_selected_lanes_own_worktree_source() {
+    let mut view = d1_main_view();
+    let lane_id = view.lanes[0].id.clone();
+    view.lane_sources.insert(
+        lane_id.clone(),
+        viden_core::WorkspaceSourceView {
+            status: viden_core::WorkspaceSourceStatus::Ready,
+            branch: Some("vd/lane-worktree".into()),
+            worktree: Some(".worktrees/lane-d1-main".into()),
+            ahead: 4,
+            behind: 2,
+            added: 9,
+            deleted: 1,
+            dirty: false,
+        },
+    );
+
+    let adapter = connected(view, Arc::new(Mutex::new(Vec::new())));
+    let selected = adapter.d1_cockpit(Some(&lane_id)).expect("selected Lane");
+    let lane_source = selected
+        .context_dock
+        .lane_source
+        .as_ref()
+        .expect("the Lane's own source");
+    assert_eq!(lane_source.branch.as_deref(), Some("vd/lane-worktree"));
+    assert_eq!(lane_source.ahead, 4);
+    assert_eq!(lane_source.behind, 2);
+    // The workspace sample is untouched beside it; neither replaces the other.
+    assert!(selected.context_dock.source.is_some());
+    assert_ne!(
+        selected.context_dock.source.as_ref().unwrap().branch,
+        lane_source.branch
+    );
+
+    // A Lane Core published no source for keeps `None`; nothing inherits the
+    // workspace's branch under a Lane's name.
+    let other = adapter
+        .d1_cockpit(Some("lane-without-a-worktree"))
+        .expect("unknown Lane");
+    assert!(other.context_dock.lane_source.is_none());
+}
