@@ -23,7 +23,7 @@ use viden_types::{
     PermissionLevel, PermissionPrompt, ReplayBatch, ReplayRequest, RuntimeCommand,
     RuntimeCommandEnvelope, RuntimeErrorView, RuntimeEvent, RuntimeEventEnvelope, RuntimeEventKind,
     RuntimeOwner, RuntimeSnapshotEnvelope, RuntimeViewState, RuntimeWireEvent, TranscriptPage,
-    TranscriptPageRequest, WorkMode, fresh_id, now_timestamp,
+    TranscriptPageRequest, TurnOutcome, TurnSource, TurnView, WorkMode, fresh_id, now_timestamp,
 };
 use viden_workflows::stores::WorkflowStore;
 
@@ -227,6 +227,7 @@ impl From<&RuntimeOwner> for RuntimeOwnerKey {
 
 type ActiveControlRegistry = Arc<Mutex<BTreeMap<RuntimeOwnerKey, ActiveRuntimeControl>>>;
 
+#[derive(Clone, Copy)]
 struct SupervisorShared<'a> {
     event_bus: &'a RuntimeEventBus,
     active_control: &'a ActiveControlRegistry,
@@ -1459,6 +1460,18 @@ fn run_supervisor_worker(
     // immediately. Lane approvals instead observe this worker-owned generation,
     // which advances only with the SessionEngine state it describes.
     let mut applied_permission_epoch = 0_u64;
+    // Whether the session queue is draining right now.
+    //
+    // The supervisor is one worker, so a `QueueFollowUp` a client sends *while*
+    // a turn runs is still in this channel when that turn ends: the drain
+    // inside `run_supervised_input` cannot see it, and a rule that only drained
+    // at the instant a turn completed would leave the common case — queue, then
+    // the turn finishes — sitting forever, which is compatibility follow-up 5
+    // in a new shape. So a completed session-scoped turn *arms* the drain and a
+    // turn that does not complete disarms it, and a follow-up that lands while
+    // it is armed runs as soon as it is queued. Nothing runs behind a failed or
+    // cancelled turn either way.
+    let mut session_queue_draining = false;
     while let Ok(message) = command_receiver.recv() {
         match message {
             SupervisorMessage::Shutdown { response } => {
@@ -1479,6 +1492,8 @@ fn run_supervisor_worker(
                 // workspace identity is folded in here, once, rather than at
                 // each producer.
                 let owner = stamp_workspace_identity(&engine, owner, &command);
+                let queued_follow_up = matches!(command, RuntimeCommand::QueueFollowUp { .. });
+                let queue_owner = owner.clone();
                 before_supervisor_command_for_test(&command_id);
                 if LaneSupervisor::handles(&command) {
                     if let Err(error) =
@@ -1498,7 +1513,8 @@ fn run_supervisor_worker(
                 install_runtime_event_sink(&mut engine, event_bus.clone(), owner.clone());
                 match command {
                     RuntimeCommand::SubmitUserInput { content } => {
-                        run_supervised_input(
+                        let session_scoped = owner.lane_id.is_none();
+                        let draining = run_supervised_input(
                             &mut engine,
                             owner,
                             command_id,
@@ -1510,6 +1526,11 @@ fn run_supervisor_worker(
                             &permission_control,
                             approval_ttl_secs,
                         );
+                        // A Lane's turn says nothing about the session queue,
+                        // so it must not arm or disarm it.
+                        if session_scoped {
+                            session_queue_draining = draining;
+                        }
                     }
                     RuntimeCommand::StartAgentTask { task_id } => {
                         run_supervised_agent_task(
@@ -1668,6 +1689,29 @@ fn run_supervisor_worker(
                             }
                         }
                     }
+                }
+                // Checked only after a `QueueFollowUp`, never after an
+                // unrelated command: the queue is released by a completed turn
+                // and by a new entry landing while it is still draining, not by
+                // whatever else the operator happened to do next.
+                if queued_follow_up && session_queue_draining && queue_owner.lane_id.is_none() {
+                    session_queue_draining = drain_session_queue(
+                        &mut engine,
+                        &queue_owner,
+                        SupervisorShared {
+                            event_bus: &event_bus,
+                            active_control: &active_control,
+                            pending_approvals: &pending_approvals,
+                            approval_timers: &approval_timers,
+                            permission_control: &permission_control,
+                        },
+                        approval_ttl_secs,
+                    );
+                    emit_frontend_status_events_if_changed(
+                        &event_bus,
+                        queue_owner,
+                        engine.frontend_status_lifecycle_events(),
+                    );
                 }
                 if let Err(error) =
                     sync_lane_permissions(&lane_supervisor, &engine, applied_permission_epoch)
@@ -3246,6 +3290,12 @@ fn run_supervised_agent_task(
     }
 }
 
+/// Runs a supervised native turn and everything its completion releases.
+///
+/// Returns whether the session queue is still draining: `true` after a
+/// completed session-scoped turn whose drain emptied the queue, `false` as soon
+/// as a turn does not complete or the owner is a Lane, whose queue belongs to
+/// the Lane worker rather than to this engine.
 #[allow(clippy::too_many_arguments)]
 fn run_supervised_input(
     engine: &mut SessionEngine,
@@ -3258,7 +3308,7 @@ fn run_supervised_input(
     approval_timers: &Arc<ApprovalTimerRegistry>,
     permission_control: &Arc<Mutex<PermissionControlState>>,
     approval_ttl_secs: u64,
-) {
+) -> bool {
     match lane_agent_session_binding(event_bus, &owner) {
         Ok(Some(binding)) if binding.agent_id != "viden" => {
             emit_event(
@@ -3269,12 +3319,12 @@ fn run_supervised_input(
                     reason: lane_agent_session_binding_rejection(&binding),
                 },
             );
-            return;
+            return false;
         }
         Ok(_) => {}
         Err(error) => {
             emit_error(event_bus, owner, error);
-            return;
+            return false;
         }
     }
     if let Some(lane_id) = owner.lane_id.as_deref() {
@@ -3287,9 +3337,114 @@ fn run_supervised_input(
                 owner,
                 RuntimeEventKind::CommandRejected { command_id, reason },
             );
-            return;
+            return false;
         }
     }
+    let shared = SupervisorShared {
+        event_bus,
+        active_control,
+        pending_approvals,
+        approval_timers,
+        permission_control,
+    };
+    let outcome = run_one_supervised_native_turn(
+        engine,
+        &owner,
+        command_id.clone(),
+        Some(command_id),
+        content,
+        TurnSource::UserInput,
+        shared,
+        approval_ttl_secs,
+    );
+    // A Lane's native turn does not touch this queue: `queued_runtime_inputs`
+    // is the built-in engine's session queue, and a Lane's own follow-ups are
+    // held and drained by the Lane worker.
+    let armed = outcome.drains_queue()
+        && owner.lane_id.is_none()
+        && drain_session_queue(engine, &owner, shared, approval_ttl_secs);
+    // Sampled once for the whole sequence rather than per drained turn: the
+    // status lifecycle spawns bounded `git` processes, and a three-entry queue
+    // would otherwise sample the same tree three times for one operator
+    // action.
+    emit_frontend_status_events_if_changed(
+        event_bus,
+        owner,
+        engine.frontend_status_lifecycle_events(),
+    );
+    armed
+}
+
+/// Runs every queued follow-up the completed turn released.
+///
+/// Oldest first, each announced by `InputDequeued` before the turn it starts,
+/// and the loop stops at the first entry whose turn does not complete: a queue
+/// is never spent against a session that has already stopped working. Returns
+/// whether the queue drained cleanly, which is what arms the next drain.
+fn drain_session_queue(
+    engine: &mut SessionEngine,
+    owner: &RuntimeOwner,
+    shared: SupervisorShared<'_>,
+    approval_ttl_secs: u64,
+) -> bool {
+    if owner.lane_id.is_some() {
+        return false;
+    }
+    while let Some((input_id, content)) = engine.take_oldest_queued_runtime_input() {
+        emit_event(
+            shared.event_bus,
+            owner.clone(),
+            RuntimeEventKind::InputDequeued {
+                input_id: input_id.clone(),
+            },
+        );
+        // A drained turn is a turn: it acquires its own active job, so
+        // `CancelActiveTurn` stops it, and it prompts for approval through the
+        // same approver, so an operator answers it exactly as they would a
+        // typed turn's. What it does not do is announce a `CommandAccepted`,
+        // because no client sent a command for it.
+        let outcome = run_one_supervised_native_turn(
+            engine,
+            owner,
+            fresh_id("queued-turn"),
+            None,
+            content,
+            TurnSource::QueuedInput { input_id },
+            shared,
+            approval_ttl_secs,
+        );
+        if !outcome.drains_queue() {
+            return false;
+        }
+    }
+    true
+}
+
+/// One supervised native turn, bracketed by `TurnStarted` and `TurnFinished`.
+///
+/// `job_id` is the active-job key this turn registers under, so a cancellation
+/// and an approval can find it; `announced_command` is the client command to
+/// acknowledge, and is absent for a drained turn that no client asked for.
+#[allow(clippy::too_many_arguments)]
+fn run_one_supervised_native_turn(
+    engine: &mut SessionEngine,
+    owner: &RuntimeOwner,
+    job_id: String,
+    announced_command: Option<String>,
+    content: String,
+    source: TurnSource,
+    shared: SupervisorShared<'_>,
+    approval_ttl_secs: u64,
+) -> TurnOutcome {
+    let SupervisorShared {
+        event_bus,
+        active_control,
+        pending_approvals,
+        approval_timers,
+        permission_control,
+    } = shared;
+    let owner = owner.clone();
+    let command_id = job_id;
     let control = ModelRequestControl::new();
     if let Err(err) = acquire_active_job(
         active_control,
@@ -3306,16 +3461,40 @@ fn run_supervised_input(
                 reason: err,
             },
         );
-        return;
+        // Nothing started, so nothing is bracketed and nothing drains: a
+        // refused acquisition is not a turn that failed.
+        return TurnOutcome::Cancelled;
     }
+    if let Some(announced_command) = announced_command {
+        emit_event(
+            event_bus,
+            owner.clone(),
+            RuntimeEventKind::CommandAccepted {
+                command_id: announced_command,
+                command: redacted_runtime_command_for_event(&RuntimeCommand::SubmitUserInput {
+                    content: content.clone(),
+                }),
+            },
+        );
+    }
+    // The turn's own owner: the command's scope plus this turn's id, so a
+    // client matches its composer on the scope it already knows while an audit
+    // row has a turn to join on.
+    let turn_id = fresh_id("turn");
+    let turn_owner = RuntimeOwner {
+        turn_id: Some(turn_id.clone()),
+        ..owner.clone()
+    };
     emit_event(
         event_bus,
-        owner.clone(),
-        RuntimeEventKind::CommandAccepted {
-            command_id: command_id.clone(),
-            command: redacted_runtime_command_for_event(&RuntimeCommand::SubmitUserInput {
-                content: content.clone(),
-            }),
+        turn_owner.clone(),
+        RuntimeEventKind::TurnStarted {
+            turn: TurnView {
+                turn_id: turn_id.clone(),
+                owner: turn_owner.clone(),
+                source,
+                started_at: now_timestamp(),
+            },
         },
     );
 
@@ -3374,18 +3553,39 @@ fn run_supervised_input(
         &mut emit_completed,
     );
     clear_active_control(active_control, &command_id);
-    match result {
-        Ok(events) => emit_events(event_bus, owner.clone(), events),
+    let outcome = match result {
+        Ok(events) => {
+            emit_events(event_bus, owner.clone(), events);
+            TurnOutcome::Completed
+        }
         Err(failure) => {
             emit_events(event_bus, owner.clone(), failure.completed_events);
-            emit_error(event_bus, owner.clone(), failure.message);
+            emit_error(event_bus, owner.clone(), failure.message.clone());
+            // A cancelled turn also unwinds through this error path, because
+            // the engine reports cancellation as a failed model request. The
+            // control is the only place that knows the owner asked for it, and
+            // the difference matters: a cancellation is a decision about this
+            // turn, while a failure is the turn breaking.
+            if control.is_cancelled() {
+                TurnOutcome::Cancelled
+            } else {
+                TurnOutcome::failed(failure.message)
+            }
         }
-    }
-    emit_frontend_status_events_if_changed(
+    };
+    // The last fact of the turn on every exit, after the error a failure
+    // publishes and after the trailing snapshot a completion publishes.
+    emit_event(
         event_bus,
-        owner,
-        engine.frontend_status_lifecycle_events(),
+        turn_owner.clone(),
+        RuntimeEventKind::TurnFinished {
+            turn_id,
+            owner: turn_owner,
+            outcome: outcome.clone(),
+            finished_at: now_timestamp(),
+        },
     );
+    outcome
 }
 
 fn approval_request_view(

@@ -51,8 +51,8 @@ use viden_types::{
     PermissionRuleSource, PermissionRuleValue, ProviderHealthView, QueuedInputView,
     ReviewRequestStatus, RuntimeCommand, RuntimeErrorView, RuntimeEvent, RuntimeEventKind,
     RuntimeOwner, RuntimeSnapshot, RuntimeViewState, TokenCostView, TokenUsage, ToolCallId,
-    ToolInput, TranscriptPageRequest, WorkMode, canonical_evidence_status, fresh_id, now_timestamp,
-    truncate_for_preview,
+    ToolInput, TranscriptPageRequest, TurnOutcome, TurnSource, TurnView, WorkMode,
+    canonical_evidence_status, fresh_id, now_timestamp, truncate_for_preview,
 };
 use viden_workflows::{
     recovery::{LoadedRecoverySnapshot, RecoverySnapshotEntry},
@@ -376,6 +376,132 @@ impl SessionEngine {
         )
     }
 
+    /// The owner a native turn is published under.
+    ///
+    /// The workspace identity C5 minted plus this turn's own id. When no
+    /// binding exists — a `SessionEngine` built without a host, which is every
+    /// direct construction and most tests — the identity halves stay empty
+    /// rather than being invented, exactly as `runtime.workspace_owner`
+    /// requires: "Core published no workspace identity" and "the identity is
+    /// empty" must not become the same fabricated actor.
+    fn native_turn_owner(&self, turn_id: &str) -> RuntimeOwner {
+        let mut owner = self.workspace_owner().cloned().unwrap_or_default();
+        owner.turn_id = Some(turn_id.to_string());
+        owner
+    }
+
+    /// Removes the oldest queued follow-up, if any.
+    ///
+    /// Oldest first, because the operator typed them in an order and a queue
+    /// that ran them in any other one would reorder their intent. The entry is
+    /// removed before the turn runs so a second drain cannot pick it up.
+    pub(crate) fn take_oldest_queued_runtime_input(&mut self) -> Option<(String, String)> {
+        if self.queued_runtime_inputs.is_empty() {
+            return None;
+        }
+        let input = self.queued_runtime_inputs.remove(0);
+        Some((input.id, input.content))
+    }
+
+    /// Runs a native turn and everything its completion releases.
+    ///
+    /// One loop rather than one call, because a completed turn drains the
+    /// session queue and each drained entry is itself a turn that may drain
+    /// the next. The loop stops at the first turn that does not complete:
+    /// nothing runs behind a failure or a cancellation, so a queue is never
+    /// spent against a session that has already stopped working.
+    fn run_native_turn_sequence<F>(
+        &mut self,
+        command_id: &str,
+        content: String,
+        approver: &mut F,
+        events: &mut Vec<RuntimeEvent>,
+    ) where
+        F: FnMut(PermissionPrompt) -> ApprovalResponse,
+    {
+        let mut next = Some((content, TurnSource::UserInput));
+        while let Some((content, source)) = next.take() {
+            // Only the turn the operator actually commanded may answer with
+            // `CommandRejected`; a drained turn has no command in flight, so a
+            // rejection carrying the original command id would settle a
+            // request the client already saw accepted.
+            let typed = matches!(source, TurnSource::UserInput);
+            let turn_id = fresh_id("turn");
+            let owner = self.native_turn_owner(&turn_id);
+            events.push(RuntimeEvent::new(
+                next_sequence(events),
+                RuntimeEventKind::TurnStarted {
+                    turn: TurnView {
+                        turn_id: turn_id.clone(),
+                        owner: owner.clone(),
+                        source,
+                        started_at: now_timestamp(),
+                    },
+                },
+            ));
+            let outcome = match self.process_runtime_turn_with_approval_and_control(
+                &content,
+                approver,
+                &ModelRequestControl::new(),
+            ) {
+                Ok(input_events) => {
+                    append_resequenced(events, input_events);
+                    TurnOutcome::Completed
+                }
+                Err(failure) if typed && failure.message.contains("context hard limit") => {
+                    append_resequenced(events, failure.completed_events);
+                    events.push(RuntimeEvent::new(
+                        next_sequence(events),
+                        RuntimeEventKind::CommandRejected {
+                            command_id: command_id.to_string(),
+                            reason: failure.message.clone(),
+                        },
+                    ));
+                    TurnOutcome::failed(failure.message)
+                }
+                Err(failure) => {
+                    append_resequenced(events, failure.completed_events);
+                    events.push(RuntimeEvent::new(
+                        next_sequence(events),
+                        RuntimeEventKind::Error {
+                            error: RuntimeErrorView {
+                                message: failure.message.clone(),
+                                recoverable: true,
+                                hint: Some(
+                                    "completed tool facts were preserved before the turn stopped"
+                                        .to_string(),
+                                ),
+                            },
+                        },
+                    ));
+                    TurnOutcome::failed(failure.message)
+                }
+            };
+            let drains = outcome.drains_queue();
+            events.push(RuntimeEvent::new(
+                next_sequence(events),
+                RuntimeEventKind::TurnFinished {
+                    turn_id,
+                    owner,
+                    outcome,
+                    finished_at: now_timestamp(),
+                },
+            ));
+            if drains && let Some((input_id, queued)) = self.take_oldest_queued_runtime_input() {
+                // Announced before the turn it starts, so a client is never
+                // shown a turn quoting a queue entry it has not been told left
+                // the queue.
+                events.push(RuntimeEvent::new(
+                    next_sequence(events),
+                    RuntimeEventKind::InputDequeued {
+                        input_id: input_id.clone(),
+                    },
+                ));
+                next = Some((queued, TurnSource::QueuedInput { input_id }));
+            }
+        }
+    }
+
     pub fn handle_runtime_command<F>(
         &mut self,
         command_id: impl Into<String>,
@@ -618,42 +744,13 @@ impl SessionEngine {
                     Err(err) => return Ok(vec![command_rejected(command_id, err)]),
                 }
             }
+            // Every exit below closes the turn with `TurnFinished` as the last
+            // fact, and a completed one drains the session queue behind it —
+            // the two halves of `runtime.turn_lifecycle`. The trailing
+            // snapshot stays where it was; it is simply no longer what a
+            // client reads as the end of the turn.
             RuntimeCommand::SubmitUserInput { content } => {
-                match self.process_runtime_turn_with_approval_and_control(
-                    &content,
-                    approver,
-                    &ModelRequestControl::new(),
-                ) {
-                    Ok(input_events) => append_resequenced(&mut events, input_events),
-                    Err(failure) if failure.message.contains("context hard limit") => {
-                        append_resequenced(&mut events, failure.completed_events);
-                        events.push(RuntimeEvent::new(
-                            next_sequence(&events),
-                            RuntimeEventKind::CommandRejected {
-                                command_id,
-                                reason: failure.message,
-                            },
-                        ));
-                        return Ok(events);
-                    }
-                    Err(failure) => {
-                        append_resequenced(&mut events, failure.completed_events);
-                        events.push(RuntimeEvent::new(
-                            next_sequence(&events),
-                            RuntimeEventKind::Error {
-                                error: RuntimeErrorView {
-                                    message: failure.message,
-                                    recoverable: true,
-                                    hint: Some(
-                                        "completed tool facts were preserved before the turn stopped"
-                                            .to_string(),
-                                    ),
-                                },
-                            },
-                        ));
-                        return Ok(events);
-                    }
-                }
+                self.run_native_turn_sequence(&command_id, content, approver, &mut events);
             }
             RuntimeCommand::QueueFollowUp { content } => {
                 let queued = QueuedRuntimeInput::new(content);

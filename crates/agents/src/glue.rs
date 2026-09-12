@@ -22,7 +22,8 @@ use viden_types::{
     AgentStartability, AgentTaskKind, AgentTaskRecord, AgentTaskStatus, ApprovalResponse,
     CapabilityId, EvidenceView, MergeGateDecision, MergeGateDecisionOutcome,
     MergeGatePolicySnapshot, MergeGateRecord, MergeGateStatus, MergeGateType, RuntimeEvent,
-    RuntimeEventKind, RuntimeOwner, fresh_id, now_timestamp, truncate_for_preview,
+    RuntimeEventKind, RuntimeOwner, TurnOutcome, TurnSource, TurnView, fresh_id, now_timestamp,
+    truncate_for_preview,
 };
 
 pub(super) const MAX_RESIDENT_ACP_SESSIONS: usize = 8;
@@ -747,6 +748,25 @@ pub(super) fn start_typed_agent_session_attempt(
     // Persist the accepted input and its exact task before process spawn so
     // snapshot reconstruction cannot collapse a multi-turn dialogue.
     append_acp_runtime_events(&runtime_event_path, &start_events)?;
+    // The turn bracket rides the live sink and is deliberately *not* persisted
+    // beside the session facts above (`runtime.turn_lifecycle`). Snapshot
+    // assembly replays this file, so a persisted `TurnStarted` whose process
+    // died before its `TurnFinished` would rebuild as a turn that is still
+    // running — a phantom Core cannot cancel and a client cannot clear. A turn
+    // is never resumed across a restart, so it leaves no durable trace at all.
+    start_events.push(RuntimeEvent::new(
+        0,
+        RuntimeEventKind::TurnStarted {
+            turn: TurnView {
+                turn_id: artifact_id.clone(),
+                owner: session.owner.clone(),
+                source: TurnSource::AgentSession {
+                    session_id: session_id.clone(),
+                },
+                started_at: now_timestamp(),
+            },
+        },
+    ));
     runtime_event_sink(start_events);
 
     let monitor_cwd = cwd.to_path_buf();
@@ -770,6 +790,7 @@ pub(super) fn start_typed_agent_session_attempt(
     let monitor_turn_id = artifact_id.clone();
     // The exact owner Core published this Agent session under.
     let monitor_owner = session.owner.clone();
+    let monitor_owner_for_turn = session.owner.clone();
     std::thread::spawn(move || {
         let resident_session_id = monitor_record.id.clone();
         let result = run_acp_session_prompt_for_agent_with_log(
@@ -786,7 +807,7 @@ pub(super) fn start_typed_agent_session_attempt(
                 runtime_event_sink: Some(protocol_sink),
                 resident_session_id: Some(resident_session_id),
                 owner_session_id: Some(monitor_owner_session_id),
-                turn_id: Some(monitor_turn_id),
+                turn_id: Some(monitor_turn_id.clone()),
                 owner: Some(monitor_owner),
                 on_pid: |pid| {
                     if let Ok(mut slot) = pid_slot_for_thread.lock() {
@@ -852,15 +873,37 @@ pub(super) fn start_typed_agent_session_attempt(
         };
         monitor_record.updated_at = timestamp_millis();
         let _ = append_codex_job_record(&monitor_cwd, "completed", &monitor_record);
+        // The turn's outcome is read from the terminal session fact this block
+        // just decided, so the two can never disagree about how the run ended.
+        let outcome = match &kind {
+            RuntimeEventKind::AgentSessionCompleted { .. } => TurnOutcome::Completed,
+            RuntimeEventKind::AgentSessionFailed { session } => TurnOutcome::failed(
+                session
+                    .diagnostic
+                    .as_deref()
+                    .unwrap_or("the agent session failed"),
+            ),
+            _ => TurnOutcome::Cancelled,
+        };
         let terminal_event = RuntimeEvent::new(0, kind);
         // The monitor's half of the single-writer rule: only the terminal
         // session fact, which the runner cannot know because it is decided
-        // here from the run result and the cancellation marker.
+        // here from the run result and the cancellation marker. The turn's own
+        // end is live-only, for the reason its start is.
         let _ = append_acp_runtime_events(
             &monitor_runtime_event_path,
             std::slice::from_ref(&terminal_event),
         );
-        terminal_sink(vec![terminal_event]);
+        let finished = RuntimeEvent::new(
+            0,
+            RuntimeEventKind::TurnFinished {
+                turn_id: monitor_turn_id.clone(),
+                owner: monitor_owner_for_turn,
+                outcome,
+                finished_at: now_timestamp(),
+            },
+        );
+        terminal_sink(vec![terminal_event, finished]);
     });
 
     Ok(session)

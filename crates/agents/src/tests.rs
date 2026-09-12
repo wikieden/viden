@@ -3285,3 +3285,124 @@ fn replay_binds_legacy_gates_to_the_session_artifact_that_produced_them() {
         );
     }
 }
+
+// --- runtime.turn_lifecycle (C6), the ACP half -------------------------------
+
+/// An ACP run is a turn, and it says so at both ends.
+///
+/// Before this capability the only terminal fact an Agent session published was
+/// its own session status, which a client had to translate into "work stopped"
+/// per status. The bracket is the same one the native path now publishes, under
+/// the session owner, so one predicate answers liveness for both paths.
+///
+/// Neither half is persisted beside the session facts. Snapshot assembly
+/// replays the ACP runtime-event log, so a persisted `TurnStarted` whose process
+/// died before its `TurnFinished` would rebuild as a turn that is still running
+/// — a phantom Core cannot cancel and a client cannot clear. A turn is never
+/// resumed across a restart, so it leaves no durable trace at all.
+#[test]
+fn a_typed_agent_turn_publishes_its_bracket_live_and_persists_neither_half() {
+    let _guard = subprocess_test_guard();
+    let root = temp_root("acp_typed_turn_lifecycle");
+    let script = mock_typed_session_script(&root, "mock-acp-turn.sh", "session_turn_lifecycle");
+    let _agent_guard = CustomAcpAgentGuard::install(&script);
+
+    let session_id = "agent-session_turn_lifecycle".to_string();
+    let lane_id = "lane-turn-lifecycle".to_string();
+    let owner = typed_session_owner(&session_id, &lane_id);
+    let seen: Arc<Mutex<Vec<RuntimeEvent>>> = Arc::new(Mutex::new(Vec::new()));
+    let sink_seen = Arc::clone(&seen);
+    let sink: RuntimeEventSink = Arc::new(move |events: Vec<RuntimeEvent>| {
+        sink_seen.lock().unwrap().extend(events);
+    });
+    let approver: AgentSessionApprover = Box::new(|_prompt: viden_types::PermissionPrompt| {
+        ApprovalResponse::allow_once(Some("test".into()))
+    });
+
+    start_typed_agent_session(
+        &root,
+        session_id.clone(),
+        viden_types::AgentSessionRequest {
+            lane_id: lane_id.clone(),
+            agent_id: "custom-acp".to_string(),
+            model: None,
+            load_session_id: None,
+            task: "say something".to_string(),
+        },
+        owner.clone(),
+        sink,
+        approver,
+    )
+    .expect("start typed agent session");
+
+    wait_until(
+        || {
+            seen.lock()
+                .unwrap()
+                .iter()
+                .any(|event| matches!(event.kind, RuntimeEventKind::TurnFinished { .. }))
+        },
+        Duration::from_secs(20),
+    );
+
+    let live = seen.lock().unwrap().clone();
+    let started = live
+        .iter()
+        .filter_map(|event| match &event.kind {
+            RuntimeEventKind::TurnStarted { turn } => Some(turn.clone()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(started.len(), 1, "one run is one turn");
+    assert_eq!(started[0].owner, owner, "the turn is the session's own");
+    assert_eq!(
+        started[0].source,
+        viden_types::TurnSource::AgentSession {
+            session_id: session_id.clone()
+        }
+    );
+
+    let finished = live
+        .iter()
+        .filter_map(|event| match &event.kind {
+            RuntimeEventKind::TurnFinished {
+                turn_id, outcome, ..
+            } => Some((turn_id.clone(), outcome.clone())),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(finished.len(), 1);
+    assert_eq!(finished[0].0, started[0].turn_id);
+    assert_eq!(finished[0].1, viden_types::TurnOutcome::Completed);
+
+    // The bracket opens after the session is announced and closes after the
+    // terminal session fact, so a client that reads both never sees a turn
+    // outliving the session it belongs to.
+    let announced = live
+        .iter()
+        .position(|event| matches!(event.kind, RuntimeEventKind::AgentSessionStarted { .. }))
+        .expect("the session start is published");
+    let opened = live
+        .iter()
+        .position(|event| matches!(event.kind, RuntimeEventKind::TurnStarted { .. }))
+        .expect("the turn start is published");
+    let terminal = live
+        .iter()
+        .position(|event| matches!(event.kind, RuntimeEventKind::AgentSessionCompleted { .. }))
+        .expect("the session completion is published");
+    let closed = live
+        .iter()
+        .position(|event| matches!(event.kind, RuntimeEventKind::TurnFinished { .. }))
+        .expect("the turn end is published");
+    assert!(announced < opened);
+    assert!(terminal < closed);
+
+    let persisted = read_acp_runtime_events(&acp_job_runtime_events_path(&root, &session_id));
+    assert!(
+        !persisted.iter().any(|event| matches!(
+            event.kind,
+            RuntimeEventKind::TurnStarted { .. } | RuntimeEventKind::TurnFinished { .. }
+        )),
+        "a turn leaves no durable trace: a replayed half-bracket is a phantom turn"
+    );
+}
