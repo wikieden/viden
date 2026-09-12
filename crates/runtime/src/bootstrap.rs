@@ -149,6 +149,12 @@ fn bootstrap_runtime_with_context(
         resume_session_id,
         runtime_snapshot,
     )?;
+    // The workspace-scoped operator identity, minted (or re-read) here rather
+    // than in each host, so the very first snapshot prefix carries it on every
+    // bootstrap path. Without it a commit made with no Lane selected has no
+    // actor at all and is refused — GUI-CORE-027, and compatibility follow-up
+    // 11 for the CLI path that used to miss this call.
+    crate::workspace_owner::bind_workspace_owner_at_root(&mut engine, cwd)?;
     engine.set_ui_preference_context(ui_cli_override, Some(ui_config_path), ui_system_context);
     // Read once, here: the snapshot prefix republishes this record for every
     // command and must not re-read the operator's config file each time.

@@ -207,15 +207,21 @@ impl LocalCoreHost {
         }
         let bootstrap = bootstrap_runtime(bootstrap_request).map_err(CoreHostError::Bootstrap)?;
         let mut engine = bootstrap.engine;
-        // The workspace-scoped operator identity, minted (or re-read) before
-        // the supervisor starts, so the very first snapshot prefix carries it.
-        // Without it a commit made with no Lane selected has no actor at all
-        // and is refused — GUI-CORE-027.
-        let owner_binding = viden_runtime::mint_workspace_owner_binding(&canonical_root)
-            .map_err(CoreHostError::Bootstrap)?;
-        let workspace_id = owner_binding.owner.workspace_id.clone();
-        let project_id = owner_binding.owner.project_id.clone();
-        engine.bind_workspace_owner(owner_binding);
+        // The workspace-scoped operator identity is minted (or re-read) and
+        // bound inside `bootstrap_runtime`, before any host starts the
+        // supervisor, so the very first snapshot prefix carries it on every
+        // bootstrap path rather than only on this one. Without it a commit made
+        // with no Lane selected has no actor at all and is refused —
+        // GUI-CORE-027. The two ids `WorkspaceBinding` publishes are read back
+        // from that one binding; minting a second time here would be a second
+        // answer to a question that has exactly one.
+        let owner = engine.workspace_owner().ok_or_else(|| {
+            CoreHostError::Bootstrap(
+                "the runtime bootstrap published no workspace owner".to_string(),
+            )
+        })?;
+        let workspace_id = owner.workspace_id.clone();
+        let project_id = owner.project_id.clone();
         let session_id = engine.session_id().to_string();
         let placeholder_binding = WorkspaceBinding {
             canonical_root: canonical_root.clone(),

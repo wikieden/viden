@@ -632,3 +632,79 @@ fn a_new_lane_worktree_is_sampled_once_when_it_is_announced() {
     );
     assert_eq!(published[0].1.branch.as_deref(), Some("codex/lane-new"));
 }
+
+/// The identity belongs to the bootstrap, not to one host.
+///
+/// `apps/cli` never touches `LocalCoreHost`: it calls
+/// `bootstrap_runtime_with_resolved_config`, starts `RuntimeSupervisor`
+/// itself, and wraps it in `LocalCoreTransport`. While the binding lived in
+/// `LocalCoreHost::open_workspace` alone, a whole `viden` session therefore ran
+/// with `workspace_owner` absent, every `/git` workspace row refused as "Core
+/// published no workspace owner", and the durable project id never minted —
+/// compatibility follow-up 11. This holds the shared path in place: the CLI's
+/// own bootstrap call publishes the owner, mints `.viden/project.toml` under
+/// the workspace root, and agrees with the host's minting for the same root.
+#[test]
+fn the_cli_bootstrap_path_publishes_the_workspace_owner() {
+    let cwd = temp_dir("workspace_owner_cli_bootstrap_cwd");
+    let home = temp_dir("workspace_owner_cli_bootstrap_home");
+    let overrides = viden_config::CliOverrides {
+        provider: Some("fallback".to_string()),
+        model: Some("test-local".to_string()),
+        session_home: Some(home),
+        // An isolated, absent config file: the identity must not depend on
+        // whatever the developer running the suite has in their own config.
+        config_path: Some(cwd.join("user-config.toml")),
+        ..viden_config::CliOverrides::default()
+    };
+    let resolved_config = viden_config::load_config(&cwd, &overrides).unwrap();
+
+    let bootstrap =
+        crate::bootstrap_runtime_with_resolved_config(&cwd, resolved_config, Vec::new()).unwrap();
+    let engine = bootstrap.engine;
+
+    let owner = engine
+        .runtime_view_state()
+        .workspace_owner
+        .expect("the CLI bootstrap path publishes a workspace owner");
+    assert!(owner.workspace_id.starts_with(WORKSPACE_ID_PREFIX));
+    assert_eq!(
+        owner.workspace_id.len(),
+        WORKSPACE_ID_PREFIX.len() + WORKSPACE_ID_DIGEST_CHARS
+    );
+    assert!(owner.project_id.starts_with("prj_"));
+    // The workspace scope names no Lane, session, task, or turn.
+    assert_eq!(owner.lane_id, None);
+    assert_eq!(owner.session_id, None);
+    assert_eq!(owner.task_id, None);
+    assert_eq!(owner.turn_id, None);
+
+    // The binding is the first fact after `SnapshotUpdated` here too, so a
+    // client that only replays the snapshot learns the identity.
+    let events = engine.runtime_events_for_engine_events(&[]);
+    let RuntimeEventKind::WorkspaceRuntimeOwnerBound { binding } = &events[1].kind else {
+        panic!(
+            "the workspace owner binding must follow the snapshot, got {:?}",
+            events[1].kind
+        );
+    };
+    assert_eq!(binding.owner, owner);
+
+    // The durable half was written under the workspace root, and a second
+    // mint for the same root — the host's own step — reads it back rather than
+    // minting a second identity. One directory, one identity, whichever host
+    // opened it.
+    let canonical_root = cwd.canonicalize().unwrap();
+    assert_eq!(binding.canonical_root, canonical_root.to_string_lossy());
+    let identity_file = canonical_root.join(".viden").join("project.toml");
+    let identity = fs::read_to_string(&identity_file)
+        .unwrap_or_else(|error| panic!("{} must exist: {error}", identity_file.display()));
+    assert!(
+        identity.contains(&owner.project_id),
+        "{} must carry the published project id, got `{identity}`",
+        identity_file.display()
+    );
+    let host_mint = mint_workspace_owner_binding(&canonical_root).unwrap();
+    assert_eq!(host_mint.owner, owner);
+    assert_eq!(host_mint.project_id_origin, ProjectIdOrigin::Existing);
+}
