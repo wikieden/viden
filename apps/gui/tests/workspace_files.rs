@@ -164,7 +164,7 @@ fn a_confirming_page_becomes_the_palette_inventory_in_cores_own_order() {
     );
     let projection = harness
         .adapter
-        .query_workspace_files_and_wait("gui-files-1", TIMEOUT)
+        .query_workspace_files_and_wait("gui-files-1", None, TIMEOUT)
         .expect("inventory read");
 
     assert!(projection.capability_available);
@@ -211,7 +211,7 @@ fn a_page_naming_another_read_is_ignored_with_no_acceptance_fallback() {
     );
     let projection = harness
         .adapter
-        .query_workspace_files_and_wait("gui-files-1", TIMEOUT)
+        .query_workspace_files_and_wait("gui-files-1", None, TIMEOUT)
         .expect("inventory read");
 
     assert!(
@@ -242,7 +242,7 @@ fn a_rejected_read_surfaces_cores_denial_and_never_an_empty_inventory() {
     );
     let projection = harness
         .adapter
-        .query_workspace_files_and_wait("gui-files-1", TIMEOUT)
+        .query_workspace_files_and_wait("gui-files-1", None, TIMEOUT)
         .expect("inventory read");
 
     assert_eq!(projection.outcome.state, "rejected");
@@ -285,7 +285,7 @@ fn an_unrelated_error_never_fails_an_outstanding_read() {
     );
     let projection = harness
         .adapter
-        .query_workspace_files_and_wait("gui-files-1", TIMEOUT)
+        .query_workspace_files_and_wait("gui-files-1", None, TIMEOUT)
         .expect("inventory read");
 
     assert_eq!(
@@ -316,7 +316,7 @@ fn a_rejection_for_another_read_never_fails_this_one() {
     );
     let projection = harness
         .adapter
-        .query_workspace_files_and_wait("gui-files-1", TIMEOUT)
+        .query_workspace_files_and_wait("gui-files-1", None, TIMEOUT)
         .expect("inventory read");
 
     assert_eq!(projection.outcome.state, "pending");
@@ -333,7 +333,7 @@ fn the_file_scope_sends_nothing_without_the_core_capability() {
     let mut harness = harness(Vec::new(), false);
     let projection = harness
         .adapter
-        .query_workspace_files_and_wait("gui-files-1", TIMEOUT)
+        .query_workspace_files_and_wait("gui-files-1", None, TIMEOUT)
         .expect("inventory read");
 
     assert!(!projection.capability_available);
@@ -351,14 +351,90 @@ fn a_second_read_is_refused_locally_while_one_is_in_flight() {
     let mut harness = harness(vec![accepted(1, "gui-files-1")], true);
     harness
         .adapter
-        .query_workspace_files_and_wait("gui-files-1", TIMEOUT)
+        .query_workspace_files_and_wait("gui-files-1", None, TIMEOUT)
         .expect("first read");
     let error = harness
         .adapter
-        .query_workspace_files_and_wait("gui-files-2", TIMEOUT)
+        .query_workspace_files_and_wait("gui-files-2", None, TIMEOUT)
         .expect_err("a second concurrent read must be refused");
     assert!(error.contains("gui-files-1"), "got {error}");
     // Refused locally means nothing was sent, so the in-flight read keeps its
     // correlation.
     assert_eq!(file_queries(&harness.sent).len(), 1);
+}
+
+/// The context dock's Files tab reads one directory at a time (`G5`).
+///
+/// `QueryWorkspaceFiles` is prefix-scoped and bounded, so a tree is read as one
+/// page per opened directory rather than one truncated page for the whole
+/// workspace. The prefix travels verbatim: the client scopes the read, and Core
+/// still owns the walk, the exclusions, the ordering and the clamp.
+#[test]
+fn a_prefixed_read_sends_cores_own_prefix_and_keeps_the_page_clamp() {
+    let mut harness = harness(
+        vec![
+            accepted(1, "gui-files-1"),
+            loaded(
+                2,
+                "gui-files-1",
+                page(&[
+                    ("crates/core", WorkspaceFileKind::Dir),
+                    ("crates/core/src/lib.rs", WorkspaceFileKind::File),
+                ]),
+            ),
+        ],
+        true,
+    );
+    let projection = harness
+        .adapter
+        .query_workspace_files_and_wait("gui-files-1", Some("crates/"), TIMEOUT)
+        .expect("prefixed inventory read");
+
+    assert!(projection.loaded);
+    assert_eq!(
+        projection
+            .entries
+            .iter()
+            .map(|entry| entry.path.as_str())
+            .collect::<Vec<_>>(),
+        vec!["crates/core", "crates/core/src/lib.rs"]
+    );
+
+    let queries = file_queries(&harness.sent);
+    assert_eq!(queries.len(), 1);
+    assert_eq!(queries[0].prefix.as_deref(), Some("crates/"));
+    // The bound is unchanged by the scope: a subtree is still paged.
+    assert_eq!(
+        queries[0].limit,
+        Some(viden_gui::WORKSPACE_FILES_PAGE_LIMIT)
+    );
+    assert_eq!(queries[0].after, None);
+}
+
+/// An empty prefix is the workspace root, which is `None` on the wire.
+///
+/// Sending `Some("")` would be a prefix filter that matches everything — the
+/// same answer by accident rather than by contract — so the adapter normalizes
+/// it rather than passing it through.
+#[test]
+fn an_empty_prefix_reads_the_root_rather_than_filtering_on_nothing() {
+    let mut harness = harness(
+        vec![
+            accepted(1, "gui-files-1"),
+            loaded(
+                2,
+                "gui-files-1",
+                page(&[("AGENTS.md", WorkspaceFileKind::File)]),
+            ),
+        ],
+        true,
+    );
+    harness
+        .adapter
+        .query_workspace_files_and_wait("gui-files-1", Some(""), TIMEOUT)
+        .expect("root inventory read");
+
+    let queries = file_queries(&harness.sent);
+    assert_eq!(queries.len(), 1);
+    assert_eq!(queries[0].prefix, None);
 }

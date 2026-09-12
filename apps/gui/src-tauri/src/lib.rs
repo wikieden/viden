@@ -263,11 +263,14 @@ fn recent_work_poll(state: tauri::State<'_, DesktopState>) -> Result<RecentWorkR
 /// Sends one `QueryWorkspaceFiles` and waits briefly for Core's ordered answer.
 ///
 /// The read is permission-gated by Core, bounded, and available in Plan mode
-/// because it mutates nothing. The `~` palette scope is its only caller, and it
-/// must never fall back to walking the workspace itself.
+/// because it mutates nothing. Its callers are the `~` palette scope, which
+/// passes no prefix, and the context dock's Files tab, which passes one
+/// `/`-terminated directory; neither may ever fall back to walking the
+/// workspace itself.
 #[tauri::command]
 fn query_workspace_files(
     command_id: String,
+    prefix: Option<String>,
     state: tauri::State<'_, DesktopState>,
 ) -> Result<WorkspaceFilesProjection, String> {
     state
@@ -276,7 +279,7 @@ fn query_workspace_files(
         .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?
         .as_mut()
         .ok_or_else(|| "Core adapter is not connected".to_string())?
-        .query_workspace_files_and_wait(&command_id, Duration::from_millis(250))
+        .query_workspace_files_and_wait(&command_id, prefix.as_deref(), Duration::from_millis(250))
 }
 
 /// Drains ordered Core events for an inventory read still in flight.

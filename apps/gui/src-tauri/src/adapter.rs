@@ -1874,12 +1874,18 @@ impl GuiCoreAdapter {
         self.supports(WORKSPACE_FILES_CAPABILITY)
     }
 
-    /// Sends one `QueryWorkspaceFiles` for the whole tree and waits for Core.
+    /// Sends one `QueryWorkspaceFiles` and waits for Core's ordered answer.
     ///
-    /// The palette fuzzy-matches locally over what Core sent, so it asks for
-    /// the inventory rather than a prefix the operator has not typed. The read
-    /// is permission-gated by Core, stays available in Plan mode because it
-    /// mutates nothing, and never blocks on an approval prompt.
+    /// Two callers, two scopes. The palette fuzzy-matches locally over what
+    /// Core sent, so it asks for the whole inventory rather than a prefix the
+    /// operator has not typed; the context dock's Files tab asks for one
+    /// `/`-terminated directory at a time, because the page is bounded and a
+    /// tree is not. `prefix` travels verbatim — an empty string is normalized
+    /// to the root, since a prefix that matches everything is the right answer
+    /// by accident rather than by contract.
+    ///
+    /// The read is permission-gated by Core, stays available in Plan mode
+    /// because it mutates nothing, and never blocks on an approval prompt.
     ///
     /// A missing capability is not an error: it returns the honest projection
     /// with `capability_available == false` and sends nothing, so the palette
@@ -1887,6 +1893,7 @@ impl GuiCoreAdapter {
     pub fn query_workspace_files_and_wait(
         &mut self,
         command_id: &str,
+        prefix: Option<&str>,
         event_timeout: Duration,
     ) -> Result<WorkspaceFilesProjection, String> {
         if !self.supports_workspace_files() {
@@ -1908,7 +1915,7 @@ impl GuiCoreAdapter {
                 owner: RuntimeOwner::default(),
                 command: RuntimeCommand::QueryWorkspaceFiles {
                     query: WorkspaceFilesQuery {
-                        prefix: None,
+                        prefix: prefix.filter(|value| !value.is_empty()).map(str::to_string),
                         limit: Some(WORKSPACE_FILES_PAGE_LIMIT),
                         after: None,
                     },
