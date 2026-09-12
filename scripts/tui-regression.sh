@@ -159,13 +159,12 @@ if release["supported_schema_versions"] != [1]:
 # 25 is 23 plus the 0.3.4 increment's first batch, C5
 # (docs/release-0.3.4-contract-design.md, sections 1 and 2):
 # runtime.workspace_owner and ui.layout_preferences; 26 adds C6's
-# runtime.turn_lifecycle (section 3); 27 adds C9's
-# runtime.workspace_file_reads (section 6). C7's
-# runtime.durable_work_evidence lands on a concurrent branch, so the
-# integrator reconciles this to 28. The milestone target is 29; each batch
-# moves this count by exactly what it adds.
-if len(base_capabilities) != 15 or len(extension_capabilities) != 27:
-    raise SystemExit("TUI certification capability counts are not base 15 + extension 27")
+# runtime.turn_lifecycle (section 3); 28 adds C7's
+# runtime.durable_work_evidence (section 4) and C9's
+# runtime.workspace_file_reads (section 6), reconciled at integration. The
+# milestone target is 29; each batch moves this count by exactly what it adds.
+if len(base_capabilities) != 15 or len(extension_capabilities) != 28:
+    raise SystemExit("TUI certification capability counts are not base 15 + extension 28")
 if set(base_capabilities) & set(extension_capabilities):
     raise SystemExit("TUI certification base and extension capabilities overlap")
 

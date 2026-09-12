@@ -190,6 +190,12 @@ fn frontend_host_capabilities_are_schema_one_core_0_3_6_and_additive() {
         "runtime.conflict_content",
         "runtime.credential_handles",
         "runtime.credential_staging",
+        // GUI-CORE-028 and E1 defect 4, C7. An applied native or agent mutation
+        // is archived as a `patch` row with canonical bytes, supervised turn
+        // facts reach the durable projection, and an approval decision is an
+        // audit row. Additive like the rows around it; the frozen base list is
+        // untouched, which is what keeps the nine base fixtures byte-identical.
+        "runtime.durable_work_evidence",
         // GUI-CORE-025, the fourth and last capability of the 0.3.3 contract
         // increment. Additive like the rows around it; the frozen base list is
         // untouched, which is what keeps the nine base fixtures byte-identical.
@@ -7471,5 +7477,619 @@ fn workspace_file_reads_fixture() -> FrontendContractFixtureOut {
         ],
         snapshot(WorkMode::Build),
         owned_envelopes(fixture_id, owner, kinds, 1_700_006_000),
+    )
+}
+
+/// Durable work evidence: the archive an applied mutation actually leaves
+/// behind (`runtime.durable_work_evidence`).
+///
+/// The `0.3.3` real task stopped here. An operator approved a typed edit, the
+/// edit applied, and then there was nothing to review: the archive was empty and
+/// the audit id the approval had shown named no row. This fixture is the whole
+/// loop that fact-checks itself — the decision, its durable row, the archived
+/// patch with canonical bytes, the page that finds it, the content that verifies
+/// against the hash the row published, and an agent-reported patch the runtime
+/// completes on ingestion.
+#[test]
+fn durable_work_evidence_fixture_closes_the_loop_from_approval_to_verified_bytes() {
+    let name = "durable-work-evidence.json";
+    let root = fixture_root();
+    let fixture_bytes =
+        fs::read(root.join(name)).expect("read durable work evidence fixture bytes");
+    let fixture_sha256 = format!("{:x}", Sha256::digest(&fixture_bytes));
+    let extension_manifest = include_str!("../frontend-contract-extensions.toml");
+    assert!(
+        extension_manifest.contains(&format!(
+            "durable_work_evidence_fixture_sha256 = \"{fixture_sha256}\""
+        )),
+        "the extension manifest must register the exact durable work evidence fixture bytes"
+    );
+    assert!(
+        extension_manifest
+            .contains("durable_work_evidence_fixture = \"durable-work-evidence.json\"")
+    );
+
+    let fixture = read_fixture(&root, name);
+    assert_fixture_identity(name, &fixture);
+    assert_capabilities_are_sorted_unique_and_advertised(name, &fixture);
+    assert_cursors_are_contiguous(name, &fixture);
+
+    let (view, first_cursor, first_digest) = replay_fixture(&fixture);
+    let (second_view, second_cursor, second_digest) = replay_fixture(&fixture);
+    assert_eq!(view, second_view);
+    assert_eq!(first_cursor, second_cursor);
+    assert_eq!(first_digest, second_digest);
+    assert_eq!(first_cursor, fixture.expected_final_cursor);
+    assert_eq!(first_digest, fixture.expected_view_sha256);
+    assert!(
+        extension_manifest.contains(&format!(
+            "durable_work_evidence_view_sha256 = \"{first_digest}\""
+        )),
+        "the extension manifest must register the replayed view digest"
+    );
+
+    let evidence_rows = fixture
+        .events
+        .iter()
+        .filter_map(|envelope| match &envelope.event {
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::EvidenceRecorded { evidence },
+                ..
+            }) if evidence.kind == "patch" => Some(evidence.clone()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        evidence_rows.len(),
+        2,
+        "one native patch and one agent patch"
+    );
+    let native = &evidence_rows[0];
+    let agent = &evidence_rows[1];
+
+    // Every archived patch names bytes Core can serve. A row without a
+    // canonical reference is display-only evidence, and the merge gate already
+    // refuses that; this capability exists so an applied mutation is never it.
+    let native_canonical = native
+        .canonical
+        .as_ref()
+        .expect("the native patch carries canonical bytes");
+    let agent_canonical = agent
+        .canonical
+        .as_ref()
+        .expect("the runtime completed the agent patch the adapter could not");
+    assert_eq!(native_canonical.producer.identity, "native");
+    assert_eq!(agent_canonical.producer.identity, "agent");
+
+    // The native producer names the Lane's task, which is what lets its row
+    // satisfy that Lane's `patch` merge gate. A session-scoped turn would name
+    // its turn here and could never satisfy one.
+    let native_owner = native.owner.as_ref().expect("the row names its owner");
+    assert_eq!(
+        Some(native_canonical.producer.task_id.as_str()),
+        native_owner.task_id.as_deref()
+    );
+    assert!(native_owner.turn_id.is_some(), "the row names its turn");
+
+    // An operator receipt is a fact about the native path only. The adapter
+    // patch carries none, because the ACP permission bridge mints no audit id
+    // it could name, and inventing one would make it look approved.
+    let approval_audit_id = native_canonical
+        .permission_snapshot_id
+        .clone()
+        .expect("the native patch names the approval that allowed it");
+    assert_eq!(agent_canonical.permission_snapshot_id, None);
+
+    // That receipt resolves: the id on `ApprovalResolved` is the id of a row
+    // `QueryAudit` returns. Before this capability it named nothing at all.
+    assert!(fixture.events.iter().any(|envelope| matches!(
+        &envelope.event,
+        RuntimeWireEvent::Known(RuntimeEvent {
+            kind: RuntimeEventKind::ApprovalResolved { audit_id, .. },
+            ..
+        }) if audit_id == &approval_audit_id
+    )));
+    let audited = fixture
+        .events
+        .iter()
+        .find_map(|envelope| match &envelope.event {
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::AuditPageLoaded { page, .. },
+                ..
+            }) => Some(page.clone()),
+            _ => None,
+        })
+        .expect("the audit read is answered");
+    let record = audited
+        .records
+        .iter()
+        .find(|record| record.audit_id == approval_audit_id)
+        .expect("the approval decision is a durable audit row");
+    assert_eq!(record.action, "approval.allow_once");
+    assert_eq!(record.actor, AuditActor::Operator);
+    assert!(
+        record
+            .objects
+            .iter()
+            .any(|object| object.kind == "tool" && object.id == "edit_file"),
+        "the row names what was allowed"
+    );
+
+    // Both canonicalizations are announced, each after the row it completes.
+    let canonicalized = fixture
+        .events
+        .iter()
+        .filter_map(|envelope| match &envelope.event {
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind:
+                    RuntimeEventKind::EvidenceCanonicalized {
+                        evidence_id,
+                        content_sha256,
+                        ..
+                    },
+                ..
+            }) => Some((evidence_id.clone(), content_sha256.clone())),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        canonicalized,
+        vec![
+            (native.id.clone(), native_canonical.source_hash.clone()),
+            (agent.id.clone(), agent_canonical.source_hash.clone()),
+        ]
+    );
+
+    // The read path serves the native patch as a diff whose hash is the one the
+    // row published, which is the verification a reviewer is relying on.
+    let content = fixture
+        .events
+        .iter()
+        .find_map(|envelope| match &envelope.event {
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::EvidenceContentLoaded { content, .. },
+                ..
+            }) => Some(content.clone()),
+            _ => None,
+        })
+        .expect("the content read is answered");
+    let EvidenceContent::Diff { sha256, document } = content else {
+        panic!("a patch row's canonical bytes are served as a diff");
+    };
+    assert_eq!(sha256, native_canonical.source_hash);
+    assert_eq!(document.files.len(), 1);
+
+    // The live cockpit change is published before the archived row that
+    // describes it, never after: a reviewable artifact must not arrive before
+    // the change it belongs to.
+    let change = fixture
+        .events
+        .iter()
+        .position(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::WorkspaceChangeUpdated { .. },
+                    ..
+                })
+            )
+        })
+        .expect("the live workspace change is published");
+    let archived = fixture
+        .events
+        .iter()
+        .position(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::EvidenceRecorded { evidence },
+                    ..
+                }) if evidence.id == native.id
+            )
+        })
+        .expect("the archived row is published");
+    assert!(change < archived);
+}
+
+#[test]
+#[ignore = "manual durable work evidence fixture refresh; normal tests validate committed JSON only"]
+fn refresh_durable_work_evidence_extension_fixture() {
+    let root = fixture_root();
+    fs::create_dir_all(&root).unwrap();
+    let fixture = durable_work_evidence_fixture();
+    fs::write(
+        root.join("durable-work-evidence.json"),
+        serde_json::to_string_pretty(&fixture).unwrap() + "\n",
+    )
+    .unwrap();
+}
+
+/// `runtime.durable_work_evidence`, as bytes.
+///
+/// One Lane turn that edits a file behind an approval the operator allows, then
+/// the three reads that prove the work is reviewable afterwards, then an agent
+/// adapter's own patch fact being completed by the runtime's ingestion of it.
+fn durable_work_evidence_fixture() -> FrontendContractFixtureOut {
+    let fixture_id = "durable-work-evidence";
+    let owner = RuntimeOwner {
+        workspace_id: "ws_4f3c1a09b8d27e65".to_string(),
+        project_id: "prj_contract_v1_workspace".to_string(),
+        lane_id: Some("lane_durable_work".to_string()),
+        session_id: Some("session_durable_work".to_string()),
+        task_id: Some("task_durable_work".to_string()),
+        turn_id: None,
+    };
+    let turn_owner = RuntimeOwner {
+        turn_id: Some("turn_durable_work".to_string()),
+        ..owner.clone()
+    };
+    let agent_owner = RuntimeOwner {
+        lane_id: Some("lane_durable_work_agent".to_string()),
+        session_id: Some("session_durable_work_agent".to_string()),
+        task_id: Some("acp-session-durable".to_string()),
+        turn_id: Some("turn_durable_work_agent".to_string()),
+        ..owner.clone()
+    };
+
+    let native_diff = "--- a/crates/types/src/evidence_reads.rs\n+++ \
+                       b/crates/types/src/evidence_reads.rs\n@@ -12,3 +12,3 @@ impl \
+                       EvidenceQuery\n     pub fn clamped_limit(&self) -> usize {\n-        \
+                       self.limit as usize\n+        self.limit.clamp(1, 200) as \
+                       usize\n     }\n";
+    let agent_diff = "--- a/docs/core-0.3-compatibility.md\n+++ \
+                      b/docs/core-0.3-compatibility.md\n@@ -4,2 +4,2 @@\n-Capabilities: \
+                      26\n+Capabilities: 27\n";
+    let native_hash = format!("{:x}", Sha256::digest(native_diff.as_bytes()));
+    let agent_hash = format!("{:x}", Sha256::digest(agent_diff.as_bytes()));
+    let approval_audit_id = "audit_durable_work_approval";
+    let approval_request_id = "approval_durable_work";
+
+    let native_canonical = CanonicalEvidenceReference {
+        item_id: "ctxi_durable_work_native".to_string(),
+        bundle_id: "bundle_durable_work".to_string(),
+        source_hash: native_hash.clone(),
+        producer: EvidenceProducer {
+            identity: "native".to_string(),
+            role: "coder".to_string(),
+            task_id: "task_durable_work".to_string(),
+        },
+        permission_snapshot_id: Some(approval_audit_id.to_string()),
+        permission_scope: ContextScope::Task("task_durable_work".to_string()),
+        evidence_scope: ContextScope::Task("task_durable_work".to_string()),
+        verification: EvidenceVerificationState::Verified,
+        quality: EvidenceQualityFacts {
+            status: EvidenceQualityStatus::Pass,
+            reason_codes: Vec::new(),
+        },
+    };
+    let native_row = EvidenceView {
+        id: "patch-tool_durable_work_edit".to_string(),
+        kind: "patch".to_string(),
+        summary: "native lane lane_durable_work edit: crates/types/src/evidence_reads.rs (+1/-1)"
+            .to_string(),
+        path: Some("crates/types/src/evidence_reads.rs".to_string()),
+        source: Some("native".to_string()),
+        canonical: Some(native_canonical.clone()),
+        metadata: None,
+        timestamp: Some(1_700_006_010),
+        owner: Some(turn_owner.clone()),
+    };
+    let agent_row = EvidenceView {
+        id: "acp-patch-tool_durable_work_agent-7".to_string(),
+        kind: "patch".to_string(),
+        summary: "ACP patch: 1 file(s), +1/-1, first docs/core-0.3-compatibility.md".to_string(),
+        path: Some("docs/core-0.3-compatibility.md".to_string()),
+        source: Some("acp:patch.v1".to_string()),
+        canonical: Some(CanonicalEvidenceReference {
+            item_id: "ctxi_durable_work_agent".to_string(),
+            // No context bundle backs an adapter patch, so the store handle
+            // stands in rather than a bundle id Core would have to invent.
+            bundle_id: "ctxi_durable_work_agent".to_string(),
+            source_hash: agent_hash.clone(),
+            producer: EvidenceProducer {
+                identity: "agent".to_string(),
+                role: "coder".to_string(),
+                task_id: "acp-session-durable".to_string(),
+            },
+            permission_snapshot_id: None,
+            permission_scope: ContextScope::Task("acp-session-durable".to_string()),
+            evidence_scope: ContextScope::Task("acp-session-durable".to_string()),
+            verification: EvidenceVerificationState::Verified,
+            quality: EvidenceQualityFacts {
+                status: EvidenceQualityStatus::Pass,
+                reason_codes: Vec::new(),
+            },
+        }),
+        // The adapter's own metadata is kept verbatim: the runtime completes
+        // the row, it does not rewrite what the adapter reported.
+        metadata: Some(serde_json::json!({
+            "schema": "acp.patch.v1",
+            "format": "unified_diff",
+            "fileCount": 1,
+            "additions": 1,
+            "deletions": 1,
+            "diff": agent_diff,
+        })),
+        timestamp: Some(1_700_006_040),
+        owner: Some(agent_owner.clone()),
+    };
+
+    let audit_row = AuditRecord::sanitized(
+        approval_audit_id.to_string(),
+        1_700_006_006,
+        owner.clone(),
+        AuditActor::Operator,
+        "approval.allow_once".to_string(),
+        vec![
+            AuditObjectRef::new(AuditObjectRef::KIND_PERMISSION, approval_request_id),
+            AuditObjectRef::new("tool", "edit_file"),
+            AuditObjectRef::new("job", "cmd_durable_work_submit"),
+        ],
+        AuditOutcome::Success,
+        BTreeMap::from([("scope".to_string(), "allow_once".to_string())]),
+    )
+    .expect("fixture audit records must satisfy the sanitization bounds");
+
+    let owned_events: Vec<(RuntimeEventKind, RuntimeOwner)> = vec![
+        (
+            RuntimeEventKind::CommandAccepted {
+                command_id: "cmd_durable_work_submit".to_string(),
+                command: RuntimeCommand::SubmitUserInput {
+                    content: "tighten the evidence page bound".to_string(),
+                },
+            },
+            owner.clone(),
+        ),
+        (
+            RuntimeEventKind::TurnStarted {
+                turn: TurnView {
+                    turn_id: "turn_durable_work".to_string(),
+                    owner: turn_owner.clone(),
+                    source: TurnSource::UserInput,
+                    started_at: 1_700_006_002,
+                },
+            },
+            turn_owner.clone(),
+        ),
+        // The mutation is asked for, and the request already names the audit id
+        // the decision will be written under.
+        (
+            RuntimeEventKind::ApprovalRequested {
+                approval: ApprovalRequestView {
+                    id: approval_request_id.to_string(),
+                    tool_name: "edit_file".to_string(),
+                    title: "Approve edit_file".to_string(),
+                    message: "edit crates/types/src/evidence_reads.rs".to_string(),
+                    input_preview: "path=crates/types/src/evidence_reads.rs".to_string(),
+                    is_mutating: true,
+                    reason: Some("edit crates/types/src/evidence_reads.rs".to_string()),
+                    owner: owner.clone(),
+                    risk: ApprovalRisk::Medium,
+                    target: ApprovalTarget {
+                        kind: "edit_file".to_string(),
+                        display: "crates/types/src/evidence_reads.rs".to_string(),
+                        canonical_ref: Some("crates/types/src/evidence_reads.rs".to_string()),
+                    },
+                    allowed_scopes: vec![ApprovalScope::Once],
+                    policy_reason_key: "permission.requires_approval".to_string(),
+                    policy_reason_args: BTreeMap::new(),
+                    expires_at: 1_700_006_300,
+                    default_action: ApprovalDefaultAction::Deny,
+                    audit_id: approval_audit_id.to_string(),
+                    decision_context: None,
+                },
+            },
+            owner.clone(),
+        ),
+        (
+            RuntimeEventKind::CommandAccepted {
+                command_id: "cmd_durable_work_approve".to_string(),
+                command: RuntimeCommand::RespondToApproval {
+                    request_id: approval_request_id.to_string(),
+                    response: ApprovalResponse::allow_once(None),
+                },
+            },
+            owner.clone(),
+        ),
+        (
+            RuntimeEventKind::ApprovalResolved {
+                request_id: approval_request_id.to_string(),
+                decision: ApprovalDecision::Allow {
+                    scope: ApprovalScope::Once,
+                },
+                owner: owner.clone(),
+                audit_id: approval_audit_id.to_string(),
+            },
+            owner.clone(),
+        ),
+        // The decision is durable before anything reads it back.
+        (
+            RuntimeEventKind::CommandAccepted {
+                command_id: "cmd_durable_work_audit".to_string(),
+                command: RuntimeCommand::QueryAudit {
+                    query: AuditQuery {
+                        limit: 5,
+                        ..AuditQuery::default()
+                    },
+                },
+            },
+            owner.clone(),
+        ),
+        (
+            RuntimeEventKind::AuditPageLoaded {
+                command_id: Some("cmd_durable_work_audit".to_string()),
+                page: AuditPage {
+                    records: vec![audit_row],
+                    next_before: None,
+                    complete: true,
+                },
+            },
+            owner.clone(),
+        ),
+        // The applied mutation: the cockpit's live view of the tree first, the
+        // archived artifact that describes the same change after it.
+        (
+            RuntimeEventKind::WorkspaceChangeUpdated {
+                change: WorkspaceChangeView {
+                    id: "tool_durable_work_edit:crates/types/src/evidence_reads.rs".to_string(),
+                    owner: turn_owner.clone(),
+                    path: "crates/types/src/evidence_reads.rs".to_string(),
+                    kind: WorkspaceChangeKind::Modified,
+                    patch: Some(native_diff.to_string()),
+                    additions: 1,
+                    deletions: 1,
+                    diff: None,
+                },
+            },
+            turn_owner.clone(),
+        ),
+        (
+            RuntimeEventKind::EvidenceRecorded {
+                evidence: native_row.clone(),
+            },
+            turn_owner.clone(),
+        ),
+        (
+            RuntimeEventKind::EvidenceCanonicalized {
+                evidence_id: native_row.id.clone(),
+                item_id: native_canonical.item_id.clone(),
+                content_sha256: native_hash.clone(),
+            },
+            turn_owner.clone(),
+        ),
+        (
+            RuntimeEventKind::TurnFinished {
+                turn_id: "turn_durable_work".to_string(),
+                owner: turn_owner.clone(),
+                outcome: TurnOutcome::Completed,
+                finished_at: 1_700_006_020,
+            },
+            turn_owner.clone(),
+        ),
+        // The archive answers after the turn, which is the read that was empty
+        // before this capability existed.
+        (
+            RuntimeEventKind::CommandAccepted {
+                command_id: "cmd_durable_work_page".to_string(),
+                command: RuntimeCommand::QueryEvidence {
+                    query: EvidenceQuery {
+                        kinds: vec!["patch".to_string()],
+                        limit: 10,
+                        ..EvidenceQuery::default()
+                    },
+                },
+            },
+            owner.clone(),
+        ),
+        (
+            RuntimeEventKind::EvidencePageLoaded {
+                command_id: "cmd_durable_work_page".to_string(),
+                page: EvidencePage {
+                    entries: vec![native_row.clone()],
+                    complete: true,
+                    next_after: None,
+                },
+            },
+            owner.clone(),
+        ),
+        (
+            RuntimeEventKind::CommandAccepted {
+                command_id: "cmd_durable_work_content".to_string(),
+                command: RuntimeCommand::ReadEvidenceContent {
+                    evidence_id: native_row.id.clone(),
+                },
+            },
+            owner.clone(),
+        ),
+        (
+            RuntimeEventKind::EvidenceContentLoaded {
+                command_id: "cmd_durable_work_content".to_string(),
+                evidence_id: native_row.id.clone(),
+                content: EvidenceContent::Diff {
+                    document: DiffDocument {
+                        files: vec![DiffFile {
+                            path: "crates/types/src/evidence_reads.rs".to_string(),
+                            old_path: None,
+                            kind: WorkspaceChangeKind::Modified,
+                            binary: false,
+                            omitted: false,
+                            additions: 1,
+                            deletions: 1,
+                            hunks: vec![DiffHunk {
+                                old_start: 12,
+                                old_lines: 3,
+                                new_start: 12,
+                                new_lines: 3,
+                                header: Some("impl EvidenceQuery".to_string()),
+                                lines: vec![
+                                    DiffLine {
+                                        kind: DiffLineKind::Context,
+                                        content: "    pub fn clamped_limit(&self) -> usize {"
+                                            .to_string(),
+                                        old_line: Some(12),
+                                        new_line: Some(12),
+                                    },
+                                    DiffLine {
+                                        kind: DiffLineKind::Removed,
+                                        content: "        self.limit as usize".to_string(),
+                                        old_line: Some(13),
+                                        new_line: None,
+                                    },
+                                    DiffLine {
+                                        kind: DiffLineKind::Added,
+                                        content: "        self.limit.clamp(1, 200) as usize"
+                                            .to_string(),
+                                        old_line: None,
+                                        new_line: Some(13),
+                                    },
+                                    DiffLine {
+                                        kind: DiffLineKind::Context,
+                                        content: "    }".to_string(),
+                                        old_line: Some(14),
+                                        new_line: Some(14),
+                                    },
+                                ],
+                            }],
+                        }],
+                        truncated: false,
+                        byte_limit: 256 * 1024,
+                    },
+                    sha256: native_hash,
+                },
+            },
+            owner.clone(),
+        ),
+        // The adapter's patch, as the runtime publishes it after storing the
+        // bytes the adapter carried in `metadata` and could not store itself.
+        (
+            RuntimeEventKind::EvidenceRecorded {
+                evidence: agent_row.clone(),
+            },
+            agent_owner.clone(),
+        ),
+        (
+            RuntimeEventKind::EvidenceCanonicalized {
+                evidence_id: agent_row.id.clone(),
+                item_id: "ctxi_durable_work_agent".to_string(),
+                content_sha256: agent_hash,
+            },
+            agent_owner,
+        ),
+    ];
+
+    fixture(
+        fixture_id,
+        &[
+            "runtime.audit",
+            "runtime.cockpit_context_v1",
+            "runtime.commands",
+            "runtime.durable_work_evidence",
+            "runtime.events",
+            "runtime.evidence_reads",
+            "runtime.snapshot",
+            "runtime.turn_lifecycle",
+        ],
+        snapshot(WorkMode::Build),
+        owned_envelopes_per_event(fixture_id, owned_events, 1_700_006_000),
     )
 }

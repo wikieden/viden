@@ -39,6 +39,7 @@ pub const FRONTEND_V1_EXTENSION_CAPABILITIES: &[&str] = &[
     "runtime.conflict_content",
     "runtime.credential_handles",
     "runtime.credential_staging",
+    "runtime.durable_work_evidence",
     "runtime.evidence_reads",
     "runtime.lane_lifecycle",
     "runtime.lane_owner_projection",

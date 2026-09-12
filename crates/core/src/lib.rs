@@ -185,6 +185,13 @@ mod tests {
         assert_eq!(MAX_EVIDENCE_QUERY_KINDS, 32);
         assert_eq!(MAX_EVIDENCE_CONTENT_BYTES, 256 * 1024);
         assert!(CORE_EXTENSION_CAPABILITIES.contains(&"runtime.evidence_reads"));
+        // GUI-CORE-028 and E1 defect 4: the archive those reads page is
+        // actually written. The reads above shipped in 0.3.3 over an archive
+        // that no applied mutation ever reached, so a client could page it
+        // correctly and always find it empty. Gated separately because "this
+        // Core archives applied work" and "this Core can answer an archive
+        // read" are different facts a client has to be able to tell apart.
+        assert!(CORE_EXTENSION_CAPABILITIES.contains(&"runtime.durable_work_evidence"));
         // The canonical reference's own verdicts. `EvidenceView.canonical`
         // carries Core's verification and quality state, so a client that
         // cannot name these two enums can render the reference and not what

@@ -1,0 +1,820 @@
+{
+  "fixture_id": "durable-work-evidence",
+  "schema_version": 1,
+  "required_capabilities": [
+    "runtime.audit",
+    "runtime.cockpit_context_v1",
+    "runtime.commands",
+    "runtime.durable_work_evidence",
+    "runtime.events",
+    "runtime.evidence_reads",
+    "runtime.snapshot",
+    "runtime.turn_lifecycle"
+  ],
+  "initial_snapshot": {
+    "cwd": "workspace/viden",
+    "provider_family": "deepseek",
+    "model_label": "deepseek-v4-flash",
+    "work_mode": "build",
+    "permission_mode": "default",
+    "permission_level": "ask",
+    "config_summary": "{\"design_entry\":{\"d11\":\"onboarding subordinate\",\"gui\":\"GUI index -> component library -> D1 desktop cockpit\",\"hierarchy\":[\"docs/viden-design/Viden/index.html\",\"client design index\",\"component library\",\"TUI unified prototype or GUI D1 desktop cockpit\"],\"tui\":\"TUI index -> component library -> unified prototype\"},\"ui\":{\"density\":[\"compact\",\"regular\",\"comfy\"],\"effective\":{\"density\":\"regular\",\"locale\":\"zh-CN\",\"mode\":\"dark\",\"motion\":\"reduced\",\"skin\":\"aurora\"},\"locales\":[\"en\",\"zh-CN\"],\"motion\":[\"system\",\"reduced\",\"full\"],\"skin_mode_pairs\":[[\"aurora\",\"dark\"],[\"aurora\",\"light\"],[\"ice\",\"dark\"],[\"ice\",\"light\"],[\"mono\",\"dark\"],[\"mono\",\"light\"],[\"amber\",\"dark\"],[\"phosphor\",\"dark\"]]}}",
+    "loaded_config_files": [
+      "config/viden.toml"
+    ],
+    "startup_overrides": [
+      "--provider=deepseek"
+    ],
+    "ui_preferences": {
+      "locale": "zh-CN",
+      "skin": "aurora",
+      "mode": "dark",
+      "density": "regular",
+      "motion": "reduced",
+      "diagnostics": []
+    }
+  },
+  "events": [
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "ws_4f3c1a09b8d27e65",
+        "project_id": "prj_contract_v1_workspace",
+        "lane_id": "lane_durable_work",
+        "session_id": "session_durable_work",
+        "task_id": "task_durable_work",
+        "turn_id": null
+      },
+      "cursor": {
+        "stream_id": "fixture:durable-work-evidence",
+        "sequence": 1
+      },
+      "event": {
+        "sequence": 1,
+        "timestamp": 1700006001,
+        "kind": {
+          "type": "command_accepted",
+          "payload": {
+            "command_id": "cmd_durable_work_submit",
+            "command": {
+              "type": "submit_user_input",
+              "content": "tighten the evidence page bound"
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "ws_4f3c1a09b8d27e65",
+        "project_id": "prj_contract_v1_workspace",
+        "lane_id": "lane_durable_work",
+        "session_id": "session_durable_work",
+        "task_id": "task_durable_work",
+        "turn_id": "turn_durable_work"
+      },
+      "cursor": {
+        "stream_id": "fixture:durable-work-evidence",
+        "sequence": 2
+      },
+      "event": {
+        "sequence": 2,
+        "timestamp": 1700006002,
+        "kind": {
+          "type": "turn_started",
+          "payload": {
+            "turn": {
+              "turn_id": "turn_durable_work",
+              "owner": {
+                "workspace_id": "ws_4f3c1a09b8d27e65",
+                "project_id": "prj_contract_v1_workspace",
+                "lane_id": "lane_durable_work",
+                "session_id": "session_durable_work",
+                "task_id": "task_durable_work",
+                "turn_id": "turn_durable_work"
+              },
+              "source": {
+                "kind": "user_input"
+              },
+              "started_at": 1700006002
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "ws_4f3c1a09b8d27e65",
+        "project_id": "prj_contract_v1_workspace",
+        "lane_id": "lane_durable_work",
+        "session_id": "session_durable_work",
+        "task_id": "task_durable_work",
+        "turn_id": null
+      },
+      "cursor": {
+        "stream_id": "fixture:durable-work-evidence",
+        "sequence": 3
+      },
+      "event": {
+        "sequence": 3,
+        "timestamp": 1700006003,
+        "kind": {
+          "type": "approval_requested",
+          "payload": {
+            "approval": {
+              "id": "approval_durable_work",
+              "tool_name": "edit_file",
+              "title": "Approve edit_file",
+              "message": "edit crates/types/src/evidence_reads.rs",
+              "input_preview": "path=crates/types/src/evidence_reads.rs",
+              "is_mutating": true,
+              "reason": "edit crates/types/src/evidence_reads.rs",
+              "owner": {
+                "workspace_id": "ws_4f3c1a09b8d27e65",
+                "project_id": "prj_contract_v1_workspace",
+                "lane_id": "lane_durable_work",
+                "session_id": "session_durable_work",
+                "task_id": "task_durable_work",
+                "turn_id": null
+              },
+              "risk": "medium",
+              "target": {
+                "kind": "edit_file",
+                "display": "crates/types/src/evidence_reads.rs",
+                "canonical_ref": "crates/types/src/evidence_reads.rs"
+              },
+              "allowed_scopes": [
+                "once"
+              ],
+              "policy_reason_key": "permission.requires_approval",
+              "policy_reason_args": {},
+              "expires_at": 1700006300,
+              "default_action": "deny",
+              "audit_id": "audit_durable_work_approval"
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "ws_4f3c1a09b8d27e65",
+        "project_id": "prj_contract_v1_workspace",
+        "lane_id": "lane_durable_work",
+        "session_id": "session_durable_work",
+        "task_id": "task_durable_work",
+        "turn_id": null
+      },
+      "cursor": {
+        "stream_id": "fixture:durable-work-evidence",
+        "sequence": 4
+      },
+      "event": {
+        "sequence": 4,
+        "timestamp": 1700006004,
+        "kind": {
+          "type": "command_accepted",
+          "payload": {
+            "command_id": "cmd_durable_work_approve",
+            "command": {
+              "type": "respond_to_approval",
+              "request_id": "approval_durable_work",
+              "response": {
+                "decision": {
+                  "allow": {
+                    "scope": "once"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "ws_4f3c1a09b8d27e65",
+        "project_id": "prj_contract_v1_workspace",
+        "lane_id": "lane_durable_work",
+        "session_id": "session_durable_work",
+        "task_id": "task_durable_work",
+        "turn_id": null
+      },
+      "cursor": {
+        "stream_id": "fixture:durable-work-evidence",
+        "sequence": 5
+      },
+      "event": {
+        "sequence": 5,
+        "timestamp": 1700006005,
+        "kind": {
+          "type": "approval_resolved",
+          "payload": {
+            "request_id": "approval_durable_work",
+            "decision": {
+              "allow": {
+                "scope": "once"
+              }
+            },
+            "owner": {
+              "workspace_id": "ws_4f3c1a09b8d27e65",
+              "project_id": "prj_contract_v1_workspace",
+              "lane_id": "lane_durable_work",
+              "session_id": "session_durable_work",
+              "task_id": "task_durable_work",
+              "turn_id": null
+            },
+            "audit_id": "audit_durable_work_approval"
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "ws_4f3c1a09b8d27e65",
+        "project_id": "prj_contract_v1_workspace",
+        "lane_id": "lane_durable_work",
+        "session_id": "session_durable_work",
+        "task_id": "task_durable_work",
+        "turn_id": null
+      },
+      "cursor": {
+        "stream_id": "fixture:durable-work-evidence",
+        "sequence": 6
+      },
+      "event": {
+        "sequence": 6,
+        "timestamp": 1700006006,
+        "kind": {
+          "type": "command_accepted",
+          "payload": {
+            "command_id": "cmd_durable_work_audit",
+            "command": {
+              "type": "query_audit",
+              "query": {
+                "project_id": null,
+                "lane_id": null,
+                "object": null,
+                "actor": null,
+                "from": null,
+                "until": null,
+                "before": null,
+                "limit": 5
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "ws_4f3c1a09b8d27e65",
+        "project_id": "prj_contract_v1_workspace",
+        "lane_id": "lane_durable_work",
+        "session_id": "session_durable_work",
+        "task_id": "task_durable_work",
+        "turn_id": null
+      },
+      "cursor": {
+        "stream_id": "fixture:durable-work-evidence",
+        "sequence": 7
+      },
+      "event": {
+        "sequence": 7,
+        "timestamp": 1700006007,
+        "kind": {
+          "type": "audit_page_loaded",
+          "payload": {
+            "command_id": "cmd_durable_work_audit",
+            "page": {
+              "records": [
+                {
+                  "audit_id": "audit_durable_work_approval",
+                  "timestamp": 1700006006,
+                  "owner": {
+                    "workspace_id": "ws_4f3c1a09b8d27e65",
+                    "project_id": "prj_contract_v1_workspace",
+                    "lane_id": "lane_durable_work",
+                    "session_id": "session_durable_work",
+                    "task_id": "task_durable_work",
+                    "turn_id": null
+                  },
+                  "actor": "operator",
+                  "action": "approval.allow_once",
+                  "objects": [
+                    {
+                      "kind": "permission",
+                      "id": "approval_durable_work"
+                    },
+                    {
+                      "kind": "tool",
+                      "id": "edit_file"
+                    },
+                    {
+                      "kind": "job",
+                      "id": "cmd_durable_work_submit"
+                    }
+                  ],
+                  "outcome": "success",
+                  "args": {
+                    "scope": "allow_once"
+                  }
+                }
+              ],
+              "next_before": null,
+              "complete": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "ws_4f3c1a09b8d27e65",
+        "project_id": "prj_contract_v1_workspace",
+        "lane_id": "lane_durable_work",
+        "session_id": "session_durable_work",
+        "task_id": "task_durable_work",
+        "turn_id": "turn_durable_work"
+      },
+      "cursor": {
+        "stream_id": "fixture:durable-work-evidence",
+        "sequence": 8
+      },
+      "event": {
+        "sequence": 8,
+        "timestamp": 1700006008,
+        "kind": {
+          "type": "workspace_change_updated",
+          "payload": {
+            "change": {
+              "id": "tool_durable_work_edit:crates/types/src/evidence_reads.rs",
+              "owner": {
+                "workspace_id": "ws_4f3c1a09b8d27e65",
+                "project_id": "prj_contract_v1_workspace",
+                "lane_id": "lane_durable_work",
+                "session_id": "session_durable_work",
+                "task_id": "task_durable_work",
+                "turn_id": "turn_durable_work"
+              },
+              "path": "crates/types/src/evidence_reads.rs",
+              "kind": "modified",
+              "patch": "--- a/crates/types/src/evidence_reads.rs\n+++ b/crates/types/src/evidence_reads.rs\n@@ -12,3 +12,3 @@ impl EvidenceQuery\n     pub fn clamped_limit(&self) -> usize {\n-        self.limit as usize\n+        self.limit.clamp(1, 200) as usize\n     }\n",
+              "additions": 1,
+              "deletions": 1
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "ws_4f3c1a09b8d27e65",
+        "project_id": "prj_contract_v1_workspace",
+        "lane_id": "lane_durable_work",
+        "session_id": "session_durable_work",
+        "task_id": "task_durable_work",
+        "turn_id": "turn_durable_work"
+      },
+      "cursor": {
+        "stream_id": "fixture:durable-work-evidence",
+        "sequence": 9
+      },
+      "event": {
+        "sequence": 9,
+        "timestamp": 1700006009,
+        "kind": {
+          "type": "evidence_recorded",
+          "payload": {
+            "evidence": {
+              "id": "patch-tool_durable_work_edit",
+              "kind": "patch",
+              "summary": "native lane lane_durable_work edit: crates/types/src/evidence_reads.rs (+1/-1)",
+              "path": "crates/types/src/evidence_reads.rs",
+              "source": "native",
+              "canonical": {
+                "item_id": "ctxi_durable_work_native",
+                "bundle_id": "bundle_durable_work",
+                "source_hash": "7f27a90c8e782d8a1aa6cf0817223aea298b2b2caa0526be04380ed5867421fc",
+                "producer": {
+                  "identity": "native",
+                  "role": "coder",
+                  "task_id": "task_durable_work"
+                },
+                "permission_snapshot_id": "audit_durable_work_approval",
+                "permission_scope": {
+                  "type": "task",
+                  "id": "task_durable_work"
+                },
+                "evidence_scope": {
+                  "type": "task",
+                  "id": "task_durable_work"
+                },
+                "verification": "verified",
+                "quality": {
+                  "status": "pass"
+                }
+              },
+              "timestamp": 1700006010,
+              "owner": {
+                "workspace_id": "ws_4f3c1a09b8d27e65",
+                "project_id": "prj_contract_v1_workspace",
+                "lane_id": "lane_durable_work",
+                "session_id": "session_durable_work",
+                "task_id": "task_durable_work",
+                "turn_id": "turn_durable_work"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "ws_4f3c1a09b8d27e65",
+        "project_id": "prj_contract_v1_workspace",
+        "lane_id": "lane_durable_work",
+        "session_id": "session_durable_work",
+        "task_id": "task_durable_work",
+        "turn_id": "turn_durable_work"
+      },
+      "cursor": {
+        "stream_id": "fixture:durable-work-evidence",
+        "sequence": 10
+      },
+      "event": {
+        "sequence": 10,
+        "timestamp": 1700006010,
+        "kind": {
+          "type": "evidence_canonicalized",
+          "payload": {
+            "evidence_id": "patch-tool_durable_work_edit",
+            "item_id": "ctxi_durable_work_native",
+            "content_sha256": "7f27a90c8e782d8a1aa6cf0817223aea298b2b2caa0526be04380ed5867421fc"
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "ws_4f3c1a09b8d27e65",
+        "project_id": "prj_contract_v1_workspace",
+        "lane_id": "lane_durable_work",
+        "session_id": "session_durable_work",
+        "task_id": "task_durable_work",
+        "turn_id": "turn_durable_work"
+      },
+      "cursor": {
+        "stream_id": "fixture:durable-work-evidence",
+        "sequence": 11
+      },
+      "event": {
+        "sequence": 11,
+        "timestamp": 1700006011,
+        "kind": {
+          "type": "turn_finished",
+          "payload": {
+            "turn_id": "turn_durable_work",
+            "owner": {
+              "workspace_id": "ws_4f3c1a09b8d27e65",
+              "project_id": "prj_contract_v1_workspace",
+              "lane_id": "lane_durable_work",
+              "session_id": "session_durable_work",
+              "task_id": "task_durable_work",
+              "turn_id": "turn_durable_work"
+            },
+            "outcome": {
+              "kind": "completed"
+            },
+            "finished_at": 1700006020
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "ws_4f3c1a09b8d27e65",
+        "project_id": "prj_contract_v1_workspace",
+        "lane_id": "lane_durable_work",
+        "session_id": "session_durable_work",
+        "task_id": "task_durable_work",
+        "turn_id": null
+      },
+      "cursor": {
+        "stream_id": "fixture:durable-work-evidence",
+        "sequence": 12
+      },
+      "event": {
+        "sequence": 12,
+        "timestamp": 1700006012,
+        "kind": {
+          "type": "command_accepted",
+          "payload": {
+            "command_id": "cmd_durable_work_page",
+            "command": {
+              "type": "query_evidence",
+              "query": {
+                "owner": null,
+                "kinds": [
+                  "patch"
+                ],
+                "limit": 10,
+                "after": null
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "ws_4f3c1a09b8d27e65",
+        "project_id": "prj_contract_v1_workspace",
+        "lane_id": "lane_durable_work",
+        "session_id": "session_durable_work",
+        "task_id": "task_durable_work",
+        "turn_id": null
+      },
+      "cursor": {
+        "stream_id": "fixture:durable-work-evidence",
+        "sequence": 13
+      },
+      "event": {
+        "sequence": 13,
+        "timestamp": 1700006013,
+        "kind": {
+          "type": "evidence_page_loaded",
+          "payload": {
+            "command_id": "cmd_durable_work_page",
+            "page": {
+              "entries": [
+                {
+                  "id": "patch-tool_durable_work_edit",
+                  "kind": "patch",
+                  "summary": "native lane lane_durable_work edit: crates/types/src/evidence_reads.rs (+1/-1)",
+                  "path": "crates/types/src/evidence_reads.rs",
+                  "source": "native",
+                  "canonical": {
+                    "item_id": "ctxi_durable_work_native",
+                    "bundle_id": "bundle_durable_work",
+                    "source_hash": "7f27a90c8e782d8a1aa6cf0817223aea298b2b2caa0526be04380ed5867421fc",
+                    "producer": {
+                      "identity": "native",
+                      "role": "coder",
+                      "task_id": "task_durable_work"
+                    },
+                    "permission_snapshot_id": "audit_durable_work_approval",
+                    "permission_scope": {
+                      "type": "task",
+                      "id": "task_durable_work"
+                    },
+                    "evidence_scope": {
+                      "type": "task",
+                      "id": "task_durable_work"
+                    },
+                    "verification": "verified",
+                    "quality": {
+                      "status": "pass"
+                    }
+                  },
+                  "timestamp": 1700006010,
+                  "owner": {
+                    "workspace_id": "ws_4f3c1a09b8d27e65",
+                    "project_id": "prj_contract_v1_workspace",
+                    "lane_id": "lane_durable_work",
+                    "session_id": "session_durable_work",
+                    "task_id": "task_durable_work",
+                    "turn_id": "turn_durable_work"
+                  }
+                }
+              ],
+              "complete": true,
+              "next_after": null
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "ws_4f3c1a09b8d27e65",
+        "project_id": "prj_contract_v1_workspace",
+        "lane_id": "lane_durable_work",
+        "session_id": "session_durable_work",
+        "task_id": "task_durable_work",
+        "turn_id": null
+      },
+      "cursor": {
+        "stream_id": "fixture:durable-work-evidence",
+        "sequence": 14
+      },
+      "event": {
+        "sequence": 14,
+        "timestamp": 1700006014,
+        "kind": {
+          "type": "command_accepted",
+          "payload": {
+            "command_id": "cmd_durable_work_content",
+            "command": {
+              "type": "read_evidence_content",
+              "evidence_id": "patch-tool_durable_work_edit"
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "ws_4f3c1a09b8d27e65",
+        "project_id": "prj_contract_v1_workspace",
+        "lane_id": "lane_durable_work",
+        "session_id": "session_durable_work",
+        "task_id": "task_durable_work",
+        "turn_id": null
+      },
+      "cursor": {
+        "stream_id": "fixture:durable-work-evidence",
+        "sequence": 15
+      },
+      "event": {
+        "sequence": 15,
+        "timestamp": 1700006015,
+        "kind": {
+          "type": "evidence_content_loaded",
+          "payload": {
+            "command_id": "cmd_durable_work_content",
+            "evidence_id": "patch-tool_durable_work_edit",
+            "content": {
+              "type": "diff",
+              "document": {
+                "files": [
+                  {
+                    "path": "crates/types/src/evidence_reads.rs",
+                    "kind": "modified",
+                    "binary": false,
+                    "omitted": false,
+                    "additions": 1,
+                    "deletions": 1,
+                    "hunks": [
+                      {
+                        "old_start": 12,
+                        "old_lines": 3,
+                        "new_start": 12,
+                        "new_lines": 3,
+                        "header": "impl EvidenceQuery",
+                        "lines": [
+                          {
+                            "kind": "context",
+                            "content": "    pub fn clamped_limit(&self) -> usize {",
+                            "old_line": 12,
+                            "new_line": 12
+                          },
+                          {
+                            "kind": "removed",
+                            "content": "        self.limit as usize",
+                            "old_line": 13
+                          },
+                          {
+                            "kind": "added",
+                            "content": "        self.limit.clamp(1, 200) as usize",
+                            "new_line": 13
+                          },
+                          {
+                            "kind": "context",
+                            "content": "    }",
+                            "old_line": 14,
+                            "new_line": 14
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ],
+                "truncated": false,
+                "byte_limit": 262144
+              },
+              "sha256": "7f27a90c8e782d8a1aa6cf0817223aea298b2b2caa0526be04380ed5867421fc"
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "ws_4f3c1a09b8d27e65",
+        "project_id": "prj_contract_v1_workspace",
+        "lane_id": "lane_durable_work_agent",
+        "session_id": "session_durable_work_agent",
+        "task_id": "acp-session-durable",
+        "turn_id": "turn_durable_work_agent"
+      },
+      "cursor": {
+        "stream_id": "fixture:durable-work-evidence",
+        "sequence": 16
+      },
+      "event": {
+        "sequence": 16,
+        "timestamp": 1700006016,
+        "kind": {
+          "type": "evidence_recorded",
+          "payload": {
+            "evidence": {
+              "id": "acp-patch-tool_durable_work_agent-7",
+              "kind": "patch",
+              "summary": "ACP patch: 1 file(s), +1/-1, first docs/core-0.3-compatibility.md",
+              "path": "docs/core-0.3-compatibility.md",
+              "source": "acp:patch.v1",
+              "canonical": {
+                "item_id": "ctxi_durable_work_agent",
+                "bundle_id": "ctxi_durable_work_agent",
+                "source_hash": "6d5e36fb44a9dbc58031944d60c86ef6367325bf4e52ecc10e97cebd63c7b566",
+                "producer": {
+                  "identity": "agent",
+                  "role": "coder",
+                  "task_id": "acp-session-durable"
+                },
+                "permission_snapshot_id": null,
+                "permission_scope": {
+                  "type": "task",
+                  "id": "acp-session-durable"
+                },
+                "evidence_scope": {
+                  "type": "task",
+                  "id": "acp-session-durable"
+                },
+                "verification": "verified",
+                "quality": {
+                  "status": "pass"
+                }
+              },
+              "metadata": {
+                "additions": 1,
+                "deletions": 1,
+                "diff": "--- a/docs/core-0.3-compatibility.md\n+++ b/docs/core-0.3-compatibility.md\n@@ -4,2 +4,2 @@\n-Capabilities: 26\n+Capabilities: 27\n",
+                "fileCount": 1,
+                "format": "unified_diff",
+                "schema": "acp.patch.v1"
+              },
+              "timestamp": 1700006040,
+              "owner": {
+                "workspace_id": "ws_4f3c1a09b8d27e65",
+                "project_id": "prj_contract_v1_workspace",
+                "lane_id": "lane_durable_work_agent",
+                "session_id": "session_durable_work_agent",
+                "task_id": "acp-session-durable",
+                "turn_id": "turn_durable_work_agent"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "ws_4f3c1a09b8d27e65",
+        "project_id": "prj_contract_v1_workspace",
+        "lane_id": "lane_durable_work_agent",
+        "session_id": "session_durable_work_agent",
+        "task_id": "acp-session-durable",
+        "turn_id": "turn_durable_work_agent"
+      },
+      "cursor": {
+        "stream_id": "fixture:durable-work-evidence",
+        "sequence": 17
+      },
+      "event": {
+        "sequence": 17,
+        "timestamp": 1700006017,
+        "kind": {
+          "type": "evidence_canonicalized",
+          "payload": {
+            "evidence_id": "acp-patch-tool_durable_work_agent-7",
+            "item_id": "ctxi_durable_work_agent",
+            "content_sha256": "6d5e36fb44a9dbc58031944d60c86ef6367325bf4e52ecc10e97cebd63c7b566"
+          }
+        }
+      }
+    }
+  ],
+  "expected_final_cursor": {
+    "stream_id": "fixture:durable-work-evidence",
+    "sequence": 17
+  },
+  "expected_view_sha256": "b2719e73785bc9e3a71b459e3eb83ae3a551ac62aa61f8a7c3807e2f883c6f45"
+}

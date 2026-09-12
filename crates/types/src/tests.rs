@@ -7086,3 +7086,62 @@ fn the_turn_lifecycle_capability_is_an_advertised_extension() {
         "extension capabilities must stay sorted and unique"
     );
 }
+
+// ---------------------------------------------------------------------------
+// `runtime.durable_work_evidence` (C7, GUI-CORE-028 and E1 defect 4)
+// ---------------------------------------------------------------------------
+
+/// The capability adds no type and no event: what it changes is which facts
+/// reach the durable archive and the audit log. It is still gated, because a
+/// client that reads the evidence archive for applied work needs to know
+/// whether this Core writes one at all — before it, a cockpit that paged the
+/// archive after a real edit got an empty page and no way to tell that apart
+/// from "this session changed nothing".
+#[test]
+fn the_durable_work_evidence_capability_is_an_advertised_extension() {
+    assert!(FRONTEND_V1_EXTENSION_CAPABILITIES.contains(&"runtime.durable_work_evidence"));
+    assert!(!FRONTEND_V1_CAPABILITIES.contains(&"runtime.durable_work_evidence"));
+    assert!(
+        FRONTEND_V1_EXTENSION_CAPABILITIES
+            .windows(2)
+            .all(|pair| pair[0] < pair[1]),
+        "extension capabilities must stay sorted and unique"
+    );
+}
+
+/// The two facts the capability makes durable are the two the reducer already
+/// knew, so a client that gated on it needs no new event vocabulary. This is
+/// the guard against the opposite mistake: shipping the durability while a
+/// client could not decode the facts it makes durable.
+#[test]
+fn the_durable_work_evidence_facts_stay_known_wire_events() {
+    for kind in [
+        RuntimeEventKind::EvidenceRecorded {
+            evidence: EvidenceView {
+                id: "patch-tool_1".to_string(),
+                kind: "patch".to_string(),
+                summary: "native session edit: src.txt (+1/-1)".to_string(),
+                path: Some("src.txt".to_string()),
+                source: Some("native".to_string()),
+                canonical: None,
+                metadata: None,
+                timestamp: Some(1_700_000_000),
+                owner: None,
+            },
+        },
+        RuntimeEventKind::EvidenceCanonicalized {
+            evidence_id: "patch-tool_1".to_string(),
+            item_id: "ctxi_1".to_string(),
+            content_sha256: "a".repeat(64),
+        },
+    ] {
+        let encoded = serde_json::to_string(&RuntimeEvent::new(1, kind.clone())).unwrap();
+        let decoded = serde_json::from_str::<RuntimeWireEvent>(&encoded).unwrap();
+        match decoded {
+            RuntimeWireEvent::Known(event) => assert_eq!(event.kind, kind),
+            RuntimeWireEvent::Unknown { event_type, .. } => {
+                panic!("`{event_type}` must stay a known wire event")
+            }
+        }
+    }
+}
