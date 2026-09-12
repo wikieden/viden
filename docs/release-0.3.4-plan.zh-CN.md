@@ -6,8 +6,8 @@ English version: [release-0.3.4-plan.md](release-0.3.4-plan.md)
 `docs/parallel-development-plan.md` 此前把它定名为"视觉保真与生产发布门禁"；
 本文重新划定范围（见"范围修订"），首先只做一件事：让已交付的 GUI 驾驶舱与已接受的
 D1 设计、以及设计包里已经做好的全部交互与跳转拉齐，并补完 `0.3.3` 只做了一半的
-真实任务交付。Core 契约内容将在本计划被接受后写入
-`release-0.3.4-contract-design.md`。
+真实任务交付。Core 契约内容在
+[release-0.3.4-contract-design.zh-CN.md](release-0.3.4-contract-design.zh-CN.md)。
 
 状态：2026-09-12 依据当日的"设计 vs 实现"差距评审写成。本文没有任何内容已实现。
 每个批次单独派发、在主会话对抗式评审、仅在明确的 push 指令下合并。
@@ -81,7 +81,7 @@ D1 设计、以及设计包里已经做好的全部交互与跳转拉齐，并�
 
 | 线 | 现在 | `0.3.4` 目标 |
 | --- | --- | --- |
-| Core | `0.3.6` | `0.3.7` 不可变检查点，schema `1`，五项可加能力（23 → 28） |
+| Core | `0.3.6` | `0.3.7` 不可变检查点，schema `1`，六项可加能力（23 → 29；2026-09-12 自 28 修订，见契约设计） |
 | TUI | `0.3.4` | `0.3.5`，新事实的对等最小集 |
 | GUI | `0.1.0-rc.4` | `0.1.0-rc.5`，驾驶舱与 D1 拉齐 |
 
@@ -94,7 +94,7 @@ D1 设计、以及设计包里已经做好的全部交互与跳转拉齐，并�
 | 批次 | 归属 | 内容 | 依赖 |
 | --- | --- | --- | --- |
 | CD 契约设计 | 主会话 | `release-0.3.4-contract-design{,.zh-CN}.md`：C5–C9 的精确形状 | 本计划被接受 |
-| C5 `runtime.workspace_owner` | Core | Core 在打开时铸造 `workspace_id`/`project_id` 并发布 `WorkspaceRuntimeOwnerBound`；`SourceTarget::Workspace` 的 `RunOperatorGitAction` 在该身份下授权与审计；`workspace_source` 按 `SourceTarget` 回答（按 Lane 的分支、领先/落后、脏）；`UiPreferences.lane_sidebar_mode`（可加，`pinned`/`floating`）；fixture；关闭 GUI-CORE-027 | CD |
+| C5 `runtime.workspace_owner` + `ui.layout_preferences` | Core | Core 在打开时铸造 `workspace_id`/`project_id` 并发布 `WorkspaceRuntimeOwnerBound`；`SourceTarget::Workspace` 的 `RunOperatorGitAction` 在该身份下授权与审计；按 Lane 工作树的 `LaneSourceUpdated`；独立的 `UiLayoutPreferences` 记录（`lane_sidebar_mode`、隐藏的状态栏段），因为 `UiPreferences` 加字段会移动全部基础摘要（2026-09-12 修订）；两个 fixture；关闭 GUI-CORE-027 | CD |
 | C6 `runtime.turn_lifecycle` | Core | 原生与 ACP 回合带 owner 的 `TurnStarted`/`TurnFinished`；`TurnFinished` 时 settle `assistant_stream`；`TurnFinished` 时排空会话级队列并发布 `InputDequeued`；fixture；关闭 E1 缺陷 1 与兼容性后续项 3 | CD |
 | C7 `runtime.durable_work_evidence` | Core | 已应用的原生变更与 ACP 补丁各自产生带规范 ContextStore 字节与 `source_hash` 的归档 `patch` 行，经归档重建所依赖的 `runtime_projection` 行持久化；审批决定写为持久审计行；fixture；关闭 GUI-CORE-028 与 E1 缺陷 4 | C6 |
 | C8 `runtime.transcript_rows` | Core | 在既有转录页之上的 owner 作用域有序类型化行（user、assistant、tool call、tool result、check run）；fixture；关闭 GUI-CORE-009 | C6 |
@@ -120,7 +120,7 @@ D1 设计、以及设计包里已经做好的全部交互与跳转拉齐，并�
 - 九个冻结的 `frontend-contract-v1` 基础 fixture 逐字节不变；`UiPreferences` 字段为
   可加字段，若任一基础摘要移动，则改为独立偏好记录发布；
 - 能力计数在 `scripts/tui-regression.sh` 与 `apps/tui/src/tui/client.rs` 中从 23 移到
-  28，附跟踪注释；
+  29，附跟踪注释；
 - 每个驾驶舱内视图都有 qa harness 状态、双主题 PNG 与 `EVIDENCE.md` 行；每个 rail 目的地
   都有测试证明切换后 chrome 仍在且 `Esc` 返回；
 - plugin-host crate 的 `context_reducer_process_*` 测试串行运行（`--test-threads=1`）；
@@ -130,7 +130,7 @@ D1 设计、以及设计包里已经做好的全部交互与跳转拉齐，并�
 
 只有以下各项全部在 `main` 上成立，`0.3.4` 才算完成：
 
-- Core `0.3.7` 记录为不可变检查点，含 28 项能力、五个新扩展 fixture，基础 fixture 字节不变。
+- Core `0.3.7` 记录为不可变检查点，含 29 项能力、六个新扩展 fixture，基础 fixture 字节不变。
 - 设计中未放弃、未延期、非路线图的每个 rail 目的地都在驾驶舱 chrome 内渲染并有返回路径，
   两个 `0.3.3` 家族有 rail 入口。
 - 中央区有 Lane tab strip、切 Lane、面板创建 Lane、`Cmd+L`/`Cmd+G`/`Cmd+.` 与内联工具

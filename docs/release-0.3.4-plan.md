@@ -8,8 +8,8 @@ it "visual fidelity and production release gate"; this document re-scopes it
 (see Scope Amendments) to one goal first: bring the shipped GUI cockpit level
 with the accepted D1 design and every interaction and navigation the design
 package already specifies, and finish the real-task delivery that `0.3.3`
-left partial. The Core contract content will live in
-`release-0.3.4-contract-design.md`, written after this plan is accepted.
+left partial. The Core contract content lives in
+[release-0.3.4-contract-design.md](release-0.3.4-contract-design.md).
 
 Status: plan written 2026-09-12 from the design-versus-implementation gap
 review of the same day. Nothing in this document is implemented. Every batch
@@ -104,7 +104,7 @@ The user may veto any of them.
 
 | Line | Now | `0.3.4` target |
 | --- | --- | --- |
-| Core | `0.3.6` | `0.3.7` immutable checkpoint, schema `1`, five additive capabilities (23 to 28) |
+| Core | `0.3.6` | `0.3.7` immutable checkpoint, schema `1`, six additive capabilities (23 to 29; amended 2026-09-12 from 28, see the contract design) |
 | TUI | `0.3.4` | `0.3.5`, parity minimum for the new facts |
 | GUI | `0.1.0-rc.4` | `0.1.0-rc.5`, cockpit level with D1 |
 
@@ -118,7 +118,7 @@ G6 need no Core change and start immediately, in parallel with Core.
 | Batch | Owner | Content | Depends on |
 | --- | --- | --- | --- |
 | CD contract design | main session | `release-0.3.4-contract-design{,.zh-CN}.md`: exact shapes for C5 to C9 | this plan accepted |
-| C5 `runtime.workspace_owner` | Core | Core mints `workspace_id`/`project_id` at open and publishes `WorkspaceRuntimeOwnerBound`; `RunOperatorGitAction` with `SourceTarget::Workspace` authorized and audited under it; `workspace_source` answered per `SourceTarget` (per-Lane branch, ahead/behind, dirty); `UiPreferences.lane_sidebar_mode` (additive, `pinned`/`floating`); fixture; closes GUI-CORE-027 | CD |
+| C5 `runtime.workspace_owner` + `ui.layout_preferences` | Core | Core mints `workspace_id`/`project_id` at open and publishes `WorkspaceRuntimeOwnerBound`; `RunOperatorGitAction` with `SourceTarget::Workspace` authorized and audited under it; `LaneSourceUpdated` per Lane worktree; a separate `UiLayoutPreferences` record (`lane_sidebar_mode`, hidden statusbar segments) because a `UiPreferences` field would move every base digest (amended 2026-09-12); two fixtures; closes GUI-CORE-027 | CD |
 | C6 `runtime.turn_lifecycle` | Core | `TurnStarted`/`TurnFinished` for native and ACP turns with the owner; `assistant_stream` settled on `TurnFinished`; the session-level queue drained on `TurnFinished` with `InputDequeued`; fixture; closes E1 defect 1 and compatibility follow-up 3 | CD |
 | C7 `runtime.durable_work_evidence` | Core | an applied native mutation and an ACP patch each produce an archived `patch` row with canonical ContextStore bytes and `source_hash`, persisted through the `runtime_projection` rows the archive rebuilds from; approval decisions written as durable audit rows; fixture; closes GUI-CORE-028 and E1 defect 4 | C6 |
 | C8 `runtime.transcript_rows` | Core | owner-scoped ordered typed rows (user, assistant, tool call, tool result, check run) over the existing transcript page; fixture; closes GUI-CORE-009 | C6 |
@@ -146,7 +146,7 @@ plan; the additions are:
 - the nine frozen `frontend-contract-v1` base fixtures keep their exact bytes;
   the `UiPreferences` field is additive and, if any base digest moves, ships
   as a separate preference record instead;
-- the capability count moves from 23 to 28 in `scripts/tui-regression.sh`
+- the capability count moves from 23 to 29 in `scripts/tui-regression.sh`
   and `apps/tui/src/tui/client.rs` with tracking comments;
 - every in-cockpit view has a qa harness state, a PNG in both themes, and an
   `EVIDENCE.md` row; every rail destination has a test proving the chrome
@@ -158,8 +158,8 @@ plan; the additions are:
 
 `0.3.4` is complete only when all of the following hold on `main`:
 
-- Core `0.3.7` is recorded as an immutable checkpoint with the 28-capability
-  set, five new extension fixtures, and unchanged base fixture bytes.
+- Core `0.3.7` is recorded as an immutable checkpoint with the 29-capability
+  set, six new extension fixtures, and unchanged base fixture bytes.
 - Every rail destination in the design that is not dropped, deferred, or
   roadmap renders inside the cockpit chrome with a return path, and the two
   `0.3.3` families have rail entries.
