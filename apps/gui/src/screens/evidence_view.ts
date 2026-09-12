@@ -178,10 +178,21 @@ function qualityLabel(status: string, locale: Locale): string {
   }
 }
 
-function keyValue(host: HTMLElement, key: string, value: string): void {
+function keyValue(
+  host: HTMLElement,
+  key: string,
+  value: string,
+  /**
+   * A locale-independent name for the fact, when a caller needs to find this
+   * row again. `data-evidence-fact` carries the *localized* label, so it is a
+   * label and not an identifier.
+   */
+  id?: string,
+): HTMLElement {
   const row = document.createElement("div");
   row.className = "evkv";
   row.dataset.evidenceFact = key;
+  if (id) row.dataset.evidenceFactId = id;
   const label = document.createElement("span");
   label.className = "k";
   label.textContent = key;
@@ -193,6 +204,32 @@ function keyValue(host: HTMLElement, key: string, value: string): void {
   text.title = value;
   row.append(label, text);
   host.append(row);
+  return row;
+}
+
+/**
+ * Whether Core's answer for *this* row contradicts the verification verdict
+ * the archive row records.
+ *
+ * Two facts from two moments: `row.canonical.verification` is what the archive
+ * recorded when the reference was written, and `content` is what Core got when
+ * it read the bytes just now. `HashMismatch` under a recorded `verified` is
+ * the one pair that cannot both be true, and it is the pair E1 defect 6 caught
+ * on screen as `verified` sitting beside a refusal to show the bytes. Every
+ * other pair either agrees (`failed` + `HashMismatch`) or says nothing about
+ * the bytes (no answer read yet, an answer echoed for another row).
+ */
+function verificationContradicted(
+  row: EvidenceRowProjection,
+  content: EvidenceContentProjection,
+): boolean {
+  return (
+    row.canonical?.verification === "verified" &&
+    content.evidenceId === row.id &&
+    content.outcome.state !== "rejected" &&
+    content.kind === "unavailable" &&
+    content.reason === "hash_mismatch"
+  );
 }
 
 /**
@@ -522,16 +559,35 @@ export function renderEvidenceView(
       /* Core's verdicts on those bytes, stated rather than inferred from the
          content read: a row can hold bytes Core distrusts, and reading that as
          "verified" is the one wrong answer. */
-      keyValue(
+      const verification = keyValue(
         report,
         translate(locale, "d1.evidence.field.verification", {}),
         verificationLabel(selected.canonical.verification, locale),
+        "verification",
       );
       keyValue(
         report,
         translate(locale, "d1.evidence.field.quality", {}),
         qualityLabel(selected.canonical.quality, locale),
       );
+      /* E1 defect 6: the recorded claim and the read Core just did, related in
+         one sentence rather than left as `verified` beside a withheld body.
+         The claim above keeps its recorded wording — it is what the archive
+         says, and deleting it would hide the other half of the contradiction —
+         and gains the design's mismatch treatment so the row reads as disputed
+         rather than as a verdict this pane still stands behind. */
+      if (verificationContradicted(selected, content)) {
+        verification.dataset.evidenceFactState = "mismatch";
+        const note = stateNote(
+          report,
+          "verification-contradicted",
+          translate(locale, "d1.evidence.verification.contradicted", {
+            claim: verificationLabel(selected.canonical.verification, locale),
+          }),
+          true,
+        );
+        note.dataset.evidenceVerificationContradicted = "true";
+      }
     } else {
       const note = document.createElement("p");
       note.className = "evidence-note";

@@ -698,3 +698,97 @@ describe("EvidenceView cockpit entry points", () => {
     dispose();
   });
 });
+
+/*
+ * H2 hygiene — E1 defect 6.
+ *
+ * The report's `verification` row is the archive's recorded claim about the
+ * canonical bytes; the content answer is what Core got when it read them just
+ * now. When the second contradicts the first, the pane must relate the two in
+ * one sentence instead of printing `verified` beside a `HashMismatch` and
+ * leaving the operator to notice. Neither fact may be hidden: the recorded
+ * claim stays on screen as data.
+ */
+describe("EvidenceView verification claim versus the bytes Core just read", () => {
+  const mismatch = () =>
+    content({ kind: "unavailable", reason: "hash_mismatch" });
+
+  test("relates the recorded claim to the mismatch instead of stating `verified` alone", () => {
+    renderEvidenceView(host, archive(), "en", { content: mismatch() });
+
+    const claim = host.querySelector<HTMLElement>(
+      "[data-evidence-section='report'] [data-evidence-fact-id='verification']",
+    );
+    // The claim itself is never rewritten or dropped: it is what the archive
+    // row records, and hiding it would be the other half of the same lie.
+    expect(claim?.textContent).toContain("verified");
+    expect(claim?.dataset.evidenceFactState).toBe("mismatch");
+
+    const note = host.querySelector<HTMLElement>("[data-evidence-verification-contradicted]");
+    expect(note).not.toBeNull();
+    expect(note?.getAttribute("role")).toBe("alert");
+    // One sentence, both facts: the recorded claim and the read Core just did.
+    expect(note?.textContent).toContain("verified");
+    expect(note?.textContent).toContain("did not match");
+  });
+
+  test("says nothing about a contradiction before the content answer arrives", () => {
+    renderEvidenceView(host, archive(), "en");
+    const claim = host.querySelector<HTMLElement>(
+      "[data-evidence-section='report'] [data-evidence-fact-id='verification']",
+    );
+    expect(claim?.textContent).toContain("verified");
+    expect(claim?.dataset.evidenceFactState).toBeUndefined();
+    expect(host.querySelector("[data-evidence-verification-contradicted]")).toBeNull();
+  });
+
+  test("holds in both orderings: the report first, then the content answer", () => {
+    renderEvidenceView(host, archive(), "en");
+    expect(host.querySelector("[data-evidence-verification-contradicted]")).toBeNull();
+    renderEvidenceView(host, archive(), "en", { content: mismatch() });
+    expect(host.querySelector("[data-evidence-verification-contradicted]")).not.toBeNull();
+  });
+
+  test("holds in both orderings: the content answer first, then the row it belongs to", () => {
+    // The answer arrives while the archive page is still pending, so no row is
+    // on screen to contradict yet.
+    renderEvidenceView(host, PENDING_EVIDENCE_ARCHIVE, "en", { content: mismatch() });
+    expect(host.querySelector("[data-evidence-verification-contradicted]")).toBeNull();
+    renderEvidenceView(host, archive(), "en", { content: mismatch() });
+    expect(host.querySelector("[data-evidence-verification-contradicted]")).not.toBeNull();
+  });
+
+  test("a content answer echoed for a different row never contradicts this one", () => {
+    renderEvidenceView(host, archive(), "en", {
+      content: { ...mismatch(), evidenceId: "evidence_other" },
+    });
+    expect(host.querySelector("[data-evidence-verification-contradicted]")).toBeNull();
+  });
+
+  test("a row Core already records as failed states the agreement, not a contradiction", () => {
+    // `failed` beside `HashMismatch` is two facts that agree. There is nothing
+    // to relate, so the pane must not manufacture an alert.
+    renderEvidenceView(
+      host,
+      archive({
+        rows: [row({ canonical: { ...row().canonical!, verification: "failed" } })],
+      }),
+      "en",
+      { content: mismatch() },
+    );
+    expect(host.querySelector("[data-evidence-verification-contradicted]")).toBeNull();
+    expect(
+      host.querySelector<HTMLElement>("[data-evidence-fact-id='verification']")?.textContent,
+    ).toContain("failed");
+  });
+
+  test("the contradiction sentence is localized rather than an English string", () => {
+    renderEvidenceView(host, archive(), "zh-CN", { content: mismatch() });
+    const note = host.querySelector<HTMLElement>("[data-evidence-verification-contradicted]");
+    expect(note).not.toBeNull();
+    // `Core` is the product's own name and stays Latin in the zh-CN catalog,
+    // as it does in every other string there; nothing else may be English.
+    expect(note?.textContent?.replace(/Core/g, "")).not.toMatch(/[A-Za-z]{3}/);
+    expect(note?.textContent).toContain("已校验");
+  });
+});

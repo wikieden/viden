@@ -199,8 +199,25 @@
 
 .evwrap .evidence-state[data-evidence-state="rejected"],
 .evwrap .evidence-state[data-evidence-state="content-rejected"],
+.evwrap .evidence-state[data-evidence-state="verification-contradicted"],
 .evwrap .evidence-state[data-evidence-state="unavailable-hash_mismatch"] {
   color: var(--error);
+}
+
+/*
+ * The recorded verification claim, once Core's own read has contradicted it.
+ *
+ * The design's mismatch treatment is `var(--error)`, the same one the refusal
+ * note below the report already carries, so the disputed claim and the reason
+ * it is disputed read as one thing. The claim keeps its recorded wording and
+ * stays selectable text: this marks a fact as disputed, it does not retract
+ * it. The strike-through is the second, non-color channel, so the state is not
+ * carried by hue alone.
+ */
+.evwrap .evkv[data-evidence-fact-state="mismatch"] .v {
+  color: var(--error);
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
 }
 
 .evwrap .evidence-state[data-evidence-state="content-truncated"],

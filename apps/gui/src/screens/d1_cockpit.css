@@ -180,10 +180,6 @@ button.d1-topbar-project[aria-expanded="true"] {
   grid-template-columns: var(--rail-act) minmax(0, 1fr);
 }
 
-.d1-main-welcome {
-  grid-template-rows: minmax(0, 1fr);
-}
-
 .d1-activity,
 .d1-lanes,
 .d1-right {
@@ -738,6 +734,29 @@ button.d1-topbar-project[aria-expanded="true"] {
   display: grid;
   grid-template-rows: minmax(0, 1fr) auto auto;
   background: var(--bg-base);
+}
+
+/*
+ * The unbound centre pane (E1 defect 8).
+ *
+ * Welcome mounts without the permission host and the composer, so the surface
+ * owns the whole column and the other two rows must go — this rule used to sit
+ * *above* `.d1-main`, tied with it on specificity, and lost the cascade, which
+ * left two zero-height rows nobody could see and a rule nobody could rely on.
+ *
+ * The surface is then a grid with one `1fr` row, so Welcome stretches into it
+ * as a grid item. That is the whole fix: the fill is a track, not a percentage
+ * resolved against an ancestor whose height depends on which of `.frame` and
+ * `.d1-frame` won `display` in the bundled cascade, and not a pixel height
+ * that would only be right at one window size.
+ */
+.d1-main.d1-main-welcome {
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.d1-main-welcome > .d1-work-surface {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
 }
 
 .d1-lane-work-surface {

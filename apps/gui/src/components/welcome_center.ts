@@ -103,6 +103,26 @@ export function renderWelcomeCenter(
   recentTitle.textContent = translate(locale, "d1.welcome.recent", {});
   recent.append(recentTitle);
 
+  /**
+   * The note for a recent-work read that produced no list.
+   *
+   * Two different facts, two different headlines (E1 defect 9):
+   *
+   * - `unavailable` — Core answered the handshake and published no
+   *   `runtime.recent_work`. That is a statement about Core, true whether or
+   *   not a project is open, so it keeps the capability wording.
+   * - `failed` — the read itself did not complete. Welcome is mounted *only*
+   *   while no workspace is bound, so on this surface the overwhelmingly
+   *   common cause is that there is no Core adapter yet because nothing has
+   *   been opened. The host says `Core adapter is not connected`, which reads
+   *   as a fault; here it is the ordinary first-run state, so the headline is
+   *   D1's own `No project open` and the next step is named. The host's
+   *   sentence is not discarded — it is kept underneath as the diagnostic,
+   *   because a read that failed for some *other* reason must still be
+   *   readable. "Core adapter is not connected" as a headline belongs to the
+   *   bound-workspace surfaces, where the adapter really has gone away and the
+   *   D6 connection state says so.
+   */
   const stateNote = (detail: string, kind: string): HTMLElement => {
     const note = document.createElement("div");
     note.className = "d1-welcome-unavailable";
@@ -110,10 +130,27 @@ export function renderWelcomeCenter(
     note.dataset.recentState = kind;
     note.setAttribute("aria-disabled", "true");
     const title = document.createElement("strong");
-    title.textContent = translate(locale, "d1.welcome.recentUnavailable", {});
+    const firstRun = kind === "failed";
+    title.textContent = translate(
+      locale,
+      firstRun ? "d1.welcome.noProject" : "d1.welcome.recentUnavailable",
+      {},
+    );
     const body = document.createElement("span");
-    body.textContent = detail;
+    if (firstRun) {
+      body.dataset.recentFirstRun = "true";
+      body.textContent = translate(locale, "d1.welcome.recentFirstRun", {});
+    } else {
+      body.textContent = detail;
+    }
     note.append(title, body);
+    if (firstRun) {
+      const reason = document.createElement("small");
+      reason.className = "d1-welcome-recent-diagnostic";
+      reason.dataset.recentFailureReason = "true";
+      reason.textContent = detail;
+      note.append(reason);
+    }
     return note;
   };
 

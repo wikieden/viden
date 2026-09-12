@@ -145,3 +145,65 @@ describe("welcome recent projects", () => {
     expect(root.querySelectorAll("[data-recent-project]")).toHaveLength(2);
   });
 });
+
+/*
+ * H2 hygiene — E1 defect 9.
+ *
+ * Welcome renders only while no workspace is bound, so "the host has no Core
+ * adapter" is not a fault there: it is the first-run state, and the operator's
+ * next move is to open a project. The recent-work read still fails with the
+ * host's own sentence, and that sentence stays on screen as the diagnostic it
+ * is — but it is not the headline, because it describes a cause the operator
+ * did not create and cannot act on.
+ */
+describe("welcome recent work when no project is bound", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  test("a failed read leads with D1's own no-project vocabulary", () => {
+    const { root } = mount({
+      state: { kind: "failed", reason: "Error: Core adapter is not connected" },
+    });
+    const note = root.querySelector<HTMLElement>('[data-recent-state="failed"]');
+    expect(note?.querySelector("strong")?.textContent).toBe("No project open");
+    // The lead sentence names the operator's situation, not the host's wiring.
+    expect(note?.querySelector("[data-recent-first-run]")?.textContent).toContain(
+      "Recent projects appear once a project is open",
+    );
+    expect(note?.textContent).not.toContain("unavailable");
+  });
+
+  test("the host's own sentence stays visible as the diagnostic beneath it", () => {
+    const { root } = mount({
+      state: { kind: "failed", reason: "Error: Core adapter is not connected" },
+    });
+    expect(
+      root.querySelector<HTMLElement>("[data-recent-failure-reason]")?.textContent,
+    ).toContain("Core adapter is not connected");
+  });
+
+  test("an absent capability keeps its own sentence rather than the first-run one", () => {
+    // Core answered the handshake and did not publish the inventory. That is a
+    // fact about Core, not about whether a project is open.
+    const { root } = mount({
+      state: { kind: "unavailable", reason: "Core has not published the runtime.recent_work inventory." },
+    });
+    const note = root.querySelector<HTMLElement>('[data-recent-state="unavailable"]');
+    expect(note?.querySelector("strong")?.textContent).toBe("Recent project history is unavailable");
+    expect(note?.querySelector("[data-recent-first-run]")).toBeNull();
+  });
+
+  test("the first-run wording is localized", () => {
+    document.body.innerHTML = '<main id="app"></main>';
+    const root = document.querySelector<HTMLElement>("#app")!;
+    renderWelcomeCenter(root, "zh-CN", vi.fn(), {
+      state: { kind: "failed", reason: "Core adapter is not connected" },
+      sessions: [],
+      now: NOW,
+      onOpenRecent: vi.fn(),
+    });
+    const note = root.querySelector<HTMLElement>('[data-recent-state="failed"]');
+    expect(note?.querySelector("strong")?.textContent).toBe("尚未打开项目");
+  });
+});
