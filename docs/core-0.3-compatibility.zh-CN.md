@@ -414,7 +414,7 @@ Fixture 文件位于 `crates/types/tests/fixtures/frontend-contract-v1/`。下�
 | `conflict-content` | 两条 Lane 触及同一个文件：Lane A 的补丁合入，Lane B 的 `MergeAgentPatch` 被拒绝，bounce 携带一个 hunk，含 `ours`、`theirs` 与补丁原像，基线为 `Evidence`；另有一条 `LaneConflictDetected` 以相同形状携带内容，基线为 `Revision` | `d73ea2a144cd2682f3c5121f124c952dfad158e4befdd1a60ec9b9dc1c4d01bf` | `830afb77c04cf807926d0010309b07c3f1802e580daf48bc0715d4722c96ce1f` |
 | `evidence-reads` | 两页以第一页发布的那个不透明 cursor 原样拼接同一份三行归档；一页按 kind 过滤、对其过滤而言 `complete`，而未过滤的归档并非如此；三次内容读取分别回答有界文本、`patch` 行的已解析 diff 行、以及仅供展示证据的 `Unavailable { SummaryOnly }`；另有一次越界 `kinds` 查询以 `CommandRejected` 回答且完全不发布 page | `b15cb2fd024f60a1abb3a5a39b5c5736fca8bec443ae1a99a69e99f51edf8ef9` | `4d33513151bda26aa8e11242a9963d7fde25cc332980a40306f6393e6fc4caa0` |
 | `workspace-owner` | 铸造出的工作区身份作为快照之后的第一条事实发布；随后创建的 Lane，其绑定携带同样的两个 id；一次 Workspace 目标的 `Commit` 在该 owner 下结算并被审计；一次 Lane 目标的 `Stage` 以该 Lane 自己的 source 行作答，而工作区芯片仍描述工作区 | `0866370b2f4a9c85b1a577688e7cce42f51243b711440c7f3a033a5e75515a87` | `b8ac58db0fc8d3780d514e75531b21d98d7592e7e44b8aebd7bab69094777286` |
-| `ui-layout-preferences` | 快照前缀的副本不带 command id；一条 Core 已应用但写入失败的记录；一次越界的隐藏段列表在写入任何内容之前按 command id 被拒；一次 reset 落回 pinned 默认值 —— 其中一个无法识别的段名被原样保留 | `4bd474eb181ac8bf8acb002627074fa80920a233be47d57dff0a1991d3a7c0e1` | `3dbde7428fba6a00be4fc771b12eb9b7efe01ec2c97cb016b36049ece8612908` |
+| `ui-layout-preferences` | 快照前缀的副本不带 command id；一条 Core 已应用但写入失败的记录（pinned，即非默认模式，因此已存选择与记录缺席可以区分）；一次越界的隐藏段列表在写入任何内容之前按 command id 被拒；一次 reset 落回 floating 默认值（`D-SIDEBAR`） —— 其中一个无法识别的段名被原样保留 | `9b5f05de93a51ba44a96b969a23868e0ae70e2237c6314fb0c0f6762cbd2316d` | `d5a0c1c647107ecb9e6b05fa5aafa828fc889a981415337e9d81d1db31cb000b` |
 
 2026-09-07 语义修正（评审发现 4）：`RuntimeViewState.assistant_stream` 此前没有生命
 周期——它在整个 view 生命期内只追加，因此启动重放会把每个历史会话的回复串接成一整块
@@ -541,7 +541,10 @@ Lane 会携带它们 —— 而客户端已经指名的 owner 永不改写，自
 列表会继续显示操作者要求隐藏的段，且没有任何事实说明这一点。Core 不认识的名字
 原样保留：状态栏词汇属于客户端。这条路径没有权限提示 —— 该记录不授予任何权限，
 只是安排某个客户端自己的窗口 —— 因此每一次拒绝都发生在写入之前，并以指名调用方
-命令的 `CommandRejected` 作答。
+命令的 `CommandRejected` 作答。`lane_sidebar_mode` 的默认值是 `floating`，依据
+设计决策 `D-SIDEBAR`：侧栏悬停峰显、把水平空间让给转录，这正是 D1 旗舰屏渲染的
+形态，也是从未打开过设置的操作者看到的形态。reset 落回该默认值，而不是落回最后
+一次写入的值。
 
 0.3.4 契约增量的 C5 批次已于 2026-09-12 落到 `claude/int-0.3.4`。
 `runtime.workspace_owner` 与 `ui.layout_preferences` 把对外通告的扩展集合从 23

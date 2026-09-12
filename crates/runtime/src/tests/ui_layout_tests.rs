@@ -59,12 +59,14 @@ fn a_layout_set_persists_answers_with_its_command_id_and_leaves_appearance_alone
     let (mut engine, config_path) = layout_engine("ui_layout_set");
     let before = engine.runtime_view_state();
 
+    // Pinned, not floating: floating is the default, so a test that wrote it
+    // could not tell a stored choice apart from an absent record.
     let events = run(
         &mut engine,
         "layout-set",
         RuntimeCommand::SetUiLayoutPreferences {
             patch: UiLayoutPreferencePatch {
-                lane_sidebar_mode: Some(LaneSidebarMode::Floating),
+                lane_sidebar_mode: Some(LaneSidebarMode::Pinned),
                 hidden_statusbar_segments: Some(vec!["cost".to_string()]),
             },
         },
@@ -91,7 +93,7 @@ fn a_layout_set_persists_answers_with_its_command_id_and_leaves_appearance_alone
     assert_eq!(command_id.as_deref(), Some("layout-set"));
     assert!(persisted);
     assert!(diagnostics.is_empty());
-    assert_eq!(preferences.lane_sidebar_mode, LaneSidebarMode::Floating);
+    assert_eq!(preferences.lane_sidebar_mode, LaneSidebarMode::Pinned);
     assert_eq!(
         preferences.hidden_statusbar_segments,
         vec!["cost".to_string()]
@@ -107,12 +109,12 @@ fn a_layout_set_persists_answers_with_its_command_id_and_leaves_appearance_alone
     );
 
     let stored = std::fs::read_to_string(&config_path).unwrap();
-    assert!(stored.contains("floating"));
+    assert!(stored.contains("pinned"));
 }
 
-/// The reset drops the stored record and republishes the defaults. Pinned is
-/// what an operator who never opened Settings sees, so a reset must land
-/// there rather than on whatever was last written.
+/// The reset drops the stored record and republishes the defaults. Floating is
+/// what `D-SIDEBAR` specifies and what an operator who never opened Settings
+/// sees, so a reset must land there rather than on whatever was last written.
 #[test]
 fn a_layout_reset_republishes_the_defaults() {
     let (mut engine, _config_path) = layout_engine("ui_layout_reset");
@@ -121,7 +123,7 @@ fn a_layout_reset_republishes_the_defaults() {
         "layout-set",
         RuntimeCommand::SetUiLayoutPreferences {
             patch: UiLayoutPreferencePatch {
-                lane_sidebar_mode: Some(LaneSidebarMode::Floating),
+                lane_sidebar_mode: Some(LaneSidebarMode::Pinned),
                 hidden_statusbar_segments: Some(vec!["cost".to_string()]),
             },
         },
@@ -154,6 +156,7 @@ fn a_layout_reset_republishes_the_defaults() {
     assert_eq!(command_id.as_deref(), Some("layout-reset"));
     assert!(persisted);
     assert_eq!(preferences, &UiLayoutPreferences::default());
+    assert_eq!(preferences.lane_sidebar_mode, LaneSidebarMode::Floating);
 }
 
 /// An over-bound hidden-segment list is refused before the file is touched,
@@ -211,7 +214,7 @@ fn the_snapshot_prefix_republishes_the_record_without_a_command_id() {
         "layout-set",
         RuntimeCommand::SetUiLayoutPreferences {
             patch: UiLayoutPreferencePatch {
-                lane_sidebar_mode: Some(LaneSidebarMode::Floating),
+                lane_sidebar_mode: Some(LaneSidebarMode::Pinned),
                 hidden_statusbar_segments: None,
             },
         },
@@ -223,7 +226,7 @@ fn the_snapshot_prefix_republishes_the_record_without_a_command_id() {
         view.layout_preferences
             .as_ref()
             .map(|preferences| preferences.lane_sidebar_mode),
-        Some(LaneSidebarMode::Floating)
+        Some(LaneSidebarMode::Pinned)
     );
     let events = engine.runtime_events_for_engine_events(&[]);
     let prefix = events

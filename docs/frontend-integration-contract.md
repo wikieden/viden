@@ -978,8 +978,11 @@ Rules a frontend must honor:
   segments must never be offered for hiding.
 - Core keeps segment names verbatim, including ones it does not recognize: the
   statusbar vocabulary belongs to the client.
+- The default `lane_sidebar_mode` is `floating`, per design decision
+  `D-SIDEBAR`: the sidebar peeks on hover and leaves the horizontal space to
+  the transcript. A reset lands there.
 - Absent `layout_preferences` means Core published no record, which is a
-  different fact from "Core says pinned".
+  different fact from "Core says floating".
 
 ### Turn lifecycle (C6)
 

@@ -6292,10 +6292,17 @@ fn ui_layout_preferences_fixture_separates_stored_unpersisted_reset_and_refused(
         "the extension manifest must register the replayed view digest"
     );
 
-    // The reset is the last record, so the view ends on the defaults.
+    // The reset is the last record, so the view ends on the defaults — which
+    // `D-SIDEBAR` makes floating, not pinned.
     assert_eq!(
         view.layout_preferences,
         Some(UiLayoutPreferences::default())
+    );
+    assert_eq!(
+        view.layout_preferences
+            .as_ref()
+            .map(|preferences| preferences.lane_sidebar_mode),
+        Some(LaneSidebarMode::Floating)
     );
     // The separate record is the entire point: the resolved appearance profile
     // is exactly what the snapshot started with.
@@ -6324,26 +6331,36 @@ fn ui_layout_preferences_fixture_separates_stored_unpersisted_reset_and_refused(
         .collect::<Vec<_>>();
     assert_eq!(records.len(), 3);
 
-    // The snapshot prefix's copy carries no command id, because nobody asked.
+    // The snapshot prefix's copy carries no command id, because nobody asked,
+    // and it starts from the floating default.
     assert_eq!(records[0].0, None);
     assert_eq!(records[0].1, UiLayoutPreferences::default());
+    assert_eq!(records[0].1.lane_sidebar_mode, LaneSidebarMode::Floating);
 
-    // A stored record: floating, with an unknown segment kept verbatim. Core
-    // does not own the client's statusbar vocabulary, so a name it cannot
-    // recognize is still the operator's choice.
-    assert_eq!(records[1].0.as_deref(), Some("layout_set_floating"));
-    assert_eq!(records[1].1.lane_sidebar_mode, LaneSidebarMode::Floating);
+    // A stored record: pinned — the *non-default* mode, so the fixture proves
+    // a stored choice rather than repeating the default — with an unknown
+    // segment kept verbatim. Core does not own the client's statusbar
+    // vocabulary, so a name it cannot recognize is still the operator's
+    // choice.
+    assert_eq!(records[1].0.as_deref(), Some("layout_set_pinned"));
+    assert_eq!(records[1].1.lane_sidebar_mode, LaneSidebarMode::Pinned);
     assert_eq!(
         records[1].1.hidden_statusbar_segments,
         vec!["cost".to_string(), "a-future-client-segment".to_string()]
     );
     assert!(!records[1].2, "this record did not reach the config file");
 
-    // The reset lands on pinned and *is* persisted, which is a different fact
-    // from the unpersisted record above.
+    // The reset lands back on the floating default and *is* persisted, which
+    // is a different fact from the unpersisted record above.
     assert_eq!(records[2].0.as_deref(), Some("layout_reset"));
     assert_eq!(records[2].1, UiLayoutPreferences::default());
+    assert_eq!(records[2].1.lane_sidebar_mode, LaneSidebarMode::Floating);
     assert!(records[2].2);
+    assert_ne!(
+        records[1].1.lane_sidebar_mode, records[2].1.lane_sidebar_mode,
+        "the set and the reset must land on different modes, or the sequence \
+         proves nothing about either"
+    );
 
     // An over-bound list is refused before anything is written, by command id,
     // and never answered with a record a client would render as stored.
@@ -6603,8 +6620,12 @@ fn ui_layout_preferences_fixture() -> FrontendContractFixtureOut {
         task_id: None,
         turn_id: None,
     };
-    let floating = UiLayoutPreferences {
-        lane_sidebar_mode: LaneSidebarMode::Floating,
+    // Pinned is the *non-default* mode — `D-SIDEBAR` makes floating the
+    // default — so the stored record here is distinguishable from an absent
+    // one. A fixture that stored the default would prove nothing about
+    // persistence.
+    let pinned = UiLayoutPreferences {
+        lane_sidebar_mode: LaneSidebarMode::Pinned,
         // An unknown segment name, kept verbatim: the statusbar vocabulary
         // belongs to the client, and a Core that stored only the names it knew
         // would quietly unhide everything a newer client hid.
@@ -6612,8 +6633,8 @@ fn ui_layout_preferences_fixture() -> FrontendContractFixtureOut {
     };
 
     let kinds = vec![
-        // The snapshot prefix's copy: the defaults, and no command id, because
-        // nobody asked for it.
+        // The snapshot prefix's copy: the defaults — floating, per
+        // `D-SIDEBAR` — and no command id, because nobody asked for it.
         RuntimeEventKind::UiLayoutPreferencesUpdated {
             command_id: None,
             preferences: UiLayoutPreferences::default(),
@@ -6621,10 +6642,10 @@ fn ui_layout_preferences_fixture() -> FrontendContractFixtureOut {
             diagnostics: Vec::new(),
         },
         RuntimeEventKind::CommandAccepted {
-            command_id: "layout_set_floating".to_string(),
+            command_id: "layout_set_pinned".to_string(),
             command: RuntimeCommand::SetUiLayoutPreferences {
                 patch: UiLayoutPreferencePatch {
-                    lane_sidebar_mode: Some(LaneSidebarMode::Floating),
+                    lane_sidebar_mode: Some(LaneSidebarMode::Pinned),
                     hidden_statusbar_segments: Some(vec![
                         "cost".to_string(),
                         "a-future-client-segment".to_string(),
@@ -6636,8 +6657,8 @@ fn ui_layout_preferences_fixture() -> FrontendContractFixtureOut {
         // `persisted: false` plus the reason is the whole difference between
         // "saved" and "saved until you restart".
         RuntimeEventKind::UiLayoutPreferencesUpdated {
-            command_id: Some("layout_set_floating".to_string()),
-            preferences: floating,
+            command_id: Some("layout_set_pinned".to_string()),
+            preferences: pinned,
             persisted: false,
             diagnostics: vec![UiPreferenceDiagnostic::new(
                 "ui.layout.not_persisted",

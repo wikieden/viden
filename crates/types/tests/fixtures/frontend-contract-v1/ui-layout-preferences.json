@@ -53,7 +53,7 @@
           "type": "ui_layout_preferences_updated",
           "payload": {
             "preferences": {
-              "lane_sidebar_mode": "pinned",
+              "lane_sidebar_mode": "floating",
               "hidden_statusbar_segments": []
             },
             "persisted": true
@@ -81,11 +81,11 @@
         "kind": {
           "type": "command_accepted",
           "payload": {
-            "command_id": "layout_set_floating",
+            "command_id": "layout_set_pinned",
             "command": {
               "type": "set_ui_layout_preferences",
               "patch": {
-                "lane_sidebar_mode": "floating",
+                "lane_sidebar_mode": "pinned",
                 "hidden_statusbar_segments": [
                   "cost",
                   "a-future-client-segment"
@@ -116,9 +116,9 @@
         "kind": {
           "type": "ui_layout_preferences_updated",
           "payload": {
-            "command_id": "layout_set_floating",
+            "command_id": "layout_set_pinned",
             "preferences": {
-              "lane_sidebar_mode": "floating",
+              "lane_sidebar_mode": "pinned",
               "hidden_statusbar_segments": [
                 "cost",
                 "a-future-client-segment"
@@ -213,7 +213,7 @@
           "payload": {
             "command_id": "layout_reset",
             "preferences": {
-              "lane_sidebar_mode": "pinned",
+              "lane_sidebar_mode": "floating",
               "hidden_statusbar_segments": []
             },
             "persisted": true
@@ -226,5 +226,5 @@
     "stream_id": "fixture:ui-layout-preferences",
     "sequence": 6
   },
-  "expected_view_sha256": "4bd474eb181ac8bf8acb002627074fa80920a233be47d57dff0a1991d3a7c0e1"
+  "expected_view_sha256": "9b5f05de93a51ba44a96b969a23868e0ae70e2237c6314fb0c0f6762cbd2316d"
 }

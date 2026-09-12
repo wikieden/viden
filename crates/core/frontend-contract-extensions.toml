@@ -49,8 +49,8 @@ workspace_owner_fixture = "workspace-owner.json"
 workspace_owner_fixture_sha256 = "b8ac58db0fc8d3780d514e75531b21d98d7592e7e44b8aebd7bab69094777286"
 workspace_owner_view_sha256 = "0866370b2f4a9c85b1a577688e7cce42f51243b711440c7f3a033a5e75515a87"
 ui_layout_preferences_fixture = "ui-layout-preferences.json"
-ui_layout_preferences_fixture_sha256 = "3dbde7428fba6a00be4fc771b12eb9b7efe01ec2c97cb016b36049ece8612908"
-ui_layout_preferences_view_sha256 = "4bd474eb181ac8bf8acb002627074fa80920a233be47d57dff0a1991d3a7c0e1"
+ui_layout_preferences_fixture_sha256 = "d5a0c1c647107ecb9e6b05fa5aafa828fc889a981415337e9d81d1db31cb000b"
+ui_layout_preferences_view_sha256 = "9b5f05de93a51ba44a96b969a23868e0ae70e2237c6314fb0c0f6762cbd2316d"
 
 [live_work_owner]
 facts = ["agent_task_record", "tool_call_view", "queued_input_view", "evidence_view"]

@@ -804,7 +804,9 @@ Lane，其 source 就是 `workspace_source`，因此没有行；空 map 意味�
 - 隐藏段列表上界为 16 个名字、每个至多 64 字节，越界时**拒绝**而非截断。身份类
   与可操作的状态栏段绝不可提供隐藏选项。
 - Core 原样保留段名，包括它不认识的名字：状态栏词汇属于客户端。
-- `layout_preferences` 缺席意味着 Core 没有发布记录，这与「Core 说是 pinned」
+- `lane_sidebar_mode` 的默认值是 `floating`，依据设计决策 `D-SIDEBAR`：侧栏
+  悬停峰显，把水平空间让给转录。reset 落回该默认值。
+- `layout_preferences` 缺席意味着 Core 没有发布记录，这与「Core 说是 floating」
   是不同的事实。
 
 ### Turn 生命周期（C6）

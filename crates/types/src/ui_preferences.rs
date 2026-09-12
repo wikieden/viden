@@ -248,12 +248,17 @@ pub const MAX_HIDDEN_STATUSBAR_SEGMENT_BYTES: usize = 64;
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum LaneSidebarMode {
-    /// The sidebar holds its own column. The default, because it is what the
-    /// D1 flagship shows and what an operator who has never opened Settings
-    /// should see.
-    #[default]
+    /// The sidebar holds its own column, 176-360px wide.
     Pinned,
-    /// The sidebar overlays the centre pane and peeks on hover.
+    /// The sidebar overlays the centre pane and peeks on hover, leaving the
+    /// horizontal space to the transcript.
+    ///
+    /// The default, per design decision `D-SIDEBAR`: this is what the D1
+    /// flagship renders and what an operator who has never opened Settings
+    /// sees. It is deliberately *not* the first declared variant, so the
+    /// `#[default]` attribute has to state the choice rather than inherit it
+    /// from declaration order.
+    #[default]
     Floating,
 }
 

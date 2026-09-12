@@ -545,7 +545,7 @@ registered schema-1 extension fixtures are:
 | `conflict-content` | Two Lanes over one file: Lane A's patch merges, Lane B's `MergeAgentPatch` is refused and the bounce carries one hunk with `ours`, `theirs`, and the patch preimage against an `Evidence` baseline, plus a `LaneConflictDetected` carrying the same shape against a `Revision` baseline | `d73ea2a144cd2682f3c5121f124c952dfad158e4befdd1a60ec9b9dc1c4d01bf` | `830afb77c04cf807926d0010309b07c3f1802e580daf48bc0715d4722c96ce1f` |
 | `evidence-reads` | Two pages tiling one three-row archive through the exact opaque cursor the first published; a kind-filtered page `complete` for its filter while the unfiltered archive is not; three content reads answering bounded text, parsed diff rows for a `patch` row, and `Unavailable { SummaryOnly }` for display-only evidence; and an over-limit `kinds` query answered by `CommandRejected` with no page at all | `b15cb2fd024f60a1abb3a5a39b5c5736fca8bec443ae1a99a69e99f51edf8ef9` | `4d33513151bda26aa8e11242a9963d7fde25cc332980a40306f6393e6fc4caa0` |
 | `workspace-owner` | A minted workspace identity published as the first fact after the snapshot, a Lane created afterwards whose binding carries the same two ids, a workspace-target `Commit` settled and audited under that owner, and a Lane-target `Stage` answered with the Lane's own source row while the workspace chip keeps describing the workspace | `0866370b2f4a9c85b1a577688e7cce42f51243b711440c7f3a033a5e75515a87` | `b8ac58db0fc8d3780d514e75531b21d98d7592e7e44b8aebd7bab69094777286` |
-| `ui-layout-preferences` | The snapshot prefix's copy with no command id, a stored record Core applied but could not write, an over-bound hidden-segment list refused by command id before anything was written, and a reset landing on the pinned default — with an unrecognized segment name kept verbatim | `4bd474eb181ac8bf8acb002627074fa80920a233be47d57dff0a1991d3a7c0e1` | `3dbde7428fba6a00be4fc771b12eb9b7efe01ec2c97cb016b36049ece8612908` |
+| `ui-layout-preferences` | The snapshot prefix's copy with no command id, a stored record Core applied but could not write (pinned, the non-default mode, so a stored choice is distinguishable from an absent one), an over-bound hidden-segment list refused by command id before anything was written, and a reset landing back on the floating default (`D-SIDEBAR`) — with an unrecognized segment name kept verbatim | `9b5f05de93a51ba44a96b969a23868e0ae70e2237c6314fb0c0f6762cbd2316d` | `d5a0c1c647107ecb9e6b05fa5aafa828fc889a981415337e9d81d1db31cb000b` |
 
 Semantics fix 2026-09-07 (review finding 4): `RuntimeViewState.assistant_stream`
 had no lifecycle — it was append-only for the life of the view, so startup
@@ -721,7 +721,11 @@ clamped list silently keeps showing a segment the operator asked to hide. Names
 Core does not recognize are kept verbatim: the statusbar vocabulary belongs to
 the client. There is no permission prompt — the record grants nothing and
 arranges one client's own window — so every refusal is pre-write and is answered
-as a `CommandRejected` naming the caller's command.
+as a `CommandRejected` naming the caller's command. The default
+`lane_sidebar_mode` is `floating`, per design decision `D-SIDEBAR`: the sidebar
+peeks on hover and leaves the horizontal space to the transcript, which is what
+the D1 flagship renders and what an operator who never opened Settings sees. A
+reset lands there rather than on whatever was last written.
 
 0.3.4 contract increment, batch C5, landed 2026-09-12 on
 `claude/int-0.3.4`. `runtime.workspace_owner` and `ui.layout_preferences` move

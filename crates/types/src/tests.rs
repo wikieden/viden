@@ -6413,15 +6413,22 @@ fn a_layout_preference_update_reduces_without_touching_resolved_ui_preferences()
     assert_eq!(view.snapshot.ui_preferences, before);
 }
 
-/// The default is pinned, and a record Core never published is `None` rather
-/// than a fabricated default: a client must be able to tell "Core has no
-/// layout preference for you" from "Core says pinned".
+/// The default is *floating*, which is what `D-SIDEBAR` specifies and what the
+/// D1 flagship renders; a record Core never published is `None` rather than a
+/// fabricated default, so a client can tell "Core has no layout preference for
+/// you" from "Core says floating".
 #[test]
-fn the_default_lane_sidebar_mode_is_pinned_and_absence_stays_absent() {
-    assert_eq!(LaneSidebarMode::default(), LaneSidebarMode::Pinned);
+fn the_default_lane_sidebar_mode_is_floating_and_absence_stays_absent() {
+    assert_eq!(LaneSidebarMode::default(), LaneSidebarMode::Floating);
     let defaults = UiLayoutPreferences::default();
-    assert_eq!(defaults.lane_sidebar_mode, LaneSidebarMode::Pinned);
+    assert_eq!(defaults.lane_sidebar_mode, LaneSidebarMode::Floating);
     assert!(defaults.hidden_statusbar_segments.is_empty());
+
+    // A record with no `lane_sidebar_mode` at all takes the same default, so a
+    // payload written before the field existed and a payload that omits it
+    // both land on floating rather than on the first declared variant.
+    let decoded: UiLayoutPreferences = serde_json::from_str("{}").unwrap();
+    assert_eq!(decoded.lane_sidebar_mode, LaneSidebarMode::Floating);
 
     let snapshot: RuntimeSnapshot = serde_json::from_value(runtime_snapshot_json()).unwrap();
     let view = RuntimeViewState::new(snapshot);

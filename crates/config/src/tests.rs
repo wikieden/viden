@@ -1309,20 +1309,19 @@ fn ui_layout_write_patch_preserves_the_rest_of_the_file() {
     )
     .unwrap();
 
+    // Pinned, not floating: floating is the default, so writing it would not
+    // tell a stored choice apart from an absent one.
     let state = save_user_ui_layout_preferences_at(
         &path,
         &UiLayoutPreferencePatch {
-            lane_sidebar_mode: Some(LaneSidebarMode::Floating),
+            lane_sidebar_mode: Some(LaneSidebarMode::Pinned),
             hidden_statusbar_segments: Some(vec!["cost".to_string()]),
         },
     )
     .unwrap();
 
     assert!(state.persisted);
-    assert_eq!(
-        state.preferences.lane_sidebar_mode,
-        LaneSidebarMode::Floating
-    );
+    assert_eq!(state.preferences.lane_sidebar_mode, LaneSidebarMode::Pinned);
     let value = fs::read_to_string(&path)
         .unwrap()
         .parse::<toml::Value>()
@@ -1344,13 +1343,13 @@ fn ui_layout_write_patch_preserves_the_rest_of_the_file() {
             .and_then(|ui| ui.get("layout"))
             .and_then(|layout| layout.get("lane_sidebar_mode"))
             .and_then(toml::Value::as_str),
-        Some("floating")
+        Some("pinned")
     );
 
     let resolved = resolve_user_ui_layout_preferences_at(&path).unwrap();
     assert_eq!(
         resolved.preferences.lane_sidebar_mode,
-        LaneSidebarMode::Floating
+        LaneSidebarMode::Pinned
     );
     assert_eq!(
         resolved.preferences.hidden_statusbar_segments,
@@ -1367,7 +1366,7 @@ fn ui_layout_patch_leaves_unnamed_fields_alone() {
     save_user_ui_layout_preferences_at(
         &path,
         &UiLayoutPreferencePatch {
-            lane_sidebar_mode: Some(LaneSidebarMode::Floating),
+            lane_sidebar_mode: Some(LaneSidebarMode::Pinned),
             hidden_statusbar_segments: Some(vec!["cost".to_string(), "lsp".to_string()]),
         },
     )
@@ -1376,13 +1375,16 @@ fn ui_layout_patch_leaves_unnamed_fields_alone() {
     let state = save_user_ui_layout_preferences_at(
         &path,
         &UiLayoutPreferencePatch {
-            lane_sidebar_mode: Some(LaneSidebarMode::Pinned),
+            lane_sidebar_mode: Some(LaneSidebarMode::Floating),
             hidden_statusbar_segments: None,
         },
     )
     .unwrap();
 
-    assert_eq!(state.preferences.lane_sidebar_mode, LaneSidebarMode::Pinned);
+    assert_eq!(
+        state.preferences.lane_sidebar_mode,
+        LaneSidebarMode::Floating
+    );
     assert_eq!(
         state.preferences.hidden_statusbar_segments,
         vec!["cost".to_string(), "lsp".to_string()]
@@ -1397,10 +1399,12 @@ fn ui_layout_patch_leaves_unnamed_fields_alone() {
 fn resetting_appearance_preferences_keeps_the_layout_record() {
     let path = layout_root("ui_layout_reset_isolation").join("config.toml");
     fs::write(&path, "[ui]\nskin = \"ice\"\n").unwrap();
+    // Pinned, the non-default mode: reading floating back afterwards would be
+    // indistinguishable from the record having been dropped.
     save_user_ui_layout_preferences_at(
         &path,
         &UiLayoutPreferencePatch {
-            lane_sidebar_mode: Some(LaneSidebarMode::Floating),
+            lane_sidebar_mode: Some(LaneSidebarMode::Pinned),
             hidden_statusbar_segments: None,
         },
     )
@@ -1419,7 +1423,7 @@ fn resetting_appearance_preferences_keeps_the_layout_record() {
     let resolved = resolve_user_ui_layout_preferences_at(&path).unwrap();
     assert_eq!(
         resolved.preferences.lane_sidebar_mode,
-        LaneSidebarMode::Floating
+        LaneSidebarMode::Pinned
     );
 }
 
@@ -1432,7 +1436,7 @@ fn resetting_the_layout_record_keeps_appearance_preferences() {
     save_user_ui_layout_preferences_at(
         &path,
         &UiLayoutPreferencePatch {
-            lane_sidebar_mode: Some(LaneSidebarMode::Floating),
+            lane_sidebar_mode: Some(LaneSidebarMode::Pinned),
             hidden_statusbar_segments: Some(vec!["cost".to_string()]),
         },
     )
@@ -1441,6 +1445,12 @@ fn resetting_the_layout_record_keeps_appearance_preferences() {
     let state = reset_user_ui_layout_preferences_at(&path).unwrap();
 
     assert_eq!(state.preferences, UiLayoutPreferences::default());
+    // Spelled out as well as compared to `default()`: a reset lands on
+    // floating per `D-SIDEBAR`, not on whatever was last written.
+    assert_eq!(
+        state.preferences.lane_sidebar_mode,
+        LaneSidebarMode::Floating
+    );
     assert!(state.persisted);
     let value = fs::read_to_string(&path)
         .unwrap()
@@ -1470,7 +1480,10 @@ fn an_unreadable_layout_value_falls_back_with_a_diagnostic() {
 
     let state = resolve_user_ui_layout_preferences_at(&path).unwrap();
 
-    assert_eq!(state.preferences.lane_sidebar_mode, LaneSidebarMode::Pinned);
+    assert_eq!(
+        state.preferences.lane_sidebar_mode,
+        LaneSidebarMode::Floating
+    );
     assert_eq!(
         state.preferences.hidden_statusbar_segments,
         vec!["cost".to_string()]
@@ -1570,4 +1583,22 @@ fn an_unusable_stored_project_id_is_replaced_by_a_minted_one() {
     let (second, origin) = read_or_mint_project_id_at(&root).unwrap();
     assert_eq!(origin, ProjectIdOrigin::Existing);
     assert_eq!(second, id);
+}
+
+/// A config file with no `[ui.layout]` table at all resolves to the floating
+/// default (`D-SIDEBAR`), with no diagnostic: an absent table is not a
+/// malformed one.
+#[test]
+fn an_absent_layout_table_resolves_to_the_floating_default() {
+    let path = layout_root("ui_layout_absent").join("config.toml");
+    fs::write(&path, "custom = 7\n[ui]\nskin = \"ice\"\n").unwrap();
+
+    let state = resolve_user_ui_layout_preferences_at(&path).unwrap();
+
+    assert_eq!(state.preferences, UiLayoutPreferences::default());
+    assert_eq!(
+        state.preferences.lane_sidebar_mode,
+        LaneSidebarMode::Floating
+    );
+    assert!(state.diagnostics.is_empty());
 }

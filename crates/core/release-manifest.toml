@@ -70,8 +70,8 @@ final_cursor = 10
 
 [fixtures.ui_layout_preferences]
 path = "../types/tests/fixtures/frontend-contract-v1/ui-layout-preferences.json"
-payload_sha256 = "3dbde7428fba6a00be4fc771b12eb9b7efe01ec2c97cb016b36049ece8612908"
-view_sha256 = "4bd474eb181ac8bf8acb002627074fa80920a233be47d57dff0a1991d3a7c0e1"
+payload_sha256 = "d5a0c1c647107ecb9e6b05fa5aafa828fc889a981415337e9d81d1db31cb000b"
+view_sha256 = "9b5f05de93a51ba44a96b969a23868e0ae70e2237c6314fb0c0f6762cbd2316d"
 final_cursor = 6
 
 [verification]
