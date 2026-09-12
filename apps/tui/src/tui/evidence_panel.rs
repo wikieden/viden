@@ -751,20 +751,70 @@ fn detail_rows(state: &TuiState, panel: &EvidencePanel, width: usize) -> Vec<Str
             &[("path", &truncate_tail(path, width.saturating_sub(8)))],
         ));
     }
-    if let Some(canonical) = entry.canonical.as_ref() {
-        rows.push(super::i18n::translate(
-            state,
-            "evidence.detail.canonical",
-            &[
-                ("item", &truncate_tail(&canonical.item_id, 24)),
-                ("bundle", &truncate_tail(&canonical.bundle_id, 24)),
-            ],
-        ));
-        rows.push(super::i18n::translate(
-            state,
-            "evidence.detail.hash",
-            &[("sha", short_sha(&canonical.source_hash))],
-        ));
+    // The canonical half of the row, which is what `runtime.durable_work_evidence`
+    // made real for applied native work. Four separate facts, each stated as
+    // its own row because a reader of an archived patch has four different
+    // questions: where the bytes are, who produced them, whether an operator
+    // approval allowed the mutation, and what verdict Core recorded on the
+    // reference. Collapsing them would let one answer stand in for another —
+    // the mistake E1 defect 9 records on the GUI side, where a `verified`
+    // record sat beside a content answer of `HashMismatch` with no sentence
+    // relating the two.
+    match entry.canonical.as_ref() {
+        Some(canonical) => {
+            rows.push(super::i18n::translate(
+                state,
+                "evidence.detail.canonical",
+                &[
+                    ("item", &truncate_tail(&canonical.item_id, 24)),
+                    ("bundle", &truncate_tail(&canonical.bundle_id, 24)),
+                ],
+            ));
+            rows.push(super::i18n::translate(
+                state,
+                "evidence.detail.hash",
+                &[("sha", short_sha(&canonical.source_hash))],
+            ));
+            // `producer.task_id` is the merge gate's own check: a gate accepts
+            // a `patch` row only when its producer names the gate's task, so
+            // this row is what explains a `MissingProducer` refusal to a
+            // reader who can see the evidence exists.
+            rows.push(super::i18n::translate(
+                state,
+                "evidence.detail.producer",
+                &[
+                    ("identity", &truncate_end(&canonical.producer.identity, 16)),
+                    ("role", &truncate_end(&canonical.producer.role, 16)),
+                    ("task", &truncate_tail(&canonical.producer.task_id, 24)),
+                ],
+            ));
+            // The approval receipt, and its absence as its own sentence. An
+            // absent `permission_snapshot_id` means no operator approval
+            // allowed this exact call — a rule did, or an adapter reported the
+            // patch — and rendering nothing there would read as approved.
+            rows.push(match canonical.permission_snapshot_id.as_deref() {
+                Some(audit_id) => super::i18n::translate(
+                    state,
+                    "evidence.detail.receipt",
+                    &[("audit", &truncate_tail(audit_id, 32))],
+                ),
+                None => super::i18n::text(state, "evidence.detail.receipt.none"),
+            });
+            rows.push(super::i18n::translate(
+                state,
+                "evidence.detail.verification",
+                &[(
+                    "state",
+                    &super::i18n::text(state, verification_state_key(canonical.verification)),
+                )],
+            ));
+        }
+        // A stated fact, not a blank: `canonical: None` on a `patch` row means
+        // Core holds no servable bytes — a diff over the content bound, or a
+        // store write that failed — and the row's own summary says which.
+        // Rendering it as display-only evidence or as an empty diff would
+        // misstate what a merge gate will do with it.
+        None => rows.push(super::i18n::text(state, "evidence.detail.no_canonical")),
     }
     if let Some(keys) = metadata_keys(entry) {
         rows.push(super::i18n::translate(
@@ -790,6 +840,23 @@ fn metadata_keys(entry: &EvidenceView) -> Option<String> {
         return None;
     }
     Some(object.keys().cloned().collect::<Vec<_>>().join(" "))
+}
+
+/// The catalog key naming Core's recorded verdict on a canonical reference.
+///
+/// This is a verdict on the *record*, not on the content read beside it: the
+/// content block carries its own hash check against `source_hash`, and the two
+/// can disagree. `EvidenceVerificationState` is a closed enum today, but the
+/// fallback arm stays so a newer Core's state is named rather than rendered as
+/// one it is not.
+const fn verification_state_key(state: viden_core::EvidenceVerificationState) -> &'static str {
+    match state {
+        viden_core::EvidenceVerificationState::Unverified => {
+            "evidence.detail.verification.unverified"
+        }
+        viden_core::EvidenceVerificationState::Verified => "evidence.detail.verification.verified",
+        viden_core::EvidenceVerificationState::Failed => "evidence.detail.verification.failed",
+    }
 }
 
 fn short_sha(sha: &str) -> &str {
@@ -1475,6 +1542,136 @@ mod tests {
                 "evidence query kinds exceed the 32 entry bound: 33 requested\nhint: ask for \
                  fewer kinds, or drop the filter and page the archive"
             )
+        );
+    }
+
+    /// The archived patch a native turn now leaves behind
+    /// (`runtime.durable_work_evidence`, C7, closing GUI-CORE-028 and E1
+    /// defect 4), replayed from Core's own fixture rather than hand-built.
+    ///
+    /// What is asserted is the whole reason the capability is gated: before it
+    /// this page was empty after an applied edit, so a client could not tell
+    /// "this Core does not archive applied work" from "this session changed
+    /// nothing". The detail states the four canonical facts separately — the
+    /// stored bytes, the producing task a merge gate checks, the audit id of
+    /// the approval that allowed the mutation, and Core's verdict on the
+    /// reference — and the diff itself renders through the shared hunk
+    /// producer.
+    #[test]
+    fn the_durable_work_evidence_fixture_replays_an_archived_patch_with_its_canonical_facts() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../crates/types/tests/fixtures/frontend-contract-v1/durable-work-evidence.json"
+        ))
+        .expect("durable work evidence fixture");
+        let events = fixture["events"]
+            .as_array()
+            .expect("fixture events")
+            .iter()
+            .filter_map(|envelope| {
+                let envelope: RuntimeEventEnvelope =
+                    serde_json::from_value(envelope.clone()).expect("fixture envelope");
+                match envelope.event {
+                    RuntimeWireEvent::Known(event) => Some(event),
+                    RuntimeWireEvent::Unknown { .. } => None,
+                }
+            })
+            .collect::<Vec<_>>();
+
+        let mut panel = EvidencePanel::new(None);
+        // The fixture's own command ids: the page read, then the content read.
+        panel.begin_page("cmd_durable_work_page");
+        for event in &events {
+            panel.observe_event(event);
+        }
+        assert_eq!(
+            panel
+                .entries()
+                .iter()
+                .map(|entry| entry.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["patch-tool_durable_work_edit"],
+            "the archive answers with the archived patch row"
+        );
+        let archived = &panel.entries()[0];
+        assert_eq!(archived.kind, "patch");
+        let canonical = archived
+            .canonical
+            .as_ref()
+            .expect("an archived native patch carries canonical bytes");
+        assert_eq!(canonical.producer.task_id, "task_durable_work");
+        assert_eq!(
+            canonical.permission_snapshot_id.as_deref(),
+            Some("audit_durable_work_approval"),
+            "the receipt is the audit id of the approval that allowed the call"
+        );
+
+        panel.begin_content("cmd_durable_work_content", "patch-tool_durable_work_edit");
+        for event in &events {
+            panel.observe_event(event);
+        }
+        assert!(matches!(
+            panel.content_for("patch-tool_durable_work_edit"),
+            Some(EvidenceContent::Diff { .. })
+        ));
+
+        panel.open_detail("patch-tool_durable_work_edit");
+        let state = state_with_panel(panel);
+        let rows = evidence_rows(&state, EVIDENCE_ROW_WIDTH).join("\n");
+
+        assert!(
+            rows.contains("CANONICAL  item ctxi_durable_work_native"),
+            "{rows}"
+        );
+        assert!(
+            rows.contains("PRODUCER  native · coder · task task_durable"),
+            "{rows}"
+        );
+        assert!(
+            rows.contains("APPROVAL  audit audit_durable_work_approval"),
+            "{rows}"
+        );
+        assert!(rows.contains("RECORD"), "{rows}");
+        assert!(
+            rows.contains("@@ -12,3 +12,3 @@"),
+            "the diff renders: {rows}"
+        );
+    }
+
+    /// `canonical: None` on a `patch` row is a stated fact, not a blank.
+    ///
+    /// It means Core holds no servable bytes — a diff over the content bound,
+    /// or a store write that failed — and the row's own summary says which. A
+    /// blank there would read as display-only evidence, which a merge gate
+    /// treats differently.
+    #[test]
+    fn a_patch_row_without_canonical_bytes_says_so_rather_than_showing_nothing() {
+        let mut panel = EvidencePanel::new(None);
+        panel.begin_page("tui-1");
+        panel.observe_event(&event(
+            1,
+            RuntimeEventKind::EvidencePageLoaded {
+                command_id: "tui-1".to_string(),
+                page: page(
+                    vec![EvidenceView {
+                        summary: "native edit: src/config.rs; diff over the content bound, not \
+                                  stored"
+                            .to_string(),
+                        canonical: None,
+                        ..entry("patch-oversized", "patch", Some(10))
+                    }],
+                    None,
+                ),
+            },
+        ));
+        panel.open_detail("patch-oversized");
+        let state = state_with_panel(panel);
+
+        let rows = evidence_rows(&state, EVIDENCE_ROW_WIDTH).join("\n");
+
+        assert!(rows.contains("CANONICAL  none"), "{rows}");
+        assert!(
+            !rows.contains("display-only"),
+            "absent bytes are not the same fact as display-only evidence: {rows}"
         );
     }
 

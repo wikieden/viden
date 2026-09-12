@@ -675,6 +675,62 @@ mod tests {
         );
     }
 
+    /// The approval audit row `runtime.durable_work_evidence` (C7) made
+    /// durable, replayed from Core's own fixture.
+    ///
+    /// Before C7 the `audit_id` an approval prompt showed the operator was a
+    /// live correlation id written nowhere, so every "audit" link for an
+    /// approval resolved to an empty timeline (E1 defect 4). `RespondToApproval`
+    /// now appends the row under that exact pre-minted id, and this lens needs
+    /// no new code to show it: the dotted action key is Core's stable
+    /// vocabulary and is rendered raw, which is why `approval.allow_once`
+    /// arrives readable without a catalog entry per decision.
+    #[test]
+    fn the_durable_work_evidence_fixture_replays_the_approval_decision_into_the_audit_lens() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../crates/types/tests/fixtures/frontend-contract-v1/durable-work-evidence.json"
+        ))
+        .expect("durable work evidence fixture");
+        let events = fixture["events"]
+            .as_array()
+            .expect("fixture events")
+            .iter()
+            .filter_map(|envelope| {
+                let envelope: viden_core::RuntimeEventEnvelope =
+                    serde_json::from_value(envelope.clone()).expect("fixture envelope");
+                match envelope.event {
+                    viden_core::RuntimeWireEvent::Known(event) => Some(event),
+                    viden_core::RuntimeWireEvent::Unknown { .. } => None,
+                }
+            })
+            .collect::<Vec<_>>();
+
+        let mut panel = AuditPanel::new(None);
+        // The fixture's own command id for the audit read.
+        panel.begin("cmd_durable_work_audit");
+        for event in &events {
+            panel.observe_event(event);
+        }
+
+        let records = panel.records();
+        assert_eq!(records.len(), 1, "{records:?}");
+        let approval = &records[0];
+        assert_eq!(approval.audit_id, "audit_durable_work_approval");
+        assert_eq!(approval.actor, AuditActor::Operator);
+        assert_eq!(approval.action, "approval.allow_once");
+
+        let rendered = audit_row(approval, 120);
+        assert!(rendered.contains("approval.allow_once"), "{rendered}");
+        assert!(
+            rendered.contains("permission:approval_durable_work"),
+            "the row names the approval request it resolved: {rendered}"
+        );
+        assert!(
+            rendered.contains("tool:edit_file"),
+            "and the tool the decision released: {rendered}"
+        );
+    }
+
     #[test]
     fn a_row_is_truncated_to_the_overlay_width_by_display_width() {
         let mut wide = record("a-1", 0, AuditOutcome::Success);

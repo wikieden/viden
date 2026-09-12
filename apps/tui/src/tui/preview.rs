@@ -879,16 +879,45 @@ fn evidence_preview_panel(complete: bool) -> EvidencePanel {
         lane_id: Some("L1".to_string()),
         ..RuntimeOwner::default()
     };
-    let row = |id: &str, kind: &str, summary: &str, timestamp: Option<u64>| EvidenceView {
-        id: id.to_string(),
-        kind: kind.to_string(),
-        summary: summary.to_string(),
-        path: Some("crates/types/src/evidence_reads.rs".to_string()),
-        source: Some("L1".to_string()),
-        canonical: None,
-        metadata: None,
-        timestamp,
-        owner: Some(owner.clone()),
+    let row =
+        |id: &str,
+         kind: &str,
+         summary: &str,
+         timestamp: Option<u64>,
+         canonical: Option<viden_types::CanonicalEvidenceReference>| EvidenceView {
+            id: id.to_string(),
+            kind: kind.to_string(),
+            summary: summary.to_string(),
+            path: Some("crates/types/src/evidence_reads.rs".to_string()),
+            source: Some("L1".to_string()),
+            canonical,
+            metadata: None,
+            timestamp,
+            owner: Some(owner.clone()),
+        };
+    // The canonical reference an archived native patch carries since
+    // `runtime.durable_work_evidence` (C7): stored bytes, the producing task a
+    // merge gate checks, the audit id of the approval that allowed the
+    // mutation, and Core's own verdict on the reference. The `review` and
+    // `test_result` rows beside it keep `canonical: None`, so the preview
+    // carries both shapes.
+    let archived_patch = viden_types::CanonicalEvidenceReference {
+        item_id: "ctxi_preview_native".to_string(),
+        bundle_id: "bundle_preview_turn".to_string(),
+        source_hash: "9c1185a5c5e9fc54612808977ee8f548b2258d31a0f4e6e6f2a1b9c3d4e5f607".to_string(),
+        producer: viden_types::EvidenceProducer {
+            identity: "native".to_string(),
+            role: "coder".to_string(),
+            task_id: "task-start".to_string(),
+        },
+        permission_snapshot_id: Some("audit_preview_approval".to_string()),
+        permission_scope: viden_core::ContextScope::Task("task-start".to_string()),
+        evidence_scope: viden_core::ContextScope::Task("task-start".to_string()),
+        verification: viden_core::EvidenceVerificationState::Verified,
+        quality: viden_types::EvidenceQualityFacts {
+            status: viden_core::EvidenceQualityStatus::Pass,
+            reason_codes: Vec::new(),
+        },
     };
     let mut panel = EvidencePanel::new(Some(RuntimeOwner {
         lane_id: Some("L1".to_string()),
@@ -908,18 +937,21 @@ fn evidence_preview_panel(complete: bool) -> EvidencePanel {
                         "review",
                         "reviewer accepted the canonical bindings",
                         None,
+                        None,
                     ),
                     row(
                         "evidence-alpha-patch",
                         "patch",
                         "canonical patch for the evidence read module",
                         Some(1_700_000_100),
+                        Some(archived_patch),
                     ),
                     row(
                         "evidence-bravo-tests",
                         "test_result",
                         "workspace suite passed",
                         Some(1_700_100_200),
+                        None,
                     ),
                 ],
                 complete,
