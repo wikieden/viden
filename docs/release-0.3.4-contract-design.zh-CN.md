@@ -442,3 +442,23 @@ GUI：Files tab 内容与 Code tab，面板 `~` 行在 Code tab 中打开文件�
   请求时、每条已完成的受监督命令之后，也就是工作区 source 本来就被采样的位置 —— 而不是
   在 `runtime_state_events` 中。后者对每一条命令都会重建，在那里为 N 个 Lane 采样会让
   每条命令派生 5N 个 `git` 进程。快照信封仍然携带这些行，因为采样就发生在信封构建之前。
+
+### C6 `runtime.turn_lifecycle`（评审通过，2026-09-12）
+
+- **turn 的 owner 是命令自身的作用域加一个新 `turn_id`，而不是裸的工作区 owner。**
+  受监督输入路径同样服务 Lane 的原生 turn（`lane_id: Some`）；在那里强制使用工作区
+  owner 会让 Lane 自己的工作从它自己的 composer 中消失。会话作用域的 composer 得到的
+  正是设计所述的 owner：已绑定时为 `workspace_owner()`，未绑定时为空 owner，绝不臆造。
+- **会话队列的排空由「已完成的 turn」*武装*，而不是只在完成瞬间触发。** 监督者是单一
+  worker，turn 运行期间发来的 `QueueFollowUp` 在 turn 结束时仍在其通道里；字面意义的
+  「在 `TurnFinished { completed }` 时排空」会让最常见的情形永远排队。已完成的会话作用域
+  turn 武装排空，武装期间到达的跟进立即运行，任何未完成的 turn 解除武装。失败或取消的
+  turn 之后不会有任何东西运行。Lane 的原生 turn 既不武装也不解除。
+- **两条 turn 事实都不持久化。** 进程在 `TurnFinished` 之前死亡时，持久化的 `TurnStarted`
+  会在重放中变成 Core 无法取消的幽灵运行 turn。两者仅进实时汇，且被排除在
+  `is_durable_runtime_domain_event` 之外；重启后 `active_turns` 为空。会话队列本身在内存中，
+  能跨重连而不能跨重启（既有行为，未改）。
+- **ACP 的 `TurnStarted` 与 `AgentSessionStarted` 一同发出。** ACP 启动路径上没有独立的
+  「为 prompt 进入 `Running`」转换；`turn_id` 即 runner 既有的 artifact id。
+- **被排空的 turn 触及上下文硬上限时以 `Error` 回答，而不是 `CommandRejected`。**
+  它没有在途命令；拒绝原始命令 id 会把客户端已看到被接受的请求当作已结算。

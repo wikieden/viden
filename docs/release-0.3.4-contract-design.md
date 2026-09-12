@@ -543,3 +543,32 @@ marked; this section is what shipped.
   command, so sampling N Lanes there would spawn 5N `git` processes per
   command. The snapshot envelope still carries the rows, because the sampling
   runs immediately before the envelope is built.
+
+### C6 `runtime.turn_lifecycle` (accepted on review, 2026-09-12)
+
+- **The turn owner is the command's own scope plus a fresh `turn_id`, not the
+  bare workspace owner.** The supervised input path also serves a Lane's
+  native turn (`lane_id: Some`); forcing the workspace owner there would hide
+  a Lane's own work from its own composer. The session-scoped composer gets
+  exactly the design's owner: `workspace_owner()` when bound, the empty owner
+  when not, never invented.
+- **The session queue drain is *armed* by a completed turn rather than fired
+  only at the instant of completion.** The supervisor is one worker, so a
+  `QueueFollowUp` sent while a turn runs is still in its channel when the turn
+  ends; a literal "drain at `TurnFinished { completed }`" would leave the
+  common case queued forever. A completed session-scoped turn arms the drain,
+  a follow-up landing while it is armed runs immediately, and any turn that
+  does not complete disarms it. Nothing runs behind a failed or cancelled
+  turn. A Lane's native turn neither arms nor disarms it.
+- **Neither turn fact is persisted.** A persisted `TurnStarted` whose process
+  died before its `TurnFinished` would replay as a phantom running turn Core
+  cannot cancel. Both are live-sink-only and excluded from
+  `is_durable_runtime_domain_event`; a restart yields empty `active_turns`.
+  The session queue itself is in-memory and survives a reconnect, not a
+  restart (pre-existing, unchanged).
+- **ACP `TurnStarted` is emitted beside `AgentSessionStarted`.** There is no
+  separate "enters `Running` for a prompt" transition on the ACP start path;
+  `turn_id` is the runner's existing artifact id.
+- **A drained turn hitting the context hard limit answers with `Error`, not
+  `CommandRejected`.** It has no command in flight, and rejecting the
+  original command id would settle a request the client already saw accepted.
