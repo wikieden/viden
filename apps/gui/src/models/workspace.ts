@@ -263,6 +263,35 @@ export interface D1StatusbarProjection {
   pendingDecisionCount: number | null;
 }
 
+/**
+ * One turn Core is running (`runtime.turn_lifecycle`, C6).
+ *
+ * The composer's busy state is computed by the host from this list; the fields
+ * here are what the Live Work strip says out loud. Optional on the wire
+ * because a Core build without C6 publishes no turn facts at all.
+ */
+export interface ActiveTurnProjection {
+  turnId: string;
+  /** The Lane this turn belongs to, or `null` for the session composer. */
+  laneId: string | null;
+  /** `user_input`, `queued_input`, `agent_session`, or `unknown`. */
+  source: string;
+  sourceInputId: string | null;
+  sourceSessionId: string | null;
+  /** Core's own start, in seconds. The elapsed clock reads this. */
+  startedAt: number;
+}
+
+/** One turn Core ended without completing it (`runtime.turn_lifecycle`, C6). */
+export interface TurnFailureProjection {
+  turnId: string;
+  laneId: string | null;
+  /** `failed`, `cancelled`, or `unknown`. Never folded into `failed`. */
+  outcome: string;
+  /** Core's sanitized reason, present only on a failure. */
+  reason: string | null;
+}
+
 export interface D1CockpitProjection {
   preferences: {
     locale: Locale;
@@ -354,8 +383,27 @@ export interface D1CockpitProjection {
       }[];
     }>;
   }>;
+  /**
+   * Every turn Core is running right now (`runtime.turn_lifecycle`, C6).
+   *
+   * Empty means nothing is running. Optional on the wire so a Core without the
+   * capability reads as "no turn facts" rather than as an error.
+   */
+  activeTurns?: ActiveTurnProjection[];
+  /**
+   * The last turn Core ended without completing it, for the life of the host
+   * adapter. `null` after a completed turn, because the composer is live again
+   * and an error standing over work that has since succeeded is worse than no
+   * row.
+   */
+  turnFailure?: TurnFailureProjection | null;
   composer: {
     editable: boolean;
+    /**
+     * Computed by the host from `activeTurns` and the selected Lane's Agent
+     * session (C6) — never from an owner's `turn_id`, which a binding keeps
+     * after the work ends.
+     */
     busy: boolean;
     canCancel: boolean;
     canSubmitImmediately: boolean;

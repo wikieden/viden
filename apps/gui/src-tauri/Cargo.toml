@@ -164,3 +164,7 @@ path = "../tests/evidence_reads.rs"
 [[test]]
 name = "workspace_owner"
 path = "../tests/workspace_owner.rs"
+
+[[test]]
+name = "turn_lifecycle"
+path = "../tests/turn_lifecycle.rs"

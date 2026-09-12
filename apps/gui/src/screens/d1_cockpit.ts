@@ -3974,6 +3974,34 @@ export function renderD1Cockpit(
       }
       const liveWork = projectionMatchesSelectedLane ? renderLiveWorkBar(projection, locale) : null;
       if (liveWork) transcriptRegion.append(liveWork);
+      // C6: a turn Core ended without completing it is a transcript row, in
+      // the conversation it belongs to. Scoped to this composer's target, so
+      // another Lane's failure is never rendered as this one's; a completed
+      // turn clears the fact upstream, so the row never outlives the work.
+      const turnFailure = projection.turnFailure ?? null;
+      if (
+        projectionMatchesSelectedLane &&
+        turnFailure &&
+        (turnFailure.laneId ?? null) === selectedLaneId
+      ) {
+        const row = document.createElement("p");
+        row.className = "d1-turn-failed";
+        row.dataset.turnFailed = turnFailure.outcome;
+        // A failure is an alert; a cancellation is the operator's own decision
+        // and is reported as status rather than accusing Core of an error.
+        row.setAttribute("role", turnFailure.outcome === "failed" ? "alert" : "status");
+        row.textContent =
+          turnFailure.outcome === "failed" && turnFailure.reason
+            ? translate(locale, "d1.transcript.turnFailed", { reason: turnFailure.reason })
+            : translate(
+                locale,
+                turnFailure.outcome === "cancelled"
+                  ? "d1.transcript.turnCancelled"
+                  : "d1.transcript.turnEndedUnknown",
+                {},
+              );
+        transcriptRegion.append(row);
+      }
       workStatusStrip?.dispose();
       const canCancelTurn =
         !composerMutationBlockReason(projection, selectedLaneId) &&

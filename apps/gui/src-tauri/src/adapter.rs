@@ -12,8 +12,8 @@ use viden_core::{
     ReplayBatch, ReplayRequest, ReviewRequestStatus, RuntimeCommand, RuntimeCommandEnvelope,
     RuntimeEventEnvelope, RuntimeEventKind, RuntimeOwner, RuntimeSnapshotEnvelope,
     RuntimeWireEvent, StarterLanePreset, StarterLaneRequest, TranscriptPage, TranscriptPageRequest,
-    UiColorMode, UiDensity, UiLayoutPreferencePatch, UiMotion, UiPreferencePatch, UiPreferences,
-    UiSkin, WorkMode, WorkspaceFileEntry, WorkspaceFileKind, WorkspaceFilesQuery,
+    TurnOutcome, UiColorMode, UiDensity, UiLayoutPreferencePatch, UiMotion, UiPreferencePatch,
+    UiPreferences, UiSkin, WorkMode, WorkspaceFileEntry, WorkspaceFileKind, WorkspaceFilesQuery,
     WorkspaceOpenRequest,
 };
 use viden_core::{EvidenceQuery, SourceTarget, WorkspaceDiffQuery, WorkspaceDiffScope};
@@ -21,7 +21,7 @@ use viden_core::{RecentProjectSummary, RecentSessionSummary, RecentWorkQuery};
 
 use crate::d1::{
     ComposerControlIntent, D1_OWNER_CAPABILITY, D1CockpitProjection, D1Intent, D1IntentResult,
-    D1OutcomeProjection,
+    D1OutcomeProjection, D1TurnFailureProjection,
 };
 use crate::d4::{D4OutcomeProjection, PendingD4, ReviewedD4};
 use crate::d10::D10_EVENT_TICKER_LIMIT;
@@ -118,6 +118,15 @@ pub struct GuiCoreAdapter {
     /// keeps the receipt's replace/append decision unambiguous and keeps the
     /// screen from paging two lists into one. See [`PendingAuditPage`].
     pending_audit: Option<PendingAuditPage>,
+    /// The last turn Core ended without completing it
+    /// (`runtime.turn_lifecycle`, C6).
+    ///
+    /// `TurnFinished` removes the turn from `active_turns`, so the outcome and
+    /// its reason exist only on that event. Held here for the life of this
+    /// adapter and replaced by the next non-completed turn; a completed turn
+    /// clears it, because the composer is then live again and a standing error
+    /// row would be about work that has since succeeded.
+    turn_failure: Option<D1TurnFailureProjection>,
     /// One layout command at a time, correlated by the id the answering
     /// `UiLayoutPreferencesUpdated` repeats.
     pending_layout_preference: Option<PendingLayoutPreference>,
@@ -1573,6 +1582,7 @@ impl GuiCoreAdapter {
             d2_selected: None,
             pending_d2_review: None,
             pending_audit: None,
+            turn_failure: None,
             pending_layout_preference: None,
             layout_preference_outcome: D1OutcomeProjection::idle(),
             layout_preference_receipt: None,
@@ -1637,6 +1647,48 @@ impl GuiCoreAdapter {
         Ok(event.is_some())
     }
 
+    /// Records the outcome of a turn Core ended without completing it.
+    ///
+    /// Called from the one receive funnel, so a `TurnFinished` drained by an
+    /// unrelated screen's poll still reaches the composer — the same rule the
+    /// evidence staleness counter follows. A `Completed` turn clears the row:
+    /// the composer is live again, and an error standing over work that has
+    /// since succeeded is worse than no row at all.
+    fn observe_turn_lifecycle(&mut self, envelope: &RuntimeEventEnvelope) {
+        let RuntimeWireEvent::Known(event) = &envelope.event else {
+            return;
+        };
+        let RuntimeEventKind::TurnFinished {
+            turn_id,
+            owner,
+            outcome,
+            ..
+        } = &event.kind
+        else {
+            return;
+        };
+        let (state, reason) = match outcome {
+            TurnOutcome::Completed => {
+                self.turn_failure = None;
+                return;
+            }
+            TurnOutcome::Failed { reason } => ("failed", Some(reason.clone())),
+            TurnOutcome::Cancelled => ("cancelled", None),
+            // `TurnOutcome` is `#[non_exhaustive]`. An outcome this build
+            // cannot name is recorded as ended-cause-unknown rather than read
+            // as success, because reading it as success is exactly how a
+            // client would tell an operator their queue is about to run when
+            // Core has already decided it is not.
+            _ => ("unknown", None),
+        };
+        self.turn_failure = Some(D1TurnFailureProjection {
+            turn_id: turn_id.clone(),
+            lane_id: owner.lane_id.clone(),
+            outcome: state,
+            reason,
+        });
+    }
+
     pub fn projection(&self) -> &RuntimeProjection {
         &self.projection
     }
@@ -1671,6 +1723,9 @@ impl GuiCoreAdapter {
             // never fall back to another owner's global pending approval.
             projection.permission_dock = permission_dock;
         }
+        // The failure row lives on the adapter, because the projection reads
+        // view state and Core keeps no finished turn in it.
+        projection.turn_failure = self.turn_failure.clone();
         let transport_recovery = self.d6_recovery();
         if self.connection != D6ConnectionState::Live
             || projection.recovery.state != D6State::EventGap
@@ -4806,8 +4861,11 @@ impl GuiCoreAdapter {
                 return Err(error);
             }
         };
-        if let Some(envelope) = &event {
-            self.note_workspace_revision(envelope);
+        if let Some(envelope) = event.clone() {
+            self.note_workspace_revision(&envelope);
+            // Same funnel, same reason: a `TurnFinished` drained by an
+            // unrelated screen's poll still has to reach the composer.
+            self.observe_turn_lifecycle(&envelope);
         }
         Ok(event)
     }

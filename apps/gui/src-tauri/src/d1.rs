@@ -556,11 +556,69 @@ pub struct D1CockpitProjection {
     pub agent_session_inputs: Vec<D1AgentSessionInputProjection>,
     pub cost_usage: Vec<D1CostUsageProjection>,
     pub replay_cursor: D1CursorProjection,
+    /// Every turn Core is running right now (`runtime.turn_lifecycle`, C6).
+    ///
+    /// Empty is a real answer meaning nothing is running, including right
+    /// after a restart: Core never resumes a turn across one, so a reconnected
+    /// cockpit that saw a phantom running turn would offer a Cancel for work
+    /// nobody can stop. The composer gates on an entry whose owner matches its
+    /// target, never on display residue.
+    pub active_turns: Vec<D1TurnProjection>,
+    /// The last turn Core ended without completing it, for as long as this
+    /// adapter lives.
+    ///
+    /// `TurnFinished` removes the turn from `active_turns`, so a failure's
+    /// reason exists only on that event: it is captured here or it is lost,
+    /// and a composer that went quiet with no sentence is exactly the state an
+    /// operator cannot act on. Not durable — a reconnect re-reads Core's own
+    /// `errors` list, which is where the engine's error also lands.
+    pub turn_failure: Option<D1TurnFailureProjection>,
     pub composer: D1ComposerProjection,
     pub statusbar: D1StatusbarProjection,
     pub permission_dock: PermissionDockProjection,
     pub recovery: D6RecoveryProjection,
     pub unavailable_features: Vec<D1UnavailableFeatureProjection>,
+}
+
+/// One turn Core is running (`runtime.turn_lifecycle`, C6).
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct D1TurnProjection {
+    pub turn_id: String,
+    /// The Lane this turn belongs to, or `None` for the session-scoped
+    /// composer. Flattened from the owner because that is the only part of it
+    /// a composer predicate compares.
+    pub lane_id: Option<String>,
+    /// `user_input`, `queued_input`, `agent_session`, or `unknown` for a
+    /// source this build cannot name — `TurnSource` is `#[non_exhaustive]`,
+    /// and an unnamed source is still a live turn.
+    pub source: &'static str,
+    /// The queued input this turn is draining, when that is its source. It is
+    /// how a client tells one queued prompt from another rather than guessing
+    /// from the text.
+    pub source_input_id: Option<String>,
+    /// The Agent session this turn is a run of, when that is its source.
+    pub source_session_id: Option<String>,
+    /// Core's own start time, in seconds. The strip's elapsed clock reads this
+    /// rather than when the webview noticed, which is all a client-observed
+    /// clock could ever measure.
+    pub started_at: u64,
+}
+
+/// One turn Core ended without completing it (`runtime.turn_lifecycle`, C6).
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct D1TurnFailureProjection {
+    pub turn_id: String,
+    pub lane_id: Option<String>,
+    /// `failed`, `cancelled`, or `unknown` for an outcome this build cannot
+    /// name. Never folded into `failed`: a cancellation is the operator's own
+    /// decision, and reporting it as an error would accuse Core of one.
+    pub outcome: &'static str,
+    /// Core's sanitized reason, present only on `Failed`. `None` on a
+    /// cancellation, because Core publishes none and an invented sentence
+    /// would be the client explaining a decision it did not make.
+    pub reason: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]

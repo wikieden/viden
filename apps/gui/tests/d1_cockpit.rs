@@ -62,6 +62,29 @@ fn d1_view() -> RuntimeViewState {
     view
 }
 
+/// The same view with one turn Core is running on the Lane
+/// (`runtime.turn_lifecycle`, C6).
+///
+/// Since C6 the composer's busy state is an `active_turns` entry, not the
+/// `turn_id` an owner binding happens to carry: a binding keeps that field
+/// after the work ends, which is exactly the residue the capability retires.
+/// Every test about queueing therefore has to publish a live turn.
+fn d1_view_with_live_turn() -> RuntimeViewState {
+    let mut view = d1_view();
+    view.apply_event(&RuntimeEvent::new(
+        900,
+        RuntimeEventKind::TurnStarted {
+            turn: viden_core::TurnView {
+                turn_id: "turn_d1_core".into(),
+                owner: owner("lane_d1_core"),
+                source: viden_core::TurnSource::UserInput,
+                started_at: 1_700_000_500,
+            },
+        },
+    ));
+    view
+}
+
 fn d1_main_view() -> RuntimeViewState {
     let fixture: Fixture = serde_json::from_str(D1_MAIN_FIXTURE).expect("parse D1 main fixture");
     let mut view = RuntimeViewState::new(fixture.initial_snapshot);
@@ -114,7 +137,12 @@ fn canonical_d1_projects_cockpit_regions_only_from_the_core_view() {
     assert!(projection.live_work.evidence.is_empty());
     assert!(projection.composer.editable);
     assert!(projection.composer.can_cancel);
-    assert!(!projection.composer.can_submit_immediately);
+    // C6: the fixture publishes no `active_turns` entry, so nothing is running
+    // and the composer submits rather than queueing. Before C6 this read
+    // `false`, because the Lane's owner binding carries a `turn_id` — a fact
+    // about an identity that outlives the work it names.
+    assert!(projection.composer.can_submit_immediately);
+    assert!(!projection.composer.busy);
     assert!(
         projection
             .transcript
@@ -644,7 +672,8 @@ fn d1_cockpit_context_dock_uses_typed_empty_states_and_never_parses_display_text
 #[test]
 fn enter_queues_with_the_exact_core_owner_while_lane_is_busy() {
     let sent = Arc::new(Mutex::new(Vec::new()));
-    let mut adapter = connected(d1_view(), Arc::clone(&sent));
+    // Busy is Core's own turn fact since C6, so the view publishes one.
+    let mut adapter = connected(d1_view_with_live_turn(), Arc::clone(&sent));
 
     adapter
         .send_d1_intent(
@@ -1126,7 +1155,7 @@ fn accepted_queue_stays_pending_until_the_matching_ordered_business_fact() {
 fn accepted_queue_confirms_only_after_same_owner_input_queued() {
     let runtime_owner = owner("lane_d1_core");
     let sent = Arc::new(Mutex::new(Vec::new()));
-    let client = TestCoreClient::new(d1_view(), Arc::clone(&sent))
+    let client = TestCoreClient::new(d1_view_with_live_turn(), Arc::clone(&sent))
         .with_owned_event(
             test_owner(&runtime_owner),
             RuntimeEventKind::CommandAccepted {

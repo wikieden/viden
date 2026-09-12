@@ -632,5 +632,18 @@
   "d1.layout.unpersisted": "Core applied this layout for the session but could not write it, so it will not survive a restart.",
   "d1.layout.unavailable": "Core publishes no {capability}, so this layout is kept for this session only.",
   "d1.layout.rejected": "Core refused the layout change: {reason}",
-  "d1.laneTabs.source": "This Lane's own worktree: {ahead} ahead, {behind} behind, as Core last sampled it."
+  "d1.laneTabs.source": "This Lane's own worktree: {ahead} ahead, {behind} behind, as Core last sampled it.",
+  "d1.work.source.typed": "typed",
+  "d1.work.source.queued": "queued",
+  "d1.work.source.agent": "agent",
+  "d1.work.source.unknown": "source not named",
+  "d1.work.elapsedCore": "Elapsed since the start Core recorded for this turn.",
+  "d1.work.queue.next": "{count} queued \u00b7 runs after the current turn",
+  "d1.work.queue.stalled": "{count} queued \u00b7 waits for the next completed turn",
+  "d1.work.failed": "The turn stopped: {reason}",
+  "d1.work.cancelled": "The turn was stopped.",
+  "d1.work.endedUnknown": "The turn ended; Core named no outcome this build knows.",
+  "d1.transcript.turnFailed": "Core stopped this turn: {reason}",
+  "d1.transcript.turnCancelled": "This turn was stopped before it finished.",
+  "d1.transcript.turnEndedUnknown": "This turn ended, and Core named an outcome this build cannot name."
 }

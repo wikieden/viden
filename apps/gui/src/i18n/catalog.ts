@@ -642,6 +642,19 @@ export const MESSAGE_ARGUMENT_NAMES = {
   "d1.layout.unavailable": ["capability"],
   "d1.layout.rejected": ["reason"],
   "d1.laneTabs.source": ["ahead", "behind"],
+  "d1.work.source.typed": [],
+  "d1.work.source.queued": [],
+  "d1.work.source.agent": [],
+  "d1.work.source.unknown": [],
+  "d1.work.elapsedCore": [],
+  "d1.work.queue.next": ["count"],
+  "d1.work.queue.stalled": ["count"],
+  "d1.work.failed": ["reason"],
+  "d1.work.cancelled": [],
+  "d1.work.endedUnknown": [],
+  "d1.transcript.turnFailed": ["reason"],
+  "d1.transcript.turnCancelled": [],
+  "d1.transcript.turnEndedUnknown": [],
 } as const;
 
 export type MessageKey = keyof typeof MESSAGE_ARGUMENT_NAMES;

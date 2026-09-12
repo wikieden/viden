@@ -13,8 +13,8 @@ use viden_core::{
     LocaleId, MergeGateRecord, MergeGateStatus, MergeGateType, MutationPolicy, OperatorGitAction,
     OperatorGitFailureClass, OperatorGitOutcome, ProjectConfigPreview, ProjectProbe,
     ProviderHealthView, ReviewRequestRecord, ReviewRequestStatus, RuntimeOwner, RuntimeServiceKind,
-    RuntimeServiceStatus, RuntimeSnapshotEnvelope, RuntimeViewState, SourceTarget, UiColorMode,
-    UiDensity, UiMotion, UiSkin, WorkMode, WorkspaceChangeKind, WorkspaceDiffEntry,
+    RuntimeServiceStatus, RuntimeSnapshotEnvelope, RuntimeViewState, SourceTarget, TurnSource,
+    UiColorMode, UiDensity, UiMotion, UiSkin, WorkMode, WorkspaceChangeKind, WorkspaceDiffEntry,
     WorkspaceSourceStatus, WorkspaceSourceView,
 };
 
@@ -29,7 +29,8 @@ use crate::d1::{
     D1StatusbarContextProjection, D1StatusbarLaneProjection, D1StatusbarLatencyProjection,
     D1StatusbarProjection, D1StatusbarRequestsProjection, D1StatusbarTokensProjection,
     D1TaskProjection, D1ToolProjection, D1TopbarSourceProjection, D1TranscriptRowProjection,
-    D1WorkspaceEligibilityProjection, D1WorkspaceSourceProjection, unavailable_features,
+    D1TurnProjection, D1WorkspaceEligibilityProjection, D1WorkspaceSourceProjection,
+    unavailable_features,
 };
 use crate::d2::{
     D2_KIND_CONTRACT, D2_KIND_GATE, D2_KIND_REVIEW, D2ActionProjection, D2ContextProjection,
@@ -1284,22 +1285,42 @@ impl RuntimeProjection {
             .capabilities
             .iter()
             .any(|capability| capability.0 == crate::OPERATOR_GIT_CAPABILITY);
-        // Native turns publish `turn_id`; typed ACP attempts publish an exact,
-        // owner-scoped session status. Both are Core facts, unlike the broad
-        // Lane lifecycle state, so either may prove that the composer must queue.
-        let busy = selected_owner.is_some_and(|owner| {
-            owner.turn_id.is_some()
-                || view.agent_sessions.iter().any(|session| {
-                    &session.owner == owner
-                        && matches!(
-                            session.status,
-                            AgentSessionStatus::Starting
-                                | AgentSessionStatus::Running
-                                | AgentSessionStatus::WaitingApproval
-                        )
-                })
-        });
-
+        // C6: liveness is Core's own bracketed fact. `active_turns` carries
+        // every turn Core is running, so the composer gates on an entry whose
+        // owner names its target — the Lane for a Lane composer, no Lane for
+        // the session-scoped one. The retired predicate read
+        // `owner.turn_id`, which an owner *binding* keeps after the work ends:
+        // that is a fact about an identity, not about work, and it is why the
+        // composer went on queueing into a finished turn.
+        //
+        // A running Agent session stays part of the answer. An ACP turn is
+        // bracketed too, but its session's own `Starting`/`WaitingApproval`
+        // states are work in flight that no turn fact covers, and dropping
+        // them would let a Send land on an agent that is still starting.
+        let active_turn_for_lane = |lane_id: Option<&str>| {
+            view.active_turns
+                .iter()
+                .any(|turn| turn.owner.lane_id.as_deref() == lane_id)
+        };
+        let busy = match selected_lane_id.as_deref() {
+            Some(lane_id) => {
+                active_turn_for_lane(Some(lane_id))
+                    || selected_owner.is_some_and(|owner| {
+                        view.agent_sessions.iter().any(|session| {
+                            &session.owner == owner
+                                && matches!(
+                                    session.status,
+                                    AgentSessionStatus::Starting
+                                        | AgentSessionStatus::Running
+                                        | AgentSessionStatus::WaitingApproval
+                                )
+                        })
+                    })
+            }
+            // No Lane at all is the session-scoped composer, which C5's
+            // workspace owner made a real target.
+            None => active_turn_for_lane(None),
+        };
         let provider_id = view
             .provider
             .as_ref()
@@ -1762,6 +1783,11 @@ impl RuntimeProjection {
                 stream_id: confirmed.cursor.stream_id.clone(),
                 sequence: confirmed.cursor.sequence,
             },
+            active_turns: view.active_turns.iter().map(turn_projection).collect(),
+            // Filled by the adapter from the `TurnFinished` event, which is
+            // the only place the reason exists: the projection reads view
+            // state, and Core deliberately keeps no finished turn in it.
+            turn_failure: None,
             composer: D1ComposerProjection {
                 editable: supports_owner && selected_owner.is_some(),
                 busy,
@@ -2114,6 +2140,31 @@ pub(crate) fn is_dormant_gate(view: &RuntimeViewState, gate: &MergeGateRecord) -
                     | AgentSessionStatus::Cancelled
             )
     })
+}
+
+/// Flattens one live turn for the cockpit (`runtime.turn_lifecycle`, C6).
+///
+/// Only the owner's Lane travels: it is the whole of what a composer predicate
+/// compares, and carrying the rest would invite a client to rebuild an owner
+/// from projection fields. `unknown` for an unmodelled source keeps a live
+/// turn visible without naming it something it is not.
+pub(crate) fn turn_projection(turn: &viden_core::TurnView) -> D1TurnProjection {
+    let (source, input_id, session_id) = match &turn.source {
+        TurnSource::UserInput => ("user_input", None, None),
+        TurnSource::QueuedInput { input_id } => ("queued_input", Some(input_id.clone()), None),
+        TurnSource::AgentSession { session_id } => {
+            ("agent_session", None, Some(session_id.clone()))
+        }
+        _ => ("unknown", None, None),
+    };
+    D1TurnProjection {
+        turn_id: turn.turn_id.clone(),
+        lane_id: turn.owner.lane_id.clone(),
+        source,
+        source_input_id: input_id,
+        source_session_id: session_id,
+        started_at: turn.started_at,
+    }
 }
 
 /// The wire spelling of one sidebar mode (`ui.layout_preferences`, C5).

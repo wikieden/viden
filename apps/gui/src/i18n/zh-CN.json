@@ -632,5 +632,18 @@
   "d1.layout.unpersisted": "Core 已为本次会话应用该布局，但未能写入文件，因此重启后不会保留。",
   "d1.layout.unavailable": "Core 未发布 {capability}，因此该布局仅在本次会话内保留。",
   "d1.layout.rejected": "Core 拒绝了布局变更：{reason}",
-  "d1.laneTabs.source": "该 Lane 自己的工作树：领先 {ahead}，落后 {behind}（Core 最近一次采样）。"
+  "d1.laneTabs.source": "该 Lane 自己的工作树：领先 {ahead}，落后 {behind}（Core 最近一次采样）。",
+  "d1.work.source.typed": "已输入",
+  "d1.work.source.queued": "已排队",
+  "d1.work.source.agent": "代理",
+  "d1.work.source.unknown": "来源未命名",
+  "d1.work.elapsedCore": "自 Core 为该回合记录的开始时间起计。",
+  "d1.work.queue.next": "{count} 项排队 · 在当前回合之后运行",
+  "d1.work.queue.stalled": "{count} 项排队 · 等待下一个已完成的回合",
+  "d1.work.failed": "回合已中止：{reason}",
+  "d1.work.cancelled": "该回合已被停止。",
+  "d1.work.endedUnknown": "该回合已结束；Core 给出的结局本版本无法命名。",
+  "d1.transcript.turnFailed": "Core 中止了该回合：{reason}",
+  "d1.transcript.turnCancelled": "该回合在完成前被停止。",
+  "d1.transcript.turnEndedUnknown": "该回合已结束，Core 给出的结局本版本无法命名。"
 }
