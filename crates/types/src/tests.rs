@@ -6552,3 +6552,268 @@ fn the_layout_preference_commands_round_trip() {
         assert_eq!(decoded, command);
     }
 }
+
+// --- runtime.turn_lifecycle (C6) ---------------------------------------------
+
+fn turn_lifecycle_session_owner() -> RuntimeOwner {
+    RuntimeOwner {
+        workspace_id: "ws_0123456789abcdef".to_string(),
+        project_id: "prj_contract_v1".to_string(),
+        lane_id: None,
+        session_id: None,
+        task_id: None,
+        turn_id: Some("turn_native_1".to_string()),
+    }
+}
+
+fn turn_lifecycle_view() -> RuntimeViewState {
+    let snapshot: RuntimeSnapshot = serde_json::from_value(runtime_snapshot_json()).unwrap();
+    RuntimeViewState::new(snapshot)
+}
+
+fn started_turn(turn_id: &str, owner: RuntimeOwner, source: TurnSource) -> RuntimeEvent {
+    RuntimeEvent::new(
+        1,
+        RuntimeEventKind::TurnStarted {
+            turn: TurnView {
+                turn_id: turn_id.to_string(),
+                owner,
+                source,
+                started_at: 1_700_005_000,
+            },
+        },
+    )
+}
+
+fn finished_turn(turn_id: &str, owner: RuntimeOwner, outcome: TurnOutcome) -> RuntimeEvent {
+    RuntimeEvent::new(
+        2,
+        RuntimeEventKind::TurnFinished {
+            turn_id: turn_id.to_string(),
+            owner,
+            outcome,
+            finished_at: 1_700_005_010,
+        },
+    )
+}
+
+/// Liveness is a fact, and its absence is the honest answer rather than a
+/// field a client has to interpret. A view that never saw a turn serializes
+/// without `active_turns` at all, which is what keeps the nine frozen base
+/// fixtures byte-identical.
+#[test]
+fn a_started_turn_reduces_into_active_turns_and_a_finished_one_removes_it() {
+    let mut view = turn_lifecycle_view();
+    assert!(view.active_turns.is_empty());
+    assert!(
+        serde_json::to_value(&view)
+            .unwrap()
+            .get("active_turns")
+            .is_none(),
+        "an empty turn list must not appear on the wire"
+    );
+
+    view.apply_event(&started_turn(
+        "turn_native_1",
+        turn_lifecycle_session_owner(),
+        TurnSource::UserInput,
+    ));
+    assert_eq!(view.active_turns.len(), 1);
+    assert_eq!(view.active_turns[0].turn_id, "turn_native_1");
+    assert_eq!(view.active_turns[0].source, TurnSource::UserInput);
+
+    view.apply_event(&finished_turn(
+        "turn_native_1",
+        turn_lifecycle_session_owner(),
+        TurnOutcome::Completed,
+    ));
+    assert!(view.active_turns.is_empty());
+}
+
+/// The snapshot prefix re-lists the turns Core is running now. A client that
+/// reconnects mid-turn must not end up counting the same turn twice, because
+/// its composer predicate is "is there an entry for my owner", not "how many".
+#[test]
+fn re_listing_a_running_turn_upserts_rather_than_duplicating() {
+    let mut view = turn_lifecycle_view();
+    for _ in 0..3 {
+        view.apply_event(&started_turn(
+            "turn_native_1",
+            turn_lifecycle_session_owner(),
+            TurnSource::UserInput,
+        ));
+    }
+    assert_eq!(view.active_turns.len(), 1);
+}
+
+/// The residue both clients were reading as "work is still running". A
+/// session-scoped turn's end settles the unscoped stream, exactly as a
+/// terminal Agent-session fact already does.
+#[test]
+fn a_finished_session_scoped_turn_settles_the_unscoped_assistant_stream() {
+    let mut view = turn_lifecycle_view();
+    view.apply_event(&RuntimeEvent::new(
+        1,
+        RuntimeEventKind::AssistantDelta {
+            message_id: "message_1".to_string(),
+            task_id: None,
+            session_id: None,
+            content: "a finished reply".to_string(),
+        },
+    ));
+    assert!(!view.assistant_stream.is_empty());
+
+    view.apply_event(&finished_turn(
+        "turn_native_1",
+        turn_lifecycle_session_owner(),
+        TurnOutcome::Completed,
+    ));
+    assert!(view.assistant_stream.is_empty());
+}
+
+/// A Lane's turn has an owner-scoped conversation of its own. Clearing the
+/// unscoped stream on it would wipe a session-scoped reply still being
+/// produced beside it, so the settlement is deliberately scoped.
+#[test]
+fn a_finished_lane_scoped_turn_leaves_the_unscoped_assistant_stream_alone() {
+    let mut view = turn_lifecycle_view();
+    view.apply_event(&RuntimeEvent::new(
+        1,
+        RuntimeEventKind::AssistantDelta {
+            message_id: "message_1".to_string(),
+            task_id: None,
+            session_id: None,
+            content: "a session-scoped reply".to_string(),
+        },
+    ));
+    let lane_owner = RuntimeOwner {
+        lane_id: Some("lane_a".to_string()),
+        session_id: Some("agent-session-1".to_string()),
+        ..turn_lifecycle_session_owner()
+    };
+    view.apply_event(&started_turn(
+        "turn_lane_1",
+        lane_owner.clone(),
+        TurnSource::AgentSession {
+            session_id: "agent-session-1".to_string(),
+        },
+    ));
+    view.apply_event(&finished_turn(
+        "turn_lane_1",
+        lane_owner,
+        TurnOutcome::Completed,
+    ));
+
+    assert_eq!(view.assistant_stream, "a session-scoped reply");
+    assert!(view.active_turns.is_empty());
+}
+
+/// A failure reason is a projection string carried to every client. It runs
+/// through the same sanitizer every other projection string uses and is cut at
+/// the bound, so a provider error carrying a home path or a key-shaped token
+/// cannot travel through this field.
+#[test]
+fn a_failed_turn_reason_is_sanitized_and_bounded() {
+    let outcome = TurnOutcome::failed(format!(
+        "provider rejected sk-live-secret at /Users/operator/repo: {}",
+        "x".repeat(MAX_TURN_FAILURE_REASON_CHARS)
+    ));
+    let TurnOutcome::Failed { reason } = outcome else {
+        panic!("failed() must build the failed outcome");
+    };
+    assert!(!reason.contains("sk-live-secret"));
+    assert!(!reason.contains("/Users/"));
+    assert_eq!(reason.chars().count(), MAX_TURN_FAILURE_REASON_CHARS);
+}
+
+/// Only a completed turn drains the queue behind it. Every producer asks this
+/// one question, so it is asked in one place.
+#[test]
+fn only_a_completed_turn_drains_the_session_queue() {
+    assert!(TurnOutcome::Completed.drains_queue());
+    assert!(!TurnOutcome::failed("stopped").drains_queue());
+    assert!(!TurnOutcome::Cancelled.drains_queue());
+}
+
+/// A quarantined turn fact strands a client on the guess this capability
+/// replaces: no `turn_started` reads as "nothing is running" while a turn
+/// runs, and no `turn_finished` leaves a turn live forever.
+#[test]
+fn the_turn_lifecycle_events_are_known_wire_events() {
+    for kind in [
+        RuntimeEventKind::TurnStarted {
+            turn: TurnView {
+                turn_id: "turn_native_1".to_string(),
+                owner: turn_lifecycle_session_owner(),
+                source: TurnSource::QueuedInput {
+                    input_id: "queued_1".to_string(),
+                },
+                started_at: 1_700_005_000,
+            },
+        },
+        RuntimeEventKind::TurnFinished {
+            turn_id: "turn_native_1".to_string(),
+            owner: turn_lifecycle_session_owner(),
+            outcome: TurnOutcome::failed("the provider stopped"),
+            finished_at: 1_700_005_010,
+        },
+    ] {
+        let event = RuntimeEvent::new(1, kind);
+        let encoded = serde_json::to_string(&event).unwrap();
+        let decoded: RuntimeWireEvent = serde_json::from_str(&encoded).unwrap();
+        match decoded {
+            RuntimeWireEvent::Known(known) => assert_eq!(known.kind, event.kind),
+            RuntimeWireEvent::Unknown { event_type, .. } => {
+                panic!("`{event_type}` must be a known runtime event type")
+            }
+        }
+    }
+}
+
+/// The tagged names are the wire contract two clients and a fixture corpus
+/// read; renaming one silently retires a fact.
+#[test]
+fn the_turn_lifecycle_serde_names_are_stable() {
+    assert_eq!(
+        serde_json::to_value(TurnSource::UserInput).unwrap(),
+        serde_json::json!({ "kind": "user_input" })
+    );
+    assert_eq!(
+        serde_json::to_value(TurnSource::QueuedInput {
+            input_id: "queued_1".to_string()
+        })
+        .unwrap(),
+        serde_json::json!({ "kind": "queued_input", "input_id": "queued_1" })
+    );
+    assert_eq!(
+        serde_json::to_value(TurnSource::AgentSession {
+            session_id: "agent-session-1".to_string()
+        })
+        .unwrap(),
+        serde_json::json!({ "kind": "agent_session", "session_id": "agent-session-1" })
+    );
+    assert_eq!(
+        serde_json::to_value(TurnOutcome::Completed).unwrap(),
+        serde_json::json!({ "kind": "completed" })
+    );
+    assert_eq!(
+        serde_json::to_value(TurnOutcome::Cancelled).unwrap(),
+        serde_json::json!({ "kind": "cancelled" })
+    );
+    assert_eq!(
+        serde_json::to_value(TurnOutcome::failed("stopped")).unwrap(),
+        serde_json::json!({ "kind": "failed", "reason": "stopped" })
+    );
+}
+
+#[test]
+fn the_turn_lifecycle_capability_is_an_advertised_extension() {
+    assert!(FRONTEND_V1_EXTENSION_CAPABILITIES.contains(&"runtime.turn_lifecycle"));
+    assert!(!FRONTEND_V1_CAPABILITIES.contains(&"runtime.turn_lifecycle"));
+    assert!(
+        FRONTEND_V1_EXTENSION_CAPABILITIES
+            .windows(2)
+            .all(|pair| pair[0] < pair[1]),
+        "extension capabilities must stay sorted and unique"
+    );
+}

@@ -48,6 +48,7 @@ pub const FRONTEND_V1_EXTENSION_CAPABILITIES: &[&str] = &[
     "runtime.starter_lane_preview",
     "runtime.structured_diff",
     "runtime.trust_loop",
+    "runtime.turn_lifecycle",
     "runtime.workspace_eligibility",
     "runtime.workspace_files",
     "runtime.workspace_owner",
@@ -373,6 +374,14 @@ fn is_known_runtime_event_type(event_type: &str) -> bool {
             | "workspace_change_updated"
             | "check_run_updated"
             | "snapshot_updated"
+            // The two halves of a turn bracket (`runtime.turn_lifecycle`).
+            // Quarantining either strands a client on the guess this
+            // capability exists to replace: a dropped `turn_started` reads as
+            // "nothing is running" while a turn runs, and a dropped
+            // `turn_finished` leaves a turn live in `active_turns` forever,
+            // which is exactly the stuck composer the native path had.
+            | "turn_started"
+            | "turn_finished"
             | "assistant_delta"
             // Typed non-text Agent content. Omitting it here would quarantine
             // every image and file part as an unknown event, which is exactly

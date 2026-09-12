@@ -18,6 +18,7 @@ mod runtime;
 mod source_control;
 mod transcript;
 mod trust;
+mod turn_lifecycle;
 mod ui_preferences;
 mod workflow;
 mod workspace_files;
@@ -97,6 +98,7 @@ pub use trust::{
     MergeGatePolicySnapshot, MergeGateType, MergeGateValidator, RecoverySnapshotReference,
     RevertRecord, ReviewRequestRecord, ReviewRequestStatus, ReviewVerdict, ReviewedEvidenceBinding,
 };
+pub use turn_lifecycle::{MAX_TURN_FAILURE_REASON_CHARS, TurnOutcome, TurnSource, TurnView};
 pub use ui_preferences::{
     LaneSidebarMode, LocaleId, MAX_HIDDEN_STATUSBAR_SEGMENT_BYTES, MAX_HIDDEN_STATUSBAR_SEGMENTS,
     ResolvedUiPreferences, TuiColorDepth, UiColorMode, UiDensity, UiLayoutPreferences, UiMotion,

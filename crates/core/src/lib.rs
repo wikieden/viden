@@ -42,26 +42,27 @@ pub use viden_types::{
     LaneConflictView, LaneRunStats, LaneRuntimeOwnerBinding, LaneSidebarMode, LaneStatus, LocaleId,
     MAX_CONFLICT_CONTENT_BYTES, MAX_EVIDENCE_CONTENT_BYTES, MAX_EVIDENCE_PAGE_SIZE,
     MAX_EVIDENCE_QUERY_KINDS, MAX_HIDDEN_STATUSBAR_SEGMENT_BYTES, MAX_HIDDEN_STATUSBAR_SEGMENTS,
-    MAX_OPERATOR_COMMIT_MESSAGE_BYTES, MAX_OPERATOR_GIT_OUTPUT_BYTES, MAX_WORKSPACE_DIFF_BYTES,
-    MergeGatePolicySnapshot, MergeGateRecord, MergeGateStatus, MergeGateType, MergeGateValidator,
-    MutationPolicy, OperatorGitAction, OperatorGitFailureClass, OperatorGitOutcome,
-    PROJECT_ID_PREFIX, PermissionLevel, PermissionMode, ProjectConfigPreview, ProjectConfigState,
-    ProjectIdOrigin, ProjectProbe, ProviderHealthView, QueuedInputView, RecentProjectSummary,
-    RecentSessionSummary, RecentWorkQuery, ReplayBatch, ReplayRequest, ResolvedUiPreferences,
-    RevertRecord, ReviewRequestRecord, ReviewRequestStatus, ReviewVerdict, ReviewedEvidenceBinding,
+    MAX_OPERATOR_COMMIT_MESSAGE_BYTES, MAX_OPERATOR_GIT_OUTPUT_BYTES,
+    MAX_TURN_FAILURE_REASON_CHARS, MAX_WORKSPACE_DIFF_BYTES, MergeGatePolicySnapshot,
+    MergeGateRecord, MergeGateStatus, MergeGateType, MergeGateValidator, MutationPolicy,
+    OperatorGitAction, OperatorGitFailureClass, OperatorGitOutcome, PROJECT_ID_PREFIX,
+    PermissionLevel, PermissionMode, ProjectConfigPreview, ProjectConfigState, ProjectIdOrigin,
+    ProjectProbe, ProviderHealthView, QueuedInputView, RecentProjectSummary, RecentSessionSummary,
+    RecentWorkQuery, ReplayBatch, ReplayRequest, ResolvedUiPreferences, RevertRecord,
+    ReviewRequestRecord, ReviewRequestStatus, ReviewVerdict, ReviewedEvidenceBinding,
     RuntimeCommand, RuntimeCommandEnvelope, RuntimeErrorView, RuntimeEvent, RuntimeEventEnvelope,
     RuntimeEventKind, RuntimeOwner, RuntimeServiceHealthView, RuntimeServiceKind,
     RuntimeServiceStatus, RuntimeSnapshot, RuntimeSnapshotEnvelope, RuntimeViewState,
     RuntimeWireEvent, SchemaVersion, SourceTarget, StarterLanePreset, StarterLanePreview,
     StarterLanePreviewInvalidationReason, StarterLaneReceipt, StarterLaneRequest, TokenCostView,
     ToolCallView, TranscriptPage, TranscriptPageRequest, TranscriptRow, TranscriptRowId,
-    TranscriptRowKind, TuiColorDepth, UiColorMode, UiDensity, UiLayoutPreferencePatch,
-    UiLayoutPreferences, UiMotion, UiPreferenceDiagnostic, UiPreferencePatch, UiPreferences,
-    UiSkin, WORKSPACE_ID_DIGEST_CHARS, WORKSPACE_ID_PREFIX, WorkMode, WorkspaceChangeKind,
-    WorkspaceChangeView, WorkspaceDiffEntry, WorkspaceDiffPage, WorkspaceDiffQuery,
-    WorkspaceDiffScope, WorkspaceEligibility, WorkspaceFileEntry, WorkspaceFileKind,
-    WorkspaceFilePage, WorkspaceFilesQuery, WorkspaceRuntimeOwnerBinding, WorkspaceSourceStatus,
-    WorkspaceSourceView, workspace_owner_authorizes,
+    TranscriptRowKind, TuiColorDepth, TurnOutcome, TurnSource, TurnView, UiColorMode, UiDensity,
+    UiLayoutPreferencePatch, UiLayoutPreferences, UiMotion, UiPreferenceDiagnostic,
+    UiPreferencePatch, UiPreferences, UiSkin, WORKSPACE_ID_DIGEST_CHARS, WORKSPACE_ID_PREFIX,
+    WorkMode, WorkspaceChangeKind, WorkspaceChangeView, WorkspaceDiffEntry, WorkspaceDiffPage,
+    WorkspaceDiffQuery, WorkspaceDiffScope, WorkspaceEligibility, WorkspaceFileEntry,
+    WorkspaceFileKind, WorkspaceFilePage, WorkspaceFilesQuery, WorkspaceRuntimeOwnerBinding,
+    WorkspaceSourceStatus, WorkspaceSourceView, workspace_owner_authorizes,
 };
 
 /// Temporary compatibility imports for the pre-v3 TUI bootstrap.
@@ -92,6 +93,7 @@ mod tests {
         assert!(std::any::type_name::<ApprovalRequestView>().contains("ApprovalRequestView"));
         assert!(std::any::type_name::<EvidenceView>().contains("EvidenceView"));
         assert!(std::any::type_name::<QueuedInputView>().contains("QueuedInputView"));
+        assert!(std::any::type_name::<TurnView>().contains("TurnView"));
         assert!(std::any::type_name::<AgentLaneRecord>().contains("AgentLaneRecord"));
         assert!(
             std::any::type_name::<LaneRuntimeOwnerBinding>().contains("LaneRuntimeOwnerBinding")

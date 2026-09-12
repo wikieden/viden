@@ -53,6 +53,7 @@ capabilities = [
   "runtime.starter_lane_preview",
   "runtime.structured_diff",
   "runtime.trust_loop",
+  "runtime.turn_lifecycle",
   "runtime.workspace_eligibility",
   "runtime.workspace_files",
   "runtime.workspace_owner",

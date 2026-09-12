@@ -741,9 +741,10 @@ mod tests {
     #[test]
     fn each_missing_extension_is_feature_gated_without_blocking_startup() {
         // 23 -> 25 with the 0.3.4 contract increment's first batch (C5):
-        // `runtime.workspace_owner` and `ui.layout_preferences`. The
-        // milestone target is 29; each batch moves this by what it adds.
-        assert_eq!(CORE_EXTENSION_CAPABILITIES.len(), 25);
+        // `runtime.workspace_owner` and `ui.layout_preferences`; 25 -> 26 with
+        // C6's `runtime.turn_lifecycle`. The milestone target is 29; each
+        // batch moves this by what it adds.
+        assert_eq!(CORE_EXTENSION_CAPABILITIES.len(), 26);
         for capability in CORE_EXTENSION_CAPABILITIES {
             let mut fake = FakeCoreClient::compatible();
             let capability = CapabilityId((*capability).to_string());

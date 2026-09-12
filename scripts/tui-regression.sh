@@ -158,10 +158,11 @@ if release["supported_schema_versions"] != [1]:
 # operator_git, conflict_content, and evidence_reads, in that landing order.
 # 25 is 23 plus the 0.3.4 increment's first batch, C5
 # (docs/release-0.3.4-contract-design.md, sections 1 and 2):
-# runtime.workspace_owner and ui.layout_preferences. The milestone target is
-# 29; each batch moves this count by exactly what it adds.
-if len(base_capabilities) != 15 or len(extension_capabilities) != 25:
-    raise SystemExit("TUI certification capability counts are not base 15 + extension 25")
+# runtime.workspace_owner and ui.layout_preferences; 26 adds C6's
+# runtime.turn_lifecycle (section 3). The milestone target is 29; each batch
+# moves this count by exactly what it adds.
+if len(base_capabilities) != 15 or len(extension_capabilities) != 26:
+    raise SystemExit("TUI certification capability counts are not base 15 + extension 26")
 if set(base_capabilities) & set(extension_capabilities):
     raise SystemExit("TUI certification base and extension capabilities overlap")
 

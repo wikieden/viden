@@ -16,10 +16,10 @@ use crate::{
     ReviewedEvidenceBinding, RuntimeOwner, RuntimeServiceHealthView, RuntimeSnapshot, SessionId,
     SourceTarget, StarterLanePreset, StarterLanePreview, StarterLanePreviewInvalidationReason,
     StarterLaneReceipt, StarterLaneRequest, ToolCallId, TranscriptPage, TranscriptPageRequest,
-    UiLayoutPreferencePatch, UiLayoutPreferences, UiPreferenceDiagnostic, UiPreferencePatch,
-    UiPreferences, WorkMode, WorkspaceChangeView, WorkspaceDiffPage, WorkspaceDiffQuery,
-    WorkspaceEligibility, WorkspaceFilePage, WorkspaceFilesQuery, WorkspaceRuntimeOwnerBinding,
-    WorkspaceSourceView, now_timestamp,
+    TurnOutcome, TurnView, UiLayoutPreferencePatch, UiLayoutPreferences, UiPreferenceDiagnostic,
+    UiPreferencePatch, UiPreferences, WorkMode, WorkspaceChangeView, WorkspaceDiffPage,
+    WorkspaceDiffQuery, WorkspaceEligibility, WorkspaceFilePage, WorkspaceFilesQuery,
+    WorkspaceRuntimeOwnerBinding, WorkspaceSourceView, now_timestamp,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -895,6 +895,32 @@ pub enum RuntimeEventKind {
     SnapshotUpdated {
         snapshot: RuntimeSnapshot,
     },
+    /// A turn Core has started (`runtime.turn_lifecycle`).
+    ///
+    /// Published for every execution path — the native composer turn, a
+    /// drained queue entry, and an Agent session run — so a client reads
+    /// liveness from `RuntimeViewState.active_turns` rather than from the
+    /// residue of a display stream. Paired with exactly one `TurnFinished`.
+    TurnStarted {
+        turn: TurnView,
+    },
+    /// The turn named by `turn_id` has ended (`runtime.turn_lifecycle`).
+    ///
+    /// The last fact of the turn on every exit, including cancellation and
+    /// failure. `outcome` is load-bearing rather than decorative: only
+    /// `Completed` drains the session queue behind the turn, so a client that
+    /// collapsed the three outcomes into "ended" would tell an operator a
+    /// queued prompt is about to run when Core has already decided it is not.
+    TurnFinished {
+        turn_id: String,
+        /// The same owner the paired `TurnStarted` carried. Repeated here
+        /// because the reducer sees events, never envelopes, and the
+        /// session-scoped settlement rule below has to know whether this turn
+        /// belonged to a Lane.
+        owner: RuntimeOwner,
+        outcome: TurnOutcome,
+        finished_at: u64,
+    },
     AssistantDelta {
         message_id: MessageId,
         task_id: Option<AgentTaskId>,
@@ -1117,6 +1143,14 @@ pub struct RuntimeViewState {
     /// digest where it is.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub layout_preferences: Option<UiLayoutPreferences>,
+    /// Turns Core is running right now (`runtime.turn_lifecycle`).
+    ///
+    /// Empty is a real answer meaning nothing is running — including right
+    /// after a restart, because a turn is never resumed across one. A client
+    /// gates its composer on an entry whose owner matches its target and never
+    /// on display residue.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub active_turns: Vec<TurnView>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub runtime_services: Vec<RuntimeServiceHealthView>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -1216,6 +1250,7 @@ impl RuntimeViewState {
             workspace_owner: None,
             lane_sources: BTreeMap::new(),
             layout_preferences: None,
+            active_turns: Vec::new(),
             runtime_services: Vec::new(),
             workspace_changes: Vec::new(),
             check_runs: Vec::new(),
@@ -1556,6 +1591,33 @@ impl RuntimeViewState {
             RuntimeEventKind::SnapshotUpdated { snapshot } => {
                 self.snapshot = snapshot.clone();
                 self.ui_preferences = snapshot.ui_preferences.clone();
+            }
+            RuntimeEventKind::TurnStarted { turn } => {
+                // Upsert rather than push: a snapshot prefix re-lists the turns
+                // Core is running now, and a client that reconnects mid-turn
+                // must not end up with the same turn twice in its composer
+                // predicate.
+                upsert_by_id(&mut self.active_turns, turn.clone(), |existing| {
+                    existing.turn_id == turn.turn_id
+                });
+                cap_vec(&mut self.active_turns);
+            }
+            RuntimeEventKind::TurnFinished { turn_id, owner, .. } => {
+                self.active_turns.retain(|turn| turn.turn_id != *turn_id);
+                // The session-scoped composer turn settles the unscoped
+                // assistant stream, the way a terminal Agent-session fact
+                // already does above. Without this the stream keeps a finished
+                // native turn's text for the life of the view, which is the
+                // residue both clients were reading as "work is still
+                // running".
+                //
+                // Scoped to `lane_id: None` deliberately: a Lane's turn has an
+                // owner-scoped conversation of its own, and clearing the
+                // unscoped stream on it would wipe a session-scoped reply that
+                // is still being produced beside it.
+                if owner.lane_id.is_none() {
+                    self.assistant_stream.clear();
+                }
             }
             RuntimeEventKind::AssistantDelta {
                 message_id,
@@ -2024,7 +2086,7 @@ fn sanitize_runtime_atom(value: &str, max_chars: usize) -> String {
         .collect()
 }
 
-fn sanitize_runtime_text(value: &str, max_chars: usize) -> String {
+pub(crate) fn sanitize_runtime_text(value: &str, max_chars: usize) -> String {
     value
         .replace("/Users/", "_Users_")
         .replace("\\Users\\", "_Users_")
