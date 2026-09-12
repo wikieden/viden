@@ -541,6 +541,11 @@ export const MESSAGE_ARGUMENT_NAMES = {
   "d1.activity.auditFallback": [],
   "d1.center.close": [],
   "d1.center.failed": ["reason"],
+  "d1.lanes.pin": [],
+  "d1.lanes.unpin": [],
+  "d1.statusbar.config": [],
+  "d1.statusbar.config.head": [],
+  "d1.statusbar.config.foot": [],
 } as const;
 
 export type MessageKey = keyof typeof MESSAGE_ARGUMENT_NAMES;

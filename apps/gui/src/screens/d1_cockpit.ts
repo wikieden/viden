@@ -28,9 +28,14 @@ import {
   renderSettingsPanel,
   type SettingsPanelController,
 } from "../components/settings_panel";
-import { renderStatusbar } from "../components/statusbar";
+import {
+  ALL_STATUSBAR_AMBIENT_VISIBLE,
+  renderStatusbar,
+  type StatusbarAmbientSegment,
+  type StatusbarAmbientVisibility,
+} from "../components/statusbar";
 import { renderContextDock } from "../components/context_dock";
-import { renderLaneRail } from "../components/lane_rail";
+import { renderLaneRail, type LaneSidebarMode } from "../components/lane_rail";
 import {
   renderProjectPicker,
   type ProjectPickerAnchorKind,
@@ -94,6 +99,15 @@ import "./d1_cockpit.css";
 export type { D1Intent } from "../models/composer";
 export { BoundedTranscript } from "../models/transcript";
 export type { D1CockpitProjection } from "../models/workspace";
+
+/**
+ * `D-SIDEBAR`'s hover-peek close delay.
+ *
+ * The decision specifies "~700ms": long enough that a pointer travelling past
+ * the hot zone does not make the sidebar blink, short enough that it is out of
+ * the way by the time the operator is reading again.
+ */
+const LANE_PEEK_CLOSE_MS = 700;
 
 /**
  * The centre view's own title, taken from the rail slot that opens it.
@@ -322,6 +336,18 @@ export interface D1RenderOptions {
       arg: string | null,
     ) => void | Promise<void>;
   };
+  /**
+   * The Lane sidebar's `D-SIDEBAR` mode at mount.
+   *
+   * **Seam.** This is presentation state held in memory for this batch and
+   * deliberately not persisted: the frontend contract makes Core the single
+   * preference authority, so a `localStorage` key here (which the design
+   * prototype uses as `vd-leftmode`) would be the second preference model the
+   * contract forbids. Core batch `C5` adds `UiPreferences.lane_sidebar_mode`;
+   * G7 then reads it here and writes it through `SetUiPreferences`, and this
+   * option becomes the resolved Core value rather than a caller default.
+   */
+  laneSidebarMode?: LaneSidebarMode;
   /** Opens D14 scoped to one audit object, for EvidenceView's footer. */
   onOpenAuditTrail?: (scope: { kind: string; id: string }) => void;
   /** Native folder chooser behind the picker's `Add directory…` row. */
@@ -638,6 +664,24 @@ export function renderD1Cockpit(
   /// Core's own words when a secondary read was refused, rendered in place of
   /// the screen rather than leaving the pane blank.
   let secondaryError: string | null = null;
+  /**
+   * The Lane sidebar mode (`D-SIDEBAR`). In-memory for this batch; the
+   * persistence seam is documented on `D1RenderOptions.laneSidebarMode`.
+   */
+  let laneSidebarMode: LaneSidebarMode = options.laneSidebarMode ?? "pinned";
+  /** True while the floating sidebar is peeked open. */
+  let laneRailPeek = false;
+  /** The design's ~700 ms peek delay, so a pointer crossing it does not slam. */
+  let lanePeekTimer: number | null = null;
+  /**
+   * Which ambient statusbar segments are shown (`D-STATUSBAR`).
+   *
+   * **Seam.** In memory, like `laneSidebarMode` and for the same reason: the
+   * GUI must not own a second preference authority. When Core publishes a
+   * statusbar preference this map becomes its resolved value.
+   */
+  let statusbarAmbient: StatusbarAmbientVisibility = { ...ALL_STATUSBAR_AMBIENT_VISIBLE };
+  let statusbarConfigOpen = false;
   /** Core's last diff answer, or null before the first read. */
   let reviewProjection: WorkspaceDiffProjection | null = null;
   /** Selected file. Presentation state: an ordered refresh must not move it. */
@@ -849,9 +893,11 @@ export function renderD1Cockpit(
    * 2. an open overlay owns it (settings, palette, popovers, the project
    *    picker, the permission dock) — a decision the operator is being asked
    *    to make outranks any navigation;
-   * 3. the composer's cancel-turn binding, which the Live Work strip names
+   * 3. the floating Lane sidebar's peek, which is the most transient thing
+   *    on screen and the one `D-SIDEBAR` binds `Escape` to;
+   * 4. the composer's cancel-turn binding, which the Live Work strip names
    *    and which stops real work rather than moving a view;
-   * 4. the centre view's return path — only then, and only when the view
+   * 5. the centre view's return path — only then, and only when the view
    *    actually owns the centre pane.
    */
   const handleEscape = (event: KeyboardEvent): void => {
@@ -859,6 +905,11 @@ export function renderD1Cockpit(
     const active = document.activeElement;
     if (active instanceof HTMLElement && active.closest(ESCAPE_OWNERS)) return;
     if (paletteOpen || settingsOpen || pickerOpen || agentMenuOpen || openControl !== null) return;
+    if (laneRailPeek) {
+      event.preventDefault();
+      hideLanePeek();
+      return;
+    }
     if (projection.composer.busy && root.querySelector("[data-work-cancel]")) {
       event.preventDefault();
       cancelActiveTurn();
@@ -1196,6 +1247,7 @@ export function renderD1Cockpit(
       window.removeEventListener("keydown", handleEvidenceShortcut);
       window.removeEventListener("keydown", handleEvidenceSearchShortcut);
       if (reviewStaleTimer !== null) window.clearTimeout(reviewStaleTimer);
+      if (lanePeekTimer !== null) window.clearTimeout(lanePeekTimer);
       reviewStaleTimer = null;
       // The content cache is view-scoped on purpose: a body that outlived the
       // view could be rendered against an archive that has since moved.
@@ -1798,6 +1850,49 @@ export function renderD1Cockpit(
     secondaryShell = null;
     secondaryBody = null;
     render(true);
+  };
+
+  /** Hides the floating sidebar peek and cancels any pending delay. */
+  const hideLanePeek = (rerender = true): void => {
+    if (lanePeekTimer !== null) {
+      window.clearTimeout(lanePeekTimer);
+      lanePeekTimer = null;
+    }
+    if (!laneRailPeek) return;
+    laneRailPeek = false;
+    if (rerender) render(false);
+  };
+
+  const showLanePeek = (): void => {
+    if (lanePeekTimer !== null) {
+      window.clearTimeout(lanePeekTimer);
+      lanePeekTimer = null;
+    }
+    if (laneRailPeek) return;
+    laneRailPeek = true;
+    render(false);
+  };
+
+  /// The design's ~700 ms close delay, so crossing the hot zone on the way
+  /// somewhere else does not flash the sidebar open and shut.
+  const scheduleLanePeekClose = (): void => {
+    if (lanePeekTimer !== null) window.clearTimeout(lanePeekTimer);
+    lanePeekTimer = window.setTimeout(() => {
+      lanePeekTimer = null;
+      if (disposed) return;
+      laneRailPeek = false;
+      render(false);
+    }, LANE_PEEK_CLOSE_MS);
+  };
+
+  const setLaneSidebarMode = (next: LaneSidebarMode): void => {
+    if (laneSidebarMode === next) return;
+    laneSidebarMode = next;
+    // The two modes are two hosts for one component, so the state that means
+    // "visible" moves with it rather than carrying over as a stale flag.
+    laneRailPeek = false;
+    laneRailOpen = next === "pinned" ? laneRailOpen : false;
+    render(false);
   };
 
   const schedulePoll = (): void => {
@@ -2766,11 +2861,12 @@ export function renderD1Cockpit(
     body.className = "d1-body";
     body.dataset.cockpitGrid = "true";
     body.dataset.cockpitLayout = window.innerWidth <= 1100 ? "narrow" : "desktop";
+    body.dataset.laneSidebarMode = laneSidebarMode;
     if (showWelcome) body.classList.add("d1-body-welcome");
 
     const activity = renderActivityRail(locale, {
       lanesAvailable: !showWelcome,
-      lanesOpen: laneRailOpen,
+      lanesOpen: laneSidebarMode === "pinned" ? laneRailOpen : laneRailPeek,
       conversationCurrent: centerView === "transcript",
       destinations: showWelcome ? {} : railDestinations(),
       onOpenDestination: (destination) => openCenterView(destination),
@@ -2785,6 +2881,14 @@ export function renderD1Cockpit(
             root.querySelector<HTMLTextAreaElement>("[data-composer]")?.focus();
           },
       onToggleLanes: () => {
+        // One slot, two hosts. Pinned toggles the docked rail; floating
+        // toggles the same component's overlay peek, which is the keyboard
+        // path `D-SIDEBAR` gives an operator who cannot reach the hot zone.
+        if (laneSidebarMode === "floating") {
+          if (laneRailPeek) hideLanePeek();
+          else showLanePeek();
+          return;
+        }
         laneRailOpen = !laneRailOpen;
         laneRailFocusTarget = laneRailOpen ? "rail" : "toggle";
         render(false);
@@ -2800,21 +2904,34 @@ export function renderD1Cockpit(
             void openSettingsPanel();
           },
     });
+    const laneRailVisible = laneSidebarMode === "pinned" ? laneRailOpen : laneRailPeek;
     const lanes = renderLaneRail({
       projection,
       locale,
-      open: laneRailOpen,
+      open: laneRailVisible,
       selectedLaneId,
+      mode: laneSidebarMode,
+      onToggleMode: () =>
+        setLaneSidebarMode(laneSidebarMode === "pinned" ? "floating" : "pinned"),
       onCreateLane: () => {
         if (options.onCreateLane) options.onCreateLane();
         else void openAgentMenu();
       },
       onDismiss: () => {
+        if (laneSidebarMode === "floating") {
+          hideLanePeek();
+          return;
+        }
         laneRailOpen = false;
         laneRailFocusTarget = "toggle";
         render(false);
       },
-      onSelectLane: selectLane,
+      onSelectLane: (laneId) => {
+        // A floating sidebar has done its job once a Lane is chosen; it gives
+        // the horizontal space straight back to the transcript.
+        if (laneSidebarMode === "floating") hideLanePeek(false);
+        selectLane(laneId);
+      },
       onRetryAgent: (sessionId, laneId) => {
         selectedLaneId = laneId;
         focusedConversation = conversationForLane(projection, laneId);
@@ -2827,6 +2944,33 @@ export function renderD1Cockpit(
       },
       onAddProject: projectPickerAvailable ? () => openProjectPicker("rail") : undefined,
     });
+    /**
+     * The sidebar's host.
+     *
+     * `pinned` keeps the rail directly in the body, where it already lived.
+     * `floating` wraps the *same* node in the design's `.edgewrap.l` hot zone
+     * — a 12 px strip against the activity rail with the `.edgehint` cue —
+     * so the component is identical in both modes and only its host changes.
+     */
+    const laneHost = ((): HTMLElement => {
+      if (laneSidebarMode === "pinned") return lanes;
+      const edge = document.createElement("div");
+      edge.className = "edgewrap l d1-lane-edge";
+      edge.dataset.laneEdge = "true";
+      edge.dataset.peek = String(laneRailPeek);
+      const hint = document.createElement("span");
+      hint.className = "edgehint";
+      hint.setAttribute("aria-hidden", "true");
+      edge.append(hint);
+      const panel = document.createElement("div");
+      panel.className = "floatpanel d1-lane-float";
+      panel.append(lanes);
+      edge.append(panel);
+      edge.addEventListener("pointerenter", () => showLanePeek());
+      edge.addEventListener("pointerleave", () => scheduleLanePeekClose());
+      return edge;
+    })();
+
     const workSurface = document.createElement("section");
     workSurface.className = "d1-work-surface";
     if (showWelcome) {
@@ -3283,6 +3427,18 @@ export function renderD1Cockpit(
       // the cockpit's router and lands on the in-cockpit decision queue rather
       // than replacing the window the operator is working in.
       (route) => navigate(route),
+      {
+        ambient: statusbarAmbient,
+        open: statusbarConfigOpen,
+        onToggleOpen: () => {
+          statusbarConfigOpen = !statusbarConfigOpen;
+          render(false);
+        },
+        onToggleSegment: (id: StatusbarAmbientSegment) => {
+          statusbarAmbient = { ...statusbarAmbient, [id]: !statusbarAmbient[id] };
+          render(false);
+        },
+      },
     );
     const currentFrame = root.querySelector<HTMLElement>('[data-screen="d1-cockpit"]');
     const currentBody = currentFrame?.querySelector<HTMLElement>(":scope > .d1-body");
@@ -3294,6 +3450,9 @@ export function renderD1Cockpit(
     const currentLanes = currentBody?.querySelector<HTMLElement>(
       '[data-shell-landmark="lane-rail"]',
     );
+    // A mode switch changes the sidebar's *host*, not its contents, so the
+    // in-place refresh cannot express it: rebuild the frame instead.
+    const sidebarHostUnchanged = currentBody?.dataset.laneSidebarMode === laneSidebarMode;
     const currentTopbar = currentFrame?.querySelector<HTMLElement>(
       ':scope > [data-shell-landmark="topbar"]',
     );
@@ -3312,6 +3471,7 @@ export function renderD1Cockpit(
       currentBody &&
       currentActivity &&
       currentLanes &&
+      sidebarHostUnchanged &&
       currentTopbar &&
       currentMain &&
       currentRight &&
@@ -3333,9 +3493,13 @@ export function renderD1Cockpit(
       currentFrame.dataset.centerView = frame.dataset.centerView ?? "transcript";
       currentBody.className = body.className;
       currentBody.dataset.cockpitLayout = body.dataset.cockpitLayout;
+      // The hot zone itself persists with its pointer listeners; only the peek
+      // state it renders moves, so it is written rather than rebuilt.
+      const currentEdge = currentBody.querySelector<HTMLElement>("[data-lane-edge]");
+      if (currentEdge) currentEdge.dataset.peek = String(laneRailPeek);
     } else {
       if (showWelcome) body.append(activity, main);
-      else body.append(activity, lanes, main, right);
+      else body.append(activity, laneHost, main, right);
       frame.append(titlebar, body, status);
       root.replaceChildren(frame);
       regionSignatures.set("topbar", titlebar.outerHTML);

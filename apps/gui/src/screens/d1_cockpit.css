@@ -242,6 +242,86 @@ button.d1-topbar-project[aria-expanded="true"] {
 }
 
 /*
+ * `D-SIDEBAR` floating mode.
+ *
+ * The sidebar gives its horizontal space back to the transcript and is revealed
+ * from the design's `.edgewrap.l` hot zone against the activity rail. The hot
+ * zone, its `.edgehint` cue, the `.floatpanel` and its hover reveal all come
+ * from the registered `GUI/gui-kit.css` family, which `D0` promoted; only the
+ * three things the kit cannot know are added here — where the strip sits
+ * (after the activity rail, where the design's own prototype pins it), the
+ * state-driven peek the keyboard path needs, and the fact that this consumer's
+ * panel content is the cockpit's own `.d1-lanes`, which is an overlay in
+ * pinned mode and must become ordinary content inside the panel.
+ */
+.d1-body .d1-lane-edge.l {
+  inset-inline-start: var(--rail-act);
+}
+
+/*
+ * The peek is state, not only hover: the Lanes rail slot toggles it, which is
+ * the path an operator who cannot reach a 12px strip with a pointer uses.
+ */
+/*
+ * The selectors carry the `.d1-body .…l` prefix on purpose: `gui-kit.css` is
+ * imported after this file, and its `.edgewrap.l .floatpanel` rule ties with a
+ * two-class-plus-attribute selector, so a tie would hand the panel back to
+ * hover-only. Specificity is the mechanism, not decoration.
+ */
+.d1-body .d1-lane-edge.l .floatpanel {
+  pointer-events: none;
+}
+
+.d1-body .d1-lane-edge.l[data-peek="true"] .floatpanel {
+  transform: translateX(0);
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.d1-lane-edge[data-peek="true"] .edgehint {
+  opacity: 1;
+  background: var(--accent);
+}
+
+/*
+ * Inside the panel the rail is content, not an overlay: the kit already gives
+ * it full height, so its pinned-mode absolute placement and reveal transition
+ * are undone rather than fought with.
+ */
+.d1-lane-float .d1-lanes {
+  position: relative;
+  inset: auto;
+  width: 100%;
+  opacity: 1;
+  transform: none;
+  visibility: visible;
+  box-shadow: none;
+  transition: none;
+}
+
+.d1-lane-header {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.d1-lane-header h2 {
+  flex: 1 1 auto;
+}
+
+.d1-lane-pin {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+}
+
+.d1-lane-pin[aria-pressed="true"] {
+  color: var(--accent-bright);
+}
+
+/*
  * The in-cockpit secondary views (`D-RAILNAV`). The registered D-screen owns
  * the centre pane and nothing else; the head carries the destination's own
  * name and the Close control in the position DiffReview puts its own.
@@ -299,6 +379,102 @@ button.d1-topbar-project[aria-expanded="true"] {
   padding: var(--sp-2) var(--sp-3);
   color: var(--error);
   font-size: 12px;
+}
+
+/*
+ * `D-STATUSBAR`'s config gear and its `.sbcfg` popover. The gear sits at the
+ * leading edge of the bar; the popover lists the ambient band only.
+ */
+.d1-sb-gear {
+  flex: none;
+  border: none;
+  background: transparent;
+  color: var(--fg-muted);
+  font: inherit;
+  line-height: 1;
+  padding: 0 var(--sp-2) 0 0;
+  cursor: pointer;
+}
+
+.d1-sb-gear:hover,
+.d1-sb-gear[aria-expanded="true"] {
+  color: var(--accent-bright);
+}
+
+/*
+ * The popover is `fixed`, not `absolute`.
+ *
+ * The bar clips its own overflow — that is what keeps the ticker a single line
+ * — so a popover positioned inside it would be cut off at 28px tall. The design
+ * draws `.sbcfg` against the window rather than the bar (`.win` in the D1
+ * flagship, `left:10px; bottom:36px`), and `fixed` is how a descendant of a
+ * clipping box reaches that same frame without a portal. No ancestor of the
+ * cockpit is transformed, so the containing block really is the window.
+ */
+.d1-sb-config {
+  position: fixed;
+  inset-inline-start: 10px;
+  inset-block-end: 36px;
+  width: 218px;
+  z-index: 70;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  font-family: var(--mono);
+  /* The bar is `nowrap` for the ticker; the popover's two sentences wrap. */
+  white-space: normal;
+}
+
+.d1-sb-config .mhead {
+  margin: 0;
+  padding: 10px 13px 6px;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
+
+.d1-sb-config .crow {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 6px 13px;
+  border: none;
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  color: var(--fg-secondary);
+  text-align: start;
+  cursor: pointer;
+}
+
+.d1-sb-config .crow:hover {
+  background: var(--bg-panel);
+}
+
+.d1-sb-config .crow .bx {
+  width: 22px;
+  flex: none;
+  color: var(--accent);
+}
+
+.d1-sb-config .crow.off {
+  color: var(--fg-muted);
+}
+
+.d1-sb-config .crow.off .bx {
+  color: var(--fg-faint);
+}
+
+.d1-sb-config .mfoot {
+  margin: 0;
+  border-block-start: 1px solid var(--border-soft);
+  padding: 7px 13px;
+  font-size: 10.5px;
+  color: var(--fg-faint);
 }
 
 /* The rail's count badge, from the prototype's `.badge` on an `.actbtn`. */

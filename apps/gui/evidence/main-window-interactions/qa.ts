@@ -427,6 +427,8 @@ interface CockpitOptions {
     container: HTMLElement,
     arg: string | null,
   ) => void | Promise<void>;
+  /** The `D-SIDEBAR` mode the cockpit mounts in. */
+  laneSidebarMode?: "pinned" | "floating";
 }
 
 function mountCockpit(options: CockpitOptions): D1Controller {
@@ -443,6 +445,7 @@ function mountCockpit(options: CockpitOptions): D1Controller {
       poll: false,
       showWelcome: false,
       onNavigate: () => undefined,
+      laneSidebarMode: options.laneSidebarMode,
       secondaryViews: options.secondaryViews
         ? { mount: options.secondaryViews }
         : undefined,
@@ -2167,6 +2170,35 @@ async function renderState(): Promise<void> {
       });
       cockpit.openCenterView("d14");
       await waitFor("[data-secondary-view='d14'] [data-d14-audit-id]");
+      return;
+    }
+
+    case "nav-sidebar-floating-peek": {
+      // `D-SIDEBAR` floating mode: the sidebar is hidden and the 12px hot zone
+      // with its `.edgehint` cue sits against the activity rail. The capture
+      // pins the peek open through the keyboard path — the Lanes rail slot —
+      // so it shows the overlay above the transcript rather than a layout
+      // column, with the header's pin control in its unpinned state.
+      mountCockpit({
+        projection: d1Base(),
+        preferencesAvailable: true,
+        laneSidebarMode: "floating",
+      });
+      click("[data-lanes-toggle]");
+      await waitFor("[data-lane-edge][data-peek='true']");
+      await waitFor("[data-lane-sidebar-pin='floating']");
+      return;
+    }
+
+    case "nav-statusbar-config": {
+      // `D-STATUSBAR`'s config gear. The popover lists the six ambient
+      // segments only; the capture must show that the pinned half — MODE,
+      // PERM, LANE, and the pending-gate chip — is absent from the list while
+      // still on the bar behind it.
+      mountCockpit({ projection: d1Base(), preferencesAvailable: true });
+      click("[data-sb-config-toggle]");
+      await waitFor("[data-sb-config]");
+      await waitFor("[data-sb-config-item='req']");
       return;
     }
 

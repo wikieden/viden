@@ -19,6 +19,11 @@ import {
   type D1RailDestination,
 } from "../src/components/activity_rail";
 import {
+  STATUSBAR_AMBIENT_SEGMENTS,
+  STATUSBAR_PINNED_SEGMENTS,
+  renderStatusbar,
+} from "../src/components/statusbar";
+import {
   renderD1Cockpit,
   type D1CockpitProjection,
   type D1Controller,
@@ -398,6 +403,154 @@ describe("the return path", () => {
 
     expect(frame().dataset.centerView).toBe("d2");
     expect(host.mounted).toEqual([{ route: "d2", arg: null }]);
+    controller.dispose();
+  });
+});
+
+describe("the Lane sidebar has a pinned and a floating mode (D-SIDEBAR)", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  test("pinned is the mode the cockpit opens in and keeps today's toggle", () => {
+    const { root, controller } = mount();
+    const body = root.querySelector<HTMLElement>("[data-cockpit-grid]")!;
+
+    expect(body.dataset.laneSidebarMode).toBe("pinned");
+    expect(root.querySelector("[data-lane-edge]")).toBeNull();
+    root.querySelector<HTMLButtonElement>("[data-lanes-toggle]")!.click();
+    expect(root.querySelector("#d1-lane-rail")?.getAttribute("data-open")).toBe("true");
+    controller.dispose();
+  });
+
+  test("the sidebar header pin control switches modes", () => {
+    const { root, controller } = mount();
+
+    root.querySelector<HTMLButtonElement>("[data-lanes-toggle]")!.click();
+    const pin = root.querySelector<HTMLButtonElement>("[data-lane-sidebar-pin]")!;
+    expect(pin.getAttribute("aria-pressed")).toBe("true");
+
+    pin.click();
+    const body = root.querySelector<HTMLElement>("[data-cockpit-grid]")!;
+    expect(body.dataset.laneSidebarMode).toBe("floating");
+    expect(
+      root.querySelector<HTMLButtonElement>("[data-lane-sidebar-pin]")?.getAttribute("aria-pressed"),
+    ).toBe("false");
+    controller.dispose();
+  });
+
+  test("floating hides the rail behind a hot zone that peeks and hides again", () => {
+    const { root, controller } = mount({ laneSidebarMode: "floating" });
+
+    const edge = root.querySelector<HTMLElement>("[data-lane-edge]")!;
+    expect(edge.dataset.peek).toBe("false");
+    expect(root.querySelector("#d1-lane-rail")?.getAttribute("data-open")).toBe("false");
+
+    edge.dispatchEvent(new MouseEvent("pointerenter", { bubbles: false }));
+    expect(
+      root.querySelector<HTMLElement>("[data-lane-edge]")?.dataset.peek,
+    ).toBe("true");
+    expect(root.querySelector("#d1-lane-rail")?.getAttribute("data-open")).toBe("true");
+
+    vi.useFakeTimers();
+    root
+      .querySelector<HTMLElement>("[data-lane-edge]")!
+      .dispatchEvent(new MouseEvent("pointerleave", { bubbles: false }));
+    // The design's ~700ms peek delay: the rail is still there at 500ms.
+    vi.advanceTimersByTime(500);
+    expect(root.querySelector<HTMLElement>("[data-lane-edge]")?.dataset.peek).toBe("true");
+    vi.advanceTimersByTime(300);
+    expect(root.querySelector<HTMLElement>("[data-lane-edge]")?.dataset.peek).toBe("false");
+    vi.useRealTimers();
+    controller.dispose();
+  });
+
+  test("selecting a Lane and Esc both hide the floating peek", () => {
+    const { root, controller } = mount({ laneSidebarMode: "floating" });
+
+    root.querySelector<HTMLButtonElement>("[data-lanes-toggle]")!.click();
+    expect(root.querySelector<HTMLElement>("[data-lane-edge]")?.dataset.peek).toBe("true");
+
+    root.querySelector<HTMLButtonElement>("#d1-lane-rail [data-lane-id]")!.click();
+    expect(root.querySelector<HTMLElement>("[data-lane-edge]")?.dataset.peek).toBe("false");
+
+    root.querySelector<HTMLButtonElement>("[data-lanes-toggle]")!.click();
+    expect(root.querySelector<HTMLElement>("[data-lane-edge]")?.dataset.peek).toBe("true");
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    expect(root.querySelector<HTMLElement>("[data-lane-edge]")?.dataset.peek).toBe("false");
+    controller.dispose();
+  });
+});
+
+describe("the statusbar config gear (D-STATUSBAR)", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  test("the ambient set is exactly the environment segments", () => {
+    expect([...STATUSBAR_AMBIENT_SEGMENTS]).toEqual([
+      "context",
+      "events",
+      "latency",
+      "tokens",
+      "diag",
+      "req",
+    ]);
+    // Identity and actionable segments are pinned by `D-STATUSBAR` and are
+    // therefore never offered as something to hide.
+    expect([...STATUSBAR_PINNED_SEGMENTS]).toEqual(["mode", "perm", "lane", "gate"]);
+    for (const pinned of STATUSBAR_PINNED_SEGMENTS) {
+      expect(STATUSBAR_AMBIENT_SEGMENTS).not.toContain(pinned);
+    }
+  });
+
+  test("a bar with no config port has no gear", () => {
+    const bar = renderStatusbar(D1_PROJECTION.statusbar, "en");
+    expect(bar.querySelector("[data-sb-config-toggle]")).toBeNull();
+  });
+
+  test("the popover lists only the ambient segments and toggles one", () => {
+    const onToggleSegment = vi.fn();
+    const bar = renderStatusbar(D1_PROJECTION.statusbar, "en", undefined, {
+      ambient: { context: true, events: true, latency: false, tokens: true, diag: true, req: true },
+      open: true,
+      onToggleOpen: () => undefined,
+      onToggleSegment,
+    });
+
+    expect(
+      Array.from(
+        bar.querySelectorAll<HTMLElement>("[data-sb-config-item]"),
+        (row) => row.dataset.sbConfigItem,
+      ),
+    ).toEqual(["context", "events", "latency", "tokens", "diag", "req"]);
+    bar.querySelector<HTMLButtonElement>('[data-sb-config-item="tokens"]')!.click();
+    expect(onToggleSegment).toHaveBeenCalledExactlyOnceWith("tokens");
+  });
+
+  test("a hidden ambient segment leaves the bar while the pinned ones stay", () => {
+    const bar = renderStatusbar(D1_PROJECTION.statusbar, "en", undefined, {
+      ambient: { context: true, events: false, latency: true, tokens: true, diag: true, req: true },
+      open: false,
+      onToggleOpen: () => undefined,
+      onToggleSegment: () => undefined,
+    });
+
+    expect(bar.querySelector('[data-sb-segment="events"]')).toBeNull();
+    expect(bar.querySelector('[data-sb-segment="mode"]')).not.toBeNull();
+    expect(bar.querySelector('[data-sb-segment="lane"]')).not.toBeNull();
+    expect(bar.querySelector("[data-sb-config]")).toBeNull();
+  });
+
+  test("the cockpit hides an ambient segment through the gear, in memory", () => {
+    const { root, controller } = mount();
+
+    root.querySelector<HTMLButtonElement>("[data-sb-config-toggle]")!.click();
+    expect(root.querySelector("[data-sb-config]")).not.toBeNull();
+    root.querySelector<HTMLButtonElement>('[data-sb-config-item="latency"]')!.click();
+
+    expect(root.querySelector('[data-sb-segment="latency"]')).toBeNull();
+    expect(root.querySelector('[data-sb-segment="mode"]')).not.toBeNull();
     controller.dispose();
   });
 });

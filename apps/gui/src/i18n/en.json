@@ -534,5 +534,10 @@
   "d1.activity.unavailable": "unavailable: Core publishes no {capability}",
   "d1.activity.auditFallback": "falls back to raw event replay when Core publishes no runtime.audit",
   "d1.center.close": "Close and return to the conversation",
-  "d1.center.failed": "Core did not answer this view: {reason}"
+  "d1.center.failed": "Core did not answer this view: {reason}",
+  "d1.lanes.pin": "Pin the Lane sidebar",
+  "d1.lanes.unpin": "Unpin the Lane sidebar",
+  "d1.statusbar.config": "Configure status items",
+  "d1.statusbar.config.head": "Ambient items · checked ones are shown",
+  "d1.statusbar.config.foot": "Identity and actionable items are always pinned."
 }

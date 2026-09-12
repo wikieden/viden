@@ -534,5 +534,10 @@
   "d1.activity.unavailable": "不可用：Core 未发布 {capability}",
   "d1.activity.auditFallback": "当 Core 未发布 runtime.audit 时，回退到原始事件回放",
   "d1.center.close": "关闭并返回对话",
-  "d1.center.failed": "Core 未响应此视图：{reason}"
+  "d1.center.failed": "Core 未响应此视图：{reason}",
+  "d1.lanes.pin": "固定 Lane 边栏",
+  "d1.lanes.unpin": "取消固定 Lane 边栏",
+  "d1.statusbar.config": "配置状态项",
+  "d1.statusbar.config.head": "环境项 · 勾选者显示",
+  "d1.statusbar.config.foot": "身份项与可操作项始终固定。"
 }
