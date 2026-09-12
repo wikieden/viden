@@ -755,7 +755,10 @@ Core 现在在 open 时铸造该身份并发布它：
   存储 —— 而移动仓库会改变它，因为这个 id 指名的是一个**位置**。`project_id`
   从 `.viden/project.toml` 的 `[project] id` 读取，若不存在则在首次 open 时以
   `prj_<token>` 铸造并写入；那是移动之后仍然存续、并且被审计轨迹据以连接的那
-  一半。文件中已有的 id 永不改写。
+  一半。文件中已有的 id 永不改写。这两步都发生在每个前端入口都会汇聚的那一条
+  运行时引导路径上，因此每一条 host 路径都会在 workspace open 时绑定 owner ——
+  `LocalCoreHost::open_workspace`、`viden` CLI 及其遗留的 `--no-tui` REPL，
+  以及此后任何嵌入方，一律如此 —— 而不只是那个记得去要的 host。
 - **事实本身。** `WorkspaceRuntimeOwnerBound { binding }` 每次 open 发布一次，
   作为 `SnapshotUpdated` 之后的第一条事实，重新绑定时再发布一次。binding 携带
   规范根目录、owner，以及取值为 `existing` 或 `minted` 的 `project_id_origin`，

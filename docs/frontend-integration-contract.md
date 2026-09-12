@@ -919,6 +919,11 @@ Core now mints the identity at open and publishes it:
   read from `.viden/project.toml` `[project] id`, or minted there as
   `prj_<token>` on the first open; that is the half that survives a move and the
   half an audit trail joins on. An id already in the file is never rewritten.
+  Both steps happen in the one runtime bootstrap every frontend entrypoint
+  funnels through, so every host path binds the owner at workspace open —
+  `LocalCoreHost::open_workspace`, the `viden` CLI and its legacy `--no-tui`
+  REPL, and any later embedder alike — rather than only the host that remembers
+  to ask.
 - **The fact.** `WorkspaceRuntimeOwnerBound { binding }` is emitted once per
   open, as the first fact after `SnapshotUpdated`, and again on a rebind. The
   binding carries the canonical root, the owner, and a `project_id_origin` of

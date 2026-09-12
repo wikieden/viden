@@ -1259,7 +1259,23 @@ provider. Each was reproduced, not inferred; none was fixed in E1.
    threaded through the agent sink; it is a follow-up for the ACP artifact
    seam's owner, not for a client.
 11. **The CLI bootstrap never binds the workspace owner** (Core or CLI, found
-   during T2, 2026-09-12). `SessionEngine::bind_workspace_owner` has exactly one
+   during T2, 2026-09-12). **Closed 2026-09-12 by C10.** Minting and binding
+   moved out of the host and into the one bootstrap every frontend entrypoint
+   funnels through: `bind_workspace_owner_at_root`
+   (`crates/runtime/src/workspace_owner.rs:94`) is called from
+   `bootstrap_runtime_with_context` (`crates/runtime/src/bootstrap.rs:157`), so
+   `apps/cli`, its legacy `--no-tui` REPL, `LocalCoreHost::open_workspace`, and
+   any later embedder all publish the identity at workspace open.
+   `LocalCoreHost` now reads the two ids back off that binding
+   (`crates/core/src/host.rs:218`) instead of minting a second time, and the
+   root is canonicalized before the digest, so two callers naming one directory
+   by different paths cannot mint two identities for one tree. A root whose
+   `.viden/project.toml` cannot be read or written fails the bootstrap rather
+   than leaving the engine unbound: an unbound engine is exactly the
+   fabricated-actor failure this capability exists to end, so it must not be
+   reachable by falling back. No client changed — the TUI's four `/git`
+   workspace rows already render from the published owner and now find one. The
+   original finding follows. `SessionEngine::bind_workspace_owner` has exactly one
    production caller, `LocalCoreHost::open_workspace`
    (`crates/core/src/host.rs`), which mints the identity before the supervisor
    starts so the first snapshot prefix carries it. `apps/cli` does not use the

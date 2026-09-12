@@ -954,7 +954,19 @@ fixture；九个冻结基线 fixture 的字节未变，`scripts/tui-regression.s
    GUI-CORE-028 与 E2 所依赖的。封闭此项需要由摄取方拥有该产物写入，或把一个持久
    追加句柄穿过 agent 汇；这是 ACP 产物接缝所有者的后续项，而不是客户端的。
 11. **CLI 引导路径从不绑定工作区 owner**（Core 或 CLI，T2 期间发现，
-   2026-09-12）。`SessionEngine::bind_workspace_owner` 在生产代码中恰好只有一个
+   2026-09-12）。**已于 2026-09-12 由 C10 关闭。** 铸造与绑定从 host 中移出，
+   下移到每个前端入口都会汇聚的那一条引导路径：`bind_workspace_owner_at_root`
+   （`crates/runtime/src/workspace_owner.rs:94`）由
+   `bootstrap_runtime_with_context`（`crates/runtime/src/bootstrap.rs:157`）调用，
+   因此 `apps/cli`、其遗留的 `--no-tui` REPL、`LocalCoreHost::open_workspace`
+   以及此后任何嵌入方，都会在 workspace open 时发布该身份。`LocalCoreHost` 现在
+   从那一个 binding 读回两个 id（`crates/core/src/host.rs:218`），而不再第二次
+   铸造；根目录在做摘要之前先被规范化，于是两个以不同路径指名同一目录的调用方，
+   不可能为同一棵树铸造出两个身份。若某个根目录的 `.viden/project.toml` 无法
+   读写，则引导失败，而不是留下一个未绑定的引擎：未绑定的引擎正是本能力要终结的
+   「伪造执行身份」失效模式，因此不能通过兜底再次抵达。客户端没有任何改动 ——
+   TUI 的四行 `/git` 工作区行本来就从已发布的 owner 渲染，现在能取到一个了。
+   原始发现如下。`SessionEngine::bind_workspace_owner` 在生产代码中恰好只有一个
    调用方：`LocalCoreHost::open_workspace`（`crates/core/src/host.rs`），它在
    supervisor 启动之前铸造该身份，使第一个快照前缀就带上它。`apps/cli` 不使用该
    host：它调用 `bootstrap_runtime_with_resolved_config`，自己启动
