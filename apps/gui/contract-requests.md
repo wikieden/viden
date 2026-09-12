@@ -10,6 +10,13 @@ bundled with the creation flows. 009, 018, and 019 move to `0.3.4`; 021 and
 023 stay `0.3.4+`. A schedule is not a closure: each entry closes only when
 its stated condition is met on `main`.
 
+Planning note 2026-09-12 (`docs/release-0.3.4-plan.md`): 027, 028, and 009
+are scheduled for `0.3.4` through the Core contract increment to be written
+in `docs/release-0.3.4-contract-design.md` (workspace owner, turn lifecycle,
+durable work evidence, transcript rows, workspace file reads). 013, 018,
+019, 021, 023, and 026 move to `0.3.5`; D5 gallery review will be opened as
+GUI-CORE-029 for `0.3.5` when that contract design is written.
+
 Status note 2026-09-10: 012, 015, 020, and 025 are now fully closed — Core
 published each capability and **both** clients adopted it, which is the
 condition those entries stated. GUI-CORE-027 (workspace-scoped operator

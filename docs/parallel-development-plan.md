@@ -399,11 +399,24 @@ EvidenceView surfaces. "GUI completes D2/D10/D12/D14" is read as D2 gaining
 typed decision context and D12 gaining structured conflict content; D10 and
 D14 were migrated to the audit and live-work contracts during `0.3.2`.
 
-### 0.3.4: Visual, Performance, And Production Release Gate
+### 0.3.4: Cockpit Alignment And Trusted Delivery Completion
+
+Amendment 2026-09-12: the executable plan for this milestone is
+[release-0.3.4-plan.md](release-0.3.4-plan.md). It re-scopes `0.3.4` to bring
+the GUI cockpit level with the accepted D1 design and the design package's
+interactions and navigation (rail-as-router with in-cockpit secondary views,
+Lane tab strip, context dock tabs, designed chords), and to finish the real
+task `0.3.3` left partial through five additive Core capabilities (workspace
+owner, turn lifecycle, durable work evidence, transcript rows, workspace file
+reads). The production release gate below, Plan Studio, and Agent Board move
+to `0.3.5`; D5 gallery review is opened as GUI-CORE-029 for `0.3.5`.
+
+### 0.3.5: Visual, Performance, And Production Release Gate
 
 - TUI deterministic previews plus real Terminal/iTerm2 evidence.
 - GUI screenshot/component parity, CJK, accessibility, performance, and three-platform packaging.
 - Full workspace, real DeepSeek, migration, GitHub Release, and matching Homebrew validation.
+- Plan Studio and Agent Board (moved from `0.3.4` on 2026-09-12).
 
 ## Branch Acceptance Gates
 

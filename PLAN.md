@@ -205,7 +205,12 @@ Next release planning (`0.2.x` and `0.3.x`):
 - `0.3.3`: Operable GUI beta and compatibility hardening. Batches, gates,
   and exit criteria are in `docs/release-0.3.3-plan.md`; the Core contract
   increment behind them is in `docs/release-0.3.3-contract-design.md`.
-- `0.3.4`: Visual fidelity and production release gate.
+- `0.3.4`: Cockpit alignment and trusted delivery completion. Batches,
+  gates, and exit criteria are in `docs/release-0.3.4-plan.md`; the Core
+  contract increment behind them will be in
+  `docs/release-0.3.4-contract-design.md`.
+- `0.3.5`: Visual fidelity and production release gate (moved from `0.3.4`
+  on 2026-09-12 together with Plan Studio and Agent Board).
 - Keep Mode/Permission, provider/model, plan-mode, daily-loop, and live
   DeepSeek token/cost smoke in the release gate for future releases.
 - GUI implementation starts only after the contract freeze, but then runs in

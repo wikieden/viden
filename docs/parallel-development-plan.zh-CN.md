@@ -344,11 +344,22 @@ Plan Studio 与 Agent Board 移到 `0.3.4`：二者都没有登记的 D 屏与 C
 D2/D10/D12/D14" 解读为 D2 获得类型化决策上下文、D12 获得结构化冲突内容；
 D10 与 D14 已在 `0.3.2` 迁移到 audit 与 live-work 契约。
 
-### 0.3.4：视觉、性能和生产发版门禁
+### 0.3.4：驾驶舱拉齐与可信交付补完
+
+修订 2026-09-12：本里程碑的可执行计划是
+[release-0.3.4-plan.zh-CN.md](release-0.3.4-plan.zh-CN.md)。它把 `0.3.4` 重新划定为：让
+GUI 驾驶舱与已接受的 D1 设计及设计包的交互与跳转拉齐（rail 即路由器且二级视图留在驾驶舱内、
+Lane tab strip、上下文坞 tab、设计登记的快捷键），并通过五项可加 Core 能力（工作区身份、回合
+生命周期、持久工作证据、转录行、工作区文件读取）补完 `0.3.3` 只做了一半的真实任务。下方的
+生产发版门禁、Plan Studio 与 Agent Board 移到 `0.3.5`；D5 画廊评审作为 GUI-CORE-029 开给
+`0.3.5`。
+
+### 0.3.5：视觉、性能和生产发版门禁
 
 - TUI deterministic previews + 真实 Terminal/iTerm2 证据。
 - GUI screenshot/component parity、CJK、accessibility、性能和三平台 packaging。
 - full workspace、real DeepSeek、migration、GitHub Release 与 Homebrew 同版本验证。
+- Plan Studio 与 Agent Board（2026-09-12 自 `0.3.4` 移入）。
 
 ## 分支验收门禁
 
