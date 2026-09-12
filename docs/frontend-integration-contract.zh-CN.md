@@ -319,6 +319,7 @@ flowchart LR
 | 分页读取证据归档 | `QueryEvidence { command_id, query }` | 从 workflow agent 日志重建的持久归档、稳定的 `(timestamp, id)` 排序、不透明 cursor、在切页之前应用的 owner 作用域与 kind 过滤、边界，以及类型化 page |
 | 读取单条证据背后的字节 | `ReadEvidenceContent { command_id, evidence_id }` | canonical ContextStore 查找、在提供任何内容之前先做 `source_hash` 校验、类型化的内容或不可用原因，以及 256 KiB 边界 |
 | 打开某个工作区文件 | `ReadWorkspaceFile { command_id, query }` | 由 Core 自有 Lane 记录解析目标、拒绝而非修补的路径校验、读取任何字节之前的真实 `read_file` 权限闸门、相对已解析根的符号链接包含性检查、binary/text 判定、按字符边界的切分，以及覆盖整个文件的 `size` 与 `sha256` |
+| 分页某个所有者的转录行 | `QueryTranscriptRows { command_id, query }` | 行所派生自的持久会话转录与审计时间线、为其归属的 `turn_owner` 括号、在切分分页之前应用的前缀所有者作用域、追加下稳定的排序、不透明的向后游标、8 KiB 正文上界，以及行可以指名的证据 id |
 | 创建 starter Lane | `PreviewStarterLane`，审阅结果后携带未变化 request/id/hash 发送 `CreateStarterLane` | preset 解析、workspace/isolation 校验、permission gate、执行前复检、补偿和 typed receipt |
 | 安排驾驶舱布局 | `SetUiLayoutPreferences { patch }`、`ResetUiLayoutPreferences` | 用户配置中的 `[ui.layout]` 持久化、隐藏段列表的边界、带 `persisted` 与诊断的已发布记录，以及快照前缀的副本 |
 
@@ -949,6 +950,53 @@ file }` 与旁边的清单读取成对：`runtime.workspace_files` 说某条路�
 - **该答案不是 view state。** 它永不归约进 `RuntimeViewState`，因此发布一次不会移动
   任何快照摘要。文件被重新打开时重新请求，而不要把 body 缓存在一棵随时会变的树之上。
   `command_id` 是必填的，因此同时打开两个文件的客户端永远不必按到达顺序归属答案。
+
+### 转录行（`runtime.transcript_rows`）
+
+需要 `runtime.transcript_rows` 扩展。没有它的客户端渲染它收到的实时流，并说明
+有序历史不可用；它不得从 `agent_conversation`、`assistant_stream` 或显示残留
+重建对话，也不得对 `runtime.transcript_page` 分页并从持久条目形状重新推导行类型。
+
+`QueryTranscriptRows { command_id, query }` -> `TranscriptRowsLoaded {
+command_id, page }` 是被冻结的 `LoadTranscriptPage` 的类型化、所有者作用域的
+同胞；后者未变且仍然可用：那个命令分页单个会话的存储日志，这一个回答某一个所有者
+的对话里发生了什么。`TranscriptRowsQuery` 携带前缀作用域的 `owner`、可选的不透明
+`before` 与可选的 `limit`。
+
+前端必须遵守的规则：
+
+- **owner 是作用域，并且失败关闭。** 查询设置的每个字段都必须与行的相等；它留空
+  的字段匹配任何值。指名某个 Lane 的查询绝不会看到 Core 无法归属到该 Lane 的行，
+  指名某个任务的查询也不会被只知道自己 Lane 的行满足。默认（全部留空）的 owner
+  读取本 Core 能够排序的每一行 —— 用于调试视图，绝不用于某个 Lane 的页签。
+- **向后分页，向前渲染。** `before` 是排他上界，一页持有它下方最新的若干行，
+  **最旧在前**。把一页前置到你已持有内容的上方；不要反转它。要继续向上滚动，把该
+  页的 `older` 逐字传回。`complete` 意味着该作用域内不再有更旧的行。
+- **游标是不透明的。** 逐字节传回 `older`。不要解析、构造、比较或持久化一个自己
+  构造的游标：它编码了 Core 的排序规则，而本构建从未签发的游标得到的是
+  `CommandRejected` 而不是一页。
+- **拒绝绝不是空分页。** Core 从未签发的游标，以及它无法读取的持久日志，都是
+  `CommandRejected { command_id, reason }`，并把提示折入其中。空分页意味着该作用域
+  确实没有行。把前者渲染成后者，正是本能力要终结的那种被编造的缺失。
+- **`sequence` 用于排序，不用于计数。** 位置在追加下保持稳定以便游标继续有效，这
+  也意味着它们并不连续。两行 sequence 之间的空缺绝不代表丢行，客户端不得据此推导
+  行数、进度条或「历史缺失」警示。
+- **`truncated` 意味着 8 KiB 上界切掉了正文。** 而不是正文本来就短。在 `evidence_id`
+  存在处，整段正文可经 `ReadEvidenceContent` 读取；在它缺席处，该正文不存在规范
+  字节，客户端不得提供一个无法解析的展开操作。
+- **check run 是它自己的一行。** 不要把 `CheckRun` 渲染成带标签的 `ToolResult`，
+  也不要自己从 tool result 重新推导 check：Core 已经用实时 `CheckRunUpdated` 所用
+  的同一规则做出了这个区分。同样，宣告一次工具调用的 assistant 消息不是一行 ——
+  `ToolCall` 才是。
+- **`Permission` 行的 `decision` 可能缺席。** 那意味着 Core 未记录它究竟是哪一种
+  决定：持久审计行保存的是作用域键，而不是 `allow_session` 的 session id 或
+  `allow_repo` 的路径清单。请把它渲染为「已决定，见审计行」，并通过 `audit_id`
+  抵达其余内容，绝不要渲染为一次性放行。
+- **`TranscriptRowContent` 是 `#[non_exhaustive]`。** 本客户端不认识的行类型要在它
+  的位置上渲染为未知条目，而不是丢弃：丢掉一行会静默地缩短一段对话。
+- **答复不是视图状态。** 它从不被折入 `RuntimeViewState`，因此发布一份不移动任何
+  快照摘要。重连时重新询问，而不是重放缓存的分页；并把分页以 `command_id` 为键
+  保存 —— 该字段是必填的，因此同时分页两个所有者的客户端绝不会按到达顺序归属答复。
 
 ## Approval 和 Permission UI 契约
 

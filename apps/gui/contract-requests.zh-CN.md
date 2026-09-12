@@ -46,6 +46,14 @@
 审批行（G7）、TUI 的证据检视显示归档补丁（T2）。当前开放的登记项为
 009、013、018、019、021、023、026。
 
+状态注记 2026-09-12（C8）：GUI-CORE-009 已在 **Core 侧**关闭 ——
+`runtime.transcript_rows` 从持久的会话事实与审计事实回答某一个所有者的有序类型化行，
+其 `transcript-rows` fixture 证明两个 Lane 与会话编辑器不可能跨所有者泄漏任何一行 ——
+并作为客户端采纳项继续开放，直到 GUI 的 D1 转录渲染这些行并撤下两个不可用占位符
+（G7）、TUI 的转录透镜为聚焦的 Lane 读取它们（T2）。C8 是 `0.3.4` 增量的最后一个
+Core 批次，因此对外通告的扩展集合最终定为 29。当前开放的登记项为
+013、018、019、021、023、026。
+
 ## GUI-CORE-008：所选 Lane 的上下文作用域 — 已关闭
 
 历史：Core `0.3.5` 已暴露 `RuntimeViewState.context_budgets`，但 frontend-neutral
@@ -67,16 +75,42 @@ GUI 状态：已在 `claude/core-contract-closures` 接线。D1 通过 Core 为�
 statusbar 的 context 段未改动，仍是其类型所记录的工作区级「最新 budget」粗粒度指示，
 不是按 Lane 的数字。
 
-## GUI-CORE-009：按 Owner 范围限定的类型化转录行
+## GUI-CORE-009：按 Owner 范围限定的类型化转录行 — 已关闭（Core 侧，2026-09-12）
 
-前端契约仅将 Lane 输出暴露为未类型化流，并暴露全局 assistant 流；它没有提供
-按 Owner 范围限定且有序的 user/assistant 转录序列。因此 D1 仅为选中的精确
-Owner 渲染类型化 Lane 输出，并将 user/assistant 行明确标为不可用；不得从展示
-文本推断角色。
+历史：前端契约仅将 Lane 输出暴露为未类型化流，并暴露全局 assistant 流；它完全没有
+按 Owner 范围限定且有序的 user/assistant 转录序列。因此 D1 仅为选中的精确 Owner
+渲染类型化 Lane 输出，并将 user/assistant 行明确标为不可用；它从不从展示文本推断
+角色。基线的 `runtime.transcript_page` 并未弥合这个缺口：它以持久条目的形状分页单个
+会话的存储日志，并且不携带所有者，它回答的是「这个会话的文件里有什么」，而不是
+「这个所有者的对话里发生了什么」。
 
-当 Core 发布包含稳定行 id、完整 `RuntimeOwner`、类型化 `user`/`assistant` 角色、
-内容或不可变内容引用以及 replay/分页 cursor 的有序转录行时，关闭此请求。规范
-D1 fixture 必须证明两个 Lane 的行不会跨 Owner 泄漏。
+Core 状态：已作为 `runtime.transcript_rows` 交付（C8，0.3.4 契约增量第 5 节）。
+`QueryTranscriptRows { query }` -> `TranscriptRowsLoaded { command_id, page }`
+以类型化的 `User`、`Assistant`、`ToolCall`、`ToolResult`、`CheckRun`、`Permission`
+形状回答某一个所有者的有序行，每一行都带有稳定的行 id、绝不被放宽的完整
+`RuntimeOwner`，以及一个不透明的向后游标。行只派生自持久事实 —— 仅追加的会话转录与
+仅追加的审计时间线 —— 因此一次重连与一次重启会以相同方式回答同一次读取，而实时的
+`agent_conversation` 永远做不到这一点：它是带上限的、按连接归约的，并且在重启后为空。
+
+归属被写入日志，而不是从日志中推断，因为一个转录文件持有不止一个所有者的工作：
+受监督输入路径让一个 Lane 的原生轮次跑在与会话编辑器相同的 engine 上，于是
+`begin_native_turn`/`end_native_turn` 写入一对 `turn_owner` 括号，括号之内的行逐字
+携带那个所有者。Core 无法归属的行只携带它所属的那个会话，而这永远不足以满足一次
+Lane 作用域的查询。作用域本身复用 `EvidenceQuery` 自己的匹配器，因此在两个方向上
+都失败关闭。正文在 8 KiB 处截断并带 `truncated`，并在规范证据行**已经存在**时指名
+仍完整保存它的那一行；该读取从不创建这样的行。本构建从未签发的游标会得到指名该次
+读取的 `CommandRejected`，而绝不是一个空分页。
+
+schema-1 扩展 fixture `transcript-rows.json` 把这一切固化为规范，并且它正是本请求
+所要求的那个 fixture：在同一份持久转录之上三次读取同时在途、被乱序回答，两个 Lane
+与会话编辑器各得到自己的一页，没有任何一行出现在两页之上。它同样证明了分页边界与
+游标往返、每一种行变体、指名其证据的真实 8 KiB 截断，以及游标拒绝。
+
+尚无客户端采纳。GUI 在 G7 中采纳：D1 的转录渲染有序的 `User`/`Assistant` 行，并撤下
+`transcript_user` 与 `transcript_assistant` 这两个不可用占位符，同时工具块保留来自
+`WorkspaceChangeView.diff` 的内联 diff；TUI 在 T2 中采纳：转录透镜为聚焦的 Lane 读取
+同一批行。在各自落地之前，对应客户端仍然声明这些行不可用，而不是去推断它们 ——
+本条仅在 Core 侧关闭。
 
 ## GUI-CORE-010：按 Owner 范围限定的实时工作事实 — 已关闭
 

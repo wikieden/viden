@@ -57,6 +57,16 @@ adoption item until the GUI renders the archive rows and the D14 approval rows
 (G7) and the TUI's evidence inspector shows archived patches (T2). The open
 register is 009, 013, 018, 019, 021, 023, and 026.
 
+Status note 2026-09-12 (C8): GUI-CORE-009 is closed **on the Core side** —
+`runtime.transcript_rows` answers one owner's ordered typed rows from durable
+session and audit facts, with its `transcript-rows` fixture proving that two
+Lanes and the session composer cannot leak a row across owners — and stays open
+as a client adoption item until the GUI's D1 transcript renders the rows and
+retires its two unavailable placeholders (G7) and the TUI's transcript lens
+reads them for the focused Lane (T2). C8 is the last Core batch of the `0.3.4`
+increment, so the advertised extension set is final at 29. The open register is
+013, 018, 019, 021, 023, and 026.
+
 ## GUI-CORE-008: Selected-Lane context scope — CLOSED
 
 History: Core `0.3.5` exposed `RuntimeViewState.context_budgets`, but the
@@ -82,18 +92,54 @@ published. The statusbar's context segment is unchanged and remains the coarse
 workspace-level "latest budget" indicator its type documents, not a per-Lane
 number.
 
-## GUI-CORE-009: Owner-scoped typed transcript rows
+## GUI-CORE-009: Owner-scoped typed transcript rows — CLOSED (Core side, 2026-09-12)
 
-The frontend contract exposes lane output as an untyped stream and exposes a
-global assistant stream. It does not expose an ordered, owner-scoped user and
-assistant transcript sequence. D1 therefore renders only typed lane-output
-facts for the selected exact owner and declares user/assistant rows
-unavailable; it must not infer roles from display text.
+History: the frontend contract exposed lane output as an untyped stream and a
+global assistant stream, and no ordered owner-scoped user/assistant transcript
+sequence at all. D1 therefore rendered only typed lane-output facts for the
+selected exact owner and declared user/assistant rows unavailable; it never
+inferred roles from display text. The base `runtime.transcript_page` did not
+close the gap: it pages one session's storage log in persisted entry shapes and
+carries no owner, which answers "what is in this session's file" rather than
+"what happened in this owner's conversation".
 
-Close this request when Core publishes ordered transcript rows with a stable
-row id, full `RuntimeOwner`, typed `user`/`assistant` role, content or an
-immutable content reference, and replay/pagination cursor. The canonical D1
-fixture must prove that two Lanes cannot leak rows across owners.
+Core status: delivered as `runtime.transcript_rows` (C8, the 0.3.4 contract
+increment's section 5). `QueryTranscriptRows { query }` ->
+`TranscriptRowsLoaded { command_id, page }` answers one owner's ordered rows in
+typed `User`, `Assistant`, `ToolCall`, `ToolResult`, `CheckRun`, and
+`Permission` shapes, each with a stable row id, a full `RuntimeOwner` that is
+never widened, and an opaque backwards cursor. Rows are derived from durable
+facts only — the append-only session transcript and the append-only audit
+timeline — so a reconnect and a restart answer the same read the same way,
+which the live `agent_conversation` could never do: it is a capped per-connection
+reduction and is empty after a restart.
+
+Attribution is written into the log rather than inferred from it, because one
+transcript file holds more than one owner's work: the supervised input path runs
+a Lane's native turn through the same engine as the session composer, so
+`begin_native_turn`/`end_native_turn` write a `turn_owner` bracket and the rows
+inside it carry that owner verbatim. A row Core attributed to no turn carries
+only the session it is a line of, which is never enough to satisfy a
+Lane-scoped query. The scope itself reuses `EvidenceQuery`'s own matcher, so it
+fails closed both ways. Bodies are cut at 8 KiB with `truncated` and name the
+canonical evidence that still holds them whole where such a row already exists;
+the read never creates one. A cursor this build did not issue is a
+`CommandRejected` naming the read, never an empty page.
+
+The schema-1 extension fixture `transcript-rows.json` makes this canonical, and
+it is the fixture this request asked for: three reads outstanding at once over
+one durable transcript, answered out of order, with two Lanes and the session
+composer each getting their own page and no row appearing on more than one of
+them. It also proves the page boundary and the cursor round-trip, every row
+variant, the real 8 KiB cut naming its evidence, and the cursor refusal.
+
+No client has adopted it yet. The GUI adopts it in G7, where D1's transcript
+renders ordered `User`/`Assistant` rows and retires the `transcript_user` and
+`transcript_assistant` unavailable placeholders while tool blocks keep their
+inline diff from `WorkspaceChangeView.diff`; the TUI adopts it in T2, where the
+transcript lens reads the same rows for the focused Lane. Until each lands, the
+corresponding client still declares the rows unavailable rather than inferring
+them — this entry is closed on the Core side only.
 
 ## GUI-CORE-010: Owner-scoped live-work facts — CLOSED
 

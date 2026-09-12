@@ -94,6 +94,7 @@ runtime.project_onboarding
 runtime.recent_work
 runtime.starter_lane_preview
 runtime.structured_diff
+runtime.transcript_rows
 runtime.trust_loop
 runtime.turn_lifecycle
 runtime.workspace_eligibility
@@ -553,6 +554,7 @@ registered schema-1 extension fixtures are:
 | `turn-lifecycle` | Five turns over one session-scoped owner, each opened once and closed once: a typed turn whose streamed reply is settled by its own end rather than left as residue, a second typed turn that two prompts are queued behind and which drains both on completing — announced oldest first, each drained turn naming the queue entry it came from — and a turn the operator cancels, which leaves the prompt queued behind it exactly where it is | `946f68640b6a299b35c00c9bef105ea3b64ee7b642e47d26ac003078b48f4603` | `fb40f5de446bce9c0bf81e2e6b56a75e6e7b59ac7c787570bebab971fdb9b9db` |
 | `workspace-file-reads` | Seven single-file reads over one session-scoped owner: two outstanding at once and answered out of order, one whole text, one cut on a character boundary with the whole file's length and digest beside it, one binary with no payload under a Lane target, one path that is not there, one directory, plus a path that leaves the target and a `read_file` deny rule answered by `CommandRejected` with no body at all | `1b5ffcffebfeabecf9c79967ca7d84b912d510e7c9f2003012a1e48d0184304e` | `98bd938eb1f2fe6cffe106b1e5d5bbeaa1106663592b1aa5e0dfbd069654255f` |
 | `durable-work-evidence` | An approved `edit_file` whose decision becomes a durable audit row under the exact id the request published, the applied mutation's archived `patch` row carrying canonical bytes beside the live workspace change it describes, the archive page and the content read that both answer it with the hash the row published, and an agent adapter's patch fact completed by the runtime's ingestion because the adapter owns no store | `b2719e73785bc9e3a71b459e3eb83ae3a551ac62aa61f8a7c3807e2f883c6f45` | `457c0879ad5e7475b3d79c29dd47af4feaa84d8f95f3317c4335cb04d38a27b5` |
+| `transcript-rows` | Three owner-scoped transcript reads over one durable transcript, outstanding at once and answered out of order: two Lanes and the session composer each get their own page with no row on more than one of them, one Lane's page is cut by its limit and resumed through the exact opaque `older` cursor it published so the boundary row lands on one side only, every row variant appears once, an assistant body carries the real 8 KiB cut and names the canonical evidence that still holds it whole, a tool result names the archived `patch` row for its own tool call, a scoped allow's permission row admits it does not know the decision the audit row never stored, and a cursor this build did not issue is answered by `CommandRejected` with no page at all | `2fa91b16aff8c0d896ae2b6cd7843acea86be1cf04ddf2c69394b86d5fa2ad13` | `f17c3e7fad2baf3d5670cf320ec172f50a9048baa3aedbe09c8cd38456ff4ea8` |
 
 Semantics fix 2026-09-07 (review finding 4): `RuntimeViewState.assistant_stream`
 had no lifecycle — it was append-only for the life of the view, so startup
@@ -977,6 +979,96 @@ stated "none" with the row's summary carrying the reason. The audit lens needed
 no code change, because the dotted `action` key is Core's stable vocabulary and
 is rendered raw; both behaviours are pinned by tests that replay the
 `durable-work-evidence` fixture.
+
+`runtime.transcript_rows` gives a transcript surface ordered rows it can render.
+The frozen `runtime.transcript_page` is untouched and stays what it was: it
+pages one session's storage log in persisted entry shapes — a cost record, a
+session-meta pair, a replayed runtime event — and carries no owner at all. That
+answers "what is in this session's file", and it is not the question a cockpit
+asks. `QueryTranscriptRows { query }` -> `TranscriptRowsLoaded { command_id,
+page }` answers the other one: what happened in *this owner's* conversation, in
+order, in `User`, `Assistant`, `ToolCall`, `ToolResult`, `CheckRun`, and
+`Permission` shapes. GUI-CORE-009's `transcript_user` and
+`transcript_assistant` placeholders were permanently unavailable because no such
+row existed to fill them.
+
+Every row comes from a durable fact and never from `RuntimeViewState`. The live
+view's `agent_conversation` is a capped client-side reduction of whatever stream
+that client received, holds only that connection's window, and is empty after a
+restart; paging it would answer "what was said" with "what you happened to see",
+which is the same fabricated absence seen from the other side. The two sources
+are the append-only session transcript JSONL and the append-only audit
+timeline, both re-read per page rather than cached, so a scroll-up cannot miss
+work that happened while the client was scrolled up.
+
+Attribution is written into the log rather than inferred from it. One transcript
+file holds more than one owner's work, because the supervised input path runs a
+Lane's native turn through the same engine as the session composer, so a Lane's
+rows and the session's rows are interleaved lines of one file. `begin_native_turn`
+and `end_native_turn` now write a `turn_owner` session-meta bracket beside the
+in-memory attribution window they already opened, and a row inside a bracket
+carries that owner verbatim. A session-meta key is used because unknown keys are
+the one persisted entry shape every replayer already ignores rather than
+quarantines, so an older build reading a newer transcript loses attribution
+instead of rejecting a line. A row Core attributed to no turn carries only the
+session it is a line of — which is all Core knows, and never enough to satisfy a
+Lane-scoped query.
+
+`owner` is a prefix scope match over `RuntimeOwner` using the same matcher
+`EvidenceQuery` applies, reused rather than reimplemented so the two
+owner-scoped reads narrow identically and a fix to one cannot leave the other
+answering a scope it should refuse. It fails closed both ways: a query naming a
+Lane is never answered by a row Core could not attribute to that Lane, and a
+query naming a task is not satisfied by a row that only knows its Lane.
+
+Paging walks backwards from the newest end, because a transcript is read where
+it is newest and scrolled up, while a page itself reads oldest-first so a client
+appends it above what it already holds rather than reversing it. `before` is an
+opaque exclusive cursor a client passes back verbatim; the scope is applied
+before the page is cut, so `complete` and `older` describe the scoped transcript
+rather than the raw log. Row positions come from each source's own position
+rather than from a rank over the merged set — a transcript row at entry ordinal
+`o` gets `2 * o + 1`, an audit-derived permission row belonging after the first
+`a` entries gets `2 * a` — so an audit row landing with an old timestamp takes a
+position of its own instead of renumbering rows a client has already paged.
+`sequence` is an ordering key and not a count: a gap is never a lost row.
+
+A check run is its own row rather than a tool result wearing a label, derived by
+the same function the live cockpit fact uses, so one shell command cannot be a
+check on the stream and a plain result in the transcript. The assistant message
+that merely announces a tool call is not a row, because the `ToolCall` beside it
+already is. Permission rows are read from the durable approval audit rows rather
+than from the persisted permission log entry, which carries neither the approval
+request id nor the audit id such a row must name; `decision` is absent for
+`allow_session` and `allow_repo`, because the audit row keeps the scope key and
+not the session id or the path allow-list, and publishing `Allow { Once }` for
+either would misreport a standing grant as a one-shot one. `audit_id` is always
+present and is the row a client reads for the rest.
+
+Bodies are cut at 8 KiB on a character boundary with `truncated`, and
+`evidence_id` names a canonical evidence row only where one already exists: a
+tool result names C7's archived `patch` row for its exact tool call through one
+shared id helper, and an assistant body names a row whose canonical
+`source_hash` is that body's own digest. The read never creates such a row, so
+an absent `evidence_id` means no canonical bytes exist rather than that they
+were withheld. The read is not permission-gated — the `QueryEvidence` posture,
+because these are facts Core recorded into its own logs rather than bytes from
+the operator's tree — and is bounded, owner-scoped, and paged instead. A cursor
+this build did not issue and a durable log Core could not read are
+`CommandRejected` naming the exact read, never an empty page a client would
+render as a session in which nothing was said. The page is a query result and is
+never folded into `RuntimeViewState`: folding a *scoped* page in would put one
+Lane's conversation into a view every client shares and let a scroll-up move the
+snapshot digest.
+
+0.3.4 contract increment, batch C8, landed 2026-09-12 on
+`claude/core-transcript-rows`. `runtime.transcript_rows` moves the advertised
+extension set from 28 to 29 — the milestone's final count, since C8 is the last
+Core batch of the increment — and adds the `transcript-rows` fixture listed in
+the corpus table, with the nine frozen base fixtures byte-unchanged and the
+capability count gate in `scripts/tui-regression.sh` moved 28 -> 29. Neither
+client has adopted it yet: the GUI's ordered transcript rows are G7 and the
+TUI's transcript lens is T2.
 
 Open follow-ups recorded 2026-09-10. Each was confirmed during the `0.3.3`
 batches and deliberately left out of them, so none is rediscovered later as a

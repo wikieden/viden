@@ -86,6 +86,7 @@ runtime.project_onboarding
 runtime.recent_work
 runtime.starter_lane_preview
 runtime.structured_diff
+runtime.transcript_rows
 runtime.trust_loop
 runtime.turn_lifecycle
 runtime.workspace_eligibility
@@ -423,6 +424,7 @@ Fixture 文件位于 `crates/types/tests/fixtures/frontend-contract-v1/`。下�
 | `turn-lifecycle` | 同一个会话作用域 owner 下的五次回合，每一次都只开启一次、只关闭一次：一次键入的回合，其流式回复由回合自身的结束来结算，而不是留作残留；第二次键入的回合背后排了两条提示，它完成时把两条都排空 —— 按最旧优先宣告，每一次被排空的回合都指名它来自哪一条队列条目 —— 以及一次被操作者取消的回合，它背后排队的提示原样留在队列里 | `946f68640b6a299b35c00c9bef105ea3b64ee7b642e47d26ac003078b48f4603` | `fb40f5de446bce9c0bf81e2e6b56a75e6e7b59ac7c787570bebab971fdb9b9db` |
 | `workspace-file-reads` | 同一个会话作用域 owner 下的七次单文件读取：两次同时在途且乱序作答；一次完整文本；一次在字符边界上被截断，旁边仍带着整个文件的长度与摘要；一次 Lane 目标下的二进制、不带任何载荷；一次路径并不存在；一次是目录；另有一次离开目标的路径与一条 `read_file` deny 规则，以 `CommandRejected` 作答且完全不发布 body | `1b5ffcffebfeabecf9c79967ca7d84b912d510e7c9f2003012a1e48d0184304e` | `98bd938eb1f2fe6cffe106b1e5d5bbeaa1106663592b1aa5e0dfbd069654255f` |
 | `durable-work-evidence` | 一次被批准的 `edit_file`：该决定成为一条持久审计行，其 id 正是请求已经公布的那一个；随后被应用的变更留下一条归档 `patch` 行，带有规范字节，与描述同一次改动的实时工作区变更并列；归档分页与内容读取都用该行公布的哈希回答它；最后是一条外部 Agent 适配器的补丁事实，由运行时的摄取补全 —— 因为适配器自身没有存储 | `b2719e73785bc9e3a71b459e3eb83ae3a551ac62aa61f8a7c3807e2f883c6f45` | `457c0879ad5e7475b3d79c29dd47af4feaa84d8f95f3317c4335cb04d38a27b5` |
+| `transcript-rows` | 在同一份持久转录之上的三次所有者作用域转录读取，同时在途且被乱序回答：两个 Lane 与会话编辑器各得到自己的一页，没有任何一行出现在两页之上；其中一个 Lane 的一页被 limit 截断，并通过它自己公布的那个不透明 `older` 游标续读，使边界行只落在一侧；每一种行变体各出现一次；一条 assistant 正文承载真实的 8 KiB 截断并指名仍完整保存它的规范证据；一条 tool result 指名属于它自己那次工具调用的归档 `patch` 行；一条作用域放行的权限行承认它不知道审计行从未存下的那个决定；而一个本构建从未签发的游标以 `CommandRejected` 回答，完全不带任何分页 | `2fa91b16aff8c0d896ae2b6cd7843acea86be1cf04ddf2c69394b86d5fa2ad13` | `f17c3e7fad2baf3d5670cf320ec172f50a9048baa3aedbe09c8cd38456ff4ea8` |
 
 2026-09-07 语义修正（评审发现 4）：`RuntimeViewState.assistant_stream` 此前没有生命
 周期——它在整个 view 生命期内只追加，因此启动重放会把每个历史会话的回复串接成一整块
@@ -737,6 +739,73 @@ TUI 对等（批次 T2，2026-09-12）：已采纳。证据检视器的详情把
 渲染为明确的「none」，原因由该行的摘要承载。审计视图不需要改代码，因为带点号的
 `action` 键是 Core 的稳定词汇表且原样渲染；两种行为都由回放
 `durable-work-evidence` fixture 的测试固定下来。
+
+`runtime.transcript_rows` 给转录界面提供它可以直接渲染的有序行。被冻结的
+`runtime.transcript_page` 未被触碰，仍然是它原本的样子：它以持久条目的形状分页
+单个会话的存储日志 —— 一条成本记录、一对 session-meta、一个被重放的运行时事件 ——
+并且完全不携带所有者。那回答的是「这个会话的文件里有什么」，而这并不是驾驶舱要问
+的问题。`QueryTranscriptRows { query }` -> `TranscriptRowsLoaded { command_id,
+page }` 回答另一个问题：在**这个所有者**的对话里发生了什么，按顺序，以 `User`、
+`Assistant`、`ToolCall`、`ToolResult`、`CheckRun`、`Permission` 的形状。
+GUI-CORE-009 的 `transcript_user` 与 `transcript_assistant` 占位符长期不可用，
+正是因为从来不存在这样一种行可以填入它们。
+
+每一行都来自持久事实，从不来自 `RuntimeViewState`。实时视图的
+`agent_conversation` 是对「那个客户端恰好收到的流」的、带上限的客户端侧归约，只持有
+该次连接的窗口，并且在重启后为空；对它分页，等于用「你恰好看到了什么」回答「说了
+什么」，而这与从另一侧看到的那种被编造的缺失是同一回事。两个来源是仅追加的会话转录
+JSONL 与仅追加的审计时间线，二者按页重新读取而不缓存，因此向上滚动不会错过「客户端
+正在向上滚动时发生的工作」。
+
+归属被写入日志，而不是从日志中推断。一个转录文件持有不止一个所有者的工作 —— 因为
+受监督输入路径让一个 Lane 的原生轮次跑在与会话编辑器相同的 engine 上，于是一个 Lane
+的行与会话的行是同一个文件里交错的若干行。`begin_native_turn` 与 `end_native_turn`
+现在会在它们早已开启的内存归属窗口旁边写入一对 `turn_owner` session-meta 括号，而
+括号之内的行逐字携带那个所有者。之所以采用 session-meta 键，是因为未知键是唯一一种
+每个重放器早已忽略而非隔离的持久条目形状，因此较旧的构建读取较新的转录时会丢失归属，
+而不是拒绝某一行。Core 无法归属的行只携带它所属的那个会话 —— 这是 Core 唯一知道的
+事情，而且永远不足以满足一次 Lane 作用域的查询。
+
+`owner` 是对 `RuntimeOwner` 的前缀作用域匹配，使用 `EvidenceQuery` 所用的同一个
+匹配器，复用而非重新实现，因此两个所有者作用域读取以完全相同的方式收窄，对其中一个
+的修复不可能让另一个仍然回答它本应拒绝的作用域。它在两个方向上都失败关闭：指名某个
+Lane 的查询绝不会被 Core 无法归属到该 Lane 的行回答，而指名某个任务的查询也不会被
+只知道自己 Lane 的行满足。
+
+分页从最新端向后走，因为转录是在最新处阅读、然后向上滚动的；而一页本身按最旧在前
+阅读，因此客户端把它追加到已持有内容的上方，而不必先把它反转。`before` 是一个不透明
+的排他游标，由客户端逐字传回；作用域在分页被切出之前应用，因此 `complete` 与 `older`
+描述的是有作用域的转录，而不是原始日志。行的位置来自各来源自身的位置，而不是来自对
+合并集合的排名 —— 位于条目序号 `o` 的转录行得到 `2 * o + 1`，属于前 `a` 个条目之后的
+审计派生权限行得到 `2 * a` —— 因此一条带着较旧时间戳落地的审计行会占据自己的位置，
+而不会给客户端已经分页过的行重新编号。`sequence` 是排序键而非计数：空缺从不代表
+丢行。
+
+check run 是它自己的一行，而不是套了标签的 tool result，并且由实时驾驶舱事实所用的
+同一个函数派生，因此同一条 shell 命令不可能在流上是 check、在转录里是普通结果。仅仅
+「宣告」一次工具调用的 assistant 消息不是一行，因为它旁边的 `ToolCall` 已经是了。
+权限行读自持久的审批审计行，而不是读自持久的权限日志条目 —— 后者既不携带审批请求 id
+也不携带这样一行必须指名的审计 id；`decision` 对 `allow_session` 与 `allow_repo` 缺席，
+因为审计行保存的是作用域键，而不是 session id 或路径白名单，为二者发布
+`Allow { Once }` 会把一次长期授权误报为一次性授权。`audit_id` 始终存在，并且是客户端
+读取其余内容所依据的那一行。
+
+正文在 8 KiB 处按字符边界截断并带 `truncated`，而 `evidence_id` 只在规范证据行**已经
+存在**时指名它：tool result 通过一个共享的 id 助手指名 C7 为它那次确切工具调用归档的
+`patch` 行，assistant 正文指名其规范 `source_hash` 恰为该正文自身摘要的那一行。读取
+从不创建这样的行，因此缺席的 `evidence_id` 意味着不存在规范字节，而不是它们被扣下。
+该读取不设权限闸门 —— 这是 `QueryEvidence` 的姿态，因为这些是 Core 写入自己日志的
+事实，而不是来自操作者工作树的字节 —— 取而代之的是有界、所有者作用域与分页。一个本
+构建从未签发的游标，以及一份 Core 无法读取的持久日志，都会以指名该次确切读取的
+`CommandRejected` 回答，绝不是客户端会读作「这个会话里什么都没说过」的空分页。分页是
+查询结果，从不被折入 `RuntimeViewState`：折入一份**有作用域的**分页，会把一个 Lane 的
+对话放进每个客户端共享的视图，并让一次向上滚动移动快照摘要。
+
+0.3.4 契约增量的 C8 批次已于 2026-09-12 落到 `claude/core-transcript-rows`。
+`runtime.transcript_rows` 把对外通告的扩展集合由 28 移到 29 —— 这是本里程碑的最终
+计数，因为 C8 是该增量的最后一个 Core 批次 —— 并新增语料表中列出的 `transcript-rows`
+fixture；九个冻结基线 fixture 的字节未变，`scripts/tui-regression.sh` 中的能力计数门
+由 28 移到 29。两个客户端都尚未采纳：GUI 的有序转录行属于 G7，TUI 的转录透镜属于 T2。
 
 2026-09-10 记录的未决跟进项。每一条都是在 `0.3.3` 各批次中确认、并被刻意留在
 批次之外的，因此它们不会日后被当作新发现重新提出：

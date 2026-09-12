@@ -365,6 +365,7 @@ a contract change, not a refactor.
 | Page the evidence archive | `QueryEvidence { command_id, query }` | the durable archive rebuilt from the workflow agent log, stable `(timestamp, id)` ordering, the opaque cursor, owner-scope and kind filtering applied before the page is cut, bounds, and the typed page |
 | Read the bytes behind one evidence row | `ReadEvidenceContent { command_id, evidence_id }` | canonical ContextStore lookup, `source_hash` verification before anything is served, the typed content or unavailable reason, and the 256 KiB bound |
 | Open one workspace file | `ReadWorkspaceFile { command_id, query }` | target resolution from Core-owned Lane records, path validation that refuses rather than repairs, the real `read_file` permission gate before any byte is read, symlink containment against the resolved root, the binary/text decision, the character-boundary cut, and the whole-file `size` and `sha256` |
+| Page one owner's transcript rows | `QueryTranscriptRows { command_id, query }` | the durable session transcript and audit timeline the rows are derived from, the `turn_owner` bracket that attributes them, the prefix owner scope applied before the page is cut, the stable-under-append ordering, the opaque backwards cursor, the 8 KiB body bound, and the evidence ids a row may name |
 | Create a starter Lane | `PreviewStarterLane`, review the result, then `CreateStarterLane` with the unchanged request/id/hash | preset resolution, workspace/isolation checks, permission gate, execution-time recheck, compensation, typed receipt |
 | Arrange the cockpit layout | `SetUiLayoutPreferences { patch }`, `ResetUiLayoutPreferences` | `[ui.layout]` persistence in the user config, bounds on the hidden-segment list, the published record with `persisted` and its diagnostics, and the snapshot-prefix copy |
 
@@ -1158,6 +1159,69 @@ Rules a frontend must honor:
   rather than caching a body across a tree that can change underneath it.
   `command_id` is required, so a client with two files open never attributes an
   answer by arrival order.
+
+### Transcript rows (`runtime.transcript_rows`)
+
+Requires the `runtime.transcript_rows` extension. A client without it renders
+whatever live stream it received and states that ordered history is
+unavailable; it must not reconstruct a conversation from `agent_conversation`,
+`assistant_stream`, or display residue, and it must not page
+`runtime.transcript_page` and re-derive row kinds from persisted entry shapes.
+
+`QueryTranscriptRows { command_id, query }` -> `TranscriptRowsLoaded {
+command_id, page }` is the typed owner-scoped sibling of the frozen
+`LoadTranscriptPage`, which is unchanged and still available: that command pages
+one session's storage log, this one answers what happened in one owner's
+conversation. `TranscriptRowsQuery` carries a prefix-scope `owner`, an optional
+opaque `before`, and an optional `limit`.
+
+Rules a frontend must honor:
+
+- **The owner is a scope, and it fails closed.** Every field the query sets must
+  equal the row's; the fields it leaves unset match anything. A query naming a
+  Lane never sees a row Core could not attribute to that Lane, and a query
+  naming a task is not satisfied by a row that only knows its Lane. A default
+  (all-unset) owner reads every row this Core can order — use it for a
+  debugging view, never for a Lane's tab.
+- **Page backwards, render forwards.** `before` is an exclusive upper bound and
+  a page holds the newest rows below it, **oldest first**. Prepend a page above
+  what you already hold; do not reverse it. To scroll further up, pass the
+  page's `older` back verbatim. `complete` means no older row matches the scope.
+- **The cursor is opaque.** Pass `older` back byte for byte. Do not parse,
+  construct, compare, or persist a constructed one: it encodes Core's ordering
+  rule, and a cursor this build did not issue is a `CommandRejected` rather than
+  a page.
+- **A refusal is never an empty page.** A cursor Core did not issue and a
+  durable log it could not read are `CommandRejected { command_id, reason }`
+  with the hint folded in. An empty page means the scope really has no rows.
+  Rendering the first as the second is the fabricated absence this capability
+  exists to end.
+- **`sequence` orders, it does not count.** Positions are stable under append so
+  a cursor stays valid, which means they are not contiguous. A gap between two
+  rows' sequences is never a lost row, and a client must not derive a row count,
+  a progress bar, or a "missing history" warning from one.
+- **`truncated` means the 8 KiB bound cut the body.** Not that the body is
+  short. Where `evidence_id` is present the whole body is readable through
+  `ReadEvidenceContent`; where it is absent, no canonical bytes exist for it and
+  a client must not offer an expand affordance that cannot resolve.
+- **A check run is its own row.** Do not render `CheckRun` as a `ToolResult`
+  with a label, and do not re-derive checks from tool results yourself: Core
+  already made that distinction with the same rule the live `CheckRunUpdated`
+  uses. Likewise, the assistant message that announces a tool call is not a
+  row — the `ToolCall` is.
+- **A `Permission` row's `decision` may be absent.** That means Core did not
+  record which decision it was: the durable audit row keeps the scope key, not
+  an `allow_session`'s session id or an `allow_repo`'s path list. Render it as
+  "decided, see the audit row" and reach the rest through `audit_id`, never as a
+  one-shot allow.
+- **`TranscriptRowContent` is `#[non_exhaustive]`.** A row kind this client does
+  not know is rendered as an unknown entry in its position, not dropped: a
+  dropped row silently shortens a conversation.
+- **The answer is not view state.** It is never folded into `RuntimeViewState`,
+  so publishing one moves no snapshot digest. Re-ask on reconnect rather than
+  replaying a cached page, and keep pages keyed on `command_id`, which is
+  required, so a client paging two owners never attributes a page by arrival
+  order.
 
 ## Approval And Permission UI Contract
 
