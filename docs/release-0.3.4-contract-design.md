@@ -149,7 +149,7 @@ pub struct UiLayoutPreferences {
 #[non_exhaustive]
 #[derive(Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
-pub enum LaneSidebarMode { #[default] Pinned, Floating }
+pub enum LaneSidebarMode { #[default] Pinned, Floating } // amended 2026-09-12, see Amendments
 
 pub struct UiLayoutPreferencePatch {
     pub lane_sidebar_mode: Option<LaneSidebarMode>,
@@ -173,7 +173,9 @@ pub struct UiLayoutPreferencePatch {
 
 ### Fixture `ui-layout-preferences.json`
 
-Set floating → updated and persisted → reset → default pinned; an unknown
+Set floating → updated and persisted → reset → default pinned (amended
+2026-09-12, see Amendments: the default is floating, so the shipped sequence
+is floating default → set pinned → reset back to floating); an unknown
 segment name in `hidden_statusbar_segments` is kept verbatim (Core does not
 know the client's segment vocabulary) but the list is bounded and refused
 over the bound.
@@ -482,3 +484,62 @@ is dispatched.
 - File reads gate on the real `read_file` spec, non-interactively.
 - Bounds: 8 KiB per transcript row text, 256 KiB default and 1 MiB maximum
   per file read, 16 hidden statusbar segments.
+
+## Amendments From Implementation (2026-09-12)
+
+Recorded by batch C5 as the contract design's own rules require: a batch may
+deviate only with the reason in its report and, if the deviation survives
+review, here. The body above is left as written and the amended lines are
+marked; this section is what shipped.
+
+- **`LaneSidebarMode` defaults to `Floating`, not `Pinned`.** The body's
+  `#[default] Pinned` contradicted design decision `D-SIDEBAR` in
+  `docs/viden-design/Viden/docs/SPEC.md`, which makes `float` the default mode
+  (hover peek, horizontal space to the transcript) and `pinned` the
+  alternative. The design was wrong, not the design package; the GUI batch is
+  aligned to `D-SIDEBAR` as well. The fixture now starts from the floating
+  default, sets pinned, and resets back to floating, so the set and the reset
+  land on different modes and neither is the fixture's own default.
+- **`SetUiLayoutPreferences { patch }` and `ResetUiLayoutPreferences` carry no
+  `command_id` field.** No `RuntimeCommand` variant does: the id lives on
+  `RuntimeCommandEnvelope` and the answering event repeats it, as
+  `QueryWorkspaceDiff` → `WorkspaceDiffLoaded` already does. The correlation
+  the design asked for is unchanged.
+- **`UiLayoutPreferencesUpdated` gained `diagnostics: Vec<UiPreferenceDiagnostic>`.**
+  The design says `persisted: false` carries "the reason in a diagnostic" but
+  gave the event no field to carry one. Optional and skipped when empty.
+- **`MAX_HIDDEN_STATUSBAR_SEGMENT_BYTES = 64` was added.** The design bounds
+  the list's length but not each name, which leaves a "bounded" list unbounded
+  in bytes. Blank names and control characters are refused on the same ground.
+- **`project_id` is `prj_<nanosecond token>`, not a ULID.** No ULID crate is a
+  dependency and the batch was not authorized to add one; `fresh_id` is the
+  existing helper. Prefix and shape match the design.
+- **Minting lives in `viden-runtime`, called from `LocalCoreHost::open_workspace`.**
+  The workspace-id digest needs `sha2`, a dependency of `viden-runtime` and
+  only a dev-dependency of `viden-core`. The host still performs both steps at
+  open.
+- **Resetting the appearance profile preserves `[ui.layout]`.** The design puts
+  the layout table under `[ui]`, which the appearance reset removed wholesale;
+  the two records answer to two different commands, so an operator resetting a
+  theme must not find their cockpit rearranged.
+- **A Lane-target operator git action publishes `LaneSourceUpdated` instead of
+  `WorkspaceSourceUpdated`.** Required by the design's own "`WorkspaceSourceUpdated`
+  keeps its meaning (the workspace root only)"; it had been putting one tree's
+  branch and ahead/behind into another tree's chip.
+- **Workspace-target authorization compares the workspace and project ids, not
+  the whole owner.** A Lane-scoped operator acting on the workspace root is a
+  real case and its audit record should name the Lane it came from. Refused is
+  an owner naming *no* workspace — the `RuntimeOwner::default()` case
+  GUI-CORE-027 is about — or naming a different one.
+- **"Sampled at Lane worktree creation" is implemented in the Lane event sink,
+  once per Lane**, on the first `LaneUpdated` announcing an existing worktree.
+  Lane creation is dispatched to an asynchronous Lane worker, so at dispatch
+  time the worktree does not exist yet; sampling on every `LaneUpdated` would
+  put several bounded `git` invocations on that worker's hot path.
+- **"On each snapshot prefix for every live Lane" is implemented in the status
+  lifecycle sampling** — connect, every snapshot request, and every completed
+  supervised command, which is where the workspace source is already sampled —
+  rather than in `runtime_state_events`. That prefix is rebuilt for every
+  command, so sampling N Lanes there would spawn 5N `git` processes per
+  command. The snapshot envelope still carries the rows, because the sampling
+  runs immediately before the envelope is built.

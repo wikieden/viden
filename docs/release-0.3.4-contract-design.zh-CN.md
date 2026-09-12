@@ -121,7 +121,7 @@ pub struct UiLayoutPreferences {
 #[non_exhaustive]
 #[derive(Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
-pub enum LaneSidebarMode { #[default] Pinned, Floating }
+pub enum LaneSidebarMode { #[default] Pinned, Floating } // 2026-09-12 修订，见「实现修订」
 
 pub struct UiLayoutPreferencePatch {
     pub lane_sidebar_mode: Option<LaneSidebarMode>,
@@ -141,8 +141,10 @@ pub struct UiLayoutPreferencePatch {
 
 ### Fixture `ui-layout-preferences.json`
 
-设为浮动 → 已更新且已持久化 → 重置 → 默认固定；`hidden_statusbar_segments` 中未知的段名原样
-保留（Core 不知道客户端的段词汇），但列表有界，超界即拒绝。
+设为浮动 → 已更新且已持久化 → 重置 → 默认固定（2026-09-12 修订，见「实现修订」：默认值是
+floating，因此实际落地的序列是「floating 默认 → 设为 pinned → 重置回 floating」）；
+`hidden_statusbar_segments` 中未知的段名原样保留（Core 不知道客户端的段词汇），但列表有界，
+超界即拒绝。
 
 ## 3. `runtime.turn_lifecycle`（C6）
 
@@ -397,3 +399,46 @@ GUI：Files tab 内容与 Code tab，面板 `~` 行在 Code tab 中打开文件�
 - 原生补丁证据以回合作为其生产者任务；会话级回合的证据永远不满足 Lane 的合并闸。
 - 文件读取以真实的 `read_file` 规格非交互地门控。
 - 边界：每条转录行文本 8 KiB，每次文件读取默认 256 KiB、最大 1 MiB，隐藏状态栏段 16 个。
+
+## 实现修订（2026-09-12）
+
+由 C5 批次记录，遵循本契约设计自身的规则：批次只能在其报告中给出理由的前提下偏离；
+若该偏离通过评审，则记录在此。上文正文保持原样，被修订的行已就地标注；本节是实际落地的内容。
+
+- **`LaneSidebarMode` 的默认值是 `Floating`，而不是 `Pinned`。** 正文的
+  `#[default] Pinned` 与 `docs/viden-design/Viden/docs/SPEC.md` 中的设计决策
+  `D-SIDEBAR` 相抵触 —— 后者规定 `float` 为默认模式（hover 峰显，把水平空间让给转录），
+  `pinned` 为备选。错的是这份设计，不是设计包；GUI 批次同样按 `D-SIDEBAR` 对齐。
+  fixture 现在从 floating 默认值开始、设为 pinned、再重置回 floating，因此设置与重置
+  落在不同模式上，且两者都不是 fixture 自身的默认值。
+- **`SetUiLayoutPreferences { patch }` 与 `ResetUiLayoutPreferences` 不带
+  `command_id` 字段。** 没有任何 `RuntimeCommand` 变体带它：id 位于
+  `RuntimeCommandEnvelope` 上，由作答事件回显，这与 `QueryWorkspaceDiff` →
+  `WorkspaceDiffLoaded` 的既有做法一致。设计所要求的关联关系没有改变。
+- **`UiLayoutPreferencesUpdated` 增加了 `diagnostics: Vec<UiPreferenceDiagnostic>`。**
+  设计说 `persisted: false` 要「在诊断中给原因」，却没有给该事件承载诊断的字段。
+  该字段可选，为空即跳过。
+- **新增 `MAX_HIDDEN_STATUSBAR_SEGMENT_BYTES = 64`。** 设计只约束列表长度、不约束单个
+  名字，这会让「有界」列表在字节上无界。空名字与控制字符基于同一理由被拒绝。
+- **`project_id` 是 `prj_<纳秒 token>`，不是 ULID。** 工作区没有 ULID 依赖，本批次也未
+  获授权新增；`fresh_id` 是既有辅助函数。前缀与形状与设计一致。
+- **铸造逻辑位于 `viden-runtime`，由 `LocalCoreHost::open_workspace` 调用。**
+  workspace id 的摘要需要 `sha2` —— 它是 `viden-runtime` 的正式依赖，而对 `viden-core`
+  只是 dev-dependency。host 仍在 open 时完成这两步。
+- **重置外观档案会保留 `[ui.layout]`。** 设计把布局表放在 `[ui]` 之下，而外观重置原本
+  整表删除；两条记录对应两条不同的命令，操作者重置主题时不该发现驾驶舱被重排。
+- **Lane 目标的操作者 git 动作发布 `LaneSourceUpdated`，而不是 `WorkspaceSourceUpdated`。**
+  这是设计自身「`WorkspaceSourceUpdated` 保持其原义（仅指工作区根目录）」所要求的；
+  原先的行为把一棵树的分支与 ahead/behind 放进了另一棵树的芯片。
+- **工作区目标的授权比较的是 workspace 与 project 两个 id，而不是整个 owner。**
+  Lane 作用域的操作者对工作区根目录动手是真实场景，其审计记录应当指名它来自哪个 Lane。
+  被拒绝的是**谁也没指名**工作区的 owner —— 即 GUI-CORE-027 所针对的
+  `RuntimeOwner::default()` 情形 —— 或指名了另一个工作区的 owner。
+- **「在 Lane worktree 创建时采样」由 Lane 事件汇实现，每个 Lane 一次**，发生在第一条
+  宣告已存在 worktree 的 `LaneUpdated` 上。Lane 创建被派发给异步 Lane worker，派发时
+  worktree 尚不存在；而在每条 `LaneUpdated` 上采样会把若干次有界 `git` 调用放到该
+  worker 的热路径上。
+- **「每次快照前缀为每个活跃 Lane 采样」由状态生命周期采样实现** —— 连接时、每次快照
+  请求时、每条已完成的受监督命令之后，也就是工作区 source 本来就被采样的位置 —— 而不是
+  在 `runtime_state_events` 中。后者对每一条命令都会重建，在那里为 N 个 Lane 采样会让
+  每条命令派生 5N 个 `git` 进程。快照信封仍然携带这些行，因为采样就发生在信封构建之前。
