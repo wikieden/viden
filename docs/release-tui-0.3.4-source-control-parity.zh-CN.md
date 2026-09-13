@@ -28,8 +28,9 @@ TUI 针对 `0.3.3` 三项源代码管理能力的最小对等实现：
 
 - `/git`（别名 `/source`）打开选择列表优先的面板，与 `/acp` 完全一致。打开面板不
   发送任何命令。
-- 行项：暂存全部更改、提交…、推送、抓取。提交会打开单行信息输入；Esc 返回行项并
-  丢弃草稿。空信息在本地被拒绝，不会发送任何内容。
+- 行项：暂存全部更改、提交…、推送、抓取，顺序固定，另加下文所述的条件性
+  set-upstream 恢复行。提交会打开单行信息输入；Esc 返回行项并丢弃草稿。空信息在
+  本地被拒绝，不会发送任何内容。
 - 每一行发送一条 `RunOperatorGitAction { owner, target, action }`。目标是聚焦的
   Lane，否则是工作区；TUI 从不传递路径，`Stage` 不携带路径，由 Core 暂存全部更改。
 - 命令的 `owner` 与信封 owner 相同，这是 Core 监督器的要求，该 owner 也是审计记录
@@ -53,6 +54,19 @@ TUI 针对 `0.3.3` 三项源代码管理能力的最小对等实现：
   另有一行可停止跟踪滞留的关联，但不声称 Core 已停止。
 - 缺少 `runtime.operator_git` 时，四行仍然列出、置为不可用并标注能力名。TUI 不会
   退化为 shell 调用。
+- **`NoUpstream` 恢复路径（T3，2026-09-13）。** 当 Core 对该目标的一次 push 回答
+  `Failed { NoUpstream }` 之后，会追加第五行「推送并设置上游」，选中它发送
+  `OperatorGitAction::Push { remote, set_upstream: true }`：这正是 Core 自己的拒绝
+  语所指出、也是 `crates/types/src/source_control.rs:225` 所规定的那一步。该行追加
+  在「抓取」之后而不是插在「推送」旁边，因此四个固定行保持各自的下标，记住的位置
+  不会选中另一个动作。它携带那次被拒 push 所携带的 remote，因此与那次 push 只在
+  契约指名的这一个字段上不同。在 Core 拒绝之前绝不提供：本客户端不自行判定某个
+  分支无跟踪，而创建跟踪引用与推送到既有上游是两种不同的效果；它的标签写明自己
+  做什么，而不是读起来像第二个「推送」。该提议属于 Core 所回答的那个目标，因此一
+  棵工作树的拒绝绝不会波及另一棵。Core 对该目标回报 `Completed` 的 push 会移除
+  它 —— 跟踪引用已经存在 —— 而因其他类别失败的重试则保留它，因为该分支仍然没有
+  上游。owner 与能力缺失会像四个固定行一样将它置为不可用并标注原因，它的结果同样
+  由 `OperatorGitActionFinished` 渲染。无需 Core 改动：命令字段本就存在。
 
 ### 失败类别与操作者文案
 
@@ -678,6 +692,78 @@ fixture 再次驱动了本客户端，上面三个缺口都以实地帧而不是
 [release-evidence/gui-trusted-delivery/checkpoints.zh-CN.md](release-evidence/gui-trusted-delivery/checkpoints.zh-CN.md)
 的「TUI 交叉核对」。那次运行也发现了下文记录的 `set_upstream` 缺口。
 
+## 面向 0.3.5 的 TUI 加固（T3，2026-09-13）
+
+### `NoUpstream` 恢复路径在显示它的客户端上可触达
+
+`OperatorGitMachine` 现在会记住 Core 指出的重试，并以 Core 所回答的目标为键
+（`apps/tui/src/tui/operator_git.rs:172`）；只要它处于装填状态，
+`git_picker_rows` 就追加一行「推送并设置上游」
+（`apps/tui/src/tui/modal.rs:1182`）。完整规则见「`/git` 操作者动作」一节的
+`NoUpstream` 恢复条目。
+
+该提议是 TUI 本地的关联状态，而不是持久事实：它只在看到那次拒绝的会话中存活，
+重启后的客户端会重新只显示四行，直到 Core 再次拒绝。这是刻意的 —— 重连时 Core
+不会重新发布任何关于「缺少上游」的事实，而跨会话记住那次拒绝的客户端等于在断言
+一个它并未被告知的工作树状态。
+
+测试：
+`modal::tests::the_no_upstream_recovery_row_appears_only_after_core_refused_that_target`
+（行类型、id 与顺序，以及另一个目标不会继承该提议）、
+`app::tests::a_no_upstream_refusal_offers_the_set_upstream_retry_and_sends_it`
+（经由 `observe_driver_events` 的完整回路），以及三个机器层测试覆盖装填与解除
+规则。
+
+### 输入框的队列文案读取已确认的队列
+
+兼容性后续项 16 已由 C12 在 Core 侧关闭：在一次轮次进行中发出的会话
+`QueueFollowUp` 会在受理时即被确认，因此 `InputQueued` —— 以及
+`RuntimeViewState.queued_inputs` —— 现在会在轮次仍在运行时到达，而
+`InputDequeued` 仍然留在排空一侧。客户端无需改动：`composer_rows` 本来就只读
+`queued_inputs`。T3 补上的是证据：按 C12 的新顺序经真实 reducer 验证
+（`composer::tests::the_composer_says_queued_as_soon_as_core_acknowledges_the_entry`）
+以及它的反面
+（`composer::tests::nothing_but_queued_inputs_makes_the_composer_claim_a_queue`）：
+正在运行的轮次、进行中的工具调用与流式回复都是「活动」，不是队列。本客户端中
+其余的 "queued" 字符串（`state.rs`、`render.rs`、`indicators.rs`）是 Core 发布的
+任务与 lane *状态*值，属于另一种事实。
+
+### T3 改变的回归帧及其成因
+
+在本批次自己的基线（`claude/int-0.3.5` 的 `bb22626c`）上运行
+`scripts/tui-previews.sh`，在完成后的分支上运行 `scripts/tui-regression.sh`，
+并在应用回归脚本对所有 `.txt` 所做的行尾空白规范化之后逐个文件比对。**没有任何
+帧发生变化**：21 个文本帧、28 个 `.ansi` 与 20 个 `.svg` 完全一致。
+
+其中 `main-git-picker` 未变是预期结果而非遗漏：预览状态不会装填任何
+`NoUpstream` 拒绝，因此那里的行集合仍然恰好是四个固定行。只有行集合改变时这一帧
+才会改变。
+
+### 离线实机检查，2026-09-13
+
+在 tmux（140x40）中以 `--provider fallback --model test-local` 针对本次会话
+scratchpad 下为此次运行新建的 Git 仓库执行，`VIDEN_HOME` 指向同一棵 scratch 目录
+树。本仓库自身的 `.viden/` 未被读写。fixture 是 `main` 上的一次提交
+（`2bd1873 Add the fixture README`），并且在第 5 步之前**完全没有 remote**。
+
+| # | 步骤 | 结果 |
+| --- | --- | --- |
+| 1 | 未选中 Lane 时的 `/git` | 四行均可操作，`TARGET workspace · main · ahead 0 behind 0 · clean`。 |
+| 2 | `Push` | 一个 Core `git_push` 审批，风险 **High**，`AUDIT audit_1789280839833481000`；在决策界面 allow once。 |
+| 3 | 那次拒绝 | `Push failed · this branch has no upstream · push again with set upstream · the current branch has no upstream branch; push with set_upstream to create one AUDIT audit_1789280855412596000`。 |
+| 4 | 再次 `/git` | **五行**：四个固定行加上「推送并设置上游」。 |
+| 5 | 带外添加裸 `origin` | 在那次拒绝之后（而非之前）执行 `git init --bare` 与 `git remote add origin`。此时 `git rev-parse '@{upstream}'` 仍回答 `fatal: no upstream configured for branch 'main'`。 |
+| 6 | 「推送并设置上游」 | 第二个 `git_push` 审批，`AUDIT audit_1789281051894715000`，allow once。`Push completed · main · ahead 0 behind 0 · clean · OUTPUT 3 lines · branch 'main' set up to track 'origin/main'. AUDIT audit_1789281066988156000`。 |
+| 7 | 带外核验 | `git status --short --branch` 显示 `## main...origin/main`，`@{upstream}` 解析为 `origin/main`，裸 `origin` 持有 `2bd1873`。 |
+| 8 | 再次 `/git` | **四行。** 那次完成的 push 实地解除了恢复行。 |
+
+`OperatorGitOutcome::Failed { NoUpstream }` 与被接受的
+`Push { set_upstream: true }` 都被实地观察到，且 tracking ref 是由客户端自己的
+行创建而非带外配置 —— 这正是 E2 做不到、并记在其第 16 步里的那一点。
+
+一条属于驱动脚本而非客户端的说明：有三条 `USER` 行读作 `i/git` 或 `t`，因为脚本
+在输入框已处于 Insert 模式时又发送了一个 `i`。这与 T2 和 E2 记录的是同一个现象。
+
 ## 已知缺口
 
 - 冲突弹窗由监督浮层的查看行打开，该行面向合并门退回。Lane 冲突在其记录条目上给出
@@ -701,15 +787,20 @@ fixture 再次驱动了本客户端，上面三个缺口都以实地帧而不是
   跳转到需要它的合并门。该浮层只负责浏览与读取，不做任何决策。
 - `QueryWorkspaceDiff` / `WorkspaceDiffLoaded` 尚无 TUI 读取方：TUI 渲染 Core 附加在
   审批上的差异，而不是操作者差异面板。
-- `/git` 选择器没有 set-upstream 控件，因此 Core 自己的 `NoUpstream` 恢复路径在显示
-  了这条拒绝的客户端上无法触达。Core 对一个无跟踪分支的首次 push 回答
-  `Failed { NoUpstream }` 并附上「push again with set upstream」，契约也规定了同一
-  步骤（`crates/types/src/source_control.rs:225`：「`NoUpstream` -> offer
-  `set_upstream`」）。选择器只提供四行，其 push 行把 `set_upstream: false` 写死
-  （`apps/tui/src/tui/modal.rs:1163-1167`）。由 E2 在 2026-09-12 发现 —— 它必须带外
-  配置 tracking ref 才能拿到一次被接受的 push 的证据，并把这一点记在自己的步骤表里
-  而不是隐藏。修法是加一条在 Core 对该目标回答过 `NoUpstream` 之后出现的恢复行；
-  它不需要 Core 改动，因为命令字段已经存在。与选择器的其余工作一同推迟到 `0.3.5`。
+- ~~`/git` 选择器没有 set-upstream 控件，因此 Core 自己的 `NoUpstream` 恢复路径在
+  显示了这条拒绝的客户端上无法触达。~~
+  **已于 2026-09-13 由 T3 关闭。** 当 Core 对该目标回答过
+  `Failed { NoUpstream }` 之后，选择器会追加一行「推送并设置上游」，它发送
+  `Push { remote, set_upstream: true }` —— 见「`/git` 操作者动作」一节中的
+  `NoUpstream` 恢复条目。该提议在 `apps/tui/src/tui/operator_git.rs:172`
+  依据 Core 回显的目标与动作装填，在 `apps/tui/src/tui/modal.rs:1182` 渲染；
+  它不需要 Core 改动，因为命令字段本就存在。原缺口记录如下。Core 对一个无跟踪
+  分支的首次 push 回答 `Failed { NoUpstream }` 并附上「push again with set
+  upstream」，契约也规定了同一步骤（`crates/types/src/source_control.rs:225`：
+  「`NoUpstream` -> offer `set_upstream`」）。选择器当时只提供四行，其 push 行把
+  `set_upstream: false` 写死。由 E2 在 2026-09-12 发现 —— 它必须带外配置
+  tracking ref 才能拿到一次被接受的 push 的证据，并把这一点记在自己的步骤表里
+  而不是隐藏。
 - **已于 2026-09-12 由 C5 与 T2 关闭，但留有一个 Core 侧缺口。** Core 会铸造一个
   工作区范围的操作者身份，本客户端也在该身份之下发送工作区目标，因此 `/git` 行项
   对工作区与「Core 已发布运行时 owner 的 Lane」都可操作。没有已发布 owner 的目标

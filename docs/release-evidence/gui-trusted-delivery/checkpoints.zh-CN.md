@@ -649,6 +649,13 @@ checkpoint 失效。
     `set_upstream: false` 写死（`apps/tui/src/tui/modal.rs:1163-1167`），所以 Core
     指出的那一步，在显示了这条拒绝的客户端上无法触达。E2 必须带外配置 tracking ref
     才能拿到一次被接受的 push 的证据，这一点记在第 16 步里而不是被隐藏。
+    **已由 T3 3a4ce963 关闭**（2026-09-13）。当 Core 对某个目标回答过
+    `Failed { NoUpstream }` 之后，选择器会追加一行「推送并设置上游」，发送
+    `Push { remote, set_upstream: true }` —— 在
+    `apps/tui/src/tui/operator_git.rs:172` 依据 Core 回显的目标与动作装填，在
+    `apps/tui/src/tui/modal.rs:1182` 渲染。在那条回答之前绝不提供；它携带那次被拒
+    push 所携带的 remote；Core 对该目标回报完成的 push 会移除它。无需 Core 改动：
+    命令字段本就存在。第 16 步的带外说明仍然是*那一次*运行的如实记录。
 13. **在一次轮次进行中排队的会话追加提示，其「待排队」状态永远不可观察**
     （Core/TUI 接缝，产品缺口 —— 屏幕上没有任何虚假陈述）。composer 提供了
     `[^J Queue]`，提示确实进了队列，并在 39 秒后在已完成的轮次之后运行。在整段等待

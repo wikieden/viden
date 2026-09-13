@@ -34,9 +34,10 @@ no `git`, and infers no outcome from output.
 
 - `/git` (alias `/source`) opens a selector-first picker, exactly as `/acp`
   does. Opening it sends no command.
-- Rows: Stage all changes, Commit…, Push, Fetch. Commit opens a one-line
-  message prompt; Esc returns to the rows and discards the draft. A blank
-  message is refused locally and nothing is sent.
+- Rows: Stage all changes, Commit…, Push, Fetch, in that fixed order, plus
+  the conditional set-upstream recovery described below. Commit opens a
+  one-line message prompt; Esc returns to the rows and discards the draft. A
+  blank message is refused locally and nothing is sent.
 - Each row sends one `RunOperatorGitAction { owner, target, action }`. The
   target is the focused Lane, otherwise the workspace; the TUI never passes a
   path, and `Stage` carries no paths so Core stages every changed path.
@@ -69,6 +70,27 @@ no `git`, and infers no outcome from output.
   claiming Core stopped.
 - Without `runtime.operator_git` all four rows stay listed, disabled, and
   labelled with the capability name. The TUI does not fall back to a shell.
+- **The `NoUpstream` recovery (T3, 2026-09-13).** Once Core has answered a
+  push for this target with `Failed { NoUpstream }`, a fifth row — `Push and
+  set upstream` — is appended, and picking it sends
+  `OperatorGitAction::Push { remote, set_upstream: true }`: the step Core's
+  own refusal names and the one
+  `crates/types/src/source_control.rs:225` prescribes. It is appended after
+  Fetch rather than inserted beside Push, so the four fixed rows keep their
+  indices and a remembered position never picks a different action. It
+  carries the remote the refused push carried, so it differs from that push
+  in the single field the contract names. It is never offered before Core has
+  refused, because this client does not decide that a branch is untracked and
+  creating a tracking ref is a different effect from pushing to an existing
+  one; its label states what it does rather than reading as a second Push.
+  The offer belongs to the target Core answered about, so one tree's refusal
+  never reaches another. A push Core reports as `Completed` for that target
+  removes it — the tracking ref now exists — while a retry that fails for
+  another class leaves it, because the branch still has no upstream. Owner
+  and capability refusals disable and label it exactly like the four fixed
+  rows, and its outcome renders from `OperatorGitActionFinished` exactly as
+  every other action's does. No Core change was needed: the command field
+  already exists.
 
 ### Failure class to operator copy
 
@@ -762,6 +784,89 @@ prompt went through the welcome flow, which creates a starter Lane and asks for
 `lane_create`; the approval was allowed from the Decisions surface, which is
 where a pinned approval's keys live.
 
+## TUI Hardening For 0.3.5 (T3, 2026-09-13)
+
+### The `NoUpstream` recovery is reachable from the client that showed it
+
+`OperatorGitMachine` now records the retry Core named, keyed by the target
+Core answered about (`apps/tui/src/tui/operator_git.rs:172`), and
+`git_picker_rows` appends one `Push and set upstream` row while it is armed
+(`apps/tui/src/tui/modal.rs:1182`). The full rule is in the `NoUpstream`
+recovery bullet under [`/git` Operator Actions](#git-operator-actions).
+
+The offer is TUI-local correlation state, not a durable fact: it lives for as
+long as the session that saw the refusal, and a restarted client shows four
+rows again until Core refuses again. That is deliberate — Core republishes
+nothing about a missing upstream on reconnect, and a client that remembered
+the refusal across sessions would be asserting a tree state it has not been
+told about.
+
+Tests:
+`modal::tests::the_no_upstream_recovery_row_appears_only_after_core_refused_that_target`
+(the row kinds, ids and order, and that another target never inherits the
+offer), `app::tests::a_no_upstream_refusal_offers_the_set_upstream_retry_and_sends_it`
+(the whole loop through `observe_driver_events`), and three machine-level tests
+for the arm and disarm rules.
+
+### The composer's queue copy reads the acknowledged queue
+
+Compatibility follow-up 16 is closed on the Core side by C12: a session
+`QueueFollowUp` sent during a turn is acknowledged at accept, so `InputQueued`
+— and `RuntimeViewState.queued_inputs` — now arrive while the turn is still
+running, and `InputDequeued` stays with the drain. The client needed no change:
+`composer_rows` already read `queued_inputs` and nothing else. What T3 adds is
+the evidence, through the real reducer in C12's new order
+(`composer::tests::the_composer_says_queued_as_soon_as_core_acknowledges_the_entry`)
+and its inverse
+(`composer::tests::nothing_but_queued_inputs_makes_the_composer_claim_a_queue`):
+a running turn, a live tool call and a streamed reply are activity, not a
+queue. The other "queued" strings in this client — in `state.rs`, `render.rs`
+and `indicators.rs` — are Core-published task and lane *status* values, a
+different fact.
+
+### Regression frames changed by T3, with causes
+
+`scripts/tui-previews.sh` was run on the batch's own base
+(`claude/int-0.3.5` at `bb22626c`) and `scripts/tui-regression.sh` on the
+finished branch, and the generated frames were compared file by file after the
+trailing-whitespace normalization the regression script applies to every
+`.txt`. **Nothing changed**: 21 text frames, 28 `.ansi` renderings and 20
+`.svg` renderings are identical.
+
+`main-git-picker` in particular is unchanged, which is the expected result
+rather than a missed one: the preview state arms no `NoUpstream` refusal, so
+the picker's row set there is still exactly the four fixed rows. The frame
+would change only if the row set changed.
+
+### Live offline check, 2026-09-13
+
+Run in tmux (140x40) with `--provider fallback --model test-local` against a
+scratch Git repository created for the run under this session's scratchpad,
+with `VIDEN_HOME` pointed at the same scratch tree. This repository's own
+`.viden/` was never read or written. The fixture is one commit
+(`2bd1873 Add the fixture README`) on `main`, with **no remote at all** until
+step 5.
+
+| # | Step | Result |
+| --- | --- | --- |
+| 1 | `/git`, no Lane selected | Four pickable rows, `TARGET workspace · main · ahead 0 behind 0 · clean`. |
+| 2 | `Push` | A Core `git_push` approval, risk **High**, `AUDIT audit_1789280839833481000`; allowed once from the Decisions surface. |
+| 3 | The refusal | `Push failed · this branch has no upstream · push again with set upstream · the current branch has no upstream branch; push with set_upstream to create one AUDIT audit_1789280855412596000`. |
+| 4 | `/git` again | **Five rows**: the four fixed ones and `Push and set upstream`. |
+| 5 | Bare `origin` added | `git init --bare` and `git remote add origin`, out of band, after the refusal and not before. `git rev-parse '@{upstream}'` still answered `fatal: no upstream configured for branch 'main'`. |
+| 6 | `Push and set upstream` | A second `git_push` approval, `AUDIT audit_1789281051894715000`, allowed once. `Push completed · main · ahead 0 behind 0 · clean · OUTPUT 3 lines · branch 'main' set up to track 'origin/main'. AUDIT audit_1789281066988156000`. |
+| 7 | Verified out of band | `git status --short --branch` reads `## main...origin/main`, `@{upstream}` resolves to `origin/main`, and the bare `origin` holds `2bd1873`. |
+| 8 | `/git` once more | **Four rows.** The completed push disarmed the recovery, live. |
+
+`OperatorGitOutcome::Failed { NoUpstream }` and the accepted
+`Push { set_upstream: true }` were both observed live, and the tracking ref was
+created by the client's own row rather than out of band — which is exactly what
+E2 could not do and recorded in its step 16.
+
+One harness note, not a client one: three `USER` rows read `i/git` or `t`,
+because the driver script sent an `i` while the composer was already in Insert
+mode. It is the same artifact T2 and E2 recorded.
+
 ## Known Gaps
 
 - The conflict modal is reached from the supervision overlay's inspect row,
@@ -792,19 +897,23 @@ where a pinned approval's keys live.
   overlay browses and reads; it decides nothing.
 - `QueryWorkspaceDiff` / `WorkspaceDiffLoaded` has no TUI reader yet: the TUI
   renders the diff Core attaches to an approval, not an operator diff pane.
-- The `/git` picker has no set-upstream control, so Core's own `NoUpstream`
-  recovery is unreachable from the client that showed the refusal. Core answers
-  a first push on an untracked branch with `Failed { NoUpstream }` and the words
-  "push again with set upstream", and the contract prescribes the same step
+- ~~The `/git` picker has no set-upstream control, so Core's own `NoUpstream`
+  recovery is unreachable from the client that showed the refusal.~~
+  **Closed 2026-09-13 by T3.** The picker now appends a `Push and set
+  upstream` row once Core has answered `Failed { NoUpstream }` for that
+  target, and it sends `Push { remote, set_upstream: true }` — see the
+  `NoUpstream` recovery bullet under `/git` Operator Actions. The offer is
+  armed in `apps/tui/src/tui/operator_git.rs:172` from Core's echoed target
+  and action, and rendered in `apps/tui/src/tui/modal.rs:1182`; it needed no
+  Core change, because the command field already existed. The original gap
+  follows. Core answers a first push on an untracked branch with
+  `Failed { NoUpstream }` and the words "push again with set upstream", and
+  the contract prescribes the same step
   (`crates/types/src/source_control.rs:225`: "`NoUpstream` -> offer
-  `set_upstream`"). The picker offers exactly four rows and its push row
-  hard-codes `set_upstream: false` (`apps/tui/src/tui/modal.rs:1163-1167`).
-  Found by E2 on 2026-09-12, which had to configure the tracking ref out of band
-  to evidence an accepted push, and recorded that in its step table rather than
-  hiding it. Adding a recovery row that appears once Core has answered
-  `NoUpstream` for this target is the fix; it needs no Core change, because the
-  command field already exists. Deferred to `0.3.5` with the rest of the picker
-  work.
+  `set_upstream`"). The picker offered exactly four rows and its push row
+  hard-coded `set_upstream: false`. Found by E2 on 2026-09-12, which had to
+  configure the tracking ref out of band to evidence an accepted push, and
+  recorded that in its step table rather than hiding it.
 - **Closed 2026-09-12 by C5 and T2, with one Core-side gap left.** Core mints a
   workspace-scoped operator identity, and this client sends the workspace
   target under it, so the `/git` rows are actionable for the workspace as well

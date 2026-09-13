@@ -1158,10 +1158,11 @@ Homebrew。
    `crates/runtime/src/tests/turn_lifecycle_tests.rs:657`。没有 capability、计数或
    事件形状变化。
 
-E2 的第四项发现属于客户端侧，记录在它该在的地方而不是这里：`/git` 选择器把
-`set_upstream: false` 写死（`apps/tui/src/tui/modal.rs:1163-1167`），因此本文自身契约
-所规定的 `NoUpstream` 恢复路径
-（`crates/types/src/source_control.rs:225`）在 TUI 中没有控件。见
+E2 的第四项发现属于客户端侧，记录在它该在的地方而不是这里：`/git` 选择器曾把
+`set_upstream: false` 写死，因此本文自身契约所规定的 `NoUpstream` 恢复路径
+（`crates/types/src/source_control.rs:225`）在 TUI 中没有控件。**已于 2026-09-13
+由 T3 3a4ce963 关闭**，且无需 Core 改动：当 Core 对该目标回答过
+`Failed { NoUpstream }` 之后，选择器会追加一行「推送并设置上游」。见
 `docs/release-tui-0.3.4-source-control-parity.zh-CN.md` 的「已知缺口」。
 
 `context-budgets` fixture 为 `ContextScope` 与 `ContextBudgetRecord` 的 frontend-neutral
