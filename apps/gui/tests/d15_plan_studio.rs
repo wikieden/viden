@@ -327,7 +327,7 @@ fn d15_refuses_an_over_bound_rejection_reason() {
                 plan_id,
                 revision: 2,
                 content_sha256: sha,
-                reason: "x".repeat(viden_gui::D15_REJECT_REASON_MAX_BYTES + 1),
+                reason: "x".repeat(viden_core::MAX_PLAN_REJECT_REASON_BYTES + 1),
             },
             std::time::Duration::ZERO,
         )

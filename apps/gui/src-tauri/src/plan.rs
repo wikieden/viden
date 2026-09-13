@@ -27,16 +27,6 @@ use serde::{Deserialize, Serialize};
 /// The Core capability this screen reads.
 pub const PLAN_DOCUMENTS_CAPABILITY: &str = "runtime.plan_documents";
 
-/// Byte bound on the reason a rejection carries.
-///
-/// Mirrors `viden_types::MAX_PLAN_REJECT_REASON_BYTES`, which `viden-core` does
-/// not re-export (see `contract-requests.md` GUI-CORE-034). The client does not
-/// truncate a reason to fit: over the bound the Reject control is disabled and
-/// names the bound, and a reason Core refuses for any other cause renders
-/// Core's own words. A clamped reason would be a rejection the operator did not
-/// write reaching an audit row under their name.
-pub const D15_REJECT_REASON_MAX_BYTES: usize = 2 * 1024;
-
 /// Core refuses `HandOffPlanDocument` in plan mode with this reason family.
 pub const D15_PLAN_MODE_CODE: &str = "plan_mode";
 /// Core refuses a pinned decision whose revision or digest moved.
@@ -144,6 +134,15 @@ pub struct D15DecisionProjection {
     pub decide_block: Option<&'static str>,
     pub can_hand_off: bool,
     pub hand_off_block: Option<&'static str>,
+    /// Core's own `MAX_PLAN_REJECT_REASON_BYTES`, carried on the projection
+    /// rather than mirrored here (GUI-CORE-034, closed 2026-09-13).
+    ///
+    /// This module is a presentation shape and may not hold Core types, so the
+    /// value is filled in by the projection from the Core facade's own
+    /// constant, and the adapter checks against the same one when it refuses an
+    /// over-bound reason. A literal here was exactly the drift the
+    /// shared-constant rule exists to prevent: a Core that raised the bound
+    /// would have left this client refusing reasons Core accepts.
     pub reject_reason_max_bytes: usize,
 }
 

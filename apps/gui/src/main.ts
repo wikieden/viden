@@ -52,6 +52,11 @@ import {
 } from "./screens/d15_plan_studio";
 import type { D15Intent, D15PlanStudioProjection } from "./models/plan";
 import {
+  renderD16AgentBoard,
+  type D16Controller,
+} from "./screens/d16_agent_board";
+import type { D16AgentBoardProjection, D16Intent } from "./models/board";
+import {
   renderD2Decisions,
   type D2DecisionsProjection,
   type D2Intent,
@@ -318,6 +323,22 @@ export async function hydrateShellFromCore(
         return projection;
       };
       /**
+       * The mounted Agent Board, if any. Held for the same reason as the Plan
+       * View: a remount has to retire the previous one, or its async callbacks
+       * render Core's answer into a container the cockpit already replaced.
+       */
+      let activeD16: D16Controller | null = null;
+      /** The session the Board is showing, so a remount reopens on the same row. */
+      let boardSelection: string | null = null;
+      /** One bounded, no-traffic read of the Lane/session hierarchy. */
+      const boardPort = async (
+        selectedSessionId: string | null,
+      ): Promise<D16AgentBoardProjection> => {
+        const projection = await core.d16AgentBoard(selectedSessionId);
+        if (!projection) throw new Error("Core did not provide the Agent Board projection");
+        return projection;
+      };
+      /**
        * The agent adapters the last cockpit projection carried, for D4's agent
        * step. Kept here rather than re-read: the wizard is entered from a
        * cockpit that already holds Core's answer, and a second
@@ -413,6 +434,9 @@ export async function hydrateShellFromCore(
             // The rail reads the plan for its slot and its badge before anyone
             // opens the view; the view itself mounts through `secondaryViews`.
             plan: { read: (laneId: string | null) => planPort(laneId) },
+            // Same shape for the board: the rail reads it for its slot and its
+            // "awaiting you" badge before anyone opens the view.
+            board: { read: (sessionId: string | null) => boardPort(sessionId) },
             onNavigate: (route: string) => {
               // What is left here is the two flows that really do replace the
               // window: D11 project intake and the D4 Lane wizard. Every other
@@ -747,6 +771,49 @@ export async function hydrateShellFromCore(
       };
 
       /**
+       * The Agent Board. Every control maps to one Core command
+       * (`runtime.agent_session_control`, C14) or renders disabled with the
+       * status reason Core would have answered with.
+       *
+       * The event timeline is one bounded `QueryAudit` scoped to the session,
+       * which is the same audit slot D10 and D14 share: only one centre view is
+       * mounted at a time, so a second slot would buy nothing but a way to page
+       * two lists into one.
+       */
+      const showD16 = async (container: HTMLElement) => {
+        const projection = await boardPort(boardSelection);
+        boardSelection = projection.selectedSessionId;
+        activeD16?.dispose();
+        activeD16 = renderD16AgentBoard(container, projection, locale, {
+          send: async (intent: D16Intent) => {
+            const result = await core.d16SendIntent(
+              `gui-board-${crypto.randomUUID()}`,
+              intent,
+            );
+            boardSelection = result.projection.selectedSessionId;
+            // A command Core accepted but has not answered yet is drained here
+            // rather than reported as an outcome nobody settled.
+            if (result.outcome.state !== "pending") return result;
+            let drained = result;
+            for (let attempt = 0; attempt < 4 && drained.outcome.state === "pending"; attempt += 1) {
+              drained = await core.d16Poll(boardSelection);
+            }
+            return drained;
+          },
+          reload: async (sessionId: string | null) => {
+            boardSelection = sessionId;
+            return boardPort(sessionId);
+          },
+          readEvents: (sessionId: string) =>
+            core.d14AuditQuery(`gui-board-events-${crypto.randomUUID()}`, {
+              kind: "session",
+              id: sessionId,
+            }),
+          onOpenAuditTrail: openAuditTrail,
+        });
+      };
+
+      /**
        * The cockpit's secondary-view host.
        *
        * Each of the five screens is a Core read this boundary owns, so the
@@ -760,7 +827,7 @@ export async function hydrateShellFromCore(
        * place of the screen.
        */
       const mountSecondaryView = async (
-        route: "d2" | "d10" | "d12" | "d13" | "d14" | "d15",
+        route: "d2" | "d10" | "d12" | "d13" | "d14" | "d15" | "d16",
         container: HTMLElement,
         arg: string | null,
       ): Promise<void> => {
@@ -769,6 +836,7 @@ export async function hydrateShellFromCore(
         else if (route === "d12") await showD12(container, arg);
         else if (route === "d13") await showD13(container);
         else if (route === "d15") await showD15(container);
+        else if (route === "d16") await showD16(container);
         else await showD14(container, arg);
       };
 

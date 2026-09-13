@@ -798,6 +798,10 @@ describe("D1 canonical streaming cockpit", () => {
       // names the capability rather than opening a pane nothing can fill.
       "Plan Studio — unavailable: Core publishes no runtime.plan_documents",
       "Lanes",
+      // No host port for the board either, so the slot is disabled. It carries
+      // no capability note: without the port nobody has read the capability
+      // yet, and naming one Core may well publish would be a guess.
+      "Agent Board",
       "Diff review — unavailable: Core publishes no runtime.structured_diff",
       "Evidence — unavailable: Core publishes no runtime.evidence_reads",
       "Decisions",

@@ -118,6 +118,14 @@ pub struct GuiCoreAdapter {
     /// verdict sent while the first is unanswered could only race Core's own
     /// "already decided" rejection; the slot refuses it locally instead.
     pending_d2_review: Option<PendingD2Review>,
+    /// One Agent-session control at a time (`runtime.agent_session_control`).
+    ///
+    /// Pause, Kill and Stop all end the prompt in flight by different routes,
+    /// and Resume releases held input. Two of them unanswered at once would
+    /// leave the operator unable to say which one the next session fact
+    /// belongs to, so the slot refuses the second locally rather than letting
+    /// Core order two racing terminations. See [`PendingD16`].
+    pending_d16: Option<PendingD16>,
     /// One plan decision at a time (`runtime.plan_documents`, C13).
     ///
     /// A plan settles exactly once and a handoff spawns real work, so a second
@@ -822,6 +830,106 @@ impl PendingD15 {
                 self.handoff && plan_id.0 == self.plan_id
             }
             _ => false,
+        }
+    }
+}
+
+/// One in-flight Agent-session control awaiting its ordered Core receipt.
+///
+/// Acceptance is not the effect: Core answers every control with a session
+/// fact, and only the fact that carries the status the control was *for*
+/// confirms it. Matching on acceptance alone would report a pause as done the
+/// moment the command was queued, before the prompt in flight was cancelled and
+/// before the pending approval was denied and audited — which is precisely the
+/// window an operator presses Kill in.
+struct PendingD16 {
+    command_id: String,
+    session_id: String,
+    /// The status the confirming session fact must carry, or `None` for the
+    /// resume case, which is confirmed by *leaving* `Paused`.
+    expect: D16Expectation,
+    accepted: bool,
+}
+
+/// What a control's confirming session fact has to look like.
+enum D16Expectation {
+    /// The session must report exactly this status.
+    Status(AgentSessionStatus),
+    /// The session must report anything other than `Paused`. Resume's end
+    /// state depends on whether inputs were held: `Running` with one, and
+    /// `Completed` — "alive, no turn in flight" in this contract — without.
+    LeftPaused,
+    /// A new session appeared for this Lane and adapter. `StartAgentSession`
+    /// mints a fresh session id even when it loads an old transcript, so there
+    /// is no id to match on; the count is what moves.
+    NewSession {
+        lane_id: String,
+        agent_id: String,
+        before: usize,
+    },
+}
+
+impl PendingD16 {
+    fn observe(
+        &mut self,
+        envelope: &RuntimeEventEnvelope,
+        sessions: &[viden_core::AgentSessionView],
+    ) -> D12Observation {
+        let RuntimeWireEvent::Known(event) = &envelope.event else {
+            return D12Observation::Continue;
+        };
+        match &event.kind {
+            RuntimeEventKind::CommandRejected { command_id, reason }
+                if command_id == &self.command_id =>
+            {
+                D12Observation::Rejected(reason.clone())
+            }
+            RuntimeEventKind::CommandAccepted { command_id, .. }
+            | RuntimeEventKind::LaneCommandAccepted { command_id, .. }
+                if command_id == &self.command_id =>
+            {
+                self.accepted = true;
+                D12Observation::Continue
+            }
+            RuntimeEventKind::AgentSessionStarted { session }
+            | RuntimeEventKind::AgentSessionUpdated { session }
+            | RuntimeEventKind::AgentSessionCompleted { session }
+            | RuntimeEventKind::AgentSessionFailed { session }
+            | RuntimeEventKind::AgentSessionKilled { session }
+                if self.accepted && self.satisfied_by(session, sessions) =>
+            {
+                D12Observation::Confirmed
+            }
+            _ => D12Observation::Continue,
+        }
+    }
+
+    fn satisfied_by(
+        &self,
+        session: &viden_core::AgentSessionView,
+        sessions: &[viden_core::AgentSessionView],
+    ) -> bool {
+        match &self.expect {
+            D16Expectation::Status(status) => {
+                session.session_id == self.session_id && session.status == *status
+            }
+            D16Expectation::LeftPaused => {
+                session.session_id == self.session_id
+                    && session.status != AgentSessionStatus::Paused
+            }
+            D16Expectation::NewSession {
+                lane_id,
+                agent_id,
+                before,
+            } => {
+                session.lane_id == *lane_id
+                    && session.agent_id == *agent_id
+                    && sessions
+                        .iter()
+                        .filter(|held| held.lane_id == *lane_id && held.agent_id == *agent_id)
+                        .count()
+                        > *before
+            }
         }
     }
 }
@@ -1773,6 +1881,7 @@ impl GuiCoreAdapter {
             d2_selected: None,
             pending_d2_review: None,
             pending_d15: None,
+            pending_d16: None,
             pending_audit: None,
             turn_failure: None,
             pending_transcript_rows: None,
@@ -3402,6 +3511,256 @@ impl GuiCoreAdapter {
     /// Kept for the fact families whose confirmation is a projection refresh
     /// rather than an ordered receipt; a review verdict polls with a zero
     /// budget here and only drains what Core already delivered.
+    /// Whether Core's handshake published `runtime.agent_session_control`.
+    pub fn supports_agent_session_control(&self) -> bool {
+        self.supports(crate::AGENT_SESSION_CONTROL_CAPABILITY)
+    }
+
+    /// The Agent Board projection, with no Core traffic.
+    pub fn d16_agent_board(
+        &self,
+        selected_session_id: Option<&str>,
+    ) -> Option<crate::D16AgentBoardProjection> {
+        self.projection.d16_agent_board(selected_session_id)
+    }
+
+    /// Sends one session control and waits briefly for the ordered Core receipt.
+    ///
+    /// The owner is Core's own: the owner it published on the session record,
+    /// never one this client assembled. A session id Core no longer publishes
+    /// is refused here rather than sent as a command Core would have to reject.
+    ///
+    /// There is no switch-model command, and this method deliberately offers no
+    /// composite: the Board sends `Kill` (or `Stop`) and then `Start` as two
+    /// intents with two command ids, because that is two operator decisions and
+    /// two audit rows rather than one the contract cannot produce.
+    pub fn send_d16_intent_and_wait(
+        &mut self,
+        command_id: &str,
+        intent: crate::D16Intent,
+        event_timeout: Duration,
+    ) -> Result<crate::D16IntentResult, String> {
+        if let Some(pending) = &self.pending_d16 {
+            return Err(format!(
+                "session control `{}` is still pending",
+                pending.command_id
+            ));
+        }
+        let session_id = match &intent {
+            crate::D16Intent::Pause { session_id }
+            | crate::D16Intent::Resume { session_id }
+            | crate::D16Intent::Kill { session_id }
+            | crate::D16Intent::Stop { session_id }
+            | crate::D16Intent::Retry { session_id }
+            | crate::D16Intent::Start { session_id, .. } => session_id.clone(),
+        };
+        // Pause, Resume and Kill are the capability's own commands; Stop,
+        // Retry and Start predate it and stay available without it, which is
+        // why the gate is per-intent rather than one check at the top.
+        if matches!(
+            intent,
+            crate::D16Intent::Pause { .. }
+                | crate::D16Intent::Resume { .. }
+                | crate::D16Intent::Kill { .. }
+        ) && !self.supports_agent_session_control()
+        {
+            return Err(format!(
+                "Core publishes no {}, so no session control can be sent",
+                crate::AGENT_SESSION_CONTROL_CAPABILITY
+            ));
+        }
+        let session = self.d16_session_record(&session_id)?.clone();
+        let owner = session.owner.clone();
+        if owner == RuntimeOwner::default() {
+            return Err(format!(
+                "session `{session_id}` names no Core owner this client may act as"
+            ));
+        }
+        let (command, expect) = match &intent {
+            crate::D16Intent::Pause { session_id } => (
+                RuntimeCommand::PauseAgentSession {
+                    session_id: session_id.clone(),
+                },
+                D16Expectation::Status(AgentSessionStatus::Paused),
+            ),
+            crate::D16Intent::Resume { session_id } => (
+                RuntimeCommand::ResumeAgentSession {
+                    session_id: session_id.clone(),
+                },
+                D16Expectation::LeftPaused,
+            ),
+            crate::D16Intent::Kill { session_id } => (
+                RuntimeCommand::KillAgentSession {
+                    session_id: session_id.clone(),
+                },
+                D16Expectation::Status(AgentSessionStatus::Killed),
+            ),
+            crate::D16Intent::Stop { session_id } => (
+                RuntimeCommand::CancelAgentSession {
+                    session_id: session_id.clone(),
+                },
+                D16Expectation::Status(AgentSessionStatus::Cancelled),
+            ),
+            crate::D16Intent::Retry { session_id } => (
+                RuntimeCommand::RetryAgentSession {
+                    session_id: session_id.clone(),
+                },
+                D16Expectation::Status(AgentSessionStatus::Starting),
+            ),
+            crate::D16Intent::Start { session_id, model } => {
+                // Step 2 of the switch. `load_session_id` is what carries the
+                // transcript across, so it is always the ended session's own
+                // id; the model is the operator's pick, and `None` means "the
+                // adapter's default", which is Core's own meaning for the field.
+                let before = self
+                    .projection
+                    .view()
+                    .map(|view| {
+                        view.agent_sessions
+                            .iter()
+                            .filter(|held| {
+                                held.lane_id == session.lane_id && held.agent_id == session.agent_id
+                            })
+                            .count()
+                    })
+                    .unwrap_or(0);
+                (
+                    RuntimeCommand::StartAgentSession {
+                        request: viden_core::AgentSessionRequest {
+                            lane_id: session.lane_id.clone(),
+                            agent_id: session.agent_id.clone(),
+                            model: model.clone(),
+                            load_session_id: Some(session_id.clone()),
+                            task: session.task.clone(),
+                        },
+                    },
+                    D16Expectation::NewSession {
+                        lane_id: session.lane_id.clone(),
+                        agent_id: session.agent_id.clone(),
+                        before,
+                    },
+                )
+            }
+        };
+        self.pending_d16 = Some(PendingD16 {
+            command_id: command_id.to_string(),
+            session_id: session_id.clone(),
+            expect,
+            accepted: false,
+        });
+        self.client
+            .send(RuntimeCommandEnvelope {
+                schema_version: FRONTEND_SCHEMA_V1,
+                client_id: "viden-gui".to_string(),
+                command_id: command_id.to_string(),
+                owner,
+                command,
+            })
+            .map_err(|error| {
+                self.pending_d16 = None;
+                error.to_string()
+            })?;
+        let outcome = self.poll_d16_control(event_timeout)?;
+        self.d16_result(Some(&session_id), command_id, outcome)
+    }
+
+    /// Drains ordered Core events for a session control still in flight.
+    pub fn poll_d16(
+        &mut self,
+        selected_session_id: Option<&str>,
+        event_timeout: Duration,
+    ) -> Result<crate::D16IntentResult, String> {
+        let pending_command_id = self
+            .pending_d16
+            .as_ref()
+            .map(|pending| pending.command_id.clone());
+        let outcome = self.poll_d16_control(event_timeout)?;
+        let command_id = pending_command_id.unwrap_or_default();
+        self.d16_result(selected_session_id, &command_id, outcome)
+    }
+
+    fn d16_result(
+        &self,
+        selected_session_id: Option<&str>,
+        command_id: &str,
+        outcome: D1OutcomeProjection,
+    ) -> Result<crate::D16IntentResult, String> {
+        let projection = self
+            .d16_agent_board(selected_session_id)
+            .ok_or_else(|| "Core has not published an Agent Board projection".to_string())?;
+        Ok(crate::D16IntentResult {
+            projection,
+            pending_command_id: (outcome.state == "pending" && !command_id.is_empty())
+                .then(|| command_id.to_string()),
+            outcome,
+        })
+    }
+
+    fn d16_session_record(
+        &self,
+        session_id: &str,
+    ) -> Result<&viden_core::AgentSessionView, String> {
+        self.projection
+            .view()
+            .ok_or_else(|| "Core has not published an Agent Board projection".to_string())?
+            .agent_sessions
+            .iter()
+            .find(|session| session.session_id == session_id)
+            .ok_or_else(|| format!("session `{session_id}` is not published by Core"))
+    }
+
+    fn poll_d16_control(&mut self, event_timeout: Duration) -> Result<D1OutcomeProjection, String> {
+        if self.pending_d16.is_none() {
+            return Ok(D1OutcomeProjection::idle());
+        }
+        let mut received = false;
+        let mut outcome = D1OutcomeProjection::pending();
+        for _ in 0..8 {
+            let event = match self
+                .receive_event_until(if received {
+                    Duration::ZERO
+                } else {
+                    event_timeout
+                })
+                .map_err(|error| error.to_string())?
+            {
+                Some(event) => event,
+                None => break,
+            };
+            received = true;
+            // The held view is what `NewSession` counts against, and it is the
+            // pre-event view on purpose: the confirming fact has not been
+            // reduced yet, so the count it is compared with is the one taken
+            // before the command went out.
+            let sessions = self
+                .projection
+                .view()
+                .map(|view| view.agent_sessions.clone())
+                .unwrap_or_default();
+            let Some(pending) = self.pending_d16.as_mut() else {
+                break;
+            };
+            match pending.observe(&event, &sessions) {
+                D12Observation::Continue => {}
+                D12Observation::Confirmed => {
+                    self.pending_d16 = None;
+                    outcome = D1OutcomeProjection::confirmed();
+                    break;
+                }
+                D12Observation::Rejected(reason) => {
+                    self.pending_d16 = None;
+                    outcome = D1OutcomeProjection::rejected(reason);
+                    break;
+                }
+            }
+        }
+        if received {
+            self.refresh_projection()
+                .map_err(|error| error.to_string())?;
+        }
+        Ok(outcome)
+    }
+
     /// Whether Core's handshake published `runtime.plan_documents`.
     pub fn supports_plan_documents(&self) -> bool {
         self.supports(crate::PLAN_DOCUMENTS_CAPABILITY)
@@ -3535,11 +3894,11 @@ impl GuiCoreAdapter {
                 if reason.is_empty() {
                     return Err("a rejected plan requires a reason".to_string());
                 }
-                if reason.len() > crate::D15_REJECT_REASON_MAX_BYTES {
+                if reason.len() > viden_core::MAX_PLAN_REJECT_REASON_BYTES {
                     return Err(format!(
                         "the rejection reason is {} bytes, over Core's {} byte bound",
                         reason.len(),
-                        crate::D15_REJECT_REASON_MAX_BYTES
+                        viden_core::MAX_PLAN_REJECT_REASON_BYTES
                     ));
                 }
                 RuntimeCommand::RejectPlanDocument {

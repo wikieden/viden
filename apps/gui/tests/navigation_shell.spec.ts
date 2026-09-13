@@ -93,6 +93,9 @@ describe("the activity rail is one ordered router table", () => {
       // then carry out.
       "d15",
       "lanes",
+      // `D-PLANBOARD` reuses the registered `robot` key for D16 and puts it
+      // directly after the Lane toggle: the board is what the Lanes are running.
+      "d16",
       "review",
       "evidence",
       "d2",
@@ -108,6 +111,7 @@ describe("the activity rail is one ordered router table", () => {
       "chat",
       "plan",
       "lanes",
+      "robot",
       "review",
       "evidence",
       "decide",
@@ -133,6 +137,7 @@ describe("the activity rail is one ordered router table", () => {
       "conversation",
       "d15",
       "lanes",
+      "d16",
       "review",
       "evidence",
       "d2",
@@ -715,6 +720,7 @@ describe("the rail destination type stays closed over the router table", () => {
     );
     expect(destinations).toEqual([
       "d15",
+      "d16",
       "review",
       "evidence",
       "d2",

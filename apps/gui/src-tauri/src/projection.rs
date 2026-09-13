@@ -20,6 +20,11 @@ use viden_core::{
     WorkspaceSourceView,
 };
 
+use crate::board::{
+    D16ActionProjection, D16AgentBoardProjection, D16ControlProjection, D16ConversationProjection,
+    D16DetailProjection, D16EvidenceProjection, D16LaneProjection, D16SessionProjection,
+    D16SwitchModelProjection,
+};
 use crate::d1::{
     D1_OWNER_CAPABILITY, D1_OWNER_CARDINALITY_CODE, D1AgentAdapterProjection,
     D1AgentConversationMessageProjection, D1AgentSessionProjection, D1ApprovalProjection,
@@ -768,7 +773,7 @@ impl RuntimeProjection {
                 decide_block: Some(crate::D15_CAPABILITY_ABSENT_CODE),
                 can_hand_off: false,
                 hand_off_block: Some(crate::D15_CAPABILITY_ABSENT_CODE),
-                reject_reason_max_bytes: crate::D15_REJECT_REASON_MAX_BYTES,
+                reject_reason_max_bytes: viden_core::MAX_PLAN_REJECT_REASON_BYTES,
             }
         };
 
@@ -781,6 +786,157 @@ impl RuntimeProjection {
             plan,
             ambiguous_plan_ids,
             decision,
+        })
+    }
+
+    /// Projects the D16 Agent Board (`runtime.agent_session_control`, C14).
+    ///
+    /// `selected_session_id` is the shell's own presentation state. It is
+    /// resolved against what Core publishes rather than trusted: a selection
+    /// naming a session Core no longer holds falls back to the first session
+    /// blocking on a human, then to the first session at all, so the detail
+    /// pane never renders a session that is gone.
+    ///
+    /// The board itself does not need the capability — Lanes and sessions are
+    /// ordinary `0.3.0` facts — but every control does, so an absent capability
+    /// leaves the rows readable and the action row disabled and labelled.
+    pub fn d16_agent_board(
+        &self,
+        selected_session_id: Option<&str>,
+    ) -> Option<D16AgentBoardProjection> {
+        let confirmed = self.confirmed.as_ref()?;
+        let view = &confirmed.view;
+        let capability_available = confirmed
+            .capabilities
+            .iter()
+            .any(|capability| capability.0 == crate::AGENT_SESSION_CONTROL_CAPABILITY);
+
+        // Grouped by the session's own `lane_id`, in the order Core published
+        // the Lanes and then, for a Lane Core published no record for, in the
+        // order its sessions first appear. A session is never hoisted out of
+        // its Lane, and a Lane with no record still gets a row.
+        let mut lane_ids: Vec<String> = Vec::new();
+        for lane in &view.lanes {
+            if !lane_ids.iter().any(|id| id == &lane.id) {
+                lane_ids.push(lane.id.clone());
+            }
+        }
+        for session in &view.agent_sessions {
+            if !lane_ids.iter().any(|id| id == &session.lane_id) {
+                lane_ids.push(session.lane_id.clone());
+            }
+        }
+
+        let mut lanes: Vec<D16LaneProjection> = Vec::new();
+        for lane_id in lane_ids {
+            let record = view.lanes.iter().find(|lane| lane.id == lane_id);
+            let sessions: Vec<D16SessionProjection> = view
+                .agent_sessions
+                .iter()
+                .filter(|session| session.lane_id == lane_id)
+                .map(|session| agent_board_session(session, capability_available))
+                .collect();
+            // A Lane Core published and that holds no session is still a row:
+            // "this Lane has no session yet" is a different fact from "this
+            // Lane does not exist", and the board owes the operator both.
+            if record.is_none() && sessions.is_empty() {
+                continue;
+            }
+            let awaiting = sessions.iter().filter(|s| s.awaits_human).count();
+            lanes.push(D16LaneProjection {
+                lane_id: lane_id.clone(),
+                published: record.is_some(),
+                summary: record.map(|lane| lane.summary.clone()),
+                role: record.map(|lane| agent_role(lane.role).to_string()),
+                route: record.map(|lane| agent_route(lane.route).to_string()),
+                gate_strength: record.map(|lane| gate_strength(lane.gate_strength).to_string()),
+                status: record.map(|lane| lane_status(lane.status).to_string()),
+                branch: record.and_then(|lane| lane.branch.clone()),
+                worktree: record.and_then(|lane| lane.worktree.clone()),
+                sessions,
+                awaiting,
+            });
+        }
+
+        let total_sessions: usize = lanes.iter().map(|lane| lane.sessions.len()).sum();
+        let awaiting_total: usize = lanes.iter().map(|lane| lane.awaiting).sum();
+
+        // The selection is resolved, never trusted. Preferring the session that
+        // blocks on a human is the board's own rule and matches the design's
+        // opening state: the row that needs the operator is the one the detail
+        // pane should already be showing.
+        let selected = selected_session_id
+            .and_then(|wanted| {
+                lanes
+                    .iter()
+                    .flat_map(|lane| lane.sessions.iter())
+                    .find(|session| session.session_id == wanted)
+            })
+            .or_else(|| {
+                lanes
+                    .iter()
+                    .flat_map(|lane| lane.sessions.iter())
+                    .find(|session| session.awaits_human)
+            })
+            .or_else(|| lanes.iter().flat_map(|lane| lane.sessions.iter()).next());
+
+        let detail = selected.map(|session| {
+            let conversation = view
+                .agent_conversation
+                .iter()
+                .filter(|message| message.session_id == session.session_id)
+                .map(|message| D16ConversationProjection {
+                    message_id: message.message_id.clone(),
+                    role: match message.role {
+                        viden_core::AgentConversationRole::User => "user",
+                        viden_core::AgentConversationRole::Assistant => "assistant",
+                    }
+                    .to_string(),
+                    content: message.content.clone(),
+                })
+                .collect();
+            // Evidence by owner, which is the only attribution Core publishes
+            // for an evidence row. A row whose owner Core did not know carries
+            // no session id, so it is not this session's and is not shown here.
+            let evidence = view
+                .latest_evidence
+                .iter()
+                .filter(|entry| {
+                    entry
+                        .owner
+                        .as_ref()
+                        .and_then(|owner| owner.session_id.as_deref())
+                        == Some(session.session_id.as_str())
+                })
+                .map(|entry| D16EvidenceProjection {
+                    id: entry.id.clone(),
+                    kind: entry.kind.clone(),
+                    summary: entry.summary.clone(),
+                })
+                .collect();
+            let switch_block = agent_board_switch_block(session, capability_available);
+            D16DetailProjection {
+                session_id: session.session_id.clone(),
+                lane_id: session.lane_id.clone(),
+                conversation,
+                evidence,
+                switch_model: switch_block.is_none().then(|| D16SwitchModelProjection {
+                    load_session_id: session.session_id.clone(),
+                    current_model: session.model.clone(),
+                    agent_id: session.agent_id.clone(),
+                }),
+                switch_model_block: switch_block,
+            }
+        });
+
+        Some(D16AgentBoardProjection {
+            capability_available,
+            total_lanes: lanes.len(),
+            total_sessions,
+            awaiting_total,
+            selected_session_id: selected.map(|session| session.session_id.clone()),
+            detail,
+            lanes,
         })
     }
 
@@ -2232,6 +2388,191 @@ fn agent_task_status(status: AgentTaskStatus) -> &'static str {
     }
 }
 
+/// Projects one Agent session row plus the action row its status allows.
+///
+/// Liveness comes from `status` alone. `AgentLaneRecord::active_session_ids` is
+/// deliberately never consulted: the C14 amendment records that Core does not
+/// prune that list when a session settles — not even for a cancel — so a client
+/// reading membership as "alive" would report every finished session as running.
+fn agent_board_session(
+    session: &viden_core::AgentSessionView,
+    capability_available: bool,
+) -> D16SessionProjection {
+    let status = agent_session_status(session.status);
+    let terminal = session.status.is_terminal();
+    let awaits_human = matches!(session.status, AgentSessionStatus::WaitingApproval);
+    // The exact string Core answers a badly-timed control with, built once so
+    // the label the operator reads before pressing and the refusal they would
+    // have read after are the same sentence.
+    let status_block = format!("{}{status}", crate::D16_STATUS_BLOCK_PREFIX);
+    let absent = crate::D16_CAPABILITY_ABSENT_CODE.to_string();
+
+    // Core's own acceptance rules (`release-0.3.5-contract-design.md` §2):
+    // pause from the three live statuses, resume from `Paused` only, kill from
+    // any non-terminal status including `Paused`, cancel unchanged, and retry
+    // on a terminal status — `Killed` exactly as `Failed`.
+    let pausable = matches!(
+        session.status,
+        AgentSessionStatus::Starting
+            | AgentSessionStatus::Running
+            | AgentSessionStatus::WaitingApproval
+    );
+    let resumable = matches!(session.status, AgentSessionStatus::Paused);
+    let retryable = terminal && !matches!(session.status, AgentSessionStatus::Completed);
+
+    let gated = |allowed: bool, block: &str| -> D16ActionProjection {
+        let available = allowed && capability_available;
+        D16ActionProjection {
+            kind: String::new(),
+            available,
+            block: if available {
+                None
+            } else if !capability_available {
+                Some(absent.clone())
+            } else {
+                Some(block.to_string())
+            },
+            request: false,
+        }
+    };
+    let named = |kind: &str, mut action: D16ActionProjection| {
+        action.kind = kind.to_string();
+        action
+    };
+
+    // Stop is `CancelAgentSession`, which predates this capability: it stays
+    // available on a live session even where Core published no session-control
+    // capability, because refusing it there would retire a control that has
+    // worked since `0.3.0`.
+    let stop = D16ActionProjection {
+        kind: "stop".to_string(),
+        available: !terminal,
+        block: (terminal).then(|| crate::D16_SESSION_ENDED_CODE.to_string()),
+        request: false,
+    };
+    // Retry likewise predates C14; what C14 added is that `Killed` counts as a
+    // terminal status it accepts.
+    let retry = D16ActionProjection {
+        kind: "retry".to_string(),
+        available: retryable,
+        block: if retryable {
+            None
+        } else if matches!(session.status, AgentSessionStatus::Completed) {
+            Some(crate::D16_SESSION_COMPLETED_CODE.to_string())
+        } else {
+            Some(status_block.clone())
+        },
+        request: false,
+    };
+
+    let actions = vec![
+        named("pause", gated(pausable, &status_block)),
+        named("resume", gated(resumable, &status_block)),
+        named("kill", gated(!terminal, &status_block)),
+        stop,
+        retry,
+        D16ActionProjection {
+            kind: "switch_model".to_string(),
+            available: agent_board_switch_available(session, capability_available),
+            block: agent_board_switch_block_for(session, capability_available),
+            request: false,
+        },
+        // No Core fact at all. Dashed, disabled, and labelled as a request —
+        // `D-PLANBOARD`'s rule for a control the contract-design table does not
+        // list, and the reason this arm carries a code rather than a status.
+        D16ActionProjection {
+            kind: "downgrade_manual".to_string(),
+            available: false,
+            block: Some(crate::D16_NO_CORE_FACT_CODE.to_string()),
+            request: true,
+        },
+        D16ActionProjection {
+            kind: "ask_user".to_string(),
+            available: false,
+            block: Some(crate::D16_NO_CORE_FACT_CODE.to_string()),
+            request: true,
+        },
+    ];
+
+    D16SessionProjection {
+        session_id: session.session_id.clone(),
+        lane_id: session.lane_id.clone(),
+        agent_id: session.agent_id.clone(),
+        model: session.model.clone(),
+        task: session.task.clone(),
+        status: status.to_string(),
+        diagnostic: session.diagnostic.clone(),
+        control: session
+            .control
+            .as_ref()
+            .map(|control| D16ControlProjection {
+                paused_at: control.paused_at,
+                resumed_at: control.resumed_at,
+                terminated_by: control.terminated_by.map(|termination| {
+                    match termination {
+                        viden_core::AgentSessionTermination::Cancelled => "cancelled",
+                        viden_core::AgentSessionTermination::Killed => "killed",
+                    }
+                    .to_string()
+                }),
+                held_input_count: control.held_input_count,
+            }),
+        terminal,
+        awaits_human,
+        actions,
+    }
+}
+
+/// Whether the two-step model switch can be offered for this session.
+///
+/// Both steps need Core: step 1 ends the session (Kill needs the capability,
+/// Stop does not) and step 2 sends `StartAgentSession { model, load_session_id }`,
+/// which has always existed. The switch is therefore offered on a live session
+/// once the capability is published, and on a terminal one it is not: there is
+/// nothing left to end, and starting a fresh session is the Lane's own action
+/// rather than a *switch*.
+fn agent_board_switch_available(
+    session: &viden_core::AgentSessionView,
+    capability_available: bool,
+) -> bool {
+    capability_available && !session.status.is_terminal() && session.model.is_some()
+}
+
+fn agent_board_switch_block_for(
+    session: &viden_core::AgentSessionView,
+    capability_available: bool,
+) -> Option<String> {
+    if !capability_available {
+        return Some(crate::D16_CAPABILITY_ABSENT_CODE.to_string());
+    }
+    if session.status.is_terminal() {
+        return Some(crate::D16_SESSION_ENDED_CODE.to_string());
+    }
+    // Without a model Core published, the panel could not say what the session
+    // is switching *from*, and step 2's field would start from a guess.
+    if session.model.is_none() {
+        return Some(crate::D16_NO_MODEL_CODE.to_string());
+    }
+    None
+}
+
+/// The same rule read off the already-projected row, for the detail pane.
+fn agent_board_switch_block(
+    session: &D16SessionProjection,
+    capability_available: bool,
+) -> Option<String> {
+    if !capability_available {
+        return Some(crate::D16_CAPABILITY_ABSENT_CODE.to_string());
+    }
+    if session.terminal {
+        return Some(crate::D16_SESSION_ENDED_CODE.to_string());
+    }
+    if session.model.is_none() {
+        return Some(crate::D16_NO_MODEL_CODE.to_string());
+    }
+    None
+}
+
 /// Whether one plan belongs to the owner this view is scoped to.
 ///
 /// Mirrors the runtime's `plans_share_owner` narrowed to what a client can see:
@@ -2387,7 +2728,7 @@ fn plan_decision(
         decide_block: Some(code),
         can_hand_off: false,
         hand_off_block: Some(code),
-        reject_reason_max_bytes: crate::D15_REJECT_REASON_MAX_BYTES,
+        reject_reason_max_bytes: viden_core::MAX_PLAN_REJECT_REASON_BYTES,
     };
     if !ambiguous_plan_ids.is_empty() {
         return blocked(crate::D15_AMBIGUOUS_OWNER_CODE);
@@ -2412,7 +2753,7 @@ fn plan_decision(
         decide_block: (!decidable).then_some(crate::D15_ALREADY_DECIDED_CODE),
         can_hand_off: hand_off_block.is_none(),
         hand_off_block,
-        reject_reason_max_bytes: crate::D15_REJECT_REASON_MAX_BYTES,
+        reject_reason_max_bytes: viden_core::MAX_PLAN_REJECT_REASON_BYTES,
     }
 }
 

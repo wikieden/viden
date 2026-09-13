@@ -535,7 +535,7 @@ interface CockpitOptions {
    * rather than capturing a blank pane.
    */
   secondaryViews?: (
-    route: "d2" | "d10" | "d12" | "d13" | "d14" | "d15",
+    route: "d2" | "d10" | "d12" | "d13" | "d14" | "d15" | "d16",
     container: HTMLElement,
     arg: string | null,
   ) => void | Promise<void>;

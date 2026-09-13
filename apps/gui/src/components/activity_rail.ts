@@ -18,7 +18,8 @@ export type D1RailDestination =
   | "d12"
   | "d13"
   | "d14"
-  | "d15";
+  | "d15"
+  | "d16";
 
 export interface D1RailSlot {
   /** Stable slot id; equals the destination for a routing slot. */
@@ -58,6 +59,17 @@ export const D1_RAIL_ROUTES: readonly D1RailSlot[] = [
     destination: "d15",
   },
   { id: "lanes", icon: "lanes", key: "d1.activity.lanes", kind: "lanes" },
+  // `D-PLANBOARD` fixes the order for both new screens as
+  // `chat · plan · lanes · robot · fleet · decide`, so D16 sits directly after
+  // the Lane toggle: the board is what the Lanes are *running*. It reuses the
+  // already-registered `robot` key rather than minting a second agent glyph.
+  {
+    id: "d16",
+    icon: "robot",
+    key: "d1.activity.agentBoard",
+    kind: "destination",
+    destination: "d16",
+  },
   {
     id: "review",
     icon: "review",
@@ -100,6 +112,7 @@ export const D1_RAIL_ROUTES: readonly D1RailSlot[] = [
 export type CanonicalGuiIcon =
   | "chat"
   | "plan"
+  | "robot"
   | "worktree"
   | "lanes"
   | "review"
@@ -190,6 +203,17 @@ export function createCanonicalGuiIcon(name: CanonicalGuiIcon): SVGSVGElement {
       svgNode("path", { d: "M3.2 6.4l1.7 1.7L8.4 4.6" }),
       svgNode("path", { d: "M3.4 12.6h2.2M3.4 18.6h2.2" }),
       svgNode("path", { d: "M11 6.4h9.6M11 12.6h9.6M11 18.6h6.2" }),
+    );
+  } else if (name === "robot") {
+    // The registered `robot` glyph, verbatim from `GUI/gui-icons.jsx`. It was
+    // registered as the agent mark and `D-PLANBOARD` made it D16's rail key as
+    // well; nothing about the artwork changes.
+    svg.append(
+      svgNode("rect", { x: "5", y: "8", width: "14", height: "11", rx: "2.5" }),
+      svgNode("path", { d: "M12 4v4M9.5 13h0M14.5 13h0M3.5 12v3M20.5 12v3" }),
+      svgNode("circle", { cx: "9.5", cy: "13", r: "1.2" }),
+      svgNode("circle", { cx: "14.5", cy: "13", r: "1.2" }),
+      svgNode("path", { d: "M9.5 16.5h5" }),
     );
   } else if (name === "diagnostics") {
     svg.append(svgNode("path", { d: "M3 12h4l3 8 4-16 3 8h4" }));

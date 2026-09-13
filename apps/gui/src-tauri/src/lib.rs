@@ -2,6 +2,7 @@
 
 mod adapter;
 mod agent_content;
+mod board;
 mod d1;
 mod d10;
 mod d12;
@@ -30,6 +31,13 @@ use std::{env, ffi::OsString, path::Path};
 
 pub use adapter::{D11Intent, D11IntentResult, GuiCoreAdapter, open_local_workspace};
 pub use agent_content::{agent_content_data_url, resolve_agent_content_reference};
+pub use board::{
+    AGENT_SESSION_CONTROL_CAPABILITY, D16_CAPABILITY_ABSENT_CODE, D16_NO_CORE_FACT_CODE,
+    D16_NO_LANE_CODE, D16_NO_MODEL_CODE, D16_NO_SESSION_CODE, D16_SESSION_COMPLETED_CODE,
+    D16_SESSION_ENDED_CODE, D16_STATUS_BLOCK_PREFIX, D16ActionProjection, D16AgentBoardProjection,
+    D16ControlProjection, D16ConversationProjection, D16DetailProjection, D16EvidenceProjection,
+    D16Intent, D16IntentResult, D16LaneProjection, D16SessionProjection, D16SwitchModelProjection,
+};
 pub use d1::{
     ComposerControlIntent, D1_OWNER_CAPABILITY, D1_OWNER_CARDINALITY_CODE,
     D1AgentSessionInputProjection, D1AgentSessionProjection, D1ChecklistItemProjection,
@@ -94,14 +102,14 @@ pub use permission::{
     PermissionIntentResult, PermissionOutcomeProjection, PermissionRequestProjection,
     PermissionTargetProjection,
 };
+
 pub use plan::{
     D15_ALREADY_DECIDED_CODE, D15_ALREADY_HANDED_OFF_CODE, D15_AMBIGUOUS_OWNER_CODE,
     D15_CAPABILITY_ABSENT_CODE, D15_NO_PLAN_CODE, D15_NO_STEPS_CODE, D15_NOT_ACCEPTED_CODE,
-    D15_PLAN_MODE_CODE, D15_REJECT_REASON_MAX_BYTES, D15_REVISION_STALE_CODE,
-    D15DecisionProjection, D15Intent, D15IntentResult, D15PlanAuthorProjection,
-    D15PlanHandoffProjection, D15PlanProjection, D15PlanRoleCountProjection,
-    D15PlanSectionProjection, D15PlanStepProjection, D15PlanStudioProjection,
-    PLAN_DOCUMENTS_CAPABILITY,
+    D15_PLAN_MODE_CODE, D15_REVISION_STALE_CODE, D15DecisionProjection, D15Intent, D15IntentResult,
+    D15PlanAuthorProjection, D15PlanHandoffProjection, D15PlanProjection,
+    D15PlanRoleCountProjection, D15PlanSectionProjection, D15PlanStepProjection,
+    D15PlanStudioProjection, PLAN_DOCUMENTS_CAPABILITY,
 };
 
 pub use layout_preferences::{
@@ -975,6 +983,54 @@ fn permission_poll(
         .poll_permission(Duration::ZERO)
 }
 
+/// The Agent Board projection (`runtime.agent_session_control`, C14).
+///
+/// `selected_session_id` is the shell's own selection; the projection resolves
+/// it against what Core publishes rather than trusting it.
+#[tauri::command]
+fn d16_agent_board(
+    selected_session_id: Option<String>,
+    state: tauri::State<'_, DesktopState>,
+) -> Result<Option<D16AgentBoardProjection>, String> {
+    Ok(state
+        .adapter
+        .lock()
+        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?
+        .as_ref()
+        .ok_or_else(|| "Core adapter is not connected".to_string())?
+        .d16_agent_board(selected_session_id.as_deref()))
+}
+
+/// Sends one Agent-session control and waits briefly for its ordered receipt.
+#[tauri::command]
+fn d16_send_intent(
+    command_id: String,
+    intent: D16Intent,
+    state: tauri::State<'_, DesktopState>,
+) -> Result<D16IntentResult, String> {
+    state
+        .adapter
+        .lock()
+        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?
+        .as_mut()
+        .ok_or_else(|| "Core adapter is not connected".to_string())?
+        .send_d16_intent_and_wait(&command_id, intent, Duration::from_millis(250))
+}
+
+#[tauri::command]
+fn d16_poll(
+    selected_session_id: Option<String>,
+    state: tauri::State<'_, DesktopState>,
+) -> Result<D16IntentResult, String> {
+    state
+        .adapter
+        .lock()
+        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?
+        .as_mut()
+        .ok_or_else(|| "Core adapter is not connected".to_string())?
+        .poll_d16(selected_session_id.as_deref(), Duration::ZERO)
+}
+
 /// The Plan Studio projection for the selected owner (`runtime.plan_documents`).
 ///
 /// `lane_id` is the cockpit's selected Lane, or `None` for the session scope.
@@ -1338,6 +1394,9 @@ pub fn run_with_adapter(adapter: Option<GuiCoreAdapter>) {
             d12_integration_gate,
             d12_send_intent,
             d13_fleet_workflow,
+            d16_agent_board,
+            d16_send_intent,
+            d16_poll,
             d15_plan_studio,
             d15_send_intent,
             d15_poll,
