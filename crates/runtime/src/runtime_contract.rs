@@ -1998,6 +1998,16 @@ impl SessionEngine {
                 viden_types::AgentSessionStatus::Failed => {
                     RuntimeEventKind::AgentSessionFailed { session }
                 }
+                viden_types::AgentSessionStatus::Killed => {
+                    RuntimeEventKind::AgentSessionKilled { session }
+                }
+                // A paused or cancelled session is an update to a session that
+                // already exists, never a start: rebuilding it as `Starting`
+                // would erase the operator's control act.
+                viden_types::AgentSessionStatus::Paused
+                | viden_types::AgentSessionStatus::Cancelled => {
+                    RuntimeEventKind::AgentSessionUpdated { session }
+                }
                 _ => RuntimeEventKind::AgentSessionStarted { session },
             };
             events.push(RuntimeEvent::new(next_sequence(&events), kind));

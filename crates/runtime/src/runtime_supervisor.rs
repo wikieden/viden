@@ -16,20 +16,22 @@ use viden_lanes::{
 };
 use viden_provider::ModelRequestControl;
 use viden_types::{
-    AgentSessionRequest, AgentSessionStatus, AgentSessionView, ApprovalDecision,
-    ApprovalDefaultAction, ApprovalRequestView, ApprovalResponse, ApprovalRisk, ApprovalScope,
-    ApprovalTarget, AuditActor, AuditObjectRef, AuditOutcome, AuditRecord, CapabilityId,
-    EventCursor, FRONTEND_SCHEMA_V1, FRONTEND_V1_CAPABILITIES, FRONTEND_V1_EXTENSION_CAPABILITIES,
-    GapRecovery, LaneRuntimeOwnerBinding, OperatorGitAction, PermissionLevel, PermissionPrompt,
-    ReplayBatch, ReplayRequest, RuntimeCommand, RuntimeCommandEnvelope, RuntimeErrorView,
-    RuntimeEvent, RuntimeEventEnvelope, RuntimeEventKind, RuntimeOwner, RuntimeSnapshotEnvelope,
+    AgentSessionControlView, AgentSessionRequest, AgentSessionStatus, AgentSessionTermination,
+    AgentSessionView, ApprovalDecision, ApprovalDefaultAction, ApprovalRequestView,
+    ApprovalResponse, ApprovalRisk, ApprovalScope, ApprovalTarget, AuditActor, AuditObjectRef,
+    AuditOutcome, AuditRecord, CapabilityId, EventCursor, FRONTEND_SCHEMA_V1,
+    FRONTEND_V1_CAPABILITIES, FRONTEND_V1_EXTENSION_CAPABILITIES, GapRecovery,
+    LaneRuntimeOwnerBinding, OperatorGitAction, PermissionLevel, PermissionPrompt, ReplayBatch,
+    ReplayRequest, RuntimeCommand, RuntimeCommandEnvelope, RuntimeErrorView, RuntimeEvent,
+    RuntimeEventEnvelope, RuntimeEventKind, RuntimeOwner, RuntimeSnapshotEnvelope,
     RuntimeViewState, RuntimeWireEvent, TranscriptPage, TranscriptPageRequest, TurnOutcome,
     TurnSource, TurnView, WorkMode, fresh_id, now_timestamp,
 };
 use viden_workflows::stores::WorkflowStore;
 
 use viden_agents::{
-    AgentSessionApprover, cancel_typed_agent_session, mark_typed_agent_session_status,
+    AgentSessionApprover, cancel_typed_agent_session, cancelled_session_control,
+    kill_typed_agent_session, mark_typed_agent_session_status, pause_typed_agent_session,
     resume_typed_agent_session, retry_typed_agent_session, shutdown_resident_acp_sessions,
     start_typed_agent_session, typed_agent_session_request_from_compat_input,
     validate_typed_agent_session_request,
@@ -503,7 +505,45 @@ impl ApprovalAuditLog {
         )?;
         self.workflows.append_audit_record(&record)
     }
+
+    /// Appends the durable row for one operator session-control act
+    /// (`runtime.agent_session_control`).
+    ///
+    /// Pause, resume, and kill change what an Agent session is allowed to do,
+    /// so each is audited like any other operator mutation: actor `Operator`,
+    /// and both the session and the Lane it belongs to linked, because an
+    /// operator reading the Lane's timeline must see the session it controlled.
+    fn record_session_control(
+        &self,
+        audit_id: &str,
+        owner: &RuntimeOwner,
+        action: &str,
+        session_id: &str,
+        lane_id: &str,
+    ) -> Result<(), String> {
+        let record = AuditRecord::sanitized(
+            audit_id.to_string(),
+            now_timestamp(),
+            owner.clone(),
+            AuditActor::Operator,
+            format!("agent_session.{action}"),
+            vec![
+                AuditObjectRef::new(AuditObjectRef::KIND_SESSION, session_id),
+                AuditObjectRef::new(AuditObjectRef::KIND_LANE, lane_id),
+            ],
+            AuditOutcome::Success,
+            BTreeMap::new(),
+        )?;
+        self.workflows.append_audit_record(&record)
+    }
 }
+
+/// Upper bound on the inputs one paused session may hold.
+///
+/// The same bound the runtime view already caps its collections at: a paused
+/// session must not become an unbounded queue an operator cannot see the end
+/// of, and a client renders the count from the view it is capped by.
+const MAX_HELD_SESSION_INPUTS: usize = 50;
 
 /// Stable action/scope key for one approval decision.
 fn approval_scope_key(decision: &ApprovalDecision) -> &'static str {
@@ -985,7 +1025,14 @@ impl RuntimeSupervisor {
                 );
                 return Ok(());
             }
-            RuntimeCommand::CancelAgentSession { ref session_id } => {
+            // Every session-control command answers the same two questions
+            // before the worker ever sees it: is the session known, and does
+            // the commanding owner hold it. Neither depends on which control
+            // was asked for, so they are decided once here.
+            RuntimeCommand::CancelAgentSession { ref session_id }
+            | RuntimeCommand::PauseAgentSession { ref session_id }
+            | RuntimeCommand::ResumeAgentSession { ref session_id }
+            | RuntimeCommand::KillAgentSession { ref session_id } => {
                 let session = self
                     .event_bus
                     .state
@@ -1603,6 +1650,20 @@ fn run_supervisor_worker(
     // it is armed runs as soon as it is queued. Nothing runs behind a failed or
     // cancelled turn either way.
     let mut session_queue_draining = false;
+    // Inputs accepted while a session is paused, in arrival order
+    // (`runtime.agent_session_control`).
+    //
+    // Worker-local because every command that reads or writes it — the input
+    // that is held, the resume that forwards one, the kill that discards them —
+    // is handled on this thread, and because a held input is not a durable
+    // fact: it is a prompt that has not been sent, and a Core that restarts
+    // never sends it.
+    let mut held_session_inputs: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    // The durable audit handle for session control. Built from the same store
+    // the engine owns, before the engine is borrowed by the command loop.
+    let session_audit = ApprovalAuditLog {
+        workflows: engine.workflow_store(),
+    };
     while let Ok(message) = command_receiver.recv() {
         match message {
             SupervisorMessage::Shutdown { response } => {
@@ -1692,19 +1753,35 @@ fn run_supervisor_worker(
                         );
                     }
                     RuntimeCommand::SendAgentSessionInput { input } => {
-                        run_supervised_agent_session_continuation(
-                            &engine,
-                            owner,
-                            command_id,
-                            input.session_id,
-                            Some(input.content),
-                            &event_bus,
-                            &active_control,
-                            &pending_approvals,
-                            &approval_timers,
-                            &permission_control,
-                            approval_ttl_secs,
-                        );
+                        // A paused session accepts input and holds it. The
+                        // ordinary continuation path would reject it as "still
+                        // active", which is true and useless: the operator
+                        // paused it on purpose and expects to be able to type.
+                        if agent_session_status(&event_bus, &input.session_id)
+                            == Some(AgentSessionStatus::Paused)
+                        {
+                            hold_paused_agent_session_input(
+                                owner,
+                                command_id,
+                                input,
+                                &event_bus,
+                                &mut held_session_inputs,
+                            );
+                        } else {
+                            run_supervised_agent_session_continuation(
+                                &engine,
+                                owner,
+                                command_id,
+                                input.session_id,
+                                Some(input.content),
+                                &event_bus,
+                                &active_control,
+                                &pending_approvals,
+                                &approval_timers,
+                                &permission_control,
+                                approval_ttl_secs,
+                            );
+                        }
                     }
                     RuntimeCommand::RetryAgentSession { session_id } => {
                         run_supervised_agent_session_continuation(
@@ -1722,6 +1799,11 @@ fn run_supervisor_worker(
                         );
                     }
                     RuntimeCommand::CancelAgentSession { session_id } => {
+                        // Cancel discards whatever a pause was holding: the
+                        // session is ending either way, and a held prompt that
+                        // outlived the session it was written for would be sent
+                        // into the next one.
+                        held_session_inputs.remove(&session_id);
                         run_supervised_agent_session_cancel(
                             &engine,
                             owner,
@@ -1730,6 +1812,48 @@ fn run_supervisor_worker(
                             &event_bus,
                             &active_control,
                             &pending_approvals,
+                        );
+                    }
+                    RuntimeCommand::PauseAgentSession { session_id } => {
+                        run_supervised_agent_session_pause(
+                            &engine,
+                            owner,
+                            command_id,
+                            session_id,
+                            &event_bus,
+                            &active_control,
+                            &pending_approvals,
+                            &session_audit,
+                            &held_session_inputs,
+                        );
+                    }
+                    RuntimeCommand::ResumeAgentSession { session_id } => {
+                        run_supervised_agent_session_resume(
+                            &engine,
+                            owner,
+                            command_id,
+                            session_id,
+                            &event_bus,
+                            &active_control,
+                            &pending_approvals,
+                            &approval_timers,
+                            &permission_control,
+                            approval_ttl_secs,
+                            &session_audit,
+                            &mut held_session_inputs,
+                        );
+                    }
+                    RuntimeCommand::KillAgentSession { session_id } => {
+                        run_supervised_agent_session_kill(
+                            &engine,
+                            owner,
+                            command_id,
+                            session_id,
+                            &event_bus,
+                            &active_control,
+                            &pending_approvals,
+                            &session_audit,
+                            &mut held_session_inputs,
                         );
                     }
                     RuntimeCommand::RetrieveContext { handle_id, reason } => {
@@ -3048,10 +3172,11 @@ fn supervised_agent_session_sink(
                 event.kind,
                 RuntimeEventKind::AgentSessionCompleted { .. }
                     | RuntimeEventKind::AgentSessionFailed { .. }
+                    | RuntimeEventKind::AgentSessionKilled { .. }
             ) || matches!(
                 &event.kind,
                 RuntimeEventKind::AgentSessionUpdated { session }
-                    if session.status == AgentSessionStatus::Cancelled
+                    if session.status.is_terminal()
             )
         });
         emit_events(&sink_bus, owner.clone(), events);
@@ -3122,10 +3247,9 @@ fn run_supervised_agent_session_continuation(
         );
         return;
     }
-    if !matches!(
-        session.status,
-        AgentSessionStatus::Completed | AgentSessionStatus::Failed | AgentSessionStatus::Cancelled
-    ) {
+    // A killed session is retryable exactly as a failed one is: the operator
+    // ended the turn, not the session's right to exist.
+    if !session.status.is_terminal() {
         emit_event(
             event_bus,
             owner,
@@ -3233,6 +3357,506 @@ fn run_supervised_agent_session_continuation(
     }
 }
 
+/// The live status of one Agent session, or `None` when Core does not know it.
+fn agent_session_status(
+    event_bus: &RuntimeEventBus,
+    session_id: &str,
+) -> Option<AgentSessionStatus> {
+    event_bus.state.lock().ok().and_then(|state| {
+        state
+            .live_view
+            .agent_sessions
+            .iter()
+            .find(|session| session.session_id == session_id)
+            .map(|session| session.status)
+    })
+}
+
+/// The session view Core currently holds, cloned.
+fn agent_session_view(event_bus: &RuntimeEventBus, session_id: &str) -> Option<AgentSessionView> {
+    event_bus.state.lock().ok().and_then(|state| {
+        state
+            .live_view
+            .agent_sessions
+            .iter()
+            .find(|session| session.session_id == session_id)
+            .cloned()
+    })
+}
+
+/// Stable rejection reason for a control command sent against a status that
+/// does not allow it.
+///
+/// The current status is part of the reason because a client that retried
+/// blindly would otherwise have no way to tell "already paused" from "already
+/// finished", and both are answers the operator needs.
+fn session_status_rejection(status: AgentSessionStatus) -> String {
+    let token = match status {
+        AgentSessionStatus::Starting => "starting",
+        AgentSessionStatus::Running => "running",
+        AgentSessionStatus::WaitingApproval => "waiting_approval",
+        AgentSessionStatus::Completed => "completed",
+        AgentSessionStatus::Failed => "failed",
+        AgentSessionStatus::Cancelled => "cancelled",
+        AgentSessionStatus::Paused => "paused",
+        AgentSessionStatus::Killed => "killed",
+    };
+    format!("session_status_{token}")
+}
+
+/// Deny the approval a session was waiting on, with an audited reason.
+///
+/// The durable row is written before the fact that announces the decision, the
+/// same order every other audited mutation uses: `ApprovalResolved` carries the
+/// `audit_id` the request already showed the operator, and publishing it before
+/// the row existed would hand a client a receipt it cannot resolve. The denial
+/// itself is never withheld because the audit failed — a prompt whose turn is
+/// gone must not stay blocked — so an audit failure is published as an `Error`.
+fn deny_session_approval_with_audit(
+    reason: &str,
+    session_id: &str,
+    event_bus: &RuntimeEventBus,
+    active_control: &ActiveControlRegistry,
+    pending_approvals: &Arc<Mutex<BTreeMap<String, PendingApproval>>>,
+    audit: &ApprovalAuditLog,
+) {
+    let pending = active_control
+        .lock()
+        .ok()
+        .and_then(|controls| {
+            controls
+                .values()
+                .find(|active| active.owner_id == session_id)
+                .and_then(|active| match &active.state {
+                    ActiveJobState::PendingApproval { request_id } => Some(request_id.clone()),
+                    _ => None,
+                })
+        })
+        .and_then(|request_id| {
+            pending_approvals
+                .lock()
+                .ok()
+                .and_then(|mut approvals| approvals.remove(&request_id))
+                .map(|pending| (request_id, pending))
+        });
+    let Some((request_id, pending)) = pending else {
+        return;
+    };
+    if let Err(error) = audit.record_decision(
+        &pending.audit_id,
+        &pending.owner,
+        &request_id,
+        &pending.tool_name,
+        pending.target.owner_id(),
+        &ApprovalDecision::Deny,
+    ) {
+        emit_error(
+            event_bus,
+            pending.owner.clone(),
+            format!("approval denial was applied but not audited: {error}"),
+        );
+    }
+    resolve_removed_pending_approval(
+        &request_id,
+        pending,
+        ApprovalDecision::Deny,
+        event_bus,
+        active_control,
+        Some(reason.to_string()),
+    );
+}
+
+/// Pause an Agent session: stop the in-flight prompt, keep the session.
+///
+/// The prompt is gone, so the approval it was waiting on cannot be answered by
+/// anyone; Core denies it as `session_paused` rather than leaving a prompt on
+/// screen that nothing will ever act on.
+#[allow(clippy::too_many_arguments)]
+fn run_supervised_agent_session_pause(
+    engine: &SessionEngine,
+    owner: RuntimeOwner,
+    command_id: String,
+    session_id: String,
+    event_bus: &RuntimeEventBus,
+    active_control: &ActiveControlRegistry,
+    pending_approvals: &Arc<Mutex<BTreeMap<String, PendingApproval>>>,
+    audit: &ApprovalAuditLog,
+    held_inputs: &BTreeMap<String, Vec<String>>,
+) {
+    let Some(mut session) = agent_session_view(event_bus, &session_id) else {
+        emit_event(
+            event_bus,
+            owner,
+            RuntimeEventKind::CommandRejected {
+                command_id,
+                reason: format!("agent session `{session_id}` is not known"),
+            },
+        );
+        return;
+    };
+    if !matches!(
+        session.status,
+        AgentSessionStatus::Starting
+            | AgentSessionStatus::Running
+            | AgentSessionStatus::WaitingApproval
+    ) {
+        emit_event(
+            event_bus,
+            owner,
+            RuntimeEventKind::CommandRejected {
+                command_id,
+                reason: session_status_rejection(session.status),
+            },
+        );
+        return;
+    }
+    deny_session_approval_with_audit(
+        "session_paused",
+        &session_id,
+        event_bus,
+        active_control,
+        pending_approvals,
+        audit,
+    );
+    if let Some(active) = active_control_for_owner(active_control, &session_id) {
+        active.cancel();
+    }
+    let kept_connection = match pause_typed_agent_session(engine.cwd(), &session_id) {
+        Ok(kept_connection) => kept_connection,
+        Err(error) => {
+            emit_event(
+                event_bus,
+                owner,
+                RuntimeEventKind::CommandRejected {
+                    command_id,
+                    reason: error,
+                },
+            );
+            return;
+        }
+    };
+    let audit_id = fresh_id("audit");
+    if let Err(error) =
+        audit.record_session_control(&audit_id, &owner, "pause", &session_id, &session.lane_id)
+    {
+        emit_error(
+            event_bus,
+            owner.clone(),
+            format!("agent session pause was applied but not audited: {error}"),
+        );
+    }
+    emit_event(
+        event_bus,
+        owner.clone(),
+        RuntimeEventKind::CommandAccepted {
+            command_id,
+            command: redacted_runtime_command_for_event(&RuntimeCommand::PauseAgentSession {
+                session_id: session_id.clone(),
+            }),
+        },
+    );
+    let held = held_inputs
+        .get(&session_id)
+        .map_or(0, |inputs| inputs.len() as u32);
+    session.status = AgentSessionStatus::Paused;
+    session.control = Some(AgentSessionControlView {
+        paused_at: Some(now_timestamp()),
+        resumed_at: None,
+        terminated_by: None,
+        held_input_count: held,
+    });
+    // An adapter that did not answer the cooperative cancel was terminated, so
+    // the resume will reload the session instead of reusing a live connection.
+    // Saying so is the difference between a pause the operator can trust and
+    // one that quietly became a restart.
+    session.diagnostic = Some(if kept_connection {
+        "paused by owner; the agent connection is held".to_string()
+    } else {
+        "paused by owner; the agent did not stop cooperatively, so resume reloads the session"
+            .to_string()
+    });
+    emit_event(
+        event_bus,
+        owner,
+        RuntimeEventKind::AgentSessionUpdated { session },
+    );
+    clear_active_control(active_control, &session_id);
+}
+
+/// Accept an input while the session is paused and hold it.
+///
+/// The acceptance is real: the input is durably ordered against the other held
+/// inputs and counted in the session's control record, so a client never has to
+/// invent a pending state for a prompt Core did not acknowledge.
+fn hold_paused_agent_session_input(
+    owner: RuntimeOwner,
+    command_id: String,
+    input: viden_types::AgentSessionInput,
+    event_bus: &RuntimeEventBus,
+    held_inputs: &mut BTreeMap<String, Vec<String>>,
+) {
+    let held = held_inputs.entry(input.session_id.clone()).or_default();
+    if held.len() >= MAX_HELD_SESSION_INPUTS {
+        emit_event(
+            event_bus,
+            owner,
+            RuntimeEventKind::CommandRejected {
+                command_id,
+                reason: format!(
+                    "a paused agent session holds at most {MAX_HELD_SESSION_INPUTS} inputs; resume or kill it"
+                ),
+            },
+        );
+        return;
+    }
+    held.push(input.content.clone());
+    let held_input_count = held.len() as u32;
+    let input_id = fresh_id("agent-input");
+    emit_event(
+        event_bus,
+        owner.clone(),
+        RuntimeEventKind::CommandAccepted {
+            command_id,
+            command: redacted_runtime_command_for_event(&RuntimeCommand::SendAgentSessionInput {
+                input: input.clone(),
+            }),
+        },
+    );
+    emit_event(
+        event_bus,
+        owner.clone(),
+        RuntimeEventKind::AgentSessionInputAccepted {
+            session_id: input.session_id.clone(),
+            input_id,
+        },
+    );
+    if let Some(mut session) = agent_session_view(event_bus, &input.session_id) {
+        let control = session.control.get_or_insert_with(Default::default);
+        control.held_input_count = held_input_count;
+        session.status = AgentSessionStatus::Paused;
+        emit_event(
+            event_bus,
+            owner,
+            RuntimeEventKind::AgentSessionUpdated { session },
+        );
+    }
+}
+
+/// Resume a paused Agent session.
+///
+/// With a held input the session runs it; with none it settles at `Completed`,
+/// which in this contract already means "no turn in flight, session alive and
+/// accepting input" — not "the work finished".
+#[allow(clippy::too_many_arguments)]
+fn run_supervised_agent_session_resume(
+    engine: &SessionEngine,
+    owner: RuntimeOwner,
+    command_id: String,
+    session_id: String,
+    event_bus: &RuntimeEventBus,
+    active_control: &ActiveControlRegistry,
+    pending_approvals: &Arc<Mutex<BTreeMap<String, PendingApproval>>>,
+    approval_timers: &Arc<ApprovalTimerRegistry>,
+    permission_control: &Arc<Mutex<PermissionControlState>>,
+    approval_ttl_secs: u64,
+    audit: &ApprovalAuditLog,
+    held_inputs: &mut BTreeMap<String, Vec<String>>,
+) {
+    let Some(mut session) = agent_session_view(event_bus, &session_id) else {
+        emit_event(
+            event_bus,
+            owner,
+            RuntimeEventKind::CommandRejected {
+                command_id,
+                reason: format!("agent session `{session_id}` is not known"),
+            },
+        );
+        return;
+    };
+    if session.status != AgentSessionStatus::Paused {
+        emit_event(
+            event_bus,
+            owner,
+            RuntimeEventKind::CommandRejected {
+                command_id,
+                reason: session_status_rejection(session.status),
+            },
+        );
+        return;
+    }
+    let audit_id = fresh_id("audit");
+    if let Err(error) =
+        audit.record_session_control(&audit_id, &owner, "resume", &session_id, &session.lane_id)
+    {
+        emit_error(
+            event_bus,
+            owner.clone(),
+            format!("agent session resume was applied but not audited: {error}"),
+        );
+    }
+    emit_event(
+        event_bus,
+        owner.clone(),
+        RuntimeEventKind::CommandAccepted {
+            command_id: command_id.clone(),
+            command: redacted_runtime_command_for_event(&RuntimeCommand::ResumeAgentSession {
+                session_id: session_id.clone(),
+            }),
+        },
+    );
+    let queue = held_inputs.entry(session_id.clone()).or_default();
+    let next = (!queue.is_empty()).then(|| queue.remove(0));
+    let remaining = queue.len() as u32;
+    if queue.is_empty() {
+        held_inputs.remove(&session_id);
+    }
+    let mut control = session.control.unwrap_or_default();
+    control.resumed_at = Some(now_timestamp());
+    control.held_input_count = remaining;
+    session.control = Some(control);
+    let Some(next) = next else {
+        // No held input: the session is alive with no turn in flight, which is
+        // exactly what `Completed` already means here.
+        session.status = AgentSessionStatus::Completed;
+        session.diagnostic = Some("resumed by owner; no held input to forward".to_string());
+        emit_event(
+            event_bus,
+            owner,
+            RuntimeEventKind::AgentSessionUpdated { session },
+        );
+        return;
+    };
+    // Publishing the resumed session before the turn starts is what lets the
+    // continuation path see a terminal status; the continuation republishes it
+    // as `Starting` the moment the prompt is actually sent.
+    session.status = AgentSessionStatus::Completed;
+    session.diagnostic = (remaining > 0).then(|| {
+        format!("resumed by owner; {remaining} held input(s) still waiting for the next resume")
+    });
+    emit_event(
+        event_bus,
+        owner.clone(),
+        RuntimeEventKind::AgentSessionUpdated { session },
+    );
+    run_supervised_agent_session_continuation(
+        engine,
+        owner,
+        command_id,
+        session_id,
+        Some(next),
+        event_bus,
+        active_control,
+        pending_approvals,
+        approval_timers,
+        permission_control,
+        approval_ttl_secs,
+    );
+}
+
+/// Kill an Agent session: terminate now, with no cancel grace.
+///
+/// Held inputs are discarded rather than silently carried into a later session,
+/// and the diagnostic names how many, because an operator who typed three
+/// prompts and killed the session must be told those prompts were never sent.
+#[allow(clippy::too_many_arguments)]
+fn run_supervised_agent_session_kill(
+    engine: &SessionEngine,
+    owner: RuntimeOwner,
+    command_id: String,
+    session_id: String,
+    event_bus: &RuntimeEventBus,
+    active_control: &ActiveControlRegistry,
+    pending_approvals: &Arc<Mutex<BTreeMap<String, PendingApproval>>>,
+    audit: &ApprovalAuditLog,
+    held_inputs: &mut BTreeMap<String, Vec<String>>,
+) {
+    let Some(mut session) = agent_session_view(event_bus, &session_id) else {
+        emit_event(
+            event_bus,
+            owner,
+            RuntimeEventKind::CommandRejected {
+                command_id,
+                reason: format!("agent session `{session_id}` is not known"),
+            },
+        );
+        return;
+    };
+    if session.status.is_terminal() {
+        emit_event(
+            event_bus,
+            owner,
+            RuntimeEventKind::CommandRejected {
+                command_id,
+                reason: session_status_rejection(session.status),
+            },
+        );
+        return;
+    }
+    deny_session_approval_with_audit(
+        "session_killed",
+        &session_id,
+        event_bus,
+        active_control,
+        pending_approvals,
+        audit,
+    );
+    if let Some(active) = active_control_for_owner(active_control, &session_id) {
+        active.cancel();
+    }
+    if let Err(error) = kill_typed_agent_session(engine.cwd(), &session_id) {
+        emit_event(
+            event_bus,
+            owner,
+            RuntimeEventKind::CommandRejected {
+                command_id,
+                reason: error,
+            },
+        );
+        return;
+    }
+    let discarded = held_inputs
+        .remove(&session_id)
+        .map_or(0, |inputs| inputs.len());
+    let audit_id = fresh_id("audit");
+    if let Err(error) =
+        audit.record_session_control(&audit_id, &owner, "kill", &session_id, &session.lane_id)
+    {
+        emit_error(
+            event_bus,
+            owner.clone(),
+            format!("agent session kill was applied but not audited: {error}"),
+        );
+    }
+    emit_event(
+        event_bus,
+        owner.clone(),
+        RuntimeEventKind::CommandAccepted {
+            command_id,
+            command: redacted_runtime_command_for_event(&RuntimeCommand::KillAgentSession {
+                session_id: session_id.clone(),
+            }),
+        },
+    );
+    session.status = AgentSessionStatus::Killed;
+    session.control = Some(AgentSessionControlView {
+        paused_at: session.control.and_then(|control| control.paused_at),
+        resumed_at: None,
+        terminated_by: Some(AgentSessionTermination::Killed),
+        held_input_count: 0,
+    });
+    session.diagnostic = Some(if discarded > 0 {
+        format!("killed by owner; {discarded} held input(s) were discarded")
+    } else {
+        "killed by owner".to_string()
+    });
+    emit_event(
+        event_bus,
+        owner,
+        RuntimeEventKind::AgentSessionKilled { session },
+    );
+    clear_active_control(active_control, &session_id);
+}
+
 fn run_supervised_agent_session_cancel(
     engine: &SessionEngine,
     owner: RuntimeOwner,
@@ -3272,10 +3896,7 @@ fn run_supervised_agent_session_cancel(
         );
         return;
     }
-    if matches!(
-        session.status,
-        AgentSessionStatus::Completed | AgentSessionStatus::Failed | AgentSessionStatus::Cancelled
-    ) {
+    if session.status.is_terminal() {
         emit_event(
             event_bus,
             owner,
@@ -3323,6 +3944,9 @@ fn run_supervised_agent_session_cancel(
             );
             session.status = AgentSessionStatus::Cancelled;
             session.diagnostic = Some("cancelled by owner".to_string());
+            // Cancel and kill both settle a session; only this record says
+            // which of the two the operator asked for.
+            session.control = Some(cancelled_session_control());
             emit_event(
                 event_bus,
                 owner,
