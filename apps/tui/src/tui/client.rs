@@ -749,7 +749,12 @@ mod tests {
         // `runtime.transcript_rows`, the last Core batch of the 0.3.4
         // increment and therefore the milestone's final count. A later
         // increment moves this again; nothing inside 0.3.4 does.
-        assert_eq!(CORE_EXTENSION_CAPABILITIES.len(), 29);
+        // 33 is the 0.3.5 milestone's final extension count. C13
+        // (`runtime.plan_documents`) and C14 (`runtime.agent_session_control`)
+        // are the two increments between the 0.3.4 count of 29 and C15's 32
+        // (`runtime.approval_scopes`) and 33 (`runtime.starter_lane_agent`);
+        // the dispatcher reconciles them at integration.
+        assert_eq!(CORE_EXTENSION_CAPABILITIES.len(), 33);
         for capability in CORE_EXTENSION_CAPABILITIES {
             let mut fake = FakeCoreClient::compatible();
             let capability = CapabilityId((*capability).to_string());
