@@ -746,10 +746,12 @@ mod tests {
         // `runtime.durable_work_evidence` and C9's
         // `runtime.workspace_file_reads`, which landed on concurrent branches
         // and were reconciled at integration; 28 -> 29 with C8's
-        // `runtime.transcript_rows`, the last Core batch of the 0.3.4
-        // increment and therefore the milestone's final count. A later
-        // increment moves this again; nothing inside 0.3.4 does.
-        assert_eq!(CORE_EXTENSION_CAPABILITIES.len(), 29);
+        // `runtime.transcript_rows`, which completed the 0.3.4 increment.
+        // 29 -> 30 opens the 0.3.5 increment with C13's
+        // `runtime.plan_documents`; C14 and C15 move it again to 33 inside
+        // that milestone. Count bookkeeping only — T4 owns the TUI's plan
+        // lens.
+        assert_eq!(CORE_EXTENSION_CAPABILITIES.len(), 30);
         for capability in CORE_EXTENSION_CAPABILITIES {
             let mut fake = FakeCoreClient::compatible();
             let capability = CapabilityId((*capability).to_string());

@@ -210,6 +210,13 @@ fn frontend_host_capabilities_are_schema_one_core_0_3_6_and_additive() {
         // is untouched, which is what keeps the nine base fixtures
         // byte-identical.
         "runtime.operator_git",
+        // The first capability of the 0.3.5 contract increment (C13,
+        // docs/release-0.3.5-contract-design.md section 1): the plan a
+        // planning turn produces, as a Core fact with an operator decision and
+        // a handoff into the DAG Core already owns. Additive like the rows
+        // around it; the frozen base list is untouched, which is what keeps
+        // the nine base fixtures byte-identical.
+        "runtime.plan_documents",
         "runtime.project_onboarding",
         "runtime.recent_work",
         "runtime.starter_lane_preview",
@@ -8737,5 +8744,570 @@ fn transcript_rows_fixture() -> FrontendContractFixtureOut {
         ],
         snapshot(WorkMode::Build),
         owned_envelopes(fixture_id, reader, kinds, 1_700_006_000),
+    )
+}
+
+/// Canonical proof of the plan document contract (`runtime.plan_documents`,
+/// C13).
+///
+/// The whole arc a plan has to survive, in plan mode, where it is written:
+/// `update_plan` proposes, a second call revises and republishes the revision
+/// it replaced as `Superseded`, a decision naming the revision the operator
+/// *was* reading is refused with `plan_revision_stale`, the pinned decision is
+/// accepted and names the audit row that authorized it, the handoff is refused
+/// with `plan_mode` while planning, and only after Build does the plan become
+/// a DAG — published before the plan says it did.
+///
+/// Two things are deliberately not here. The `TaskUpdated` and
+/// `MergeGateUpdated` facts `start_agent_dag` also publishes are omitted: this
+/// fixture freezes the plan contract, and the DAG's own facts are already
+/// frozen by `dag-blocker.json`. And the audit rows themselves are not events
+/// — they are durable rows, and what the contract can prove on the wire is
+/// that the decision and the record name the same `audit_id`.
+#[test]
+fn plan_documents_fixture_pins_every_decision_to_the_revision_it_decided() {
+    let name = "plan-documents.json";
+    let root = fixture_root();
+    let fixture_bytes = fs::read(root.join(name)).expect("read plan documents fixture bytes");
+    let fixture_sha256 = format!("{:x}", Sha256::digest(&fixture_bytes));
+    let extension_manifest = include_str!("../frontend-contract-extensions.toml");
+    assert!(
+        extension_manifest.contains(&format!(
+            "plan_documents_fixture_sha256 = \"{fixture_sha256}\""
+        )),
+        "the extension manifest must register the exact plan documents fixture bytes"
+    );
+    assert!(extension_manifest.contains("plan_documents_fixture = \"plan-documents.json\""));
+
+    let fixture = read_fixture(&root, name);
+    assert_fixture_identity(name, &fixture);
+    assert_capabilities_are_sorted_unique_and_advertised(name, &fixture);
+    assert_cursors_are_contiguous(name, &fixture);
+
+    let (view, first_cursor, first_digest) = replay_fixture(&fixture);
+    let (second_view, second_cursor, second_digest) = replay_fixture(&fixture);
+    assert_eq!(view, second_view);
+    assert_eq!(first_cursor, second_cursor);
+    assert_eq!(first_digest, second_digest);
+    assert_eq!(first_cursor, fixture.expected_final_cursor);
+    assert_eq!(first_digest, fixture.expected_view_sha256);
+    assert!(
+        extension_manifest.contains(&format!("plan_documents_view_sha256 = \"{first_digest}\"")),
+        "the extension manifest must register the replayed view digest"
+    );
+
+    let records = fixture
+        .events
+        .iter()
+        .filter_map(|envelope| match &envelope.event {
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::PlanDocumentUpdated { plan },
+                ..
+            }) => Some(plan.clone()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    // Five published records for one plan: revision 1 proposed, revision 1
+    // superseded, revision 2 proposed, revision 2 accepted, and revision 2
+    // handed off.
+    assert_eq!(
+        records.len(),
+        5,
+        "every revision and status change is a fact"
+    );
+    assert!(
+        records
+            .iter()
+            .all(|record| record.plan_id == records[0].plan_id),
+        "a revision keeps the plan's identity"
+    );
+    assert_eq!(records[0].revision, 1);
+    assert_eq!(records[0].status, viden_types::PlanDocumentStatus::Proposed);
+    assert_eq!(records[1].revision, 1);
+    assert_eq!(
+        records[1].status,
+        viden_types::PlanDocumentStatus::Superseded,
+        "the revision a new proposal voids is republished, never silently dropped"
+    );
+    assert_eq!(records[2].revision, 2);
+    assert_eq!(records[2].status, viden_types::PlanDocumentStatus::Proposed);
+    assert_ne!(
+        records[0].content_sha256, records[2].content_sha256,
+        "two revisions of one plan never share a digest"
+    );
+    // The model wrote both revisions; the operator decided them.
+    assert!(matches!(
+        records[0].proposed_by,
+        viden_types::PlanAuthor::Assistant { .. }
+    ));
+
+    // The stale decision names revision 1's digest and is refused with the
+    // stable key. "The plan moved" and "the decision took" must never render
+    // the same.
+    let rejections = fixture
+        .events
+        .iter()
+        .filter_map(|envelope| match &envelope.event {
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::CommandRejected { command_id, reason },
+                ..
+            }) => Some((command_id.clone(), reason.clone())),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        rejections.len(),
+        2,
+        "one stale decision, one plan-mode handoff"
+    );
+    assert_eq!(rejections[0].0, "plan_accept_stale");
+    assert!(rejections[0].1.starts_with("plan_revision_stale:"));
+    assert_eq!(rejections[1].0, "plan_handoff_plan_mode");
+    assert!(rejections[1].1.starts_with("plan_mode:"));
+    assert!(
+        !fixture.events.iter().any(|envelope| matches!(
+            &envelope.event,
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::PlanDocumentDecided { revision: 1, .. },
+                ..
+            })
+        )),
+        "a refused decision settles nothing"
+    );
+
+    // The decision and the record meet on one audit id, so a reader starting
+    // from the plan and one starting from the timeline find the same row.
+    let decided = fixture
+        .events
+        .iter()
+        .find_map(|envelope| match &envelope.event {
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind:
+                    RuntimeEventKind::PlanDocumentDecided {
+                        revision,
+                        status,
+                        audit_id,
+                        ..
+                    },
+                ..
+            }) => Some((*revision, *status, audit_id.clone())),
+            _ => None,
+        })
+        .expect("the pinned decision settles");
+    assert_eq!(decided.0, 2);
+    assert_eq!(decided.1, viden_types::PlanDocumentStatus::Accepted);
+    assert_eq!(records[3].decision_audit_id.as_ref(), Some(&decided.2));
+
+    // The DAG exists before the plan says it became work.
+    let dag_index = fixture
+        .events
+        .iter()
+        .position(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::AgentDagUpdated { .. },
+                    ..
+                })
+            )
+        })
+        .expect("the handoff publishes a DAG");
+    let handed_off_index = fixture
+        .events
+        .iter()
+        .position(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::PlanDocumentHandedOff { .. },
+                    ..
+                })
+            )
+        })
+        .expect("the handoff settles");
+    assert!(dag_index < handed_off_index);
+
+    // The final view: one plan, handed off, naming the DAG the view holds.
+    assert_eq!(view.plan_documents.len(), 1, "one open plan per owner");
+    let plan = &view.plan_documents[0];
+    assert_eq!(plan.revision, 2);
+    assert_eq!(plan.status, viden_types::PlanDocumentStatus::HandedOff);
+    let handoff = plan
+        .handoff
+        .as_ref()
+        .expect("a handed-off plan names its DAG");
+    assert_eq!(view.agent_dags.len(), 1);
+    assert_eq!(view.agent_dags[0].dag_id, handoff.dag_id);
+    assert_eq!(view.agent_dags[0].status, AgentDagStatus::Active);
+    assert_eq!(view.agent_dags[0].tasks.len(), 2, "one task per step");
+    assert_eq!(
+        view.agent_dags[0].tasks[1].dependencies,
+        vec![view.agent_dags[0].tasks[0].task_id.clone()],
+        "a step dependency becomes a task dependency"
+    );
+    assert_eq!(view.snapshot.work_mode, WorkMode::Build);
+
+    // Neither settlement fact reduces: the record the update before it
+    // published is the only source for the plan's state.
+    let untouched = RuntimeViewState::new(fixture.initial_snapshot.clone());
+    let mut only_settlements = RuntimeViewState::new(fixture.initial_snapshot.clone());
+    for envelope in &fixture.events {
+        if let RuntimeWireEvent::Known(event) = &envelope.event
+            && matches!(
+                event.kind,
+                RuntimeEventKind::PlanDocumentDecided { .. }
+                    | RuntimeEventKind::PlanDocumentHandedOff { .. }
+            )
+        {
+            only_settlements.apply_event(event);
+        }
+    }
+    assert_eq!(
+        canonical_view_sha256(&only_settlements),
+        canonical_view_sha256(&untouched),
+        "no plan settlement fact may reduce into RuntimeViewState"
+    );
+}
+
+#[test]
+#[ignore = "manual plan documents fixture refresh; normal tests validate committed JSON only"]
+fn refresh_plan_documents_extension_fixture() {
+    let root = fixture_root();
+    fs::create_dir_all(&root).unwrap();
+    let fixture = plan_documents_fixture();
+    fs::write(
+        root.join("plan-documents.json"),
+        serde_json::to_string_pretty(&fixture).unwrap() + "\n",
+    )
+    .unwrap();
+}
+
+/// `runtime.plan_documents`, as bytes.
+///
+/// Every string is fixed and every digest is computed from the plan's own
+/// canonical source, so the bytes are identical on every machine that
+/// regenerates this fixture.
+fn plan_documents_fixture() -> FrontendContractFixtureOut {
+    use viden_types::{
+        PlanAuthor, PlanDocumentDraft, PlanDocumentId, PlanDocumentRecord, PlanDocumentStatus,
+        PlanHandoff, PlanSection, PlanSectionKind, PlanStep, PlanStepDraft, PlanStepStatus,
+        plan_content_digest_source,
+    };
+
+    let fixture_id = "plan-documents";
+    let workspace_id = "workspace_contract_v1";
+    let project_id = "project_viden";
+    let plan_id = PlanDocumentId("plan_contract_v1".to_string());
+    let session_id = "session_plan_documents";
+    let turn_id = "turn_plan_documents";
+    let owner = RuntimeOwner {
+        workspace_id: workspace_id.to_string(),
+        project_id: project_id.to_string(),
+        lane_id: None,
+        session_id: Some(session_id.to_string()),
+        task_id: None,
+        turn_id: Some(turn_id.to_string()),
+    };
+    let digest = |title: &str, goal: &str, sections: &[PlanSection], steps: &[PlanStep]| {
+        format!(
+            "{:x}",
+            Sha256::digest(plan_content_digest_source(title, goal, sections, steps).as_bytes())
+        )
+    };
+    let draft = |title: &str, steps: Vec<PlanStepDraft>| PlanDocumentDraft {
+        owner: owner.clone(),
+        title: title.to_string(),
+        goal: "the operator can accept the plan and hand it to agents".to_string(),
+        sections: vec![
+            PlanSection {
+                kind: PlanSectionKind::Requirements,
+                body: "a plan is a Core fact with a decision, not transcript prose".to_string(),
+            },
+            PlanSection {
+                kind: PlanSectionKind::AcceptanceCriteria,
+                body: "the handoff names the DAG the steps became".to_string(),
+            },
+        ],
+        steps,
+    };
+    let step = |title: &str, role: AgentRole, dependencies: &[&str]| PlanStepDraft {
+        title: title.to_string(),
+        status: PlanStepStatus::Pending,
+        role: Some(role),
+        file_scope: vec!["crates/types/src/plan.rs".to_string()],
+        dependencies: dependencies.iter().map(|id| (*id).to_string()).collect(),
+    };
+
+    let first_draft = draft(
+        "Model the plan document",
+        vec![step("model the record", AgentRole::Coder, &[])],
+    );
+    let first_steps = first_draft.into_steps();
+    let first_digest = digest(
+        &first_draft.title,
+        &first_draft.goal,
+        &first_draft.sections,
+        &first_steps,
+    );
+    let second_draft = draft(
+        "Model the plan document and its decision",
+        vec![
+            step("model the record", AgentRole::Coder, &[]),
+            step("review the contract", AgentRole::Reviewer, &["step_1"]),
+        ],
+    );
+    let second_steps = second_draft.into_steps();
+    let second_digest = digest(
+        &second_draft.title,
+        &second_draft.goal,
+        &second_draft.sections,
+        &second_steps,
+    );
+
+    let created_at = 1_700_007_000;
+    let assistant = |turn: &str| PlanAuthor::Assistant {
+        session_id: session_id.to_string(),
+        turn_id: turn.to_string(),
+    };
+    let record = |draft: &PlanDocumentDraft,
+                  steps: &[PlanStep],
+                  content_sha256: &str,
+                  status: PlanDocumentStatus,
+                  revision: u32,
+                  updated_at: u64,
+                  author: PlanAuthor,
+                  decided: Option<(u64, &str)>,
+                  handoff: Option<PlanHandoff>| PlanDocumentRecord {
+        plan_id: plan_id.clone(),
+        owner: owner.clone(),
+        title: draft.title.clone(),
+        goal: draft.goal.clone(),
+        status,
+        revision,
+        content_sha256: content_sha256.to_string(),
+        sections: draft.sections.clone(),
+        steps: steps.to_vec(),
+        proposed_by: author,
+        created_at,
+        updated_at,
+        decided_at: decided.map(|(at, _)| at),
+        decision_audit_id: decided.map(|(_, id)| id.to_string()),
+        handoff,
+    };
+
+    let accept_audit = "audit_plan_accepted";
+    let handoff_audit = "audit_plan_handed_off";
+    let dag_id = "dag_plan_contract_v1".to_string();
+    let task = |step: &PlanStep, dependencies: Vec<String>| AgentDagTaskSpec {
+        task_id: format!("{}-{}", plan_id.as_str(), step.id),
+        role: step.role.unwrap_or(AgentRole::Coder),
+        title: step.title.clone(),
+        objective: step.title.clone(),
+        dependencies,
+        workspace: None,
+        file_scope: step.file_scope.clone(),
+        context_bundle_id: None,
+        required_evidence: Vec::new(),
+        permission_policy: "default".to_string(),
+    };
+    let first_task = task(&second_steps[0], Vec::new());
+    let second_task = task(&second_steps[1], vec![first_task.task_id.clone()]);
+
+    let tool_call = |id: &str, preview: &str| {
+        vec![
+            RuntimeEventKind::ToolCallStarted {
+                tool_call_id: id.to_string(),
+                name: "update_plan".to_string(),
+                input_preview: preview.to_string(),
+                owner: Some(owner.clone()),
+            },
+            RuntimeEventKind::ToolCallFinished {
+                tool_call_id: id.to_string(),
+                name: "update_plan".to_string(),
+                success: true,
+                exit_code: None,
+                evidence: None,
+            },
+        ]
+    };
+
+    let mut kinds = Vec::new();
+    // 1. The planner records revision 1. `update_plan` is the one tool whose
+    //    effect plan mode allows, because its effect is this fact.
+    kinds.extend(tool_call("call_plan_1", "title=Model the plan document"));
+    kinds.push(RuntimeEventKind::PlanDocumentUpdated {
+        plan: record(
+            &first_draft,
+            &first_steps,
+            &first_digest,
+            PlanDocumentStatus::Proposed,
+            1,
+            created_at,
+            assistant("turn_plan_1"),
+            None,
+            None,
+        ),
+    });
+    // 2. A second call revises. The revision it replaces is republished as
+    //    `Superseded` first, so nothing keeps rendering as live.
+    kinds.extend(tool_call(
+        "call_plan_2",
+        "title=Model the plan document and its decision",
+    ));
+    kinds.push(RuntimeEventKind::PlanDocumentUpdated {
+        plan: record(
+            &first_draft,
+            &first_steps,
+            &first_digest,
+            PlanDocumentStatus::Superseded,
+            1,
+            created_at + 10,
+            assistant("turn_plan_1"),
+            None,
+            None,
+        ),
+    });
+    kinds.push(RuntimeEventKind::PlanDocumentUpdated {
+        plan: record(
+            &second_draft,
+            &second_steps,
+            &second_digest,
+            PlanDocumentStatus::Proposed,
+            2,
+            created_at + 10,
+            assistant("turn_plan_2"),
+            None,
+            None,
+        ),
+    });
+    // 3. The operator decides the revision they *were* reading. Refused, and
+    //    deliberately not applied to whatever the plan says now.
+    kinds.push(RuntimeEventKind::CommandAccepted {
+        command_id: "plan_accept_stale".to_string(),
+        command: RuntimeCommand::AcceptPlanDocument {
+            plan_id: plan_id.clone(),
+            revision: 1,
+            content_sha256: first_digest.clone(),
+        },
+    });
+    kinds.push(RuntimeEventKind::CommandRejected {
+        command_id: "plan_accept_stale".to_string(),
+        reason: "plan_revision_stale: plan `plan_contract_v1` is at revision 2 and the decision \
+                 named revision 1\nhint: re-read the plan from `plan_documents` and decide the \
+                 revision it now carries"
+            .to_string(),
+    });
+    // 4. The pinned decision. The record and the settlement meet on one audit
+    //    id, which is the row that authorized it.
+    kinds.push(RuntimeEventKind::CommandAccepted {
+        command_id: "plan_accept".to_string(),
+        command: RuntimeCommand::AcceptPlanDocument {
+            plan_id: plan_id.clone(),
+            revision: 2,
+            content_sha256: second_digest.clone(),
+        },
+    });
+    kinds.push(RuntimeEventKind::PlanDocumentUpdated {
+        plan: record(
+            &second_draft,
+            &second_steps,
+            &second_digest,
+            PlanDocumentStatus::Accepted,
+            2,
+            created_at + 20,
+            assistant("turn_plan_2"),
+            Some((created_at + 20, accept_audit)),
+            None,
+        ),
+    });
+    kinds.push(RuntimeEventKind::PlanDocumentDecided {
+        plan_id: plan_id.clone(),
+        revision: 2,
+        status: PlanDocumentStatus::Accepted,
+        audit_id: accept_audit.to_string(),
+        owner: owner.clone(),
+    });
+    // 5. Accepting a document is a decision about a document; spawning the work
+    //    is not. Plan mode refuses the handoff before anything is authorized.
+    kinds.push(RuntimeEventKind::CommandAccepted {
+        command_id: "plan_handoff_plan_mode".to_string(),
+        command: RuntimeCommand::HandOffPlanDocument {
+            plan_id: plan_id.clone(),
+            revision: 2,
+            content_sha256: second_digest.clone(),
+        },
+    });
+    kinds.push(RuntimeEventKind::CommandRejected {
+        command_id: "plan_handoff_plan_mode".to_string(),
+        reason: "plan_mode: handing a plan off starts agent work and is blocked while plan mode \
+                 is active\nhint: accept the plan in Plan, then switch to Build and hand it off"
+            .to_string(),
+    });
+    // 6. Build, then the same handoff.
+    kinds.push(RuntimeEventKind::CommandAccepted {
+        command_id: "plan_build".to_string(),
+        command: RuntimeCommand::SetWorkMode {
+            mode: WorkMode::Build,
+        },
+    });
+    kinds.push(RuntimeEventKind::SnapshotUpdated {
+        snapshot: snapshot(WorkMode::Build),
+    });
+    kinds.push(RuntimeEventKind::CommandAccepted {
+        command_id: "plan_handoff".to_string(),
+        command: RuntimeCommand::HandOffPlanDocument {
+            plan_id: plan_id.clone(),
+            revision: 2,
+            content_sha256: second_digest.clone(),
+        },
+    });
+    kinds.push(RuntimeEventKind::AgentDagUpdated {
+        dag: AgentDagRecord {
+            dag_id: dag_id.clone(),
+            goal: second_draft.title.clone(),
+            status: AgentDagStatus::Active,
+            tasks: vec![first_task, second_task],
+            created_at: Some(created_at + 30),
+            updated_at: Some(created_at + 30),
+        },
+    });
+    kinds.push(RuntimeEventKind::PlanDocumentUpdated {
+        plan: record(
+            &second_draft,
+            &second_steps,
+            &second_digest,
+            PlanDocumentStatus::HandedOff,
+            2,
+            created_at + 30,
+            assistant("turn_plan_2"),
+            Some((created_at + 20, accept_audit)),
+            Some(PlanHandoff {
+                dag_id: dag_id.clone(),
+                handed_off_at: created_at + 30,
+                audit_id: handoff_audit.to_string(),
+            }),
+        ),
+    });
+    kinds.push(RuntimeEventKind::PlanDocumentHandedOff {
+        plan_id: plan_id.clone(),
+        revision: 2,
+        dag_id,
+        audit_id: handoff_audit.to_string(),
+        owner: owner.clone(),
+    });
+
+    fixture(
+        fixture_id,
+        &[
+            "runtime.agent_dag",
+            "runtime.commands",
+            "runtime.events",
+            "runtime.plan_documents",
+            "runtime.snapshot",
+        ],
+        // Plan mode, where a plan is written. The same snapshot shape the
+        // frozen `plan-denial` fixture uses.
+        snapshot(WorkMode::Plan),
+        owned_envelopes(fixture_id, owner, kinds, 1_700_007_000),
     )
 }
