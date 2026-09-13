@@ -1624,3 +1624,72 @@ shell then answered those chords under the live cockpit and re-rendered its own
 `connecting` projection into the same root — the reported fallback to `Core
 connection pending` with the project chip at `—`. Every mount now goes through
 `claimRoot` in `src/main.ts`, which disposes the previous owner first.
+
+## Native defects (H4)
+
+Batch H4 (2026-09-13) closed the E3a native run's GUI defects 14–17 and 19–21.
+The record, the frames and the per-defect verdicts are in
+`docs/release-evidence/gui-trusted-delivery/checkpoints.md`, "Defects 14–21 —
+H4"; what follows is the behaviour that changed.
+
+**A probe is an ACP concern, not a creation gate.** `Create lane ↵` now reads
+the *selected* adapter's own startability. The built-in `Viden Agent` needs no
+probe at all, so a host with none of Codex, Claude Agent or Kiro CLI installed
+can create a Lane while every ACP probe is still out — which is what defect 14
+made impossible. An ACP adapter whose probe has not answered renders
+`Checking ACP agents…` under a stated bound and then
+`Probe did not answer within 15s.`, disabled and labelled, with
+`Retry ACP check` beside it. The bound (`AGENT_PROBE_TIMEOUT_MS`) belongs to
+the discovery *walk*, not to one probe, because the walk can stall with nothing
+outstanding: `advanceAgentDiscovery` is re-queued only by a drain, and a quiet
+Core produces none. A sentence with no end is the thing being forbidden here.
+
+**A probe's wait may be abandoned; an effect's may not.** Core answers one
+command at a time, and `ProbeAgentAdapter` runs a real ACP handshake on that
+one worker — up to 90 s for the two registry adapters, whose command is
+`npx -y …`. `GuiCoreAdapter::abandon_pending_probe` releases the client's
+command slot for `ProbeAgentAdapter` and `QueryAgentAdapters` only; both are
+reads with no effect to lose, and a late `AgentAdapterProbed` still reaches the
+adapter list through the snapshot. Every other pending command is refused,
+because its answer is the only record of whether its effect ran. Core's own
+worker is not freed by this, which is `GUI-CORE-034`.
+
+**One drain reconciles every correlated command.** The cockpit poll, the
+permission dock, the commit bar and the background pump all drain one ordered
+stream, and only one of them receives any given envelope. Each used to
+reconcile only its own pending command, so an `OperatorGitActionFinished`
+consumed by the 250 ms cockpit poll was swallowed and the commit bar stayed
+`Waiting for the permission decision.` beside a completed commit (defect 17).
+Every drain now funnels through `reconcile_ambient_pendings`.
+
+**A decision waits for Core's verdict, and a centre view is a read.** D2's
+approve sends `RespondToApproval` and waits for `ApprovalResolved` through the
+same pipeline the D1 permission dock uses, so the decided card leaves the queue
+and the queue total moves. Leaving a registered D-screen for DiffReview or
+EvidenceView drops the pane *and* its mount memo, so returning is a new Core
+read: defect 16's second half was a memo that outlived the detour, which is why
+navigating away and back never refreshed the queue.
+
+**A settled action re-samples; a refusal does not.** A `completed`
+`OperatorGitActionFinished` re-samples the open review with one
+`QueryWorkspaceDiff` (defect 21). A refusal or a transport failure still rides
+the debounced staleness path, because neither moved the tree.
+
+**The dock reads one sample per scope.** `Changes` and `Local` prefer the diff
+page Core last answered for this scope — `QueryWorkspaceDiff` resamples the
+target for that read, and the file list beside them is drawn from it — and fall
+back to `lane_sources` or the workspace sample when no page has arrived or Core
+has invalidated it. `data-changes-sample` states which one is on screen.
+Reading two samples at once is what printed `+0 −0` and `Working tree Clean`
+over a listed `M README.md +1 −1` (defect 20).
+
+**The tab strip clips, so everything inside it must.** Every slot that can grow
+now shrinks and ellipsises, and the meta slot gives way to the tabs instead of
+running under them; the zero-Lane strip no longer draws `No Lanes yet`, the
+project path and the work mode on top of one another with the dock open
+(defect 19).
+
+**Defect 18 is open.** The mid-session self-termination was not reproduced in
+this batch's bounded effort; what the run did reproduce is the window briefly
+leaving the Accessibility tree after a full re-render. Both are recorded in the
+evidence document, and no fix is claimed.

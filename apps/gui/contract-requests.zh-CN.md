@@ -999,6 +999,39 @@ Core 侧可被查阅，而不是为它排期。
 `docs/release-0.3.5-plan.md` 的「Scope Decisions」，2026-09-13。该条目仍为开放，
 上文的关闭条件不变；改期不等于关闭。
 
+## GUI-CORE-034：适配器探测不应占用 Core 的命令工作线程
+
+2026-09-13 由 H4 批次开立，来自对 E3a 缺陷的原生复跑。开放。
+
+`RuntimeCommand::ProbeAgentAdapter` 在运行时 supervisor 唯一的命令工作线程上就地执行
+（`crates/runtime/src/runtime_supervisor.rs:1015`，「The supervisor is one worker」，
+以及 `crates/runtime/src/runtime_contract.rs:631`），而它做的事是一次真实的子进程握手：
+`probe_typed_agent_adapter_descriptor` -> `run_acp_initialize_probe_for_agent`
+（`crates/agents/src/glue.rs:66`、`crates/agents/src/acp.rs:718`）会启动适配器的命令，
+并在 `read_line_with_timeout` 上阻塞 `acp_agent_handshake_timeout` —— 本地命令
+`DEFAULT_LOCAL_ACP_HANDSHAKE_TIMEOUT_SECS` 为 30 秒，registry 包
+`DEFAULT_REGISTRY_ACP_HANDSHAKE_TIMEOUT_SECS` 为 90 秒（`crates/agents/src/acp.rs:32`、
+`:34`），而两个内置 registry 适配器正属于后者，因为它们的命令是
+`npx -y <package>@<version>`（`crates/plugin-host/src/lib.rs:1178`）。
+
+其余每一条命令 —— `PreviewDefaultStarterLane`、`SubmitUserInput`、
+`RunOperatorGitAction`、`RespondToApproval` —— 都在 supervisor 的通道里排在它后面。
+在没有任何 ACP 可执行文件的主机上，这个等待每个适配器最多 90 秒，这正是 `0.1.0-rc.5`
+里**两条** Lane 创建路径同时被关死的原因：E3a 看着 `Checking ACP agents…` 停留了六分钟
+以上，D4 的 `Preview with Core` 也一直卡在它后面（缺陷 14 与 15）。
+
+客户端需要什么：一次不占用命令工作线程的探测。要么 `ProbeAgentAdapter` 在自己的执行器
+上运行并在完成时发布 `AgentAdapterProbed`，要么 Core 发布它所依据的时限，让前端可以陈述
+它而不是自己发明一个。这不需要新的能力位；修复完全在 Core 的调度内部。
+
+在那之前 GUI 的做法，是缓解而不是关闭：驾驶舱把自己的等待限定在
+`AGENT_PROBE_TIMEOUT_MS`（15 秒，`apps/gui/src/components/agent_menu.ts`），把未应答的
+探测渲染为 `Probe did not answer within 15s.` 并禁用加标注，旁边给出 `Retry ACP check`
+控件，并通过 `GuiCoreAdapter::abandon_pending_probe` 放弃仍在外的那次**读取** ——
+只限 `ProbeAgentAdapter` 或 `QueryAgentAdapters`，绝不包括任何带副作用的命令 ——
+以便释放它自己的命令槽位。这些都不会释放 Core 的工作线程；在 Core 仍在探测时发出的命令
+依旧会在 Core 的通道里等待。客户端从不声称相反的事。
+
 ## 已退役的前登记编码
 
 `GUI-CORE-001` 到 `GUI-CORE-007` 早于本登记册，本册从 008 开始。它们从来不是这里
