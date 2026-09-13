@@ -233,6 +233,8 @@ mod tests {
             default_action: ApprovalDefaultAction::Deny,
             audit_id: "audit-four".to_string(),
             decision_context: None,
+            revised_from: None,
+            editable: false,
         });
         let mut overlay = super::super::state::OverlayState::new(OverlayKind::Approval);
         overlay.selected_id = Some("approval-four".to_string());

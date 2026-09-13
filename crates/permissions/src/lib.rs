@@ -179,6 +179,11 @@ impl PermissionEngine {
             // runtime call site that holds the tool input fills this in
             // before the operator sees the prompt.
             decision_context: None,
+            input: input.clone(),
+            // An ask decision carries an `updated_input` only when the engine
+            // re-decided an operator's revision, so this is exactly the second
+            // prompt of an `Edit` round.
+            is_revision: decision.updated_input.is_some(),
         }
     }
 
@@ -197,11 +202,44 @@ impl PermissionEngine {
         }
 
         match response.decision {
+            // The revision is a *new* input, so it is decided afresh rather
+            // than allowed on the operator's say-so: a deny rule, a path that
+            // left scope, or plan mode can still refuse it, and an input the
+            // engine still wants a decision about produces a second `Ask`
+            // that the shared gate turns into a second prompt. Allowing the
+            // revision here would run bytes no gate ever saw
+            // (`runtime.approval_scopes`, GUI-CORE-019).
+            ApprovalDecision::Edit { revised_input } => match self.decide(tool, &revised_input) {
+                PermissionDecision::Allow(allow) => {
+                    PermissionDecision::Allow(PermissionAllowDecision {
+                        updated_input: Some(revised_input),
+                        user_modified: true,
+                        decision_reason: allow.decision_reason,
+                        accept_feedback: response.feedback,
+                    })
+                }
+                PermissionDecision::Ask(ask) => PermissionDecision::Ask(PermissionAskDecision {
+                    message: ask.message,
+                    updated_input: Some(revised_input),
+                    decision_reason: ask.decision_reason,
+                }),
+                deny => deny,
+            },
             ApprovalDecision::Allow { scope } => {
                 match scope {
                     ApprovalScope::Once => {}
                     ApprovalScope::Session { .. } => {
                         self.install_allow_rule(tool, input, None);
+                    }
+                    // The standing rule the user-level settings file holds.
+                    // Installed under `UserSettings` rather than `Session` so
+                    // the live engine and the persisted file describe the same
+                    // rule, and so a reload cannot demote it to session scope.
+                    ApprovalScope::Always => {
+                        self.install_standing_allow_rule(
+                            &tool.name,
+                            &viden_types::encode_tool_input(input),
+                        );
                     }
                     ApprovalScope::RepoAllowlist { paths } => {
                         if paths.is_empty() {
@@ -254,6 +292,42 @@ impl PermissionEngine {
             }
         }
         Some(normalized)
+    }
+
+    /// Installs the standing allow rule one `ApprovalScope::Always` grants.
+    ///
+    /// Separate from [`Self::install_allow_rule`] because the key is the
+    /// persisted `(tool_name, rule_content)` pair rather than the live tool
+    /// input, and because the rule must be idempotent: bootstrap loads every
+    /// persisted rule, and a second grant of the same pair must not stack a
+    /// duplicate the revocation would then only half remove.
+    pub fn install_standing_allow_rule(&mut self, tool_name: &str, rule_content: &str) {
+        let rule = PermissionRule {
+            source: PermissionRuleSource::UserSettings,
+            rule_behavior: PermissionBehavior::Allow,
+            rule_value: PermissionRuleValue {
+                tool_name: tool_name.to_string(),
+                rule_content: Some(rule_content.to_string()),
+            },
+        };
+        if !self.context.allow_rules.contains(&rule) {
+            self.context.allow_rules.push(rule);
+        }
+    }
+
+    /// Removes a standing allow rule. Returns whether one was in force.
+    ///
+    /// Only `UserSettings` rules are removed: a revocation must never silently
+    /// take out a session rule the operator granted separately.
+    pub fn remove_standing_allow_rule(&mut self, tool_name: &str, rule_content: &str) -> bool {
+        let before = self.context.allow_rules.len();
+        self.context.allow_rules.retain(|rule| {
+            !(rule.source == PermissionRuleSource::UserSettings
+                && rule.rule_behavior == PermissionBehavior::Allow
+                && rule.rule_value.tool_name == tool_name
+                && rule.rule_value.rule_content.as_deref() == Some(rule_content))
+        });
+        self.context.allow_rules.len() != before
     }
 
     fn install_allow_rule(
@@ -324,6 +398,29 @@ impl PermissionEngine {
 }
 
 const EXACT_PATH_RULE_PREFIX: &str = "path_exact:";
+
+/// Built-in tools whose input an operator may revise from an approval prompt
+/// (`runtime.approval_scopes`, GUI-CORE-019).
+///
+/// The membership rule is the shape of the input, not how dangerous the tool
+/// is: every entry takes a flat map of a command line or workspace paths, so a
+/// revision is a narrower version of the same request. `write_file` and
+/// `edit_file` are deliberately absent — their input carries the bytes to be
+/// written, and a revised body is a different change wearing the reviewed
+/// change's approval.
+pub const EDITABLE_APPROVAL_TOOLS: &[&str] = &[
+    "git_add",
+    "git_restore",
+    "glob",
+    "grep",
+    "read_file",
+    "shell",
+];
+
+/// Whether Core will accept an `ApprovalDecision::Edit` for this tool.
+pub fn tool_input_is_editable(tool_name: &str) -> bool {
+    EDITABLE_APPROVAL_TOOLS.contains(&tool_name)
+}
 
 fn deny_approval(decision: &PermissionAskDecision) -> PermissionDecision {
     PermissionDecision::Deny(PermissionDenyDecision {
@@ -432,16 +529,42 @@ pub fn resolve_permission<D: PermissionDecider>(
     tool: &ToolSpec,
     prompt_tool_name: &str,
     input: &ToolInput,
-    ask_flow: impl FnOnce(&PermissionAskDecision, PermissionPrompt) -> ApprovalResponse,
+    mut ask_flow: impl FnMut(&PermissionAskDecision, PermissionPrompt) -> ApprovalResponse,
 ) -> PermissionDecision {
-    let decision = decider.decide(tool, input);
-    let PermissionDecision::Ask(ask) = decision else {
-        return decision;
-    };
-    let prompt = PermissionEngine::prompt_for(prompt_tool_name, &ask, input);
-    let response = ask_flow(&ask, prompt);
-    decider.apply_approval(response, &ask, tool, input)
+    let mut decision = decider.decide(tool, input);
+    let mut current_input = input.clone();
+    for _ in 0..MAX_APPROVAL_REVISIONS {
+        let PermissionDecision::Ask(ask) = decision else {
+            return decision;
+        };
+        let prompt = PermissionEngine::prompt_for(prompt_tool_name, &ask, &current_input);
+        let response = ask_flow(&ask, prompt);
+        // Kept before the response is consumed: an `Edit` the engine allows
+        // runs against these bytes, and an `Edit` the engine still wants a
+        // decision about becomes the input the next prompt describes.
+        let revision = match &response.decision {
+            ApprovalDecision::Edit { revised_input } => Some(revised_input.clone()),
+            _ => None,
+        };
+        decision = decider.apply_approval(response, &ask, tool, &current_input);
+        if let Some(revision) = revision {
+            current_input = revision;
+        }
+    }
+    // Fail closed. An operator who revises past the bound is answered with a
+    // denial rather than a loop that keeps re-prompting: the alternative is a
+    // turn that never settles, which is indistinguishable from a hang.
+    PermissionDecision::Deny(PermissionDenyDecision {
+        message: format!("{} exceeded the approval revision limit", tool.name),
+        decision_reason: PermissionDecisionReason::RequiresApproval,
+    })
 }
+
+/// How many times one approval may be revised before Core stops asking.
+///
+/// A revision produces a fresh prompt, so an unbounded chain is an unbounded
+/// number of round trips inside a single tool call.
+pub const MAX_APPROVAL_REVISIONS: usize = 8;
 
 #[cfg(test)]
 mod tests {
@@ -833,5 +956,261 @@ mod tests {
             })
         ));
         assert!(engine.context_snapshot().allow_rules.is_empty());
+    }
+
+    // `runtime.approval_scopes` (GUI-CORE-019).
+
+    fn shell(command: &str) -> ToolInput {
+        let mut input = ToolInput::new();
+        input.insert("command".to_string(), command.to_string());
+        input
+    }
+
+    #[test]
+    fn always_installs_a_user_settings_rule_the_engine_then_allows_without_asking() {
+        let mut engine = PermissionEngine::new("/tmp/project");
+        let tool = tool("shell", false);
+        let call = shell("cargo fmt --all");
+        let PermissionDecision::Ask(ask) = engine.decide(&tool, &call) else {
+            panic!("shell requires approval before a standing rule exists");
+        };
+
+        let decision =
+            engine.apply_approval(ApprovalResponse::allow_always(None), &ask, &tool, &call);
+
+        assert!(matches!(decision, PermissionDecision::Allow(_)));
+        let rules = engine.context_snapshot().allow_rules;
+        assert_eq!(rules.len(), 1);
+        // The source is what separates a standing rule from a session one:
+        // only `UserSettings` rules are persisted and only they are revoked.
+        assert_eq!(rules[0].source, PermissionRuleSource::UserSettings);
+        assert_eq!(rules[0].rule_value.tool_name, "shell");
+        assert!(matches!(
+            engine.decide(&tool, &call),
+            PermissionDecision::Allow(PermissionAllowDecision {
+                decision_reason: Some(PermissionDecisionReason::RuleAllow),
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn granting_the_same_standing_rule_twice_installs_one_rule() {
+        let mut engine = PermissionEngine::new("/tmp/project");
+        engine.install_standing_allow_rule("shell", "command=cargo fmt --all");
+        engine.install_standing_allow_rule("shell", "command=cargo fmt --all");
+
+        assert_eq!(engine.context_snapshot().allow_rules.len(), 1);
+    }
+
+    #[test]
+    fn revoking_a_standing_rule_leaves_a_session_rule_for_the_same_tool_alone() {
+        let mut engine = PermissionEngine::new("/tmp/project");
+        let tool = tool("shell", false);
+        let call = shell("cargo fmt --all");
+        let content = viden_types::encode_tool_input(&call);
+        let PermissionDecision::Ask(ask) = engine.decide(&tool, &call) else {
+            panic!("shell requires approval");
+        };
+        engine.apply_approval(
+            ApprovalResponse {
+                decision: ApprovalDecision::Allow {
+                    scope: ApprovalScope::Session {
+                        session_id: "session-a".to_string(),
+                    },
+                },
+                feedback: None,
+            },
+            &ask,
+            &tool,
+            &call,
+        );
+        engine.install_standing_allow_rule("shell", &content);
+        assert_eq!(engine.context_snapshot().allow_rules.len(), 2);
+
+        assert!(engine.remove_standing_allow_rule("shell", &content));
+
+        let rules = engine.context_snapshot().allow_rules;
+        assert_eq!(rules.len(), 1);
+        assert_eq!(rules[0].source, PermissionRuleSource::Session);
+        // Revoking a rule that is not in force is not an error, and removes
+        // nothing else.
+        assert!(!engine.remove_standing_allow_rule("shell", &content));
+        assert_eq!(engine.context_snapshot().allow_rules.len(), 1);
+    }
+
+    #[test]
+    fn edit_runs_the_revision_with_user_modified_set() {
+        let mut engine = PermissionEngine::new("/tmp/project");
+        let tool = tool("shell", false);
+        let original = shell("rm -rf /tmp/project/target");
+        let revised = shell("rm -rf /tmp/project/target/debug");
+        engine.add_rule(PermissionRule {
+            source: PermissionRuleSource::UserSettings,
+            rule_behavior: PermissionBehavior::Allow,
+            rule_value: PermissionRuleValue {
+                tool_name: "shell".to_string(),
+                rule_content: Some("target/debug".to_string()),
+            },
+        });
+        let PermissionDecision::Ask(ask) = engine.decide(&tool, &original) else {
+            panic!("the original input matches no rule and must be asked about");
+        };
+
+        let decision = engine.apply_approval(
+            ApprovalResponse::edit(revised.clone(), None),
+            &ask,
+            &tool,
+            &original,
+        );
+
+        let PermissionDecision::Allow(allow) = decision else {
+            panic!("the revision matches the allow rule and must run");
+        };
+        assert_eq!(allow.updated_input.as_ref(), Some(&revised));
+        assert!(allow.user_modified);
+    }
+
+    #[test]
+    fn edit_that_still_needs_a_decision_comes_back_as_an_ask_carrying_the_revision() {
+        let mut engine = PermissionEngine::new("/tmp/project");
+        let tool = tool("shell", false);
+        let original = shell("cargo build");
+        let revised = shell("cargo build --release");
+        let PermissionDecision::Ask(ask) = engine.decide(&tool, &original) else {
+            panic!("shell requires approval");
+        };
+
+        let decision = engine.apply_approval(
+            ApprovalResponse::edit(revised.clone(), None),
+            &ask,
+            &tool,
+            &original,
+        );
+
+        let PermissionDecision::Ask(second) = decision else {
+            panic!("an undecided revision must be asked about, never run");
+        };
+        assert_eq!(second.updated_input.as_ref(), Some(&revised));
+        // The prompt built from that ask is what tells the runtime to publish
+        // the second request with `revised_from`.
+        assert!(PermissionEngine::prompt_for("shell", &second, &revised).is_revision);
+        assert!(engine.context_snapshot().allow_rules.is_empty());
+    }
+
+    #[test]
+    fn edit_is_refused_by_plan_mode_before_the_revision_is_decided() {
+        let mut engine = PermissionEngine::new("/tmp/project");
+        let tool = tool("write_file", true);
+        let original = input("src/lib.rs");
+        let PermissionDecision::Ask(ask) = engine.decide(&tool, &original) else {
+            panic!("write_file should require approval before plan mode");
+        };
+        engine.set_mode(PermissionMode::Plan);
+
+        let decision = engine.apply_approval(
+            ApprovalResponse::edit(input("src/other.rs"), None),
+            &ask,
+            &tool,
+            &original,
+        );
+
+        assert!(matches!(
+            decision,
+            PermissionDecision::Deny(PermissionDenyDecision {
+                decision_reason: PermissionDecisionReason::PlanMode,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn the_editable_list_covers_flat_inputs_and_excludes_patch_bearing_tools() {
+        for editable in [
+            "shell",
+            "read_file",
+            "grep",
+            "glob",
+            "git_add",
+            "git_restore",
+        ] {
+            assert!(
+                tool_input_is_editable(editable),
+                "{editable} must be editable"
+            );
+        }
+        // A revised body is a different change wearing the reviewed change's
+        // approval, which is the one thing `Edit` must never allow.
+        for fixed in ["write_file", "edit_file", "git_commit", "acp:fs/write"] {
+            assert!(
+                !tool_input_is_editable(fixed),
+                "{fixed} must not be editable"
+            );
+        }
+        assert!(
+            EDITABLE_APPROVAL_TOOLS
+                .windows(2)
+                .all(|pair| pair[0] < pair[1]),
+            "the editable list must stay sorted and unique"
+        );
+    }
+
+    #[test]
+    fn the_gate_reprompts_for_each_revision_and_stops_at_the_bound() {
+        let mut engine = PermissionEngine::new("/tmp/project");
+        let tool = tool("shell", false);
+        let mut prompts = Vec::new();
+
+        // Every answer is a fresh revision, so the gate would loop forever
+        // without its bound. It fails closed instead.
+        let decision = resolve_permission(
+            &mut engine,
+            &tool,
+            "shell",
+            &shell("cargo build"),
+            |_, prompt| {
+                prompts.push(prompt.is_revision);
+                ApprovalResponse::edit(
+                    shell(&format!("cargo build --jobs {}", prompts.len())),
+                    None,
+                )
+            },
+        );
+
+        assert_eq!(prompts.len(), MAX_APPROVAL_REVISIONS);
+        assert!(!prompts[0], "the first prompt is the original request");
+        assert!(prompts[1..].iter().all(|is_revision| *is_revision));
+        assert!(matches!(decision, PermissionDecision::Deny(_)));
+    }
+
+    #[test]
+    fn the_gate_runs_an_accepted_revision_without_a_second_prompt() {
+        let mut engine = PermissionEngine::new("/tmp/project");
+        let tool = tool("shell", false);
+        engine.install_standing_allow_rule("shell", "command=cargo fmt --all");
+        let mut prompts = 0_usize;
+
+        let decision = resolve_permission(
+            &mut engine,
+            &tool,
+            "shell",
+            &shell("cargo build"),
+            |_, _| {
+                prompts += 1;
+                ApprovalResponse::edit(shell("cargo fmt --all"), None)
+            },
+        );
+
+        assert_eq!(prompts, 1);
+        let PermissionDecision::Allow(allow) = decision else {
+            panic!("the revised command matches the standing rule");
+        };
+        assert!(allow.user_modified);
+        assert_eq!(
+            allow
+                .updated_input
+                .and_then(|input| input.get("command").cloned()),
+            Some("cargo fmt --all".to_string())
+        );
     }
 }

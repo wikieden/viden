@@ -305,6 +305,7 @@ mod tests {
             preset: StarterLanePreset::Coder,
             branch: Some("codex/lane-coder".to_string()),
             worktree_path: Some(".worktrees/lane-coder".to_string()),
+            agent: None,
         };
         let command = RuntimeCommand::PreviewStarterLane {
             request: request.clone(),

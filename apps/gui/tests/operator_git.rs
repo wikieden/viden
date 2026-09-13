@@ -183,6 +183,8 @@ fn git_approval(sequence: u64) -> RuntimeEventEnvelope {
                 default_action: ApprovalDefaultAction::Deny,
                 audit_id: "audit_operator_git_commit".to_string(),
                 decision_context: None,
+                revised_from: None,
+                editable: false,
             },
         },
     )

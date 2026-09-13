@@ -253,8 +253,15 @@ impl ApprovalProjection {
                 ApprovalScope::Once => ApprovalChoice::AllowOnce,
                 ApprovalScope::Session { .. } => ApprovalChoice::AllowSession,
                 ApprovalScope::RepoAllowlist { .. } => ApprovalChoice::AddRepoAllowlist,
+                // `runtime.approval_scopes` (GUI-CORE-019). Core offers the
+                // standing scope; the decision modal that sends it is TUI
+                // batch T4, so until then the choice is projected as the
+                // once-off it degrades to rather than drawn as a control that
+                // does nothing.
+                ApprovalScope::Always => ApprovalChoice::AllowOnce,
             })
             .collect::<Vec<_>>();
+        choices.dedup();
         choices.push(ApprovalChoice::Deny);
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -868,6 +875,8 @@ mod tests {
             default_action: ApprovalDefaultAction::Deny,
             audit_id: "audit-1".to_string(),
             decision_context: None,
+            revised_from: None,
+            editable: false,
         });
         runtime.errors.push(RuntimeErrorView {
             message: "structured error".to_string(),

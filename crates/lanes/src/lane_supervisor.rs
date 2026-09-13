@@ -13,9 +13,9 @@ use viden_permissions::PermissionEngine;
 use viden_types::{
     AgentLaneRecord, AgentRole, AgentRoute, ApprovalResponse, DataEgressPolicy, ExecutionTarget,
     GateStrength, LaneBudget, LaneRuntimeOwnerBinding, LaneStatus, MutationPolicy, RuntimeCommand,
-    RuntimeEventKind, RuntimeOwner, StarterLanePreset, StarterLanePreview,
-    StarterLanePreviewInvalidationReason, StarterLaneReceipt, StarterLaneRequest, WorkMode,
-    WorkspaceEligibility, fresh_id, now_timestamp,
+    RuntimeEventKind, RuntimeOwner, StarterLaneAgentBinding, StarterLanePreset, StarterLanePreview,
+    StarterLanePreviewInvalidationReason, StarterLaneReceipt, StarterLaneRequest,
+    StarterLaneSessionOutcome, WorkMode, WorkspaceEligibility, fresh_id, now_timestamp,
 };
 use viden_workflows::{
     lanes::{LaneEvent, LaneEventKind},
@@ -78,6 +78,53 @@ impl LanePersistence for WorkflowLanePersistence {
     }
 }
 
+/// Runtime-owned policy for a starter Lane's Agent binding
+/// (`runtime.starter_lane_agent`, GUI-CORE-030).
+///
+/// `crates/lanes` knows nothing about adapters or Agent sessions and must not
+/// learn: the adapter registry and the session start are runtime facts. The
+/// supervisor asks this injected policy the two questions creation needs and
+/// records the answers on the preview and the receipt.
+pub trait StarterLaneAgentPolicy: Send + Sync {
+    /// Whether `agent_id` names an adapter the runtime advertises. A `false`
+    /// here becomes a preview diagnostic, never a refusal: the Lane is still
+    /// creatable and the receipt carries the honest session outcome.
+    fn adapter_is_known(&self, agent_id: &str) -> bool;
+
+    /// Starts the bound Agent's first session for a Lane that now exists.
+    ///
+    /// Called after the Lane is durably created, so a `Refused` outcome never
+    /// unwinds the Lane.
+    fn start_session(
+        &self,
+        owner: &RuntimeOwner,
+        lane: &AgentLaneRecord,
+        binding: &StarterLaneAgentBinding,
+    ) -> StarterLaneSessionOutcome;
+}
+
+/// The policy in force when the runtime injected none: every binding is
+/// echoed as unknown and every session refused. Used by lane-only tests, and
+/// honest rather than silently pretending a session started.
+pub struct UnboundStarterLaneAgentPolicy;
+
+impl StarterLaneAgentPolicy for UnboundStarterLaneAgentPolicy {
+    fn adapter_is_known(&self, _agent_id: &str) -> bool {
+        false
+    }
+
+    fn start_session(
+        &self,
+        _owner: &RuntimeOwner,
+        _lane: &AgentLaneRecord,
+        _binding: &StarterLaneAgentBinding,
+    ) -> StarterLaneSessionOutcome {
+        StarterLaneSessionOutcome::Refused {
+            reason: "starter_lane.agent_sessions_unavailable".to_string(),
+        }
+    }
+}
+
 pub struct LaneSupervisor {
     repo: PathBuf,
     persistence: Arc<dyn LanePersistence>,
@@ -88,6 +135,7 @@ pub struct LaneSupervisor {
     approvals: LaneApprovalResolver,
     redact_command: LaneCommandRedactor,
     work_mode: Arc<dyn Fn() -> WorkMode + Send + Sync>,
+    starter_lane_agent: Arc<dyn StarterLaneAgentPolicy>,
     approval_ttl_secs: u64,
     lanes: Arc<Mutex<BTreeMap<String, LaneWorkerHandle>>>,
     hydrated_lanes: Arc<Mutex<BTreeMap<String, AgentLaneRecord>>>,
@@ -282,6 +330,7 @@ impl LaneSupervisor {
             approvals,
             redact_command,
             work_mode,
+            starter_lane_agent: Arc::new(UnboundStarterLaneAgentPolicy),
             approval_ttl_secs,
             lanes,
             hydrated_lanes,
@@ -293,6 +342,17 @@ impl LaneSupervisor {
             hydration_recoveries,
             hydration_error,
         }
+    }
+
+    /// Injects the runtime's starter-Lane Agent policy. Kept as a builder
+    /// rather than a tenth `new` parameter so every existing construction
+    /// site keeps the behavior it had.
+    pub fn with_starter_lane_agent_policy(
+        mut self,
+        policy: Arc<dyn StarterLaneAgentPolicy>,
+    ) -> Self {
+        self.starter_lane_agent = policy;
+        self
     }
 
     pub fn handles(command: &RuntimeCommand) -> bool {
@@ -424,6 +484,10 @@ impl LaneSupervisor {
                 branch: (eligibility.is_git_repository && eligibility.has_head)
                     .then(|| format!("viden/{lane_id}")),
                 worktree_path: None,
+                // The default preview is Core's own suggestion; a binding is
+                // the operator's pick and only ever arrives on an explicit
+                // `PreviewStarterLane`.
+                agent: None,
             };
             let mut generated_owner = owner;
             generated_owner.lane_id = Some(lane_id);
@@ -739,7 +803,12 @@ impl LaneSupervisor {
         command_id: String,
         request: StarterLaneRequest,
     ) -> Result<(), String> {
-        let preview = match resolve_starter_lane_preview(&self.repo, &owner, &request) {
+        let preview = match resolve_starter_lane_preview(
+            &self.repo,
+            &owner,
+            &request,
+            self.starter_lane_agent.as_ref(),
+        ) {
             Ok(preview) => preview,
             Err(reason) => {
                 self.reject(owner, command_id, reason);
@@ -968,6 +1037,7 @@ impl LaneSupervisor {
     fn worker_event_sink(&self) -> LaneEventSink {
         let events = Arc::clone(&self.events);
         let pending = Arc::clone(&self.starter_creations);
+        let agent_policy = Arc::clone(&self.starter_lane_agent);
         Arc::new(move |owner, kind| {
             let lane_id = owner.lane_id.clone();
             let approval_request_id = match &kind {
@@ -1005,6 +1075,15 @@ impl LaneSupervisor {
                     .and_then(|mut pending| pending.remove(&lane_id));
                 if let Some(creation) = creation {
                     let preview = creation.preview;
+                    // The Lane exists durably at this point. The session start
+                    // is attempted after it and its outcome is stamped on the
+                    // receipt: a refusal is an honest field beside a Lane that
+                    // was created, never a reason to unwind one
+                    // (`runtime.starter_lane_agent`, GUI-CORE-030).
+                    let session = preview
+                        .agent
+                        .as_ref()
+                        .map(|binding| agent_policy.start_session(&creation.owner, &lane, binding));
                     events(
                         owner.clone(),
                         RuntimeEventKind::StarterLaneCreated {
@@ -1016,6 +1095,7 @@ impl LaneSupervisor {
                                 worktree_path: preview.worktree_path,
                                 base_revision: preview.base_revision,
                                 owner: creation.owner,
+                                session,
                             },
                         },
                     );
@@ -1262,7 +1342,16 @@ fn resolve_starter_lane_preview(
     repo: &Path,
     owner: &RuntimeOwner,
     request: &StarterLaneRequest,
+    agent_policy: &dyn StarterLaneAgentPolicy,
 ) -> Result<StarterLanePreview, String> {
+    // An unknown adapter is a diagnostic, never a rejection: the operator's
+    // pick is echoed back so the wizard can show what it will and will not do,
+    // and the Lane stays creatable without it.
+    let agent_diagnostic = request
+        .agent
+        .as_ref()
+        .filter(|binding| !agent_policy.adapter_is_known(&binding.agent_id))
+        .map(|binding| format!("starter_lane.agent_unknown:{}", binding.agent_id));
     validate_starter_lane_id(&request.lane_id)?;
     let eligibility = workspace_eligibility(repo);
     if !eligibility.can_create_lane {
@@ -1292,7 +1381,8 @@ fn resolve_starter_lane_preview(
             branch: String::new(),
             worktree_path: workspace_path.to_string_lossy().to_string(),
             base_revision: workspace_identity(repo)?,
-            diagnostics: Vec::new(),
+            diagnostics: agent_diagnostic.into_iter().collect(),
+            agent: request.agent.clone(),
         };
         preview.content_sha256 = starter_lane_preview_hash(&preview)?;
         return Ok(preview);
@@ -1312,6 +1402,9 @@ fn resolve_starter_lane_preview(
     lane.worktree = Some(worktree_path.to_string_lossy().to_string());
     let base_revision = current_base_revision(repo)?;
     let mut diagnostics = Vec::new();
+    if let Some(diagnostic) = agent_diagnostic {
+        diagnostics.push(diagnostic);
+    }
     if worktree_path.exists() {
         diagnostics.push("starter_lane.worktree_exists".to_string());
     }
@@ -1327,6 +1420,7 @@ fn resolve_starter_lane_preview(
         worktree_path: worktree_path.to_string_lossy().to_string(),
         base_revision,
         diagnostics,
+        agent: request.agent.clone(),
     };
     preview.content_sha256 = starter_lane_preview_hash(&preview)?;
     Ok(preview)
@@ -1456,6 +1550,9 @@ fn starter_lane_preview_hash(preview: &StarterLanePreview) -> Result<String, Str
         &preview.worktree_path,
         &preview.base_revision,
         &preview.diagnostics,
+        // The pick is part of what the operator reviewed, so changing it
+        // invalidates the preview as `RequestChanged` like any other field.
+        &preview.agent,
     ))
     .map_err(|error| format!("cannot hash starter lane preview: {error}"))?;
     Ok(format!("{:x}", Sha256::digest(bytes)))

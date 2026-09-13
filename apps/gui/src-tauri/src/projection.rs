@@ -300,6 +300,13 @@ impl RuntimeProjection {
                 let mut actions = approval
                     .allowed_scopes
                     .iter()
+                    // `runtime.approval_scopes` (GUI-CORE-019) added the
+                    // standing scope on the Core side. The dock's Always
+                    // control goes live in GUI batch G9; until then the
+                    // disabled row below stays the one the operator sees, so
+                    // the offered scope is skipped here rather than drawn
+                    // twice.
+                    .filter(|scope| !matches!(scope, ApprovalScope::Always))
                     .map(|scope| match scope {
                         ApprovalScope::Once => PermissionActionProjection {
                             kind: "once".to_string(),
@@ -321,6 +328,16 @@ impl RuntimeProjection {
                             session_id: None,
                             paths: paths.clone(),
                             code: None,
+                        },
+                        // Filtered out above; the arm exists because the match
+                        // must be total, and it mirrors the disabled row the
+                        // dock already draws so the two can never disagree.
+                        ApprovalScope::Always => PermissionActionProjection {
+                            kind: "always".to_string(),
+                            available: false,
+                            session_id: None,
+                            paths: Vec::new(),
+                            code: Some("GUI-CORE-003"),
                         },
                     })
                     .collect::<Vec<_>>();
@@ -472,6 +489,9 @@ impl RuntimeProjection {
             let mut actions: Vec<D2ActionProjection> = approval
                 .allowed_scopes
                 .iter()
+                // Same reason as the permission dock above: G9 owns the
+                // client half of GUI-CORE-019.
+                .filter(|scope| !matches!(scope, ApprovalScope::Always))
                 .map(|scope| match scope {
                     ApprovalScope::Once => D2ActionProjection {
                         kind: "once".to_string(),
@@ -493,6 +513,14 @@ impl RuntimeProjection {
                         session_id: None,
                         paths: paths.clone(),
                         code: None,
+                    },
+                    // Filtered out above; total-match arm only.
+                    ApprovalScope::Always => D2ActionProjection {
+                        kind: "always".to_string(),
+                        available: false,
+                        session_id: None,
+                        paths: Vec::new(),
+                        code: Some("GUI-CORE-003"),
                     },
                 })
                 .collect();
@@ -2253,9 +2281,9 @@ pub(crate) fn transcript_row_projection(
 
 /// Core's own scope key for one approval decision.
 ///
-/// The same four words Core audits the decision under
-/// (`approval.<allow_once|allow_session|allow_repo|deny>`), so a transcript
-/// row and an audit row name one decision the same way.
+/// The same words Core audits the decision under
+/// (`approval.<allow_once|allow_session|allow_repo|always|edit|deny>`), so a
+/// transcript row and an audit row name one decision the same way.
 fn approval_decision_key(decision: &ApprovalDecision) -> String {
     match decision {
         ApprovalDecision::Allow {
@@ -2267,6 +2295,11 @@ fn approval_decision_key(decision: &ApprovalDecision) -> String {
         ApprovalDecision::Allow {
             scope: ApprovalScope::RepoAllowlist { .. },
         } => "allow_repo",
+        // `runtime.approval_scopes` (GUI-CORE-019): the two keys Core added.
+        ApprovalDecision::Allow {
+            scope: ApprovalScope::Always,
+        } => "always",
+        ApprovalDecision::Edit { .. } => "edit",
         ApprovalDecision::Deny => "deny",
     }
     .to_string()

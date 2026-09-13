@@ -74,6 +74,7 @@ fn core_request(request: &D4LaneRequest) -> StarterLaneRequest {
         },
         branch: request.branch.clone(),
         worktree_path: request.worktree_path.clone(),
+        agent: None,
     }
 }
 
@@ -114,6 +115,7 @@ fn preview_for(request: &D4LaneRequest, owner: RuntimeOwner) -> StarterLanePrevi
         base_revision: "b".repeat(40),
         diagnostics: Vec::new(),
         lane,
+        agent: None,
     }
 }
 
@@ -128,6 +130,7 @@ fn receipt_for(preview: &StarterLanePreview) -> StarterLaneReceipt {
         worktree_path: preview.worktree_path.clone(),
         base_revision: preview.base_revision.clone(),
         owner: preview.owner.clone(),
+        session: None,
     }
 }
 
@@ -168,6 +171,8 @@ fn approval(owner: RuntimeOwner, lane_id: &str) -> ApprovalRequestView {
         default_action: ApprovalDefaultAction::Deny,
         audit_id: format!("audit-{lane_id}"),
         decision_context: None,
+        revised_from: None,
+        editable: false,
     }
 }
 

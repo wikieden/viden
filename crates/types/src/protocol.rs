@@ -407,6 +407,13 @@ fn is_known_runtime_event_type(event_type: &str) -> bool {
             | "tool_call_finished"
             | "approval_requested"
             | "approval_resolved"
+            // The two standing-approval facts (`runtime.approval_scopes`,
+            // GUI-CORE-019). Quarantining a grant leaves a client showing a
+            // prompt the operator already silenced forever; quarantining a
+            // revocation leaves a revoked rule on screen as if it were still
+            // in force, which is the worse of the two readings.
+            | "standing_approval_granted"
+            | "standing_approval_revoked"
             | "command_accepted"
             | "lane_command_accepted"
             | "command_rejected"

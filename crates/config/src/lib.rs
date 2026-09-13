@@ -11,6 +11,7 @@ use viden_types::{
 
 mod project;
 mod project_identity;
+mod standing_approvals;
 mod ui_layout;
 mod ui_preferences;
 
@@ -19,6 +20,10 @@ pub use project::{
     parse_project_config,
 };
 pub use project_identity::{project_identity_path, read_or_mint_project_id_at};
+pub use standing_approvals::{
+    grant_user_standing_approval_at, load_user_standing_approvals_at,
+    revoke_user_standing_approval_at, user_settings_path_in_home,
+};
 pub use ui_layout::{
     UiLayoutPreferenceFileState, reset_user_ui_layout_preferences_at,
     resolve_user_ui_layout_preferences_at, save_user_ui_layout_preferences_at,
@@ -412,7 +417,7 @@ pub fn load_provider_ui_config_at(
         .collect())
 }
 
-fn read_config_value_for_write(path: &Path) -> Result<Value, String> {
+pub(crate) fn read_config_value_for_write(path: &Path) -> Result<Value, String> {
     if !path.exists() {
         return Ok(Value::Table(Map::new()));
     }
@@ -427,7 +432,7 @@ fn read_config_value_for_write(path: &Path) -> Result<Value, String> {
     }
 }
 
-fn write_config_value(path: &Path, value: &Value) -> Result<(), String> {
+pub(crate) fn write_config_value(path: &Path, value: &Value) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
             .map_err(|err| format!("Failed to create config dir {}: {err}", parent.display()))?;

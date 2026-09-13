@@ -1888,6 +1888,7 @@ fn starter_lane_events_roundtrip_as_known_with_exact_owner_and_cursor() {
         worktree_path: "/tmp/viden/.worktrees/lane-starter".to_string(),
         base_revision: "cd".repeat(20),
         diagnostics: Vec::new(),
+        agent: None,
     };
     let cases = [
         (
@@ -1907,6 +1908,7 @@ fn starter_lane_events_roundtrip_as_known_with_exact_owner_and_cursor() {
                     worktree_path: preview.worktree_path.clone(),
                     base_revision: preview.base_revision.clone(),
                     owner: owner.clone(),
+                    session: None,
                 },
             },
         ),
@@ -2167,6 +2169,7 @@ fn starter_lane_view_keys_previews_receipts_and_invalidation_by_owner_and_previe
         worktree_path: format!("/tmp/viden/.worktrees/{lane_id}"),
         base_revision: "cd".repeat(20),
         diagnostics: Vec::new(),
+        agent: None,
     };
     let preview_a = preview(owner_a.clone(), "lane-a");
     let preview_b = preview(owner_b.clone(), "lane-b");
@@ -2207,6 +2210,7 @@ fn starter_lane_view_keys_previews_receipts_and_invalidation_by_owner_and_previe
                     worktree_path: preview.worktree_path,
                     base_revision: preview.base_revision,
                     owner: preview.owner,
+                    session: None,
                 },
             },
         ));
@@ -2247,6 +2251,7 @@ fn starter_lane_event_transport_rejects_payload_owner_mismatch() {
                 worktree_path: "/tmp/viden/.worktrees/lane-mismatch".to_string(),
                 base_revision: "cd".repeat(20),
                 owner: payload_owner.clone(),
+                session: None,
             },
         },
         RuntimeEventKind::StarterLanePreviewInvalidated {
@@ -2332,6 +2337,7 @@ fn frontend_host_capabilities_known_wire_events_roundtrip_without_placeholders()
         worktree_path: "workspace/.worktrees/lane-host-fixture".to_string(),
         base_revision: "cd".repeat(20),
         diagnostics: Vec::new(),
+        agent: None,
     };
     let resolved = ResolvedUiPreferences {
         locale: LocaleId::ZhCn,
@@ -2377,6 +2383,7 @@ fn frontend_host_capabilities_known_wire_events_roundtrip_without_placeholders()
                 worktree_path: preview.worktree_path.clone(),
                 base_revision: preview.base_revision.clone(),
                 owner: owner.clone(),
+                session: None,
             },
         },
         RuntimeEventKind::StarterLanePreviewInvalidated {
@@ -4186,6 +4193,8 @@ fn runtime_events_replay_into_ui_independent_view_state() {
         default_action: ApprovalDefaultAction::Deny,
         audit_id: "audit_1".to_string(),
         decision_context: None,
+        revised_from: None,
+        editable: false,
     };
     let evidence = EvidenceView {
         id: "evidence_1".to_string(),
@@ -5955,6 +5964,8 @@ fn an_approval_without_a_decision_context_encodes_as_it_did_before() {
         default_action: ApprovalDefaultAction::Deny,
         audit_id: String::new(),
         decision_context: None,
+        revised_from: None,
+        editable: false,
     };
     let encoded = serde_json::to_value(&approval).unwrap();
     assert!(

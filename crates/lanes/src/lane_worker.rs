@@ -325,6 +325,11 @@ impl LanePendingApproval {
     ) -> LaneApprovalIntake {
         match &response.decision {
             ApprovalDecision::Deny => LaneApprovalIntake::Denied,
+            // A lane effect's input is a Lane id and a worktree path the
+            // worker resolved, not something an operator revises from the
+            // prompt: `editable` is false on every lane approval, so an
+            // `Edit` here is an answer the request never offered.
+            ApprovalDecision::Edit { .. } => LaneApprovalIntake::ScopeNotAllowed,
             ApprovalDecision::Allow { scope } => {
                 if now >= self.expires_at {
                     LaneApprovalIntake::Expired
@@ -1364,6 +1369,12 @@ fn lane_approval(
             canonical_ref: input.get("path").cloned(),
         },
         allowed_scopes,
+        // A lane effect is not one of the flat-input built-ins, and the
+        // standing scope is granted by the runtime, which owns the settings
+        // file. Both are false rather than absent so the Lane prompt states
+        // what it does not offer.
+        revised_from: None,
+        editable: false,
         policy_reason_key: "lane.requires_approval".to_string(),
         policy_reason_args: Default::default(),
         expires_at,

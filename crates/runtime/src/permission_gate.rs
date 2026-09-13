@@ -117,6 +117,21 @@ impl SharedPermissionEngine {
         self.read().decide(tool, input)
     }
 
+    /// Installs a standing `Always` rule in the live engine
+    /// (`runtime.approval_scopes`, GUI-CORE-019). Idempotent, so bootstrap
+    /// loading and a repeated grant converge on one rule.
+    pub(crate) fn install_standing_allow_rule(&self, tool_name: &str, rule_content: &str) {
+        self.write()
+            .install_standing_allow_rule(tool_name, rule_content);
+    }
+
+    /// Removes a standing `Always` rule from the live engine. Returns whether
+    /// one was in force.
+    pub(crate) fn remove_standing_allow_rule(&self, tool_name: &str, rule_content: &str) -> bool {
+        self.write()
+            .remove_standing_allow_rule(tool_name, rule_content)
+    }
+
     pub(crate) fn apply_approval(
         &self,
         response: ApprovalResponse,
@@ -127,12 +142,16 @@ impl SharedPermissionEngine {
         let decision = self.write().apply_approval(response, ask, tool, input);
         // Remember interactively resolved allows so the registry backstop can
         // tell an approved once-off from a call that skipped approval.
-        if matches!(decision, PermissionDecision::Allow(_)) {
+        if let PermissionDecision::Allow(allow) = &decision {
+            // An `Edit` runs the *revised* bytes, so the clearance the
+            // backstop will look for is keyed on those, not on the input the
+            // operator was first shown.
+            let cleared_input = allow.updated_input.as_ref().unwrap_or(input);
             let mut cleared = self
                 .cleared_executions
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-            cleared.push_back(clearance_key(tool, input));
+            cleared.push_back(clearance_key(tool, cleared_input));
             while cleared.len() > MAX_EXECUTION_CLEARANCES {
                 cleared.pop_front();
             }

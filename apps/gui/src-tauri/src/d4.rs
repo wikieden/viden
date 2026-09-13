@@ -536,6 +536,12 @@ impl GuiCoreAdapter {
                         ApprovalDecision::Allow { .. } => {
                             self.d4_outcome = D4OutcomeProjection::waiting("waiting_for_receipt")
                         }
+                        // Core re-decides the revision and publishes the
+                        // outcome; the wizard stays on the decision step
+                        // rather than claiming a receipt is coming.
+                        ApprovalDecision::Edit { .. } => {
+                            self.d4_outcome = D4OutcomeProjection::waiting("waiting_for_decision")
+                        }
                         ApprovalDecision::Deny => {
                             keep_pending = false;
                             self.reviewed_d4 = None;
@@ -581,6 +587,8 @@ impl GuiCoreAdapter {
 
 fn core_request(request: &D4LaneRequest) -> StarterLaneRequest {
     StarterLaneRequest {
+        // `runtime.starter_lane_agent` (GUI-CORE-030); the pick travels in G9.
+        agent: None,
         lane_id: request.lane_id.clone(),
         preset: match request.preset {
             D4Preset::Coder => StarterLanePreset::Coder,

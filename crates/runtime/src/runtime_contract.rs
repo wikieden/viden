@@ -1294,7 +1294,11 @@ impl SessionEngine {
                 )]);
             }
             RuntimeCommand::RetrieveContext { .. } => unreachable!("handled before acceptance"),
-            RuntimeCommand::CancelActiveTurn | RuntimeCommand::RespondToApproval { .. } => {
+            // The standing-approval table lives in the user-level settings
+            // file and the live engine, both of which the supervisor owns.
+            RuntimeCommand::RevokeStandingApproval { .. }
+            | RuntimeCommand::CancelActiveTurn
+            | RuntimeCommand::RespondToApproval { .. } => {
                 return Ok(vec![command_rejected(
                     command_id,
                     "runtime command is declared but not implemented in core yet".to_string(),
@@ -5884,6 +5888,10 @@ fn approval_request_view(request_id: &str, prompt: &PermissionPrompt) -> Approva
         // Whatever the call site computed, carried through unchanged. `None`
         // means Core previewed nothing for this tool.
         decision_context: prompt.decision_context.clone(),
+        // The unsupervised contract path has no published predecessor to point
+        // at, so a revision here replaces nothing.
+        revised_from: None,
+        editable: viden_permissions::tool_input_is_editable(&prompt.tool_name),
     }
 }
 
@@ -6342,6 +6350,12 @@ pub(crate) fn redacted_runtime_command_for_event(command: &RuntimeCommand) -> Ru
         RuntimeCommand::SetPermissionLevel { level } => {
             RuntimeCommand::SetPermissionLevel { level: *level }
         }
+        // Only a stable rule id Core itself minted; nothing free-form.
+        RuntimeCommand::RevokeStandingApproval { rule_id } => {
+            RuntimeCommand::RevokeStandingApproval {
+                rule_id: redact_identifier_for_event(rule_id),
+            }
+        }
         RuntimeCommand::RespondToApproval {
             request_id,
             response,
@@ -6661,6 +6675,17 @@ fn redacted_starter_lane_request(
             .worktree_path
             .as_ref()
             .map(|_| "[REDACTED]".to_string()),
+        // The adapter id and model are closed identifiers; the task is
+        // operator prose and is redacted exactly as `StartAgentSession`
+        // redacts its own.
+        agent: request
+            .agent
+            .as_ref()
+            .map(|binding| viden_types::StarterLaneAgentBinding {
+                agent_id: redact_identifier_for_event(&binding.agent_id),
+                model: binding.model.as_deref().map(redact_identifier_for_event),
+                task: binding.task.as_ref().map(|_| "[REDACTED]".to_string()),
+            }),
     }
 }
 

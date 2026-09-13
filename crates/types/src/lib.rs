@@ -59,10 +59,11 @@ pub use evidence_reads::{
 };
 pub use frontend_services::{
     CheckRunStatus, CheckRunView, RecentProjectSummary, RecentSessionSummary, RecentWorkQuery,
-    RuntimeServiceHealthView, RuntimeServiceKind, RuntimeServiceStatus, StarterLanePreset,
-    StarterLanePreview, StarterLanePreviewInvalidationReason, StarterLaneReceipt,
-    StarterLaneRequest, UiLayoutPreferencePatch, UiPreferencePatch, WorkspaceChangeKind,
-    WorkspaceChangeView, WorkspaceSourceStatus, WorkspaceSourceView,
+    RuntimeServiceHealthView, RuntimeServiceKind, RuntimeServiceStatus, StarterLaneAgentBinding,
+    StarterLanePreset, StarterLanePreview, StarterLanePreviewInvalidationReason,
+    StarterLaneReceipt, StarterLaneRequest, StarterLaneSessionOutcome, UiLayoutPreferencePatch,
+    UiPreferencePatch, WorkspaceChangeKind, WorkspaceChangeView, WorkspaceSourceStatus,
+    WorkspaceSourceView,
 };
 pub use lsp::{LspDiagnostic, LspLocation, LspPosition, LspRange, LspSymbol};
 pub use project::{
@@ -934,6 +935,23 @@ pub struct PermissionPrompt {
     /// What Core knows about the change this approval would make. `None`
     /// means Core computed no preview for this tool, never "no change".
     pub decision_context: Option<DecisionContext>,
+    /// The exact tool input this prompt describes.
+    ///
+    /// Carried beside the rendered preview because two decisions need the
+    /// bytes rather than the rendering: the standing rule an `Always` grant
+    /// persists is keyed on them, and a revision that is byte-identical to
+    /// them is rejected rather than re-prompted
+    /// (`runtime.approval_scopes`, GUI-CORE-019).
+    pub input: ToolInput,
+    /// Whether this prompt is the re-evaluation of an operator's revision
+    /// (`runtime.approval_scopes`, GUI-CORE-019).
+    ///
+    /// The runtime call site uses it to publish the second request with
+    /// `revised_from` pointing at the request it replaces. It is derived from
+    /// the ask decision carrying an `updated_input`, so a revision that the
+    /// gate still wants a decision about is never published as an unrelated
+    /// second prompt.
+    pub is_revision: bool,
 }
 
 pub fn parse_tool_input(input: &str) -> ToolInput {
@@ -974,5 +992,5 @@ pub use agent::{
 };
 pub use approval::{
     ApprovalDecision, ApprovalDefaultAction, ApprovalResponse, ApprovalRisk, ApprovalScope,
-    ApprovalTarget,
+    ApprovalTarget, StandingApprovalView,
 };

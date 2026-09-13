@@ -3855,6 +3855,8 @@ fn structured_diff_fixture() -> FrontendContractFixtureOut {
                 default_action: ApprovalDefaultAction::Deny,
                 audit_id: format!("audit_{id}"),
                 decision_context: Some(decision_context),
+                revised_from: None,
+                editable: false,
             }
         };
 
@@ -4413,6 +4415,8 @@ fn operator_git_fixture() -> FrontendContractFixtureOut {
                     diff: Some(staged),
                     base_sha256: None,
                 }),
+                revised_from: None,
+                editable: false,
             },
         },
         RuntimeEventKind::ApprovalResolved {
@@ -5138,6 +5142,7 @@ fn frontend_host_services_fixture() -> FrontendContractFixtureOut {
         worktree_path: "workspace/.worktrees/lane-host-fixture".to_string(),
         base_revision: "cd".repeat(20),
         diagnostics: Vec::new(),
+        agent: None,
     };
     let kinds = vec![
         RuntimeEventKind::UiPreferencesUpdated {
@@ -5188,6 +5193,7 @@ fn frontend_host_services_fixture() -> FrontendContractFixtureOut {
                 worktree_path: preview.worktree_path.clone(),
                 base_revision: preview.base_revision.clone(),
                 owner: owner.clone(),
+                session: None,
             },
         },
         RuntimeEventKind::StarterLanePreviewInvalidated {
@@ -5298,6 +5304,7 @@ fn interaction_closed_loop_fixture() -> FrontendContractFixtureOut {
         worktree_path: "workspace/.worktrees/lane-loop-coder".to_string(),
         base_revision: "34".repeat(20),
         diagnostics: Vec::new(),
+        agent: None,
     };
     let adapters = vec![
         AgentAdapterView {
@@ -5458,6 +5465,7 @@ fn interaction_closed_loop_fixture() -> FrontendContractFixtureOut {
                     worktree_path: preview.worktree_path.clone(),
                     base_revision: preview.base_revision.clone(),
                     owner: acp_owner.clone(),
+                    session: None,
                 },
             },
         ),
@@ -6050,6 +6058,8 @@ fn approval(id: &str, title: &str, is_mutating: bool) -> ApprovalRequestView {
         default_action: ApprovalDefaultAction::Deny,
         audit_id: format!("audit_{id}"),
         decision_context: None,
+        revised_from: None,
+        editable: false,
     }
 }
 
@@ -7891,6 +7901,8 @@ fn durable_work_evidence_fixture() -> FrontendContractFixtureOut {
                     default_action: ApprovalDefaultAction::Deny,
                     audit_id: approval_audit_id.to_string(),
                     decision_context: None,
+                    revised_from: None,
+                    editable: false,
                 },
             },
             owner.clone(),

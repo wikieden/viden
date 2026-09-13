@@ -1996,6 +1996,7 @@ fn starter_request(lane_id: &str, preset: StarterLanePreset) -> StarterLaneReque
         preset,
         branch: None,
         worktree_path: None,
+        agent: None,
     }
 }
 
@@ -2249,6 +2250,7 @@ fn default_starter_lane_creates_in_non_git_workspace_without_worktree() {
         preset: StarterLanePreset::Coder,
         branch: None,
         worktree_path: None,
+        agent: None,
     };
     supervisor
         .send_command_from_owner(

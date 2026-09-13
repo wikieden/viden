@@ -686,6 +686,8 @@ fn approval_hunks_preview_state(provider: &str, model: &str, theme_name: &str) -
             canonical_ref: None,
         },
         allowed_scopes: vec![ApprovalScope::Once],
+        revised_from: None,
+        editable: false,
         policy_reason_key: "permission.requires_approval".to_string(),
         policy_reason_args: Default::default(),
         expires_at: 0,
