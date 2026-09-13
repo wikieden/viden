@@ -47,6 +47,11 @@ import {
   type D14AuditScope,
 } from "./screens/d14_audit_timeline";
 import {
+  renderD15PlanStudio,
+  type D15Controller,
+} from "./screens/d15_plan_studio";
+import type { D15Intent, D15PlanStudioProjection } from "./models/plan";
+import {
   renderD2Decisions,
   type D2DecisionsProjection,
   type D2Intent,
@@ -293,6 +298,26 @@ export async function hydrateShellFromCore(
       };
       let activeD1: D1Controller | null = null;
       /**
+       * The mounted Plan View, if any.
+       *
+       * Held only so a remount can retire the previous one: its async callbacks
+       * would otherwise render Core's answer into a container the cockpit has
+       * already replaced.
+       */
+      let activeD15: D15Controller | null = null;
+      /**
+       * One bounded, no-traffic read of the owner's plan.
+       *
+       * A Core that answers nothing is an error rather than an empty
+       * projection: the rail leaves the capability unresolved, which keeps the
+       * slot disabled without claiming Core lacks the capability.
+       */
+      const planPort = async (laneId: string | null): Promise<D15PlanStudioProjection> => {
+        const projection = await core.d15PlanStudio(laneId);
+        if (!projection) throw new Error("Core did not provide the plan projection");
+        return projection;
+      };
+      /**
        * The agent adapters the last cockpit projection carried, for D4's agent
        * step. Kept here rather than re-read: the wizard is entered from a
        * cockpit that already holds Core's answer, and a second
@@ -385,6 +410,9 @@ export async function hydrateShellFromCore(
             // cockpit; the shell supplies the Core read and the screen, the
             // cockpit supplies the chrome, the Close control, and `Esc`.
             secondaryViews: { mount: mountSecondaryView },
+            // The rail reads the plan for its slot and its badge before anyone
+            // opens the view; the view itself mounts through `secondaryViews`.
+            plan: { read: (laneId: string | null) => planPort(laneId) },
             onNavigate: (route: string) => {
               // What is left here is the two flows that really do replace the
               // window: D11 project intake and the D4 Lane wizard. Every other
@@ -676,6 +704,49 @@ export async function hydrateShellFromCore(
       };
 
       /**
+       * The Plan View. Every control on it maps to one Core fact or one Core
+       * command (`runtime.plan_documents`, C13).
+       *
+       * The decision's pin — the revision and content digest — travels from the
+       * render the operator read, through the intent, into the command. Nothing
+       * on this path re-resolves it: a refreshed pin would decide a revision
+       * nobody saw, which is exactly what `plan_revision_stale` refuses.
+       */
+      const showD15 = async (container: HTMLElement) => {
+        const laneId = activeD1?.selectedLaneId ?? null;
+        const projection = await core.d15PlanStudio(laneId);
+        if (!projection) {
+          throw new Error("Core did not provide the plan projection");
+        }
+        activeD15?.dispose();
+        activeD15 = renderD15PlanStudio(container, projection, locale, {
+          send: async (intent: D15Intent) => {
+            const result = await core.d15SendIntent(
+              `gui-plan-${crypto.randomUUID()}`,
+              intent,
+            );
+            // A command Core accepted but has not answered yet is drained
+            // here rather than reported as an outcome nobody settled.
+            if (result.outcome.state !== "pending") return result;
+            let drained = result;
+            for (let attempt = 0; attempt < 4 && drained.outcome.state === "pending"; attempt += 1) {
+              drained = await core.d15Poll(laneId);
+            }
+            return drained;
+          },
+          // The stale refusal's only remedy: re-read the record Core holds.
+          reload: async () => {
+            const next = await core.d15PlanStudio(laneId);
+            if (!next) throw new Error("Core did not provide the plan projection");
+            return next;
+          },
+          // The handoff link is D13's own route, switched in the centre pane.
+          onOpenDag: () => activeD1?.openCenterView("d13"),
+          onOpenAuditTrail: openAuditTrail,
+        });
+      };
+
+      /**
        * The cockpit's secondary-view host.
        *
        * Each of the five screens is a Core read this boundary owns, so the
@@ -689,7 +760,7 @@ export async function hydrateShellFromCore(
        * place of the screen.
        */
       const mountSecondaryView = async (
-        route: "d2" | "d10" | "d12" | "d13" | "d14",
+        route: "d2" | "d10" | "d12" | "d13" | "d14" | "d15",
         container: HTMLElement,
         arg: string | null,
       ): Promise<void> => {
@@ -697,6 +768,7 @@ export async function hydrateShellFromCore(
         else if (route === "d10") await showD10(container);
         else if (route === "d12") await showD12(container, arg);
         else if (route === "d13") await showD13(container);
+        else if (route === "d15") await showD15(container);
         else await showD14(container, arg);
       };
 

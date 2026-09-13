@@ -217,6 +217,12 @@ All URLs share the prefix
 | `consumer-evidence-patch` | `…/qa.html?state=consumer-evidence-patch` | `C7`: the archived `patch` row the runtime now records for a native tool edit, framed on its content — `verification: verified`, `canonical quality: pass`, Core's parsed diff rows for the hunk, the hash the bytes were verified against, and the canonical item in `LINKED`. The kind chips are deliberately untouched: Core applies `kinds` before it cuts the page, so pressing one while the harness answers a fixed page would show a filter the rows do not match (G7) |
 | `consumer-transcript-rows` | `…/qa.html?state=consumer-transcript-rows` | `C8`: Core's ordered rows in the D1 transcript, scrolled to the top of the region so one frame carries the `Load older` control Core's cursor earned, the user row, the assistant row with `Over Core's 8 KiB row bound: this body is cut, not short.` and its `Open evidence` affordance, the `edit_file` tool call, its result with the same affordance, and the check run — with the permission row and its `Open audit trail` below the fold. The `transcript_user` / `transcript_assistant` unavailable rows are gone (`GUI-CORE-009`) (G7) |
 | `consumer-file-read` | `…/qa.html?state=consumer-file-read` | `C9`: the dock inspector's Open, disabled in `dock-files`, sending one `ReadWorkspaceFile` — the tree with `AGENTS.md` selected, `lane-core worktree · 12288 bytes on disk · sha256 6d5e36fb44a9…` (the **whole** file's length and hash), the sentence saying Core's bound cut the body, the monospace body itself, and the `Code` tab no longer struck through in the strip (G7) |
+| `plan-proposed` | `…/qa.html?state=plan-proposed` | `C13` / G8: the Plan View as a centre-pane view with the cockpit chrome retained — the rail's `plan` slot marked current and badged `1`, the plan Core proposed at revision 2 with its sections, its two steps with the `after step_1` edge Core declared, the record rail's fields, and the decision row with Accept live and Hand off disabled naming `D15-PLAN-NOT-ACCEPTED`. `MODE plan` / `PERM read-only` agree with the view's own `PLAN · READ ONLY` badge |
+| `plan-accepted-plan-mode` | `…/qa.html?state=plan-accepted-plan-mode` | the `plan_mode` honesty state: the decision is recorded (`decided … audit_plan_accepted`), and the one mutation Core refuses while plan mode is active is disabled, labelled `refused in plan mode`, and stated above the row in the gold refusal band **before** anyone presses it. No badge: an accepted plan is not a decision awaiting anyone |
+| `plan-handed-off` | `…/qa.html?state=plan-handed-off` | after `SetWorkMode build` and the handoff: `MODE build`, the record naming `dag_plan_contract_v1 · audit_plan_handed_off`, the handoff line with `Open in Fleet & Workflow ↗`, and all three decision controls disabled naming `already handed off` / `decision recorded` |
+| `plan-stale-revision` | `…/qa.html?state=plan-stale-revision` | Core's `plan_revision_stale` refusal after a real Accept dispatch: the raw code chip beside Core's own sentence in a `role=alert`, and **Reload the plan** — the one remedy the refusal itself prescribes. The record rail still reads revision 2, because the view re-reads what Core holds rather than deciding again on what it was holding |
+| `plan-no-plan` | `…/qa.html?state=plan-no-plan` | absence, not an empty plan: Core publishes the capability and holds no plan for this owner, so the pane says so, states what plan mode blocks, and every decision control is disabled naming `no plan`. The record rail's fields are all `—` and the rail slot carries no badge |
+| `plan-capability-absent` | `…/qa.html?state=plan-capability-absent` | a Core that published no `runtime.plan_documents`. The rail slot is disabled with the capability in its accessible name; the pane names the capability and draws **no plan and no record rail**, even though this fixture's view state does carry a plan record — the capability is the promise those records mean what the screen would say they mean |
 
 `mode=dark|light` and `locale=en|zh-CN` are accepted on every state and resolve
 through the shared `resolveTheme` path, so the harness never ships a second
@@ -1196,6 +1202,13 @@ before it was committed.
 | --- | --- | --- | --- | --- |
 | [evidence-hash-mismatch-1440x900-dark-en.png](evidence-hash-mismatch-1440x900-dark-en.png) | evidence-hash-mismatch | 1440x900 | dark | en |
 | [welcome-fill-1440x900-dark-en.png](welcome-fill-1440x900-dark-en.png) | welcome-fill | 1440x900 | dark | en |
+| [plan-proposed-1440x1180-dark-en.png](plan-proposed-1440x1180-dark-en.png) | plan-proposed | 1440x1180 | dark | en |
+| [plan-accepted-plan-mode-1440x1180-dark-en.png](plan-accepted-plan-mode-1440x1180-dark-en.png) | plan-accepted-plan-mode | 1440x1180 | dark | en |
+| [plan-handed-off-1440x1180-dark-en.png](plan-handed-off-1440x1180-dark-en.png) | plan-handed-off | 1440x1180 | dark | en |
+| [plan-stale-revision-1440x1180-dark-en.png](plan-stale-revision-1440x1180-dark-en.png) | plan-stale-revision | 1440x1180 | dark | en |
+| [plan-no-plan-1440x1180-dark-en.png](plan-no-plan-1440x1180-dark-en.png) | plan-no-plan | 1440x1180 | dark | en |
+| [plan-capability-absent-1440x1180-dark-en.png](plan-capability-absent-1440x1180-dark-en.png) | plan-capability-absent | 1440x1180 | dark | en |
+| [plan-proposed-1440x1180-light-zh-CN.png](plan-proposed-1440x1180-light-zh-CN.png) | plan-proposed | 1440x1180 | light | zh-CN |
 | [welcome-fill-1440x640-dark-en.png](welcome-fill-1440x640-dark-en.png) | welcome-fill | 1440x640 | dark | en |
 | [d10-events-not-read-1440x900-dark-en.png](d10-events-not-read-1440x900-dark-en.png) | d10-events-not-read | 1440x900 | dark | en |
 
@@ -1351,3 +1364,36 @@ Every row above was captured in this run and viewed. The earlier capture tables
 in this document record when each state was *first* framed and what it was
 framed for; for a cockpit-bearing state, the image they link is the one in this
 table.
+
+## Plan Studio captures (G8)
+
+Captured 2026-09-13 with headless Chrome
+(`--headless --disable-gpu --hide-scrollbars --window-size=1440,1180
+--virtual-time-budget=6000`) against the vite dev server on port 4181, then
+viewed by the author — all seven.
+
+The viewport is **1440x1180** rather than the 1440x900 the earlier tables use,
+because the Plan View is a two-column pane inside the cockpit: at 900px the
+record rail's `REVISIONS` section and the decision row fall below the fold
+together, and a capture that cut both would be evidence for neither.
+
+Every projection is generated by `tests/capture_projections.rs` from prefixes of
+the canonical `plan-documents.json` stream — `d15-proposed` after the second
+`update_plan` call, `d15-accepted-plan-mode` after the accept, `d15-handed-off`
+after the whole stream — plus `multi-lane.json` for the no-plan owner and the
+same handshake minus the capability for the absent one. Two hand-written deltas,
+both named in `qa.ts`:
+
+1. **The coupled permission mode.** `set_work_mode` forces
+   `PermissionMode::Plan` alongside `WorkMode::Plan`, which the hand-authored
+   contract fixture does not; the accepted capture uses the coupled state,
+   because that is what a runtime produces.
+2. **The frame's own work mode.** The D1 fixture is a `build`-mode cockpit and
+   `plan-documents.json` is a plan-mode one, so `d1PlanBase()` takes the mode
+   from the plan projection Core answered with. A capture showing `MODE build`
+   beside `PLAN · READ ONLY` would state two things about one Core that cannot
+   both be true.
+
+The `plan-stale-revision` refusal text is the fixture's own event 9 payload,
+dispatched through the production send path, so the alert, the code chip and the
+reload control are all the shipped rendering rather than a harness drawing.

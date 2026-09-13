@@ -794,6 +794,9 @@ describe("D1 canonical streaming cockpit", () => {
       // capability is missing says so in the name a screen reader announces
       // rather than only in a tooltip.
       "Conversation",
+      // No host port for the plan in this fixture, so the slot is disabled and
+      // names the capability rather than opening a pane nothing can fill.
+      "Plan Studio — unavailable: Core publishes no runtime.plan_documents",
       "Lanes",
       "Diff review — unavailable: Core publishes no runtime.structured_diff",
       "Evidence — unavailable: Core publishes no runtime.evidence_reads",

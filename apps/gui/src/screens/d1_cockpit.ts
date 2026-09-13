@@ -59,6 +59,10 @@ import {
   type LayoutPreferencePatch,
   type LayoutPreferencesProjection,
 } from "../models/layout_preferences";
+import {
+  PLAN_DOCUMENTS_CAPABILITY,
+  type D15PlanStudioProjection,
+} from "../models/plan";
 import { cycledLaneId, renderLaneTabs } from "../components/lane_tabs";
 import {
   renderProjectPicker,
@@ -146,7 +150,8 @@ const SECONDARY_VIEW_LABELS = {
   d12: "d1.activity.integrationGate",
   d13: "d1.activity.fleet",
   d14: "d1.activity.audit",
-} as const satisfies Record<"d2" | "d10" | "d12" | "d13" | "d14", MessageKey>;
+  d15: "d1.activity.plan",
+} as const satisfies Record<D1SecondaryRoute, MessageKey>;
 
 export interface D1IntentResult {
   projection: D1CockpitProjection;
@@ -172,8 +177,8 @@ type RecoverD6 = () => Promise<D6RecoveryProjection>;
  */
 export type D1CenterView = "transcript" | D1RailDestination;
 
-/** The five D-screens the shell mounts inside the centre pane. */
-export type D1SecondaryRoute = "d2" | "d10" | "d12" | "d13" | "d14";
+/** The six D-screens the shell mounts inside the centre pane. */
+export type D1SecondaryRoute = "d2" | "d10" | "d12" | "d13" | "d14" | "d15";
 
 export interface D1Controller {
   applyProjection: (projection: D1CockpitProjection) => void;
@@ -197,6 +202,15 @@ export interface D1Controller {
    * disagreeing about which Lane the composer is addressing.
    */
   selectLane: (laneId: string) => void;
+  /**
+   * The Lane the cockpit is addressing, or `null` for the session.
+   *
+   * A centre view that reads an owner-scoped Core fact — the Plan View is the
+   * first — has to name the same owner the composer and the transcript do. The
+   * shell reads it here rather than keeping its own copy, because two records
+   * of "which Lane is selected" is how they start disagreeing.
+   */
+  readonly selectedLaneId: string | null;
   dispose: () => void;
 }
 
@@ -379,7 +393,20 @@ export interface D1RenderOptions {
     content: (evidenceId: string) => Promise<EvidenceContentProjection>;
   };
   /**
-   * Mounts one of the five secondary D-screens inside the cockpit's centre
+   * The owner's plan document (`runtime.plan_documents`, C13, G8).
+   *
+   * `read` is the no-traffic projection the rail reads for the capability and
+   * for the badge: `1` while a plan is `Proposed` for this owner. The Plan View
+   * itself is mounted through `secondaryViews` like every other D-screen; this
+   * port exists because the *rail* has to know the capability and the count
+   * before anyone opens the view. Absent while no host is bound, which disables
+   * the slot and names it rather than opening a pane nothing can fill.
+   */
+  plan?: {
+    read: (laneId: string | null) => Promise<D15PlanStudioProjection>;
+  };
+  /**
+   * Mounts one of the six secondary D-screens inside the cockpit's centre
    * pane (`D-RAILNAV`, resolved by the `0.3.4` plan in favour of the D1
    * flagship's own in-page view switching).
    *
@@ -957,6 +984,20 @@ export function renderD1Cockpit(
    */
   let evidenceCapability: boolean | null = null;
   /**
+   * The owner's plan projection, or `null` until the first no-traffic read
+   * answers (`runtime.plan_documents`, C13).
+   *
+   * The rail reads it for the badge; the Plan View re-reads its own. Null is
+   * deliberately not an empty projection: before the first read nobody has
+   * counted, and a badge is not drawn for a count nobody took.
+   */
+  let planProjection: D15PlanStudioProjection | null = null;
+  /** Whether Core published `runtime.plan_documents`. Null until read. */
+  let planCapability: boolean | null = null;
+  /** The Lane scope the held plan projection was read for. */
+  let planScopeLaneId: string | null = null;
+  let planReadInFlight = false;
+  /**
    * Core's last word on the operator action side.
    *
    * Starts as "nothing available" rather than as an optimistic default: a bar
@@ -1250,6 +1291,26 @@ export function renderD1Cockpit(
     openCenterView("d2");
   };
   /**
+   * `⌘⇧P` / `⌃⇧P` opens the Plan View.
+   *
+   * Shifted on purpose: bare `⌘P` is already the dock's Files panel and bare
+   * `⌃P` is the palette's command scope, and taking either would move a chord
+   * an operator already has muscle memory for. It toggles like every other view
+   * chord, stands down while a modal overlay owns focus, and stands down while
+   * Core publishes no `runtime.plan_documents` — the same condition the rail
+   * slot fails closed on, so the chord and the visible entry never disagree.
+   */
+  const handlePlanShortcut = (event: KeyboardEvent): void => {
+    if (event.repeat || composing) return;
+    if (!(event.metaKey || event.ctrlKey) || event.altKey || !event.shiftKey) return;
+    if (event.key.toLowerCase() !== "p") return;
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && active.closest(ESCAPE_OWNERS)) return;
+    if (!planAvailable() || !options.secondaryViews) return;
+    event.preventDefault();
+    openCenterView("d15");
+  };
+  /**
    * The palette shortcuts.
    *
    * ⌘K (⌃K off macOS) toggles; ⌃P opens pre-scoped to `>`, matching the
@@ -1440,6 +1501,7 @@ export function renderD1Cockpit(
   window.addEventListener("keydown", handleNewLaneShortcut);
   window.addEventListener("keydown", handleFocusShortcut);
   window.addEventListener("keydown", handleDecisionsShortcut);
+  window.addEventListener("keydown", handlePlanShortcut);
   window.addEventListener("keydown", handleWindowKeydown);
   window.addEventListener("keydown", handlePaletteShortcut);
   window.addEventListener("keydown", handleReviewShortcut);
@@ -1501,6 +1563,12 @@ export function renderD1Cockpit(
 
   const controller: D1Controller = {
     transcript,
+    // A live read of the cockpit's own selection rather than a snapshot: a
+    // centre view mounted after a Lane switch must scope to the Lane the
+    // composer is addressing now, not the one it was addressing at mount.
+    get selectedLaneId() {
+      return selectedLaneId ?? null;
+    },
     openCenterView: (view, arg) => {
       if (disposed) return;
       openCenterView(view, arg);
@@ -1637,6 +1705,7 @@ export function renderD1Cockpit(
       window.removeEventListener("keydown", handleNewLaneShortcut);
       window.removeEventListener("keydown", handleFocusShortcut);
       window.removeEventListener("keydown", handleDecisionsShortcut);
+      window.removeEventListener("keydown", handlePlanShortcut);
       window.removeEventListener("keydown", handlePaletteShortcut);
       window.removeEventListener("keydown", handleReviewShortcut);
       window.removeEventListener("keydown", handleEvidenceShortcut);
@@ -1699,6 +1768,13 @@ export function renderD1Cockpit(
         // changed anywhere else is Core's fact, and re-reading is what keeps
         // this webview from holding a second copy of it.
         queueMicrotask(() => void refreshLayoutRecord());
+        // The plan rides the same wake: a proposal the planner just wrote is
+        // the badge, and re-reading is what keeps the count Core's rather than
+        // a number this webview remembers.
+        queueMicrotask(() => {
+          planProjection = null;
+          readPlanDocuments();
+        });
       });
   };
 
@@ -2027,6 +2103,45 @@ export function renderD1Cockpit(
       });
   };
 
+  /* ---- plan documents (C13, G8) ---- */
+
+  /**
+   * Reads the owner's plan with no Core traffic, for the rail's slot and badge.
+   *
+   * Re-read whenever the Lane selection moves, because a plan belongs to an
+   * owner: keeping the previous Lane's plan under a new selection is the one
+   * thing owner scoping exists to prevent. A host that cannot answer leaves the
+   * capability unresolved, which keeps the slot disabled without claiming why —
+   * a host failure is not a Core that lacks the capability.
+   */
+  const readPlanDocuments = (): void => {
+    if (!options.plan || planReadInFlight) return;
+    const scope = selectedLaneId ?? null;
+    if (planProjection !== null && planScopeLaneId === scope) return;
+    planReadInFlight = true;
+    void options.plan
+      .read(scope)
+      .then((next) => {
+        planReadInFlight = false;
+        if (disposed) return;
+        planProjection = next;
+        planScopeLaneId = scope;
+        planCapability = next.capabilityAvailable;
+        render(false);
+      })
+      .catch(() => {
+        planReadInFlight = false;
+      });
+  };
+
+  /** Drops the held plan when the owner changes, then re-reads for the new one. */
+  const rescopePlanDocuments = (): void => {
+    const scope = selectedLaneId ?? null;
+    if (planScopeLaneId === scope && planProjection !== null) return;
+    planProjection = null;
+    readPlanDocuments();
+  };
+
   /* ---- evidence archive reads (GUI-CORE-025) ---- */
 
   /// Learns whether Core publishes the evidence archive at all, without
@@ -2192,6 +2307,31 @@ export function renderD1Cockpit(
     !!options.workspaceDiff && reviewCapability === true;
 
   /**
+   * Whether the Plan View has somewhere to go.
+   *
+   * Both halves are required and both are facts: a host that can read the
+   * projection, and a Core that published `runtime.plan_documents`. The
+   * capability is read from the last projection the plan port answered with,
+   * never remembered across a reconnect.
+   */
+  const planAvailable = (): boolean => !!options.plan && planCapability === true;
+
+  /**
+   * The rail badge: `1` while a plan is `Proposed` for this owner, else none.
+   *
+   * A proposed plan is a decision waiting on the operator, which is exactly
+   * what a rail badge means here and on D2. `null` — not `0` — is what an
+   * absent capability or an unread projection carries, because "nobody
+   * counted" and "nothing waiting" are different facts and the rail draws
+   * them differently.
+   */
+  const planBadge = (): number | null => {
+    if (!planAvailable()) return null;
+    if (planProjection === null) return null;
+    return planProjection.plan?.status === "proposed" ? 1 : 0;
+  };
+
+  /**
    * Opens DiffReview, optionally on one exact file.
    *
    * `path` is the argument seam the dock's Changes rows and the Diff tab's
@@ -2256,7 +2396,14 @@ export function renderD1Cockpit(
     render(true);
   };
 
-  const SECONDARY_ROUTES: readonly D1SecondaryRoute[] = ["d2", "d10", "d12", "d13", "d14"];
+  const SECONDARY_ROUTES: readonly D1SecondaryRoute[] = [
+    "d2",
+    "d10",
+    "d12",
+    "d13",
+    "d14",
+    "d15",
+  ];
 
   const isSecondaryRoute = (view: D1CenterView): view is D1SecondaryRoute =>
     (SECONDARY_ROUTES as readonly string[]).includes(view);
@@ -2271,6 +2418,10 @@ export function renderD1Cockpit(
   const destinationAvailable = (destination: D1RailDestination): boolean => {
     if (destination === "review") return reviewAvailable();
     if (destination === "evidence") return evidenceAvailable();
+    // The Plan View is nothing without `runtime.plan_documents`: with no plan
+    // facts it could only draw an empty form, so the slot is disabled and
+    // labelled rather than opening a pane that claims the owner has no plan.
+    if (destination === "d15") return planAvailable();
     return !!options.secondaryViews || !!options.onNavigate;
   };
 
@@ -2284,6 +2435,11 @@ export function renderD1Cockpit(
     if (destination === "evidence" && !evidenceAvailable()) {
       return translate(locale, "d1.activity.unavailable", {
         capability: "runtime.evidence_reads",
+      });
+    }
+    if (destination === "d15" && !planAvailable()) {
+      return translate(locale, "d1.activity.unavailable", {
+        capability: PLAN_DOCUMENTS_CAPABILITY,
       });
     }
     // D14 is never blocked by a capability: without `runtime.audit` it opens
@@ -2321,7 +2477,12 @@ export function renderD1Cockpit(
         // non-dormant merge gates — so the badge and the view's header can
         // legitimately differ. Reconciling them is a projection question for
         // the owning batch, not something to hide by counting twice here.
-        badge: destination === "d2" ? projection.statusbar.pendingDecisionCount : null,
+        badge:
+          destination === "d2"
+            ? projection.statusbar.pendingDecisionCount
+            : destination === "d15"
+              ? planBadge()
+              : null,
       };
     }
     return states;
@@ -3319,6 +3480,9 @@ export function renderD1Cockpit(
     // The ordered transcript is owner-scoped, so a selection change is a
     // different conversation and is re-read rather than filtered locally.
     readTranscriptRows();
+    // A plan belongs to an owner too: keeping the previous Lane's plan under a
+    // new selection would badge this Lane with another Lane's decision.
+    rescopePlanDocuments();
     render(false);
   }
 
@@ -4835,6 +4999,9 @@ export function renderD1Cockpit(
   // palette row and the `⌘E` chord know whether Core publishes one before
   // anyone reaches for either.
   ensureEvidenceCapability();
+  // The plan, read once at mount so the rail's slot and its badge are honest
+  // before anyone reaches for either. No Core command is sent.
+  readPlanDocuments();
   // The same at-mount, no-traffic read for the action side, so the commit bar
   // and the titlebar sync chip know whether they may act before anyone presses
   // one of them.

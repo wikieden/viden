@@ -1,0 +1,80 @@
+{
+  "capabilityAvailable": true,
+  "workMode": "plan",
+  "permissionMode": "default",
+  "planModeActive": true,
+  "ownerLaneId": null,
+  "plan": {
+    "planId": "plan_contract_v1",
+    "title": "Model the plan document and its decision",
+    "goal": "the operator can accept the plan and hand it to agents",
+    "status": "proposed",
+    "revision": 2,
+    "contentSha256": "bcdf81ea4a40a16a5c639734cd6e4fa064fef61d558b062d7abbd1b57b076a79",
+    "ownerLaneId": null,
+    "ownerSessionId": "session_plan_documents",
+    "sections": [
+      {
+        "kind": "requirements",
+        "body": "a plan is a Core fact with a decision, not transcript prose"
+      },
+      {
+        "kind": "acceptance_criteria",
+        "body": "the handoff names the DAG the steps became"
+      }
+    ],
+    "steps": [
+      {
+        "id": "step_1",
+        "title": "model the record",
+        "status": "pending",
+        "role": "coder",
+        "fileScope": [
+          "crates/types/src/plan.rs"
+        ],
+        "dependencies": []
+      },
+      {
+        "id": "step_2",
+        "title": "review the contract",
+        "status": "pending",
+        "role": "reviewer",
+        "fileScope": [
+          "crates/types/src/plan.rs"
+        ],
+        "dependencies": [
+          "step_1"
+        ]
+      }
+    ],
+    "stepsByRole": [
+      {
+        "role": "coder",
+        "steps": 1
+      },
+      {
+        "role": "reviewer",
+        "steps": 1
+      }
+    ],
+    "completedSteps": 0,
+    "proposedBy": {
+      "kind": "assistant",
+      "sessionId": "session_plan_documents",
+      "turnId": "turn_plan_2"
+    },
+    "createdAt": 1700007000,
+    "updatedAt": 1700007010,
+    "decidedAt": null,
+    "decisionAuditId": null,
+    "handoff": null
+  },
+  "ambiguousPlanIds": [],
+  "decision": {
+    "canDecide": true,
+    "decideBlock": null,
+    "canHandOff": false,
+    "handOffBlock": "D15-PLAN-NOT-ACCEPTED",
+    "rejectReasonMaxBytes": 2048
+  }
+}

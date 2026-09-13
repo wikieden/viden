@@ -88,6 +88,10 @@ describe("the activity rail is one ordered router table", () => {
   test("lists the design's destinations top to bottom, settings last", () => {
     expect(D1_RAIL_ROUTES.map((slot) => slot.id)).toEqual([
       "conversation",
+      // `D-PLANBOARD` registers the plan slot between the conversation and the
+      // Lanes: the plan is what the conversation produces and what the Lanes
+      // then carry out.
+      "d15",
       "lanes",
       "review",
       "evidence",
@@ -102,6 +106,7 @@ describe("the activity rail is one ordered router table", () => {
     expect(new Set(icons).size).toBe(icons.length);
     expect(icons).toEqual([
       "chat",
+      "plan",
       "lanes",
       "review",
       "evidence",
@@ -126,6 +131,7 @@ describe("the activity rail is one ordered router table", () => {
       ),
     ).toEqual([
       "conversation",
+      "d15",
       "lanes",
       "review",
       "evidence",
@@ -707,6 +713,15 @@ describe("the rail destination type stays closed over the router table", () => {
     const destinations: D1RailDestination[] = D1_RAIL_ROUTES.flatMap((slot) =>
       slot.kind === "destination" && slot.destination ? [slot.destination] : [],
     );
-    expect(destinations).toEqual(["review", "evidence", "d2", "d10", "d12", "d13", "d14"]);
+    expect(destinations).toEqual([
+      "d15",
+      "review",
+      "evidence",
+      "d2",
+      "d10",
+      "d12",
+      "d13",
+      "d14",
+    ]);
   });
 });

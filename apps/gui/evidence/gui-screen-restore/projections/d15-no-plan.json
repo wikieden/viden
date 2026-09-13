@@ -1,0 +1,16 @@
+{
+  "capabilityAvailable": true,
+  "workMode": "build",
+  "permissionMode": "default",
+  "planModeActive": false,
+  "ownerLaneId": null,
+  "plan": null,
+  "ambiguousPlanIds": [],
+  "decision": {
+    "canDecide": false,
+    "decideBlock": "D15-NO-PLAN",
+    "canHandOff": false,
+    "handOffBlock": "D15-NO-PLAN",
+    "rejectReasonMaxBytes": 2048
+  }
+}

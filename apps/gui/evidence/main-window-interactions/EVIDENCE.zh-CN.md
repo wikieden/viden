@@ -175,6 +175,12 @@ URL 与尺寸，不在该运行时之外调用浏览器自动化。
 | `consumer-evidence-patch` | `…/qa.html?state=consumer-evidence-patch` | `C7`：原生工具编辑现在被运行时归档为一条 `patch` 行，按其内容取景——`verification: verified`、`canonical quality: pass`、Core 解析出的 hunk diff 行、字节被校验所针对的哈希，以及 `LINKED` 里的 canonical 条目。kind 芯片刻意不动：Core 在裁页之前先应用 `kinds`，因此在 harness 只回答固定一页时点它，会显示一个与行并不匹配的筛选（G7） |
 | `consumer-transcript-rows` | `…/qa.html?state=consumer-transcript-rows` | `C8`：Core 的有序行进入 D1 转录，并滚动到该区域顶部，使一帧里同时带上 Core 的游标所换来的「加载更早」控件、用户行、带 `Over Core's 8 KiB row bound: this body is cut, not short.` 与「打开证据」入口的助手行、`edit_file` 工具调用、带同样入口的工具结果，以及检查运行——权限行及其「打开审计轨迹」在折线以下。`transcript_user` / `transcript_assistant` 两条不可用行已消失（`GUI-CORE-009`）（G7） |
 | `consumer-file-read` | `…/qa.html?state=consumer-file-read` | `C9`：坞检视器的「打开」（在 `dock-files` 中禁用）发出一条 `ReadWorkspaceFile`——树中选中 `AGENTS.md`、`lane-core worktree · 12288 bytes on disk · sha256 6d5e36fb44a9…`（**整个**文件的长度与哈希）、说明 Core 的上限裁断了正文的句子、等宽正文本身，以及标签条里不再带删除线的 `源码` 标签（G7） |
+| `plan-proposed` | `…/qa.html?state=plan-proposed` | `C13` / G8：规划视图作为中央面，驾驶舱 chrome 全部保留 —— rail 的 `plan` 槽位标记为当前并带计数气泡 `1`，Core 提议的第 2 版计划连同章节、两个步骤与 Core 声明的 `after step_1` 依赖边、记录栏各字段，以及「接受」可用、「移交」禁用并标注 `D15-PLAN-NOT-ACCEPTED` 的决策行。`MODE plan` / `PERM read-only` 与视图自己的 `PLAN · 只读` 徽标一致 |
+| `plan-accepted-plan-mode` | `…/qa.html?state=plan-accepted-plan-mode` | `plan_mode` 诚实态：决策已记录（`decided … audit_plan_accepted`），而 Plan 模式下 Core 唯一会拒绝的那条 mutation 被禁用、标注「Plan 模式下被拒绝」，并在有人按下**之前**就写在决策行上方的金色拒绝带里。无计数气泡：已接受的计划不是等谁决策的事项 |
+| `plan-handed-off` | `…/qa.html?state=plan-handed-off` | `SetWorkMode build` 与移交之后：`MODE build`、记录点名 `dag_plan_contract_v1 · audit_plan_handed_off`、带 `在 Fleet 编排里打开 ↗` 的移交行，以及三个决策控件全部禁用并标注「已经移交过」/「决策已记录」 |
+| `plan-stale-revision` | `…/qa.html?state=plan-stale-revision` | 真实派发一次「接受」之后 Core 的 `plan_revision_stale` 拒绝：`role=alert` 里 Core 自己的句子旁边是原始 code chip，外加**重新载入计划** —— 拒绝本身开出的唯一补救。记录栏仍读作第 2 版，因为视图重新读取 Core 持有的记录，而不是拿手里那份再决策一次 |
+| `plan-no-plan` | `…/qa.html?state=plan-no-plan` | 缺席，而不是空计划：Core 发布了能力、名下却没有该归属的计划，于是面板如实说明、写出 Plan 模式阻断了什么，每个决策控件都禁用并标注「无计划」。记录栏各字段一律 `—`，rail 槽位不带计数气泡 |
+| `plan-capability-absent` | `…/qa.html?state=plan-capability-absent` | 未发布 `runtime.plan_documents` 的 Core。rail 槽位禁用且可访问名称里写出该能力；面板点名该能力，并且**既不画计划也不画记录栏** —— 哪怕这份 fixture 的 view state 确实携带了一条计划记录：能力正是「这些记录就是本屏会说的那个意思」的承诺 |
 | `palette` | `…/qa.html?state=palette` | 从标题栏按钮打开、覆盖在驾驶舱之上的 ⌘K 命令面板，四个分区全部可见——动作、跳转到（跨 Lane 的闸与询问，加上本 Lane）、设置，以及列出 Core 已发布工作区清单的「文件」分区 |
 | `palette-files` | `…/qa.html?state=palette-files` | 同一个面板但预先限定到 `~`，单独框出 Core 发布的清单：六条路径按 Core 的字典序排列，每条带 Core 报告的条目类型，没有任何一条是客户端自行发现的（`GUI-CORE-022`） |
 | `d10-ticker` | `…/qa.html?state=d10-ticker` | Lane 卡片下方的 D10 事件走马灯：Core 审计时间线的一页有界 newest-first 记录，两个项目交错出现，因此该条展示的是跨项目的同一个顺序而不是按项目分组的列表；每行携带 Core 的稳定 id、原样的点分 action key、owner 与时间戳（`GUI-CORE-014`） |
@@ -1180,6 +1186,39 @@ G5 与 G6 的构建方式：坞标签（G5）与 D 视图状态加决策气泡�
 | [settings-unavailable-1440x900-dark-en.png](settings-unavailable-1440x900-dark-en.png) | settings-unavailable | 1440x900 | 深色 | en |
 | [welcome-fill-1440x640-dark-en.png](welcome-fill-1440x640-dark-en.png) | welcome-fill | 1440x640 | 深色 | en |
 | [welcome-fill-1440x900-dark-en.png](welcome-fill-1440x900-dark-en.png) | welcome-fill | 1440x900 | 深色 | en |
+| [plan-proposed-1440x1180-dark-en.png](plan-proposed-1440x1180-dark-en.png) | plan-proposed | 1440x1180 | 深色 | en |
+| [plan-accepted-plan-mode-1440x1180-dark-en.png](plan-accepted-plan-mode-1440x1180-dark-en.png) | plan-accepted-plan-mode | 1440x1180 | 深色 | en |
+| [plan-handed-off-1440x1180-dark-en.png](plan-handed-off-1440x1180-dark-en.png) | plan-handed-off | 1440x1180 | 深色 | en |
+| [plan-stale-revision-1440x1180-dark-en.png](plan-stale-revision-1440x1180-dark-en.png) | plan-stale-revision | 1440x1180 | 深色 | en |
+| [plan-no-plan-1440x1180-dark-en.png](plan-no-plan-1440x1180-dark-en.png) | plan-no-plan | 1440x1180 | 深色 | en |
+| [plan-capability-absent-1440x1180-dark-en.png](plan-capability-absent-1440x1180-dark-en.png) | plan-capability-absent | 1440x1180 | 深色 | en |
+| [plan-proposed-1440x1180-light-zh-CN.png](plan-proposed-1440x1180-light-zh-CN.png) | plan-proposed | 1440x1180 | 浅色 | zh-CN |
 
 上表每一行都在本次运行里拍摄并逐张看过。本文档中较早的截图表记录的是每个状态*首次*
 取景的时间与目的；对带驾驶舱的状态而言，它们链接的图像就是本表中的这一张。
+
+## 规划工作台截图（G8）
+
+2026-09-13 用无头 Chrome 捕获（`--headless --disable-gpu --hide-scrollbars
+--window-size=1440,1180 --virtual-time-budget=6000`，对着 4181 端口的 vite dev
+server），随后由作者逐张查看 —— 全部七张。
+
+视口是 **1440x1180** 而非前几张表用的 1440x900：规划视图是驾驶舱内部的双列面板，
+900px 下记录栏的 `修订` 节与决策行会一起掉到折线以下，同时裁掉两者的截图对哪一个都不
+构成证据。
+
+所有 projection 都由 `tests/capture_projections.rs` 从 `plan-documents.json`
+这条规范事件流的前缀生成 —— `d15-proposed` 在第二次 `update_plan` 之后、
+`d15-accepted-plan-mode` 在接受之后、`d15-handed-off` 在整条流之后 —— 无计划的归属取自
+`multi-lane.json`，能力缺席态取自同一次握手减去该能力。两处手写增量，都写在 `qa.ts` 里：
+
+1. **耦合的 permission mode。** `set_work_mode` 会把 `PermissionMode::Plan` 与
+   `WorkMode::Plan` 一起置上，手写的契约 fixture 没有这么做；已接受态的截图用耦合后的
+   状态，因为那才是运行时会产出的状态。
+2. **画面自身的 work mode。** D1 fixture 是 `build` 模式的驾驶舱，而
+   `plan-documents.json` 是 plan 模式的，于是 `d1PlanBase()` 从 Core 应答的 plan
+   projection 取模式。一张 `MODE build` 与 `PLAN · 只读` 并排的截图，会同时陈述关于同一个
+   Core 的两件不可能都成立的事。
+
+`plan-stale-revision` 的拒绝文本就是 fixture 自己的第 9 条事件负载，经生产发送路径派发，
+因此告警、code chip 与重新载入控件全都是出厂渲染，而不是 harness 的临摹。

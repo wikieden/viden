@@ -1024,6 +1024,25 @@ Core 侧可被查阅，而不是为它排期。
 `docs/release-0.3.5-plan.md` 的「Scope Decisions」，2026-09-13。该条目仍为开放，
 上文的关闭条件不变；改期不等于关闭。
 
+## GUI-CORE-034：`viden-core` 未重导出 `MAX_PLAN_REJECT_REASON_BYTES`
+
+2026-09-13 由批次 G8 在实现规划工作台决策行时提出。未排期；这是一次重导出，不是新事实。
+
+`RejectPlanDocument.reason` 的 2 KiB 上界由
+`viden_types::MAX_PLAN_REJECT_REASON_BYTES` 定义，运行时也确实在执行它
+（`crates/runtime/src/plan_documents.rs` 的 `bounded_plan_reason`）。`viden-core`
+重导出了 `MAX_PLAN_STEPS`、`MAX_PLAN_TITLE_BYTES`、`MAX_PLAN_GOAL_BYTES` 与
+`MAX_PLAN_SECTION_BODY_BYTES`，唯独没有这一个 —— 而 GUI 只允许 import
+`viden-core`。于是规划视图无法命名它正在执行的上界，
+`apps/gui/src-tauri/src/plan.rs` 只好镜像字面量 `2 * 1024`；这正是「常量单一真源」
+规则要防止的漂移：Core 一旦调高上界，本客户端就会继续拒绝 Core 本会接受的理由。
+
+客户端**不做**截断：超出上界时 Reject 控件禁用并写明上界，其它原因被 Core 拒绝时
+原样渲染 Core 自己的措辞。这让失败可见而非静默，但并不能让这个数字变正确。
+
+客户端需要的：在 `crates/core/src/lib.rs` 里，紧挨着已有的四个 plan 上界，加一行
+`pub use viden_types::MAX_PLAN_REJECT_REASON_BYTES`。一行；GUI 随即删掉自己的字面量。
+
 ## 已退役的前登记编码
 
 `GUI-CORE-001` 到 `GUI-CORE-007` 早于本登记册，本册从 008 开始。它们从来不是这里
