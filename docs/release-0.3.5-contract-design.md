@@ -577,6 +577,14 @@ shipped for section 2, `runtime.agent_session_control`.
   constant that named a capability the build does not advertise would be
   false. The comments at all three count sites name the remaining 0.3.5
   capabilities and the count each takes it to.
+- **A Lane's `active_session_ids` is not touched at all.** The body says the
+  list "keeps a paused session" and that "a killed one leaves it as a cancelled
+  one does". Core does not prune that list when a session settles — not for a
+  cancel either; it is Lane-lifecycle state appended at session start and
+  cleared at Lane review. Making kill the first status to prune it would be a
+  Lane-lifecycle change this batch does not own, and describing the existing
+  behavior as pruning would have been false. The contract now says a client
+  reads liveness from the session's own `status`.
 - **Two mechanical `apps/**` edits were unavoidable.** `control` is a new
   field on `AgentSessionView`, so every existing literal needs `control: None`
   to compile, and the GUI's `agent_session_status` projection is an exhaustive

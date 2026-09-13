@@ -1286,8 +1286,10 @@ state over the session's input path rather than a frozen adapter:
   with reason `session_status_<current>`. A client that retried blindly could
   not otherwise tell "already paused" from "already finished".
 
-A Lane's `active_session_ids` keeps a paused session and drops a killed one, as
-it drops a cancelled one.
+Pause, resume, and kill leave a Lane's `active_session_ids` unchanged. That
+list is Lane-lifecycle state Core does not prune when a session settles — it
+does not prune it for a cancel either — so a client reads liveness from the
+session's own `status`, never from membership in it.
 
 Switching model is a client composition of Kill (or Cancel) followed by
 `StartAgentSession` carrying the new `model` and the previous

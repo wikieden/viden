@@ -489,6 +489,12 @@ Agent Board（覆盖 Lane/会话层级的中央面板视图）：
 - **能力计数到达 30，而不是 31。** 写 C14 时 C13 的 `runtime.plan_documents` 尚未
   落地，而一个指名本构建并未公布的能力的计数常量是假的。三个计数位置的注释都指明了
   0.3.5 剩余的能力以及每一个会把计数带到多少。
+- **完全没有触碰 Lane 的 `active_session_ids`。** 正文说该列表“保留被暂停的
+  session”，并说“被终止的像被取消的那样离开它”。Core 在 session 了结时并不修剪该
+  列表 —— 对取消同样不修剪；它是在 session 启动时追加、在 Lane 评审时清空的 Lane
+  生命周期状态。让终止成为第一个修剪它的状态是本批次并不拥有的 Lane 生命周期改动，
+  而把现有行为描述成会修剪则是假的。契约现在改为：客户端从 session 自身的 `status`
+  读取存活性。
 - **两处机械性的 `apps/**` 改动无法避免。** `control` 是 `AgentSessionView` 上的新
   字段，因此每一个既有字面量都需要 `control: None` 才能编译；而 GUI 的
   `agent_session_status` 投影是一个穷尽匹配，必须指名 `paused` 与 `killed`，而不是

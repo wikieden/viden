@@ -1048,8 +1048,9 @@ ACP 与 Codex app-server 都没有暂停动词，因此暂停是 Core 侧对该 
 - **对不允许该命令的状态发出的命令**以 `session_status_<current>` 作为原因被
   `CommandRejected`。盲目重试的客户端否则无从分辨“已经暂停”与“已经结束”。
 
-Lane 的 `active_session_ids` 保留被暂停的 session，并像丢弃被取消的那样丢弃被终止
-的。
+暂停、恢复与终止都不会改动 Lane 的 `active_session_ids`。该列表是 Lane 生命周期
+状态，Core 在 session 了结时并不修剪它 —— 对取消同样不修剪 —— 因此客户端应当从
+session 自身的 `status` 读取存活性，而绝不从它在该列表中的成员资格读取。
 
 切换模型是客户端对 Kill（或 Cancel）加上携带新 `model` 与原 `load_session_id` 的
 `StartAgentSession` 的组合。没有切换模型命令，客户端必须把它渲染成它本来的两步流程。
