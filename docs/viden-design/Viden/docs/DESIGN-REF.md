@@ -97,7 +97,7 @@
 ### 强调 & 语义
 | token | 语义 |
 |---|---|
-| `--accent` / `--accent-bright` / `--accent-dim` | 品牌青 = 唯一交互焦点:边框激活 / 标题 / 选中 / focus |
+| `--accent` / `--accent-bright` / `--accent-dim` | 品牌青 = 唯一交互焦点:边框激活 / 标题 / 选中 / focus。`--accent-bright` 在 kit 里是 **`.on` 态的墨**(`.tbtbtn`/`.actbtn`/`.lseg .sg`/`.wslane .nm`/`.gperm-opt`/`.fchip`)· **正文级,≥4.5:1 vs 自家 bg-base/panel/sel/elev**;dark 下「比 accent 更亮」即达标,**light 下必须比 `--accent` 更深**(同相更暗,不是更亮) |
 | `--on-accent` | **反相墨色** = 填充强调/语义芯片上的文字/图标(accent/gold/语义四色/builtin 填充面通用)·随 mode 翻黑/白·**填充芯片的文字一律用它,勿再借 `--bg-void`** |
 | `--gold` / `--gold-bright` | 次强调金 = viden 字标 / 工作模式 / **「需要人」**(门控·待审批) |
 | `--success` / `--warning` / `--error` / `--progress` | 成功绿 / 警告金 / 失败红 / 进行中蓝(刻意与品牌青拉开) |

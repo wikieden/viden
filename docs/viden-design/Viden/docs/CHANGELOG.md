@@ -26,6 +26,11 @@
   - **零新增可复用组件**:chrome 走 `.frame`/`GuiTitleBar`/`.act`/`GuiStatusBar`/`.composer`,D16 右栏详情壳复用已登记的 EvidenceView 家族(`.evdethead`/`.evsec`/`.evkv`/`.evchip`/`.evfoot`);页面专属类前缀 `.ps*`/`.ab*`,不占裸登记族名(PROTO-STANDARD §5)。**新增 1 个图标 key `plan`**(步骤清单),D16 复用已登记的 `robot`。
   - 同步:`screens-status.js` 新增 D15(新组「规划 / Plan」)与 D16(归「监视与编排 / Monitor」)并把 GUI 索引卡的「D1–D13」更正为「D1–D16」;DESIGN-REF 补图标 key + 两屏进 kit/GuiTitleBar/GuiStatusBar 已接清单 + EvidenceView 记第二消费者。五条 guard 全 PASS、零 baseline 新增。
 
+- [设计规范][文档] **三套 light 皮肤的 `--accent-bright` 改深,让 kit 的 `.on` 态墨色过 4.5:1**(DS2 · 收口 0.3.5 GUI 保真闸 F2):
+  - 根因:`gui-kit.css` 用 `--accent-bright` 当**墨**(`.tbtbtn`/`.actbtn`/`.lseg .sg`/`.wslane .nm`/`.gperm-opt`/`.fchip` 的 `.on`),但三套 light 皮肤把它定义成**比 `--accent` 更亮**——在浅底上越亮越糊,实测仅 2.26–3.48:1。
+  - 定档:light 下 bright = **同相更深**(脚本取「满足 bg-base/panel/sel/elev 四面全 ≥4.5:1 的最亮值」,`--on-accent` 压它也 ≥4.5):aurora `#0aa6c6→#076f85` · ice `#5a8af0→#1558e7` · mono `#0a96b4→#076d82`,新值 4.50–5.97:1。dark 六套与 `--accent` 一律未动。
+  - 同步:`tokens.css` 护栏注释 + `SPEC.md` D-A11Y + `DESIGN-REF.md` token 表都点名 accent-bright 是墨;五条 guard 全 PASS,零 baseline 新增。副作用:light 下 bright 与 accent 明度差收窄(护栏使然),`Core/Viden - Aurora 主题 (Core).html` 的 light 列早已多处陈旧(非本次引入),另记。
+
 ## 2026-09-09
 - [GUI][文档] **DiffReview / EvidenceView 升进 gui-kit 的尝试受阻,先记录实测再裁决**（D-SOT · D-RAILNAV ①②;本次**未动任何 CSS**,纯文档）：
   - **D1 不能反向 link `gui-kit.css`**：两边同名规则已有意分叉,D1 只声明部分属性、kit 多出的属性会泄漏（`.envrow .cv` 多 font-family/font-size）→ 实测 chat 视图 **2584 px** 变化;结论写进 PROTO-STANDARD §5,升进只能做成逐字镜像。

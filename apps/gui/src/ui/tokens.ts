@@ -1,6 +1,6 @@
 // Generated source metadata. Run apps/gui/tools/check-generated-tokens.sh after token changes.
 export const TOKEN_SOURCE_PATH = "docs/viden-design/Viden/tokens.css";
-export const TOKEN_SOURCE_SHA256 = "826826ee6ddab845897472701add67ee9f55aff25af539651e6089553b7e6398";
+export const TOKEN_SOURCE_SHA256 = "2d80baa92bc7b83a188257a08dec27cb1fc143fc27237a02dfdbb61eee8b941a";
 export const SEMANTIC_TOKEN_ROLES = [
   "accent",
   "bg-base",
