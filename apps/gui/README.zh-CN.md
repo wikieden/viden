@@ -1498,3 +1498,24 @@ Core 对自己不认识的 `agent_id` 是回显而不是丢弃，预览仍然可
 去驾驶舱：操作者没看见的拒绝，会变成一条他以为里面有 Agent 的 Lane；「继续」把队列
 交接下去。不带绑定的创建仍与从前一样直接跳转。已评审预览槽被清空之后，门禁各行从
 回执读出，因为 Core 对同一份请求的解析两边一致。
+
+## 设计保真闸（G10）
+
+`0.3.5` 的 GUI-4 闸在两对出货皮肤/明暗下，把每个驾驶舱界面与其设计真源逐一比对，
+结果记在
+[docs/release-0.3.5-fidelity-gate.zh-CN.md](../../docs/release-0.3.5-fidelity-gate.zh-CN.md)。
+帧在 [evidence/fidelity-gate](evidence/fidelity-gate/) 下，机器可读的
+`accessibility.json` 与 `performance.json` 与之并列。
+
+本闸的首要发现是：GUI-4 里「token 映射可校验」这一条从未被校验过，而客户端已经漂移
+——样式表传给 `var()` 的十三个自定义属性名无处登记，因此在基线提交上，D2、D10、D12、
+D13、D14 的头栏完全没有面板底，它们的标题以及 D2 的 `cargo test` 工具入参预览都以浏览器
+默认的 16px 衬线渲染。`tests/visual/token_registration.spec.ts` 现在断言每个 `var()`
+引用都能解析、且没有样式表写裸色；前后对比帧在
+`evidence/fidelity-gate/drift-before/`。
+
+五项漂移修复落在 `claude/gui-fidelity-g10` 上。另有六条发现立案交由设计包处置而非在此
+修复，其中最尖锐的是：`--accent` 在 `ice/light` 下作为小字只有 2.57:1，违背 `tokens.css`
+自己写下的「accent/gold≥4.5」。四条腿——CJK 输入法、原生纯键盘遍历、发布包性能，以及
+任何原生采集——未执行：宿主屏幕在整个批次内都报告 `CGSSessionScreenIsLocked=1`，
+报告记录了原文行，而不是宣称通过。

@@ -1949,3 +1949,28 @@ operator never saw is a Lane they believe has an Agent in it; Continue hands the
 queue on. An unbound creation navigates straight through as before. The resolved
 gate rows read the receipt once the reviewed preview slot is cleared, since Core
 resolves the same request either way.
+
+## Design-fidelity gate (G10)
+
+`0.3.5`'s GUI-4 gate measured every cockpit surface against its design source in
+both shipped skin/mode pairs and recorded the result in
+[docs/release-0.3.5-fidelity-gate.md](../../docs/release-0.3.5-fidelity-gate.md).
+Frames are under [evidence/fidelity-gate](evidence/fidelity-gate/), with the
+machine-readable `accessibility.json` and `performance.json` beside them.
+
+The gate's headline finding was that GUI-4's "token mapping is checkable" clause
+had never been checked, and the client had drifted: thirteen custom-property
+names the stylesheets passed to `var()` are registered nowhere, so on the base
+commit the D2, D10, D12, D13 and D14 header bars had no panel surface and their
+titles — and D2's `cargo test` tool-input preview — rendered in the browser's
+16px serif default. `tests/visual/token_registration.spec.ts` now asserts that
+every `var()` reference resolves and that no stylesheet writes a raw color; the
+before/after frames are in `evidence/fidelity-gate/drift-before/`.
+
+Five drift fixes landed on `claude/gui-fidelity-g10`. Six findings are filed for
+the design package rather than fixed here, the sharpest being that `--accent`
+reads 2.57:1 as small text in `ice/light` against `tokens.css`'s own
+"accent/gold≥4.5" contract. Four legs — CJK IME, native keyboard-only traversal,
+release-bundle performance, and any native capture — did not run: the host
+screen reported `CGSSessionScreenIsLocked=1` for the whole batch, and the report
+records the exact lines rather than claiming a pass.
