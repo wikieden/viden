@@ -364,6 +364,7 @@
   "git.recovery.other": "请阅读下方详情",
   "git.action.dismiss": "停止跟踪执行中的动作（{command_id}）",
   "git.dismiss.hint": "已停止跟踪该源代码管理动作。Core 仍然拥有它，它仍可能生效。",
+  "git.action.push_set_upstream": "推送并设置上游",
   "git.action.commit_prompt": "提交…",
   "git.owner.workspace_unpublished": "未发送任何内容。Core 未发布工作区所有者，而受审计的源代码管理变更必须写明其归属的执行者。",
   "git.owner.workspace_unpublished.short": "Core 未发布工作区所有者",

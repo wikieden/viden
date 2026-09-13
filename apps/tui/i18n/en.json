@@ -364,6 +364,7 @@
   "git.recovery.other": "read the detail below",
   "git.action.dismiss": "Stop watching the pending action ({command_id})",
   "git.dismiss.hint": "Stopped watching the source-control action. Core still owns it and it may still land.",
+  "git.action.push_set_upstream": "Push and set upstream",
   "git.action.commit_prompt": "Commit…",
   "git.owner.workspace_unpublished": "Nothing was sent. Core published no workspace owner, and an audited source-control change must name the actor it belongs to.",
   "git.owner.workspace_unpublished.short": "Core published no workspace owner",
