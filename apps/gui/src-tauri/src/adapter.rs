@@ -6672,7 +6672,10 @@ mod tests {
 
     use viden_core::{AgentSessionStatus, AgentSessionView, LocalCoreHost, RuntimeOwner};
 
-    use crate::{D6ConnectionState, D11Intent, PermissionChoice, PermissionIntent};
+    use crate::{
+        D6ConnectionState, D11Intent, GuiCoreAdapter, OperatorGitIntent, PermissionChoice,
+        PermissionIntent,
+    };
 
     use super::{PendingD1, PendingD1Kind, open_workspace_with_host};
 
@@ -7102,6 +7105,155 @@ mod tests {
         drop(host);
         std::fs::remove_dir_all(session_home).expect("remove temporary session home");
         std::fs::remove_dir_all(project).expect("remove temporary project");
+    }
+
+    /// E3b defect 25, against live Core: after the `git_commit` half of
+    /// `Commit & Push` is decided, does the `git_push` half reach a decidable
+    /// surface at all? This drives the exact pair the native run drove, with
+    /// the desktop pump interposed the way the shell runs it, and reports what
+    /// Core and the host actually publish for the second approval.
+    #[test]
+    fn the_push_half_of_commit_and_push_reaches_a_decidable_surface() {
+        let session_home = temp_dir("pair-session-home");
+        let project = temp_dir("pair-project");
+        initialize_git_repository(&project);
+        let host = LocalCoreHost::with_session_home(&session_home);
+        let mut adapter = open_workspace_with_host(&host, &project).expect("open local workspace");
+
+        std::fs::write(project.join("README.md"), "# Edited for the pair\n")
+            .expect("dirty the fixture tree");
+
+        // Stage, under its own approval.
+        adapter
+            .run_operator_git_action_and_wait(
+                "gui-git-stage",
+                None,
+                OperatorGitIntent::Stage { paths: Vec::new() },
+                Duration::from_millis(250),
+            )
+            .expect("stage is sent");
+        decide_operator_git_approval(&mut adapter, "gui-git-stage-allow");
+
+        // Commit, under its own approval: the first half of the pair.
+        adapter
+            .run_operator_git_action_and_wait(
+                "gui-git-commit",
+                None,
+                OperatorGitIntent::Commit {
+                    message: "Edit the fixture README".to_string(),
+                },
+                Duration::from_millis(250),
+            )
+            .expect("commit is sent");
+        decide_operator_git_approval(&mut adapter, "gui-git-commit-allow");
+        let committed = adapter.operator_git(None);
+        assert_eq!(
+            committed.outcome.state, "confirmed",
+            "the commit half settles before the push is sent"
+        );
+
+        // The second half, exactly as `advanceCommitPair` sends it.
+        adapter
+            .run_operator_git_action_and_wait(
+                "gui-git-push",
+                None,
+                OperatorGitIntent::Push {
+                    remote: None,
+                    set_upstream: false,
+                },
+                Duration::from_millis(250),
+            )
+            .expect("push is sent");
+        // The shell's background pump is what drains next.
+        for _ in 0..8 {
+            if !adapter.pump_events(Duration::from_millis(250)) {
+                break;
+            }
+        }
+        let pushing = adapter.operator_git(None);
+        let dock = adapter.permission_dock();
+        let queue = adapter.d2_decisions();
+
+        let decidable = pushing.awaiting_approval
+            || dock.as_ref().is_some_and(|dock| dock.request.is_some())
+            || queue.as_ref().is_some_and(|queue| queue.pending_total > 0);
+        assert!(
+            decidable || pushing.outcome.state != "pending",
+            "the push half must reach a decidable surface or settle: outcome={:?} awaiting={} dock={:?} queue={:?}",
+            pushing.outcome,
+            pushing.awaiting_approval,
+            dock.as_ref().map(|dock| dock.request.is_some()),
+            queue.as_ref().map(|queue| queue.pending_total),
+        );
+        assert!(
+            pushing.awaiting_approval,
+            "the second approval of the pair is pending on Core, not missing"
+        );
+        assert!(
+            dock.as_ref().is_some_and(|dock| dock
+                .request
+                .as_ref()
+                .is_some_and(|request| request.tool_name == "git_push")),
+            "the permission dock renders the `git_push` request itself"
+        );
+        assert_eq!(
+            queue.as_ref().map(|queue| queue.pending_total),
+            Some(1),
+            "the Decision Center counts the second approval too"
+        );
+
+        // The exact shape H5 observed, recorded rather than merely tolerated:
+        // Core raises the `git_push` approval on this path, the dock renders
+        // it, and answering it settles the action with Core's own typed
+        // outcome. Defect 25 therefore does not reproduce in-process and is
+        // not the held D1 command slot of defect 22; it stays open for E3c.
+        decide_operator_git_approval(&mut adapter, "gui-git-push-allow");
+        let settled = adapter.operator_git(None);
+        assert_eq!(
+            settled.outcome.state, "confirmed",
+            "the push settles once its approval is answered"
+        );
+        let result = settled.result.as_ref().expect("Core answered the push");
+        assert_eq!(result.action, "push");
+        assert_eq!(
+            result.failure_class.as_deref(),
+            Some("no_upstream"),
+            "the fixture has no remote, so Core's typed refusal is NoUpstream"
+        );
+
+        drop(adapter);
+        drop(host);
+        std::fs::remove_dir_all(session_home).expect("remove temporary session home");
+        std::fs::remove_dir_all(project).expect("remove temporary project");
+    }
+
+    /// Answers whatever approval the last operator-git action raised, the way
+    /// the permission dock does.
+    fn decide_operator_git_approval(adapter: &mut GuiCoreAdapter, command_id: &str) {
+        for _ in 0..40 {
+            if let Some(request) = adapter.permission_dock().and_then(|dock| dock.request) {
+                adapter
+                    .send_permission_intent_and_wait(
+                        command_id,
+                        PermissionIntent::Respond {
+                            request_id: request.id,
+                            choice: PermissionChoice::Once,
+                            feedback: None,
+                            revised_input: None,
+                        },
+                        Duration::from_millis(250),
+                    )
+                    .expect("decide the operator git approval");
+                break;
+            }
+            let _ = adapter.poll_operator_git(None, Duration::from_millis(100));
+        }
+        for _ in 0..8 {
+            let _ = adapter.poll_operator_git(None, Duration::from_millis(100));
+            if adapter.operator_git(None).outcome.state != "pending" {
+                break;
+            }
+        }
     }
 
     #[test]
