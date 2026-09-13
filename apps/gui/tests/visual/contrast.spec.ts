@@ -86,6 +86,25 @@ describe("D1 accessibility and contrast semantics", () => {
 
     expect(themeCss).toContain(":where(#app) :where(button");
     expect(themeCss).toContain("background-color: transparent");
+    // The fill was only half of it. A `<button>` with no `color` rule of its
+    // own takes the UA's `buttontext`, which follows the host's colour scheme
+    // rather than the skin: in `ice/light` the Settings Cancel drew white on
+    // the white `--bg-elev` panel, a 1:1 control.
+    expect(themeCss).toContain("color: inherit");
+  });
+
+  test("declares a colour scheme so the user agent follows the skin, not the host", () => {
+    // Root cause of both halves above: the document never said which scheme it
+    // paints, so `getComputedStyle(:root).colorScheme` read `dark` while the
+    // client rendered `ice/light`. Every UA-drawn surface — system colours,
+    // scrollbars, native form controls, the caret — was resolving against the
+    // wrong one. `data-mode` is what `applyResolvedTheme` already writes.
+    const themeCss = readFileSync(join(process.cwd(), "src/ui/theme.css"), "utf8");
+
+    expect(themeCss).toContain('[data-mode="dark"]');
+    expect(themeCss).toContain('[data-mode="light"]');
+    expect(themeCss).toContain("color-scheme: dark");
+    expect(themeCss).toContain("color-scheme: light");
   });
 
   test("records the deterministic rc.3 accessibility evidence artifact", () => {
