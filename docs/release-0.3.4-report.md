@@ -158,3 +158,40 @@ and there are two:
 `0.3.5` owns the production release gate — packaging, notarization, Homebrew,
 live-provider certification — plus Plan Studio, Agent Board, the D5 gallery
 review, and the follow-ups listed above.
+
+## Addendum 2026-09-13 — the native GUI run exists
+
+The run this report called "the only remaining piece of goal 6" was taken on
+2026-09-13 by batch E3a, on branch `claude/evidence-e3a` from `main` at
+`75e2a84ade9f2363732aa10332cc666ff366d029` — code-identical to the `0.3.4`
+release commit `edcc7b3d`, so it is evidence about what this report describes.
+The host screen was unlocked and checked before every keystroke batch, the
+`0.1.0-rc.5` `.app` was rebuilt from that SHA, and the cockpit was driven over
+a scratch fixture with `VIDEN_HOME` outside this repository. Twenty-six frames
+are recorded in
+[checkpoints.md](release-evidence/gui-trusted-delivery/checkpoints.md), section
+"Native GUI Run — 2026-09-13", with the PNGs under
+`docs/release-evidence/gui-trusted-delivery/native-0.3.4/`.
+
+It is a partial proof, and the partition is the finding. The source-control
+half of the real task ran end to end through the cockpit for the first time: a
+stage, a **commit** and an accepted **push**, each under its own Core approval
+with no Lane selected, under the Core-published workspace owner, with
+`OperatorGitOutcome::Completed` on screen for all three, Core's typed
+`DiffDocument` on the commit approval, the `approval.allow_once` rows in D14
+and a verified workspace file read in the dock. The Lane half did not run at
+all: **no Lane can be created in this build**, because the New Lane popover
+gates creation on ACP adapter discovery that never completes on a host with no
+ACP agent installed, and the D4 wizard's preview is held behind the same
+unresolved command (E3a defects 14 and 15). The agent turn, the tool approval,
+the inline tool diff, the archived patch and the queued follow-up are all
+behind that gate. Five further defects are recorded there, numbered 16 to 21,
+including an application that terminates itself mid-session five times.
+
+Exit criterion 7 has been re-stated in
+[release-0.3.4-plan.md](release-0.3.4-plan.md) as **partly met** with this
+date and evidence. The aggregate paragraph under that table is left as
+written on 2026-09-12, because it records what was true when the candidate was
+assessed; this addendum, not that paragraph, is the current statement. Nothing
+else about `0.3.4` changes: no code was touched, and the branch's push and
+merge still await explicit user authorization.
