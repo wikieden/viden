@@ -552,6 +552,16 @@ impl ApprovalAuditLog {
             "scope".to_string(),
             approval_scope_key(decision).to_string(),
         );
+        // An `approval.edit` row that named only the tool would not say what
+        // the operator changed it to, which is the whole content of the
+        // decision (`runtime.approval_scopes`, GUI-CORE-019). The preview is
+        // bounded for the same reason every other audit arg is.
+        if let ApprovalDecision::Edit { revised_input } = decision {
+            args.insert(
+                "revised_input".to_string(),
+                bounded_audit_preview(&viden_types::encode_tool_input(revised_input)),
+            );
+        }
         let record = AuditRecord::sanitized(
             audit_id.to_string(),
             now_timestamp(),
@@ -599,6 +609,19 @@ impl ApprovalAuditLog {
         )?;
         self.workflows.append_audit_record(&record)
     }
+}
+
+/// Upper bound on an audit argument's rendered value.
+const MAX_AUDIT_ARG_CHARS: usize = 256;
+
+/// Bounds one audit argument. Truncation is marked so a reader can tell a
+/// short value from a shortened one.
+fn bounded_audit_preview(value: &str) -> String {
+    if value.chars().count() <= MAX_AUDIT_ARG_CHARS {
+        return value.to_string();
+    }
+    let kept: String = value.chars().take(MAX_AUDIT_ARG_CHARS).collect();
+    format!("{kept}...")
 }
 
 /// Stable action/scope key for one approval decision.
