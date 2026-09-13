@@ -1239,7 +1239,10 @@ runtime 测试证明。收据是在 Core 发布*之后*丢失的，丢在桌面�
     `QueryAudit` 以及四个 operator-git 命令在同一进程内照常工作，正因为它们的
     pending 全都*在*漏斗里。`observe_pending_d1` 现在在漏斗内部运行并把结果记在
     adapter 上，因此无论哪一次排空看到回执，下一次 `poll_d1` 都能读到已释放的槽
-    位与 confirmed 或 rejected 的结果。测试：`apps/gui/tests/h5_native_defects.rs`
+    位与 confirmed 或 rejected 的结果。规划工作台的 `pending_d15` 与 Agent 看板
+    的 `pending_d16` 是最后两个仍留在该漏斗之外的命令，且有着一模一样的洞，因此
+    在同一批次中以同样方式关闭，并把结果保存在 adapter 上供各自的下一次轮询读
+    回。测试：`apps/gui/tests/h5_native_defects.rs`
     `a_receipt_drained_by_the_desktop_pump_still_frees_the_d1_command_slot`，以及
     上面那个真实 Core 的 `desktop_event_pump_settles_the_lane_creation_it_drains`。
     **弹出框 TASK 字段在这条路径上做了什么**（那次运行无法看到）：随创建一同抵

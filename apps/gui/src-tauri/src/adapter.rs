@@ -126,6 +126,11 @@ pub struct GuiCoreAdapter {
     /// belongs to, so the slot refuses the second locally rather than letting
     /// Core order two racing terminations. See [`PendingD16`].
     pending_d16: Option<PendingD16>,
+    /// The last answer Core gave for a D16 control, held on the adapter for
+    /// the same reason `d1_outcome` is: the drain that settles a pending is
+    /// often not the screen's own poll, so the outcome has to outlive the
+    /// call that observed it.
+    d16_outcome: D1OutcomeProjection,
     /// One plan decision at a time (`runtime.plan_documents`, C13).
     ///
     /// A plan settles exactly once and a handoff spawns real work, so a second
@@ -133,6 +138,9 @@ pub struct GuiCoreAdapter {
     /// refusal — or, worse, hand the same plan off twice. The slot refuses it
     /// locally instead. See [`PendingD15`].
     pending_d15: Option<PendingD15>,
+    /// The last answer Core gave for a D15 command, held for the same reason
+    /// as `d16_outcome`.
+    d15_outcome: D1OutcomeProjection,
     /// One audit read at a time. Core now names the read each page answers
     /// (GUI-CORE-024), so two reads *could* be told apart, but a single slot
     /// keeps the receipt's replace/append decision unambiguous and keeps the
@@ -1931,7 +1939,9 @@ impl GuiCoreAdapter {
             d2_selected: None,
             pending_d2_review: None,
             pending_d15: None,
+            d15_outcome: D1OutcomeProjection::idle(),
             pending_d16: None,
+            d16_outcome: D1OutcomeProjection::idle(),
             pending_audit: None,
             turn_failure: None,
             pending_transcript_rows: None,
@@ -3800,6 +3810,7 @@ impl GuiCoreAdapter {
             expect,
             accepted: false,
         });
+        self.d16_outcome = D1OutcomeProjection::pending();
         self.client
             .send(RuntimeCommandEnvelope {
                 schema_version: FRONTEND_SCHEMA_V1,
@@ -3810,6 +3821,8 @@ impl GuiCoreAdapter {
             })
             .map_err(|error| {
                 self.pending_d16 = None;
+                // The command never left, so there is no Core answer to hold.
+                self.d16_outcome = D1OutcomeProjection::idle();
                 error.to_string()
             })?;
         let outcome = self.poll_d16_control(event_timeout)?;
@@ -3862,11 +3875,11 @@ impl GuiCoreAdapter {
     }
 
     fn poll_d16_control(&mut self, event_timeout: Duration) -> Result<D1OutcomeProjection, String> {
+        // Not an early "idle", for the same reason as `poll_d15_decision`.
         if self.pending_d16.is_none() {
-            return Ok(D1OutcomeProjection::idle());
+            return Ok(self.d16_outcome.clone());
         }
         let mut received = false;
-        let mut outcome = D1OutcomeProjection::pending();
         for _ in 0..8 {
             let event = match self
                 .receive_event_until(if received {
@@ -3880,37 +3893,19 @@ impl GuiCoreAdapter {
                 None => break,
             };
             received = true;
-            // The held view is what `NewSession` counts against, and it is the
-            // pre-event view on purpose: the confirming fact has not been
-            // reduced yet, so the count it is compared with is the one taken
-            // before the command went out.
-            let sessions = self
-                .projection
-                .view()
-                .map(|view| view.agent_sessions.clone())
-                .unwrap_or_default();
-            let Some(pending) = self.pending_d16.as_mut() else {
+            // Through the shared funnel, which holds the `NewSession` count
+            // rule: the session list it compares against is read before the
+            // event is offered and therefore before the fact is reduced.
+            let _ = self.reconcile_ambient_pendings(&event);
+            if self.pending_d16.is_none() {
                 break;
-            };
-            match pending.observe(&event, &sessions) {
-                D12Observation::Continue => {}
-                D12Observation::Confirmed => {
-                    self.pending_d16 = None;
-                    outcome = D1OutcomeProjection::confirmed();
-                    break;
-                }
-                D12Observation::Rejected(reason) => {
-                    self.pending_d16 = None;
-                    outcome = D1OutcomeProjection::rejected(reason);
-                    break;
-                }
             }
         }
         if received {
             self.refresh_projection()
                 .map_err(|error| error.to_string())?;
         }
-        Ok(outcome)
+        Ok(self.d16_outcome.clone())
     }
 
     /// Whether Core's handshake published `runtime.plan_documents`.
@@ -3963,6 +3958,7 @@ impl GuiCoreAdapter {
             handoff,
             accepted: false,
         });
+        self.d15_outcome = D1OutcomeProjection::pending();
         self.client
             .send(RuntimeCommandEnvelope {
                 schema_version: FRONTEND_SCHEMA_V1,
@@ -3973,6 +3969,8 @@ impl GuiCoreAdapter {
             })
             .map_err(|error| {
                 self.pending_d15 = None;
+                // The command never left, so there is no Core answer to hold.
+                self.d15_outcome = D1OutcomeProjection::idle();
                 error.to_string()
             })?;
         let outcome = self.poll_d15_decision(event_timeout)?;
@@ -4100,11 +4098,12 @@ impl GuiCoreAdapter {
         &mut self,
         event_timeout: Duration,
     ) -> Result<D1OutcomeProjection, String> {
+        // Not an early "idle": another drain may already have settled this
+        // command, and the recorded answer is what this poll owes the screen.
         if self.pending_d15.is_none() {
-            return Ok(D1OutcomeProjection::idle());
+            return Ok(self.d15_outcome.clone());
         }
         let mut received = false;
-        let mut outcome = D1OutcomeProjection::pending();
         for _ in 0..8 {
             let event = match self
                 .receive_event_until(if received {
@@ -4118,28 +4117,18 @@ impl GuiCoreAdapter {
                 None => break,
             };
             received = true;
-            let Some(pending) = self.pending_d15.as_mut() else {
+            // Through the shared funnel, so an event this poll happens to
+            // consume also reconciles every other correlated command.
+            let _ = self.reconcile_ambient_pendings(&event);
+            if self.pending_d15.is_none() {
                 break;
-            };
-            match pending.observe(&event) {
-                D12Observation::Continue => {}
-                D12Observation::Confirmed => {
-                    self.pending_d15 = None;
-                    outcome = D1OutcomeProjection::confirmed();
-                    break;
-                }
-                D12Observation::Rejected(reason) => {
-                    self.pending_d15 = None;
-                    outcome = D1OutcomeProjection::rejected(reason);
-                    break;
-                }
             }
         }
         if received {
             self.refresh_projection()
                 .map_err(|error| error.to_string())?;
         }
-        Ok(outcome)
+        Ok(self.d15_outcome.clone())
     }
 
     pub fn d2_send_intent(
@@ -6318,8 +6307,66 @@ impl GuiCoreAdapter {
         self.observe_pending_operator_git(event);
         self.observe_pending(event);
         self.observe_pending_d12(event);
+        self.observe_pending_d15(event);
+        self.observe_pending_d16(event);
         self.observe_d4(event);
         self.observe_pending_d1(event)
+    }
+
+    /// Settles the in-flight Plan Studio command against one ordered event.
+    ///
+    /// Same rule as `observe_pending_d1`, and it is here for the same reason:
+    /// a `PlanDocumentDecided` drained by the desktop pump would otherwise
+    /// leave D15's slot occupied for the life of the process. The outcome is
+    /// recorded on the adapter so the screen's next `poll_d15` can still read
+    /// it, because the drain that settled the command was not that poll.
+    fn observe_pending_d15(&mut self, event: &RuntimeEventEnvelope) {
+        let Some(pending) = self.pending_d15.as_mut() else {
+            return;
+        };
+        match pending.observe(event) {
+            D12Observation::Continue => {}
+            D12Observation::Confirmed => {
+                self.pending_d15 = None;
+                self.d15_outcome = D1OutcomeProjection::confirmed();
+            }
+            D12Observation::Rejected(reason) => {
+                self.pending_d15 = None;
+                self.d15_outcome = D1OutcomeProjection::rejected(reason);
+            }
+        }
+    }
+
+    /// Settles the in-flight Agent Board control against one ordered event.
+    ///
+    /// The held session list is read *before* the event is offered, and that
+    /// is the same pre-event view `poll_d16_control` reads: the confirming
+    /// fact has not been reduced into the projection yet (`receive_event` does
+    /// not apply it; `refresh_projection` does), so `NewSession`'s count is
+    /// compared against the one taken before the command went out.
+    fn observe_pending_d16(&mut self, event: &RuntimeEventEnvelope) {
+        if self.pending_d16.is_none() {
+            return;
+        }
+        let sessions = self
+            .projection
+            .view()
+            .map(|view| view.agent_sessions.clone())
+            .unwrap_or_default();
+        let Some(pending) = self.pending_d16.as_mut() else {
+            return;
+        };
+        match pending.observe(event, &sessions) {
+            D12Observation::Continue => {}
+            D12Observation::Confirmed => {
+                self.pending_d16 = None;
+                self.d16_outcome = D1OutcomeProjection::confirmed();
+            }
+            D12Observation::Rejected(reason) => {
+                self.pending_d16 = None;
+                self.d16_outcome = D1OutcomeProjection::rejected(reason);
+            }
+        }
     }
 
     /// Settles the in-flight D1 command against one ordered event.

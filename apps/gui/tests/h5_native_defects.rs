@@ -262,3 +262,126 @@ fn cancel_is_offered_once_core_reports_an_active_turn_for_the_lane() {
         "Core's own `active_turns` entry is what makes the turn cancellable"
     );
 }
+
+/* ---- the same funnel hole for Plan Studio and the Agent Board ---- */
+
+const PLAN_FIXTURE: &str =
+    include_str!("../../../crates/types/tests/fixtures/frontend-contract-v1/plan-documents.json");
+const CONTROL_FIXTURE: &str = include_str!(
+    "../../../crates/types/tests/fixtures/frontend-contract-v1/agent-session-control.json"
+);
+
+#[derive(Deserialize)]
+struct EnvelopeFixture {
+    initial_snapshot: RuntimeSnapshot,
+    events: Vec<RuntimeEventEnvelope>,
+}
+
+/// Replays the first `events` envelopes of a fixture through Core's own
+/// reducer and hands back the remaining envelopes, unmodified.
+///
+/// The tail is what the pump is then made to drain, so these tests feed Core's
+/// own frozen bytes — including its own `command_id`s — rather than a
+/// hand-built receipt the screen might happen to accept.
+fn split_fixture(fixture: &str, applied: usize) -> (RuntimeViewState, Vec<RuntimeEventEnvelope>) {
+    let fixture: EnvelopeFixture = serde_json::from_str(fixture).expect("fixture json");
+    let mut view = RuntimeViewState::new(fixture.initial_snapshot);
+    let mut rest = Vec::new();
+    for (index, envelope) in fixture.events.into_iter().enumerate() {
+        if index < applied {
+            if let RuntimeWireEvent::Known(event) = &envelope.event {
+                view.apply_event(event);
+            }
+        } else {
+            rest.push(envelope);
+        }
+    }
+    (view, rest)
+}
+
+#[test]
+fn a_plan_receipt_drained_by_the_desktop_pump_still_frees_the_d15_command_slot() {
+    // Through event 6: `update_plan` has proposed revision 2 and nothing has
+    // been decided, which is the state the operator presses Accept from.
+    let (view, rest) = split_fixture(PLAN_FIXTURE, 7);
+    let plan = view.plan_documents[0].clone();
+    let mut client = TestCoreClient::new(view, Arc::new(Mutex::new(Vec::new())))
+        // Nothing for the send's own drain to find: the background pump is the
+        // thread sitting in the bounded receive.
+        .with_gap();
+    // Events 9, 10 and 11 — Core's acceptance of `plan_accept` and the
+    // `PlanDocumentDecided` fact that answers it.
+    for envelope in rest.into_iter().skip(2).take(3) {
+        client = client.with_envelope(envelope);
+    }
+    let mut adapter = GuiCoreAdapter::new(Box::new(client));
+    adapter.connect().expect("connect the test client");
+
+    let pending = adapter
+        .send_d15_intent_and_wait(
+            "plan_accept",
+            viden_gui::D15Intent::Accept {
+                plan_id: plan.plan_id.0.clone(),
+                revision: plan.revision,
+                content_sha256: plan.content_sha256.clone(),
+            },
+            Duration::ZERO,
+        )
+        .expect("the plan decision is sent");
+    assert_eq!(pending.outcome.state, "pending");
+    assert_eq!(pending.pending_command_id.as_deref(), Some("plan_accept"));
+
+    while adapter.pump_events(Duration::ZERO) {}
+
+    let settled = adapter.poll_d15(None, TIMEOUT).expect("the D15 poll");
+    assert_eq!(
+        settled.pending_command_id, None,
+        "a plan receipt consumed by the pump must still free the D15 slot"
+    );
+    assert_eq!(
+        settled.outcome.state, "confirmed",
+        "and the screen's next poll must still be able to read the outcome"
+    );
+}
+
+#[test]
+fn a_session_receipt_drained_by_the_desktop_pump_still_frees_the_d16_command_slot() {
+    // Through event 3: the session is live with its approval already denied,
+    // which is the state the operator presses Pause from.
+    let (view, rest) = split_fixture(CONTROL_FIXTURE, 4);
+    let mut client = TestCoreClient::new(view, Arc::new(Mutex::new(Vec::new()))).with_gap();
+    // Events 4 and 5 — Core's acceptance of `cmd_session_pause` and the paused
+    // session fact that answers it.
+    for envelope in rest.into_iter().take(2) {
+        client = client.with_envelope(envelope);
+    }
+    let mut adapter = GuiCoreAdapter::new(Box::new(client));
+    adapter.connect().expect("connect the test client");
+
+    let pending = adapter
+        .send_d16_intent_and_wait(
+            "cmd_session_pause",
+            viden_gui::D16Intent::Pause {
+                session_id: "session_control".to_string(),
+            },
+            Duration::ZERO,
+        )
+        .expect("the session control is sent");
+    assert_eq!(pending.outcome.state, "pending");
+    assert_eq!(
+        pending.pending_command_id.as_deref(),
+        Some("cmd_session_pause")
+    );
+
+    while adapter.pump_events(Duration::ZERO) {}
+
+    let settled = adapter.poll_d16(None, TIMEOUT).expect("the D16 poll");
+    assert_eq!(
+        settled.pending_command_id, None,
+        "a session receipt consumed by the pump must still free the D16 slot"
+    );
+    assert_eq!(
+        settled.outcome.state, "confirmed",
+        "and the screen's next poll must still be able to read the outcome"
+    );
+}

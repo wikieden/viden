@@ -1393,7 +1393,11 @@ Kiro CLI 的主机可以在所有 ACP 探测仍未返回时创建 Lane —— �
 出后发送——从未提交，这正是那次运行看到一个已创建却完全没有回合的 Lane 的原因
 （缺陷 22）。`observe_pending_d1` 现在在漏斗内部运行并把结果记在 adapter 上，因
 此无论哪一次排空看到回执，下一次 `poll_d1` 都能读到已释放的命令槽以及 confirmed
-或 rejected 的结果。Core 没有过错：一个 runtime 测试驱动了同一条原生路径——真实
+或 rejected 的结果。规划工作台的 `pending_d15` 与 Agent 看板的 `pending_d16` 是
+最后两个留在该漏斗之外的命令，并且有着一模一样的洞 —— 被 pump 排空的
+`PlanDocumentDecided` 或已暂停会话事实会让它们的槽位保持被占用 —— 因此两者现在
+也经由漏斗观察，并以同样方式把结果保存在 adapter 上，其轮询改为读回该结果而不再
+报告 `idle`。Core 没有过错：一个 runtime 测试驱动了同一条原生路径——真实
 Git 工作区中的 `PreviewDefaultStarterLane`、真实的 `LocalLaneEffectExecutor`、
 allow-once 的 `lane_create` 审批——Core 在 `LaneUpdated` 之后发出
 `StarterLaneCreated`，且此前没有任何作废事件。

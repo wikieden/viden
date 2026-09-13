@@ -1821,7 +1821,12 @@ by `maybeResumeLaneStart` once the slot frees — was never submitted, which is
 why the run found a created Lane with no turn in it at all (defect 22).
 `observe_pending_d1` now runs inside the funnel and records the outcome on the
 adapter, so the next `poll_d1` reads the freed slot and the confirmed or
-rejected outcome regardless of which drain saw the receipt. Core was not at
+rejected outcome regardless of which drain saw the receipt. Plan Studio's
+`pending_d15` and the Agent Board's `pending_d16` were the last two commands
+outside that funnel and had the identical hole — a `PlanDocumentDecided` or a
+paused-session fact drained by the pump left their slot occupied — so both now
+observe through it and hold their outcome on the adapter the same way, with
+their polls reading it back instead of reporting `idle`. Core was not at
 fault: a runtime test drives the same native path — `PreviewDefaultStarterLane`
 in a real Git workspace, the real `LocalLaneEffectExecutor`, an allow-once
 `lane_create` approval — and Core emits `StarterLaneCreated` after `LaneUpdated`

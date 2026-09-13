@@ -1463,7 +1463,11 @@ inferred. None was fixed here.
     their pendings *is* in the funnel. `observe_pending_d1` now runs inside the
     funnel and records the outcome on the adapter, so the next `poll_d1` reads
     the freed slot and the confirmed or rejected outcome regardless of which
-    drain saw the receipt. Tests:
+    drain saw the receipt. Plan Studio's `pending_d15` and the Agent Board's
+    `pending_d16` were the last two commands still outside that funnel and had
+    the identical hole, so both were closed the same way in the same batch and
+    now hold their outcome on the adapter for their own next poll to read.
+    Tests:
     `apps/gui/tests/h5_native_defects.rs`
     `a_receipt_drained_by_the_desktop_pump_still_frees_the_d1_command_slot`, and
     the live-Core `desktop_event_pump_settles_the_lane_creation_it_drains`
