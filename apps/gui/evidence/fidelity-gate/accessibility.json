@@ -26,8 +26,8 @@
   "outcomes": {
     "missing_accessible_name": "pass - zero on all 22 surfaces in both pairs",
     "keyboard_focusability": "pass - every tabbable element took focus on all 22 surfaces in both pairs",
-    "contrast_aurora_dark": "pass except .review-stage at 3.48:1 on DiffReview",
-    "contrast_ice_light": "fail - --accent as small text resolves to #5a8af0 and reads 2.57:1 to 4.16:1 against light surfaces; filed as a design-package defect",
+    "contrast_aurora_dark": "pass except .review-stage at 3.48:1 on DiffReview (unchanged by DS2: the dark skins were not touched)",
+    "contrast_ice_light": "fail, much reduced by DS2 - the --accent-bright ink now passes everywhere (4.54:1 to 5.86:1); what is left is --accent as 11-13px ink on --bg-sel at 4.16:1 on two surfaces (d4/d4-agent-binding-started .gbtn, review .on) and F6's .review-stage at 3.37:1",
     "target_size_28px": "fail - 17 distinct controls under 28px in at least one dimension; filed"
   },
   "surfaces": {
@@ -79,11 +79,7 @@
           "button.sb-gear 15x11",
           "button.sb-right 78x19"
         ],
-        "contrast_failures": [
-          "button.actbtn 2.57:1 need 4.5 @13px",
-          "button.wslane 2.57:1 need 4.5 @13px",
-          "button.dtab 3.08:1 need 4.5 @10.5px"
-        ]
+        "contrast_failures": []
       }
     },
     "dock-environment": {
@@ -138,11 +134,7 @@
           "button.sb-gear 15x11",
           "button.sb-right 78x19"
         ],
-        "contrast_failures": [
-          "button.actbtn 2.57:1 need 4.5 @13px",
-          "button.wslane 2.57:1 need 4.5 @13px",
-          "button.dtab 3.08:1 need 4.5 @10.5px"
-        ]
+        "contrast_failures": []
       }
     },
     "d2": {
@@ -267,10 +259,7 @@
           "button.sb-gear 15x11",
           "button.sb-right 78x19"
         ],
-        "contrast_failures": [
-          "button.wslane 2.57:1 need 4.5 @13px",
-          "button.dtab 3.08:1 need 4.5 @10.5px"
-        ]
+        "contrast_failures": []
       }
     },
     "d10-ticker": {
@@ -417,9 +406,7 @@
           "button.d14-fchip 74x21",
           "button.d14-fchip 55x21"
         ],
-        "contrast_failures": [
-          "button.d14-fchip 3.08:1 need 4.5 @11px"
-        ]
+        "contrast_failures": []
       }
     },
     "plan-proposed": {
@@ -470,11 +457,7 @@
           "button.sb-gear 15x11",
           "button.sb-right 78x19"
         ],
-        "contrast_failures": [
-          "button.actbtn 2.57:1 need 4.5 @13px",
-          "button.wslane 2.57:1 need 4.5 @13px",
-          "button.dtab 3.08:1 need 4.5 @10.5px"
-        ]
+        "contrast_failures": []
       }
     },
     "board-lanes": {
@@ -525,11 +508,7 @@
           "button.sb-gear 15x11",
           "button.sb-right 78x19"
         ],
-        "contrast_failures": [
-          "button.actbtn 2.57:1 need 4.5 @13px",
-          "button.wslane 2.57:1 need 4.5 @13px",
-          "button.dtab 3.08:1 need 4.5 @10.5px"
-        ]
+        "contrast_failures": []
       }
     },
     "permission-ask": {
@@ -580,11 +559,7 @@
           "button.sb-gear 15x11",
           "button.sb-right 78x19"
         ],
-        "contrast_failures": [
-          "button.actbtn 2.57:1 need 4.5 @13px",
-          "button.wslane 2.57:1 need 4.5 @13px",
-          "button.dtab 3.08:1 need 4.5 @10.5px"
-        ]
+        "contrast_failures": []
       }
     },
     "dock-always-edit": {
@@ -637,11 +612,7 @@
           "button.sb-gear 15x11",
           "button.sb-right 78x19"
         ],
-        "contrast_failures": [
-          "button.actbtn 2.57:1 need 4.5 @13px",
-          "button.wslane 2.57:1 need 4.5 @13px",
-          "button.dtab 3.08:1 need 4.5 @10.5px"
-        ]
+        "contrast_failures": []
       }
     },
     "review": {
@@ -707,11 +678,8 @@
           "button.sb-right 78x19"
         ],
         "contrast_failures": [
-          "button.actbtn 2.57:1 need 4.5 @13px",
-          "button.wslane 2.57:1 need 4.5 @13px",
           "button.review-stage 3.37:1 need 4.5 @11px",
-          "button.on 4.16:1 need 4.5 @11px",
-          "button.dtab 3.08:1 need 4.5 @10.5px"
+          "button.on 4.16:1 need 4.5 @11px"
         ]
       }
     },
@@ -783,12 +751,7 @@
           "button.sb-gear 15x11",
           "button.sb-right 78x19"
         ],
-        "contrast_failures": [
-          "button.actbtn 2.57:1 need 4.5 @13px",
-          "button.wslane 2.57:1 need 4.5 @13px",
-          "button.fchip 2.57:1 need 4.5 @11px",
-          "button.dtab 3.08:1 need 4.5 @10.5px"
-        ]
+        "contrast_failures": []
       }
     },
     "palette": {
@@ -843,12 +806,7 @@
           "button.sb-right 78x19",
           "input.q 512x20"
         ],
-        "contrast_failures": [
-          "button.tbtbtn 2.57:1 need 4.5 @13.3333px",
-          "button.actbtn 2.57:1 need 4.5 @13px",
-          "button.wslane 2.57:1 need 4.5 @13px",
-          "button.dtab 3.08:1 need 4.5 @10.5px"
-        ]
+        "contrast_failures": []
       }
     },
     "centre-focus-mode": {
@@ -899,12 +857,7 @@
           "button.sb-gear 15x11",
           "button.sb-right 78x19"
         ],
-        "contrast_failures": [
-          "button.tbtbtn 2.57:1 need 4.5 @13.3333px",
-          "button.actbtn 2.57:1 need 4.5 @13px",
-          "button.wslane 2.57:1 need 4.5 @13px",
-          "button.dtab 3.08:1 need 4.5 @10.5px"
-        ]
+        "contrast_failures": []
       }
     },
     "welcome-fill": {
@@ -997,12 +950,7 @@
           "button.gset-option 64x27",
           "button.gset-option 40x27"
         ],
-        "contrast_failures": [
-          "button.actbtn 2.57:1 need 4.5 @13px",
-          "button.wslane 2.57:1 need 4.5 @13px",
-          "button.dtab 3.08:1 need 4.5 @10.5px",
-          "button.gset-option 2.57:1 need 4.5 @11px"
-        ]
+        "contrast_failures": []
       }
     },
     "lane-rail": {
@@ -1053,12 +1001,20 @@
           "button.sb-gear 15x11",
           "button.sb-right 78x19"
         ],
-        "contrast_failures": [
-          "button.actbtn 2.57:1 need 4.5 @13px",
-          "button.wslane 2.57:1 need 4.5 @13px",
-          "button.dtab 3.08:1 need 4.5 @10.5px"
-        ]
+        "contrast_failures": []
       }
+    }
+  },
+  "revisions": {
+    "ds2": {
+      "batch": "DS2 design-package token fix (0.3.5)",
+      "branch": "claude/design-ds2",
+      "base": "479159016e70f6c049c51662447b87f9dac0f776 (claude/int-0.3.5, G10 merged)",
+      "generated_at": "2026-09-13T21:30:00+08:00",
+      "change": "--accent-bright darkened in the three light skins (aurora #0aa6c6 -> #076f85, ice #5a8af0 -> #1558e7, mono #0a96b4 -> #076d82). tokens.css only; no GUI source changed.",
+      "rewritten": "every surface's contrast_failures in both pairs, plus outcomes.contrast_ice_light and outcomes.contrast_aurora_dark. Everything else - focusable, roles, missing_accessible_name, every_tabbable_took_focus, target_under_28px - is G10's record as filed (F5 stands).",
+      "method_delta": "the re-run walks the same element set and the same WCAG 2.1 rule, driven over CDP against the same dev server, but renders each surface in the top-level 1440x1180 viewport rather than in a nested iframe. Verified faithful: on aurora/dark every re-measured field, contrast_failures included, is byte-identical to G10's record; only target_under_28px differs, by the ~15px the iframe's scrollbar took off the layout width, which is why those lists were not rewritten.",
+      "result": "17 of 22 ice/light surfaces had contrast failures; 3 do now. All 2.57:1 and 3.08:1 entries (the --accent-bright ink) are gone."
     }
   }
 }

@@ -154,11 +154,13 @@ $ echo $?
 | # | 发现 | 证据 |
 | --- | --- | --- |
 | F1 | `gui-kit.css` 给 `.tbtbtn`、`.gitchip` 定了尺寸、圆角、颜色与透明边框，**却从不给 `background`**。设计稿把它们画成非交互元素；客户端为了键盘可达必须渲染成真 `<button>`，于是透出 UA 的 `ButtonFace` 填充。在每个承载驾驶舱的界面上，三个标题栏工具图标背后实测 `rgb(107,107,107)`。已在 `1f284ead` 于 GUI 侧绕过；套件应声明该背景。 | `apps/gui/src/ui/theme.css`，提交 `1f284ead` |
-| F2 | **`--accent` 在 `ice/light` 下违反套件自己的对比度契约。** `tokens.css` 第 113 行写着「accent/gold≥4.5」，但 `ice/light` 把 `--accent` 解析为 `#5a8af0`，作为小字在 `--bg-base` `#f3f7fc` 上只有 **2.57:1**，在坞页签面上 **3.08:1**。所有 accent 色标签均不达标：`.actbtn`（活动 rail 当前项）、`.wslane`（选中 lane）、`.dtab`、`.fchip`、`.gset-option`。GUI 无法在不自带第二套调色板的前提下修复，而 `AGENTS.md` 明令禁止。 | `accessibility.json`，9 个界面 |
+| F2 | **违约的不是 ~~`--accent`~~ 而是 `--accent-bright`，三套 light 皮肤全中 —— DS2 已在 token 层修掉，见 §12。** `gui-kit.css` 把每个 `.on` 态的**墨**都画成 `--accent-bright`（`.tbtbtn` :57、`.actbtn` :68、`.lseg .sg` :77、`.wslane .nm` :102、`.gperm-opt` :202/:204、`.evbar .fchip` :317），而三套 light 皮肤都把它定义成**比 `--accent` 更亮**（`ice/light` `#5a8af0`：压 `--bg-sel` 仅 **2.57:1**，压 `--bg-base` **3.08:1**）。DS2 把 aurora/ice/mono 的 light 值改深（`#076f85` / `#1558e7` / `#076d82`），四个面上现在读 **4.54:1–5.86:1**，失败界面从 17 个降到 3 个。 | `accessibility.json`（已重测）；DS2 §12 |
 | F3 | `--sp-7` 在 `DESIGN-REF.md` 里被记为 `--sp-1…--sp-16` 4px 基准的一员，但 `tokens.css` 未定义；D11 设计稿对步骤徽标硬写 26px。要么登记该档位，要么把设计真源改到 `--sp-6`。 | `d11_intake.css:49–50` |
 | F4 | GUI 自有 CSS 中仍有本闸范围之外的裸间距与裸字号 —— `.d14-fbar`/`.d14-fchip`/`.d14-rollup` 带着 `gap: 6px`、`padding: 8px 14px`、`font-size: 11px`/`10.5px`、`border-radius: 999px`、`margin: 0 4px`。GUI-4 的「无临时间距」一条尚未达成。此处不修：那是一次普查，不是本闸的帧暴露出的对齐漂移。 | `d14_audit_timeline.css:229–295` |
 | F5 | 有 17 个互不相同的交互控件在至少一个方向上低于套件 ≥28px 的点击目标规则，两对皮肤下均如此。最突出的是 `.sb-gear` 15×11、`.d1-topbar-dirty` 15×12、`.d14-fchip` ×7 高 19px、`.gset-close` 19×17、`.d1-mpill` ×3 高 24px、`.review-icon` 23×23、`.dtab` 26px、`.gitchip` 27px。抬高它们会改变驾驶舱的密度基线，属设计包决策。 | `accessibility.json` |
 | F6 | `.review-stage` 在 `aurora/dark` 下 3.48:1、`ice/light` 下 3.37:1，字号 11px，低于 4.5:1。这是本批次深色对中唯一的对比度失败。 | `accessibility.json` |
+
+| F7 | **`--accent` 自己作为 11–13px 的墨压 `--bg-sel` 只有 4.16:1**（aurora/light 4.05:1、mono/light 4.07:1），同样违反 ≥4.5 的护栏。它压其余各面都达标（panel 4.64:1、base 5.00:1、elev 5.38:1），所以只波及选中行：D4 向导当前步的 `.gbtn` 与 DiffReview 的 `.on` 视图分段 —— 这正是 DS2 之后浅色对仅剩的两处对比度失败。DS2 有意不动 `--accent`：裁定的范围是 `--accent-bright`，挪动品牌主色是另一项设计包决策。 | `accessibility.json`，2 个界面 |
 
 ## 6. 可访问性记录
 
@@ -169,8 +171,8 @@ $ echo $?
 | --- | --- |
 | 每个可聚焦元素都有可访问名 | **通过** —— 22 界面 × 2 对，零缺失 |
 | 每个可 Tab 元素都能接受焦点 | **通过** —— 22 界面 × 2 对 |
-| 对比度，`aurora/dark` | **除 F6 外通过**（`.review-stage` 3.48:1） |
-| 对比度，`ice/light` | **失败 —— F2**，`--accent` token；每界面 1–5 对不达标 |
+| 对比度，`aurora/dark` | **除 F6 外通过**（`.review-stage` 3.48:1）—— DS2 未动深色皮肤，此项不变 |
+| 对比度，`ice/light` | **原为失败 —— F2**（`--accent-bright`；22 个界面中 17 个、每界面 1–5 对不达标）。DS2 之后：**3 个界面**，且全部属 F7（`--accent` 压 `--bg-sel`，4.16:1）或 F6 |
 | 点击目标 ≥ 28px | **失败 —— F5**，17 个控件 |
 | `color-scheme` 跟随皮肤 | **`c564879c` 后通过** —— 修复前在 `ice/light` 下报告为 `dark` |
 
@@ -241,7 +243,62 @@ headless 闸**通过**。经五项漂移修复后，每个界面在两对出货�
 没有已登记组件被分叉，裸色 grep 为空，每个 token 引用都能解析，未发现键盘死角，
 十条性能记录全部落在界限之内。
 
-有两点使它还不是完整的闸。四条腿需要未锁定的屏幕，已在上文记为未执行。以及
-**F2 是真实的发布风险**：`--accent` 作为小字在浅色皮肤下处处不满足 WCAG AA，
-且违背套件自己写下的契约。之所以立案而非修复，是因为修复属于 `tokens.css`，
-而本分支不得触碰它。
+有两点曾使它还不是完整的闸。四条腿需要未锁定的屏幕，已在上文记为未执行。以及
+**F2 曾是真实的发布风险** —— `.on` 态的墨在三套 light 皮肤下处处不满足 WCAG AA，
+违背套件自己写下的契约。当时立案而非修复，是因为修复属于 `tokens.css`，而那条
+分支不得触碰它；**DS2 已经把它修在那里**（§12），重测后浅色失败界面从 17 个降到
+3 个。剩下的是 F6 与被单独拆出的 F7，仍向设计包立案。
+
+## 12. DS2 —— token 修复之后对 F2 的重测
+
+DS2 批次（分支 `claude/design-ds2`，基线 `47915901` = 本闸并入 `claude/int-0.3.5`
+之后）把 F2 修在它该在的地方：`docs/viden-design/Viden/tokens.css`。GUI 源码零改动，
+`--accent` 未动，六套 dark 皮肤未动。
+
+**错在哪。** `--accent-bright` 在套件里是**墨** —— 六条 `.on` 态规则用它上文字，
+驾驶舱页重复约 37 次 —— 但三套 light 皮肤都把它定义成 `--accent` 的**更亮**变体，
+这在浅底上方向反了。G10 把失败归给了 `--accent`；它实测到的那个解析值（`#5a8af0`）
+其实是 `--accent-bright`。
+
+**现在写进护栏的规则。** `--accent-bright` 是墨，所以和 `--accent` 同样要 ≥4.5:1；
+dark 下「比 accent 更亮」即达标，light 下必须**比 `--accent` 更深**，且压 `.on` 态
+可能坐的四个面（`--bg-base`、`--bg-panel`、`--bg-sel`、`--bg-elev`；`.on` 态坐
+`--bg-sel`）全部 ≥4.5:1。取值方法：在该 token 自己的色相与饱和度上搜索**满足上述
+条件的最亮值**，同时要求 `--on-accent` 压它仍 ≥4.5:1 —— 主按钮 hover 确实用
+`--accent-bright` 做填充。
+
+| light 皮肤 | token | 值 | `--bg-base` | `--bg-panel` | `--bg-sel` | `--bg-elev` | `--on-accent` 压它 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| aurora | `--accent`（未动） | `#0b7791` | 4.85:1 | 4.54:1 | 4.05:1 | 5.17:1 | 4.84:1 |
+| aurora | `--accent-bright` 旧 | `#0aa6c6` | 2.71:1 | 2.53:1 | 2.26:1 | 2.88:1 | 2.70:1 |
+| aurora | `--accent-bright` **新** | `#076f85` | **5.44:1** | **5.09:1** | **4.54:1** | **5.80:1** | **5.43:1** |
+| ice | `--accent`（未动） | `#2d65d2` | 5.00:1 | 4.64:1 | 4.16:1 | 5.38:1 | 5.00:1 |
+| ice | `--accent-bright` 旧 | `#5a8af0` | 3.08:1 | 2.86:1 | 2.57:1 | 3.32:1 | 3.08:1 |
+| ice | `--accent-bright` **新** | `#1558e7` | **5.45:1** | **5.05:1** | **4.54:1** | **5.86:1** | **5.45:1** |
+| mono | `--accent`（未动） | `#0b748d` | 5.02:1 | 4.60:1 | 4.07:1 | 5.39:1 | 5.02:1 |
+| mono | `--accent-bright` 旧 | `#0a96b4` | 3.24:1 | 2.97:1 | 2.63:1 | 3.48:1 | 3.24:1 |
+| mono | `--accent-bright` **新** | `#076d82` | **5.56:1** | **5.09:1** | **4.50:1** | **5.97:1** | **5.56:1** |
+
+色相与饱和度保持：aurora 190.2°→190.5°、饱和 90%；ice 220.8°→220.9°、饱和 83%；
+mono 190.6°→190.2°、饱和 90%。只动明度（41%→28%、65%→49%、37%→27%）。可见的代价是
+light 下 `--accent-bright` 现在贴近 `--accent` 而不再在它之上 —— 这就是浅底上 ≥4.5:1
+护栏的价钱，已记进设计包 `CHANGELOG`。
+
+**重测。** 用 G10 的探针重跑同样的 22 个界面 × 2 对。`aurora/dark` 下每个重测字段
+都与 G10 归档的完全一致（含 `contrast_failures`）—— 这是重跑忠实性的验证。
+`ice/light` 下**有失败的界面从 17 个降到 3 个**：所有 `2.57:1` 与 `3.08:1` 条目
+（即 `--accent-bright` 那支墨）全部消失，只剩 `d4` 与 `d4-agent-binding-started`
+的 `.gbtn`、以及 `review` 的 `.review-stage` 与 `.on`。F5、F6 按原状保留；
+`target_under_28px` 未重写 —— 重跑把每个界面渲染在顶层 1440×1180 视口里，而不是
+G10 的嵌套 iframe，iframe 滚动条少掉的约 15px 会让其中几项量测差 1–11px。
+
+**帧。** 22 张 `*-1440x1180-light-zh-CN.png` 里有 16 张像素改变，已重采并逐张看过；
+另外 6 张重采后逐字节相同 —— 这是采集路径的第二重忠实性验证。深色一组未动。设计包
+自己在 `docs/viden-design/Viden/docs/previews/design/0.3.5/` 下的两张浅色预览也已重采。
+
+**Token 摘要。** `tokens.css` 从
+`826826ee6ddab845897472701add67ee9f55aff25af539651e6089553b7e6398` 变为
+`2d80baa92bc7b83a188257a08dec27cb1fc143fc27237a02dfdbb61eee8b941a`；所有在用的
+pin 都已重算（`apps/gui/src/ui/tokens.ts`、`apps/gui/release-manifest.toml`、
+其 `manifests/0.1.0-rc.5.toml` 快照、`apps/tui/release-manifest.toml` 以及其清单
+测试断言的那个字面量）。rc.2–rc.4 的历史清单与 rc.3 证据 README 保留出货时的摘要。

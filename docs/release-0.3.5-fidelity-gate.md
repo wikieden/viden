@@ -171,11 +171,13 @@ These are design-package defects. This branch does not edit
 | # | Finding | Evidence |
 | --- | --- | --- |
 | F1 | `gui-kit.css` styles `.tbtbtn` and `.gitchip` with size, radius, colour and a transparent border but **never a `background`**. The design pages draw them as non-interactive elements; a client that renders them as real `<button>`s — as it must, for keyboard access — gets the UA `ButtonFace` fill. Measured `rgb(107,107,107)` behind the three titlebar tool icons on every cockpit-bearing surface. Worked around GUI-side in `1f284ead`; the kit should declare the background. | `apps/gui/src/ui/theme.css`, commit `1f284ead` |
-| F2 | **`--accent` fails its own contrast contract in `ice/light`.** `tokens.css` states "accent/gold≥4.5" at line 113, but `ice/light` resolves `--accent` to `#5a8af0`, which reads **2.57:1** as small text on `--bg-base` `#f3f7fc` and **3.08:1** on the dock-tab surface. Every accent-coloured label fails: `.actbtn` (activity rail current), `.wslane` (selected lane), `.dtab`, `.fchip`, `.gset-option`. The GUI cannot fix this without shipping a second palette, which `AGENTS.md` forbids. | `accessibility.json`, 9 surfaces |
+| F2 | **~~`--accent`~~ `--accent-bright` failed its own contrast contract in every light skin — fixed by DS2 at the token level; see §12.** The token the failing ink resolves from is `--accent-bright`, not `--accent`: `gui-kit.css` paints every `.on` state's ink with it (`.tbtbtn` :57, `.actbtn` :68, `.lseg .sg` :77, `.wslane .nm` :102, `.gperm-opt` :202/:204, `.evbar .fchip` :317), and all three light skins defined it *lighter* than `--accent` (`ice/light` `#5a8af0`: **2.57:1** on `--bg-sel`, **3.08:1** on `--bg-base`). DS2 darkened it in aurora/ice/mono light (`#076f85` / `#1558e7` / `#076d82`); the ink now reads **4.54:1 to 5.86:1** on all four surfaces and 17 failing surfaces became 3. | `accessibility.json`, re-measured; DS2 §12 |
 | F3 | `--sp-7` is documented in `DESIGN-REF.md` as part of a `--sp-1…--sp-16` 4px scale but is not defined in `tokens.css`; the D11 design page hard-codes 26px for the step badge. Either register the step or move the design source onto `--sp-6`. | `d11_intake.css:49–50` |
 | F4 | Raw spacing and type sizes remain in GUI-owned CSS outside this gate's scope — `.d14-fbar`/`.d14-fchip`/`.d14-rollup` carry `gap: 6px`, `padding: 8px 14px`, `font-size: 11px`/`10.5px`, `border-radius: 999px`, `margin: 0 4px`. GUI-4's "no temporary spacing" clause is not yet met. Not fixed here: it is a broad sweep, not parity drift this gate's frames expose. | `d14_audit_timeline.css:229–295` |
 | F5 | 17 distinct interactive controls are under the package's ≥28px target rule in at least one dimension, in both pairs. The largest offenders are `.sb-gear` 15×11, `.d1-topbar-dirty` 15×12, `.d14-fchip` ×7 at 19px high, `.gset-close` 19×17, `.d1-mpill` ×3 at 24px, `.review-icon` 23×23, `.dtab` 26px, `.gitchip` 27px. Raising them changes the cockpit's density baseline, which is a design-package decision. | `accessibility.json` |
 | F6 | `.review-stage` reads 3.48:1 in `aurora/dark` and 3.37:1 in `ice/light` at 11px, against 4.5:1. The only dark-pair contrast failure in the batch. | `accessibility.json` |
+
+| F7 | **`--accent` itself reads 4.16:1 as 11–13px ink on `--bg-sel`** in `ice/light` (4.05:1 aurora/light, 4.07:1 mono/light), against the same ≥4.5 guardrail. It clears every other surface (4.64:1 panel, 5.00:1 base, 5.38:1 elev), so only selected rows are affected: `.gbtn` on the D4 wizard's current step and DiffReview's `.on` view segment — the two remaining light-pair contrast failures after DS2. DS2 deliberately did not touch `--accent`: the adjudicated scope was `--accent-bright`, and moving the brand accent is a separate design-package decision. | `accessibility.json`, 2 surfaces |
 
 ## 6. Accessibility record
 
@@ -187,8 +189,8 @@ WCAG 2.1 contrast ratios per element.
 | --- | --- |
 | Accessible name on every focusable element | **pass** — zero missing across 22 surfaces × 2 pairs |
 | Every tabbable element accepts focus | **pass** — 22 surfaces × 2 pairs |
-| Contrast, `aurora/dark` | **pass except F6** (`.review-stage` 3.48:1) |
-| Contrast, `ice/light` | **fail — F2**, the `--accent` token; 1–5 failing pairs per surface |
+| Contrast, `aurora/dark` | **pass except F6** (`.review-stage` 3.48:1) — unchanged by DS2, which did not touch the dark skins |
+| Contrast, `ice/light` | **was fail — F2** (`--accent-bright`, 1–5 failing pairs on 17 of 22 surfaces). After DS2: **3 surfaces**, all of them F7 (`--accent` on `--bg-sel`, 4.16:1) or F6 |
 | Target size ≥ 28px | **fail — F5**, 17 distinct controls |
 | `color-scheme` follows the skin | **pass after `c564879c`** — reported `dark` under `ice/light` before the fix |
 
@@ -266,8 +268,77 @@ shipped pairs after five drift fixes, no registered component is forked, the
 raw-color grep is empty, every token reference now resolves, no keyboard dead
 end was found, and all ten performance records are inside their bounds.
 
-Two things keep this from being the whole gate. Four legs need an unlocked
-screen and are recorded above as not run. And **F2 is a genuine release risk**:
-`--accent` as small text fails WCAG AA everywhere in the light skin, against
-the package's own written contract. It is filed rather than fixed because the
-fix belongs in `tokens.css`, which this branch may not touch.
+Two things kept this from being the whole gate. Four legs need an unlocked
+screen and are recorded above as not run. And **F2 was a genuine release
+risk** — the `.on`-state ink failed WCAG AA everywhere in the light skins,
+against the package's own written contract. It was filed rather than fixed
+because the fix belongs in `tokens.css`, which this branch may not touch;
+**DS2 has since made it there** (§12), and the re-measured record now shows
+three failing light surfaces instead of seventeen. What remains is F6 and the
+newly separated F7, both still filed for the design package.
+
+## 12. DS2 — F2 re-measured after the token fix
+
+Batch DS2 (branch `claude/design-ds2`, base `47915901` = this gate merged onto
+`claude/int-0.3.5`) fixed F2 where it belongs: in `docs/viden-design/Viden/tokens.css`.
+No GUI source changed, `--accent` was not touched, and the dark skins were not
+touched.
+
+**What was wrong.** `--accent-bright` is *ink* in the kit — six `.on`-state
+rules paint text with it, and the cockpit page repeats that about 37 times — but
+all three light skins defined it as a *lighter* variant of `--accent`, which is
+the wrong direction on a light ground. G10 attributed the failure to `--accent`;
+the resolved value it measured (`#5a8af0`) is `--accent-bright`.
+
+**The rule now written into the guardrail.** `--accent-bright` is ink, so it
+meets the same ≥4.5:1 as `--accent`; in dark modes "brighter than accent"
+achieves that, in light modes it must be *darker* than `--accent` and clear
+≥4.5:1 on all four surfaces an `.on` state can sit on (`--bg-base`,
+`--bg-panel`, `--bg-sel`, `--bg-elev`; the `.on` states sit on `--bg-sel`).
+The values were picked by searching the token's own hue and saturation for the
+*lightest* value meeting that, with `--on-accent` still ≥4.5:1 against it —
+the kit does fill with `--accent-bright` on primary-button hover.
+
+| skin/light | token | value | `--bg-base` | `--bg-panel` | `--bg-sel` | `--bg-elev` | `--on-accent` on it |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| aurora | `--accent` (unchanged) | `#0b7791` | 4.85:1 | 4.54:1 | 4.05:1 | 5.17:1 | 4.84:1 |
+| aurora | `--accent-bright` old | `#0aa6c6` | 2.71:1 | 2.53:1 | 2.26:1 | 2.88:1 | 2.70:1 |
+| aurora | `--accent-bright` **new** | `#076f85` | **5.44:1** | **5.09:1** | **4.54:1** | **5.80:1** | **5.43:1** |
+| ice | `--accent` (unchanged) | `#2d65d2` | 5.00:1 | 4.64:1 | 4.16:1 | 5.38:1 | 5.00:1 |
+| ice | `--accent-bright` old | `#5a8af0` | 3.08:1 | 2.86:1 | 2.57:1 | 3.32:1 | 3.08:1 |
+| ice | `--accent-bright` **new** | `#1558e7` | **5.45:1** | **5.05:1** | **4.54:1** | **5.86:1** | **5.45:1** |
+| mono | `--accent` (unchanged) | `#0b748d` | 5.02:1 | 4.60:1 | 4.07:1 | 5.39:1 | 5.02:1 |
+| mono | `--accent-bright` old | `#0a96b4` | 3.24:1 | 2.97:1 | 2.63:1 | 3.48:1 | 3.24:1 |
+| mono | `--accent-bright` **new** | `#076d82` | **5.56:1** | **5.09:1** | **4.50:1** | **5.97:1** | **5.56:1** |
+
+Hue and saturation are held: aurora 190.2°→190.5° at 90%, ice 220.8°→220.9° at
+83%, mono 190.6°→190.2° at 90%. Only lightness moves (41%→28%, 65%→49%,
+37%→27%). The visible consequence is that in the light skins `--accent-bright`
+now sits *close to* `--accent` rather than above it — that is what the ≥4.5:1
+guardrail costs on a light ground, and it is recorded in the package's
+`CHANGELOG`.
+
+**Re-measured.** G10's probe was re-run over the same 22 surfaces × 2 pairs.
+On `aurora/dark` every re-measured field is identical to what G10 filed,
+`contrast_failures` included, which is the check that the re-run is faithful.
+On `ice/light`, **17 surfaces with failures became 3**: every `2.57:1` and
+`3.08:1` entry (the `--accent-bright` ink) is gone, leaving `.gbtn` on `d4`
+and `d4-agent-binding-started`, and `.review-stage` + `.on` on `review`. F5
+and F6 stand as filed; `target_under_28px` was not rewritten, because the
+re-run renders each surface in the top-level 1440×1180 viewport rather than
+G10's nested iframe and the ~15px the iframe's scrollbar took off the layout
+width shifts a few of those measurements by 1–11px.
+
+**Frames.** 16 of the 22 `*-1440x1180-light-zh-CN.png` frames changed and were
+re-captured and viewed; the other 6 came back byte-identical, which is the
+second faithfulness check on the capture path. The dark set is untouched. The
+design package's own two light previews under
+`docs/viden-design/Viden/docs/previews/design/0.3.5/` were re-captured as well.
+
+**Token digest.** `tokens.css` moved from
+`826826ee6ddab845897472701add67ee9f55aff25af539651e6089553b7e6398` to
+`2d80baa92bc7b83a188257a08dec27cb1fc143fc27237a02dfdbb61eee8b941a`; every live
+pin was regenerated (`apps/gui/src/ui/tokens.ts`, `apps/gui/release-manifest.toml`,
+its `manifests/0.1.0-rc.5.toml` snapshot, `apps/tui/release-manifest.toml` and
+the literal its manifest test asserts). The historical rc.2–rc.4 manifests and
+the rc.3 evidence README keep the digest they shipped with.
