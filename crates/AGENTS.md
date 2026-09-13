@@ -59,6 +59,13 @@ GUI branches have started from it.
 ## Development And Verification
 
 - Use TDD for behavior changes.
+- A test that waits on time must not assert a wall-clock upper bound. Gate the
+  thing under test on a signal the test owns — a channel it releases, a file the
+  child waits for, a marker a killed child never writes — and leave any
+  remaining duration as a generous liveness ceiling. The full workspace suite
+  runs in parallel with no crate excluded, so a bound that races the code's own
+  deadline is a flake, not a check. Test infrastructure that compiles or spawns
+  helpers must do it once per test process, not once per test.
 - Add concise comments for protocol boundaries and non-obvious invariants.
 - Update English and Chinese user-facing documentation together.
 - Run focused crate tests while developing, then run:
