@@ -7774,6 +7774,336 @@ fn the_transcript_rows_capability_is_an_advertised_extension() {
             .all(|pair| pair[0] < pair[1]),
         "extension capabilities must stay sorted and unique"
     );
-    // The milestone's final count: C8 is the last Core batch of 0.3.4.
-    assert_eq!(FRONTEND_V1_EXTENSION_CAPABILITIES.len(), 29);
+    // 29 completed the 0.3.4 increment (C8 was its last Core batch); the
+    // 0.3.5 increment moves it again, starting with C13's
+    // `runtime.plan_documents`.
+    assert_eq!(FRONTEND_V1_EXTENSION_CAPABILITIES.len(), 30);
+}
+
+// ---------------------------------------------------------------------------
+// `runtime.plan_documents` (C13)
+// ---------------------------------------------------------------------------
+
+fn plan_owner(lane: Option<&str>, session: &str) -> RuntimeOwner {
+    RuntimeOwner {
+        workspace_id: "workspace_plan".to_string(),
+        project_id: "project_viden".to_string(),
+        lane_id: lane.map(ToString::to_string),
+        session_id: Some(session.to_string()),
+        task_id: None,
+        turn_id: Some("turn_plan".to_string()),
+    }
+}
+
+fn plan_step_draft(title: &str, dependencies: &[&str]) -> PlanStepDraft {
+    PlanStepDraft {
+        title: title.to_string(),
+        status: PlanStepStatus::Pending,
+        role: Some(AgentRole::Coder),
+        file_scope: vec!["crates/types/src/plan.rs".to_string()],
+        dependencies: dependencies.iter().map(|id| (*id).to_string()).collect(),
+    }
+}
+
+fn plan_draft() -> PlanDocumentDraft {
+    PlanDocumentDraft {
+        owner: plan_owner(None, "session_plan"),
+        title: "Model plan documents".to_string(),
+        goal: "Give the operator a plan they can accept and hand off".to_string(),
+        sections: vec![PlanSection {
+            kind: PlanSectionKind::AcceptanceCriteria,
+            body: "the fixture replays".to_string(),
+        }],
+        steps: vec![
+            plan_step_draft("add the types", &[]),
+            plan_step_draft("wire the reducer", &["step_1"]),
+        ],
+    }
+}
+
+fn plan_record(status: PlanDocumentStatus, revision: u32) -> PlanDocumentRecord {
+    let draft = plan_draft();
+    let steps = draft.into_steps();
+    PlanDocumentRecord {
+        plan_id: PlanDocumentId("plan_fixture".to_string()),
+        owner: draft.owner.clone(),
+        title: draft.title.clone(),
+        goal: draft.goal.clone(),
+        status,
+        revision,
+        content_sha256: format!(
+            "{:x}",
+            Sha256::digest(
+                plan_content_digest_source(&draft.title, &draft.goal, &draft.sections, &steps)
+                    .as_bytes()
+            )
+        ),
+        sections: draft.sections.clone(),
+        steps,
+        proposed_by: PlanAuthor::Operator,
+        created_at: 1_700_000_000,
+        updated_at: 1_700_000_000,
+        decided_at: None,
+        decision_audit_id: None,
+        handoff: None,
+    }
+}
+
+/// Core assigns step identity, and a dependency names a sibling of this same
+/// plan. A draft that could carry its own ids would let a second proposal
+/// renumber a step an operator had already read.
+#[test]
+fn plan_steps_take_core_assigned_positional_identity() {
+    let steps = plan_draft().into_steps();
+    assert_eq!(steps[0].id, "step_1");
+    assert_eq!(steps[1].id, "step_2");
+    assert_eq!(steps[1].dependencies, vec!["step_1".to_string()]);
+}
+
+/// Every bound refuses rather than truncates. A clamped plan is a plan the
+/// operator decides on and the author never wrote.
+#[test]
+fn an_over_bound_plan_draft_is_refused_not_clamped() {
+    let ok = plan_draft();
+    ok.validate().expect("the in-bounds draft is accepted");
+
+    let mut ownerless = plan_draft();
+    ownerless.owner = RuntimeOwner::default();
+    assert!(
+        ownerless.validate().unwrap_err().contains("names nobody"),
+        "a plan that belongs to nobody collapses one open plan per owner"
+    );
+
+    let mut long_title = plan_draft();
+    long_title.title = "t".repeat(MAX_PLAN_TITLE_BYTES + 1);
+    assert!(long_title.validate().is_err());
+
+    let mut long_goal = plan_draft();
+    long_goal.goal = "g".repeat(MAX_PLAN_GOAL_BYTES + 1);
+    assert!(long_goal.validate().is_err());
+
+    let mut long_section = plan_draft();
+    long_section.sections[0].body = "s".repeat(MAX_PLAN_SECTION_BODY_BYTES + 1);
+    assert!(long_section.validate().is_err());
+
+    let mut too_many_steps = plan_draft();
+    too_many_steps.steps = (0..=MAX_PLAN_STEPS)
+        .map(|index| plan_step_draft(&format!("step {index}"), &[]))
+        .collect();
+    assert!(too_many_steps.validate().is_err());
+
+    let mut duplicate_section = plan_draft();
+    duplicate_section.sections.push(PlanSection {
+        kind: PlanSectionKind::AcceptanceCriteria,
+        body: "again".to_string(),
+    });
+    assert!(
+        duplicate_section
+            .validate()
+            .unwrap_err()
+            .contains("more than once")
+    );
+
+    let mut escaping_scope = plan_draft();
+    escaping_scope.steps[0].file_scope = vec!["../secrets".to_string()];
+    assert!(
+        escaping_scope
+            .validate()
+            .unwrap_err()
+            .contains("not workspace-relative")
+    );
+
+    let mut dangling = plan_draft();
+    dangling.steps[0].dependencies = vec!["step_9".to_string()];
+    assert!(
+        dangling
+            .validate()
+            .unwrap_err()
+            .contains("not a step of this plan")
+    );
+
+    let mut self_dependent = plan_draft();
+    self_dependent.steps[0].dependencies = vec!["step_1".to_string()];
+    assert!(
+        self_dependent
+            .validate()
+            .unwrap_err()
+            .contains("depends on itself")
+    );
+}
+
+/// The digest covers exactly title, goal, sections, and steps, and it moves
+/// whenever any of them does. A decision pinned to a digest that ignored the
+/// steps would accept a plan whose work changed under it.
+#[test]
+fn the_plan_content_digest_source_covers_every_decided_field() {
+    let draft = plan_draft();
+    let steps = draft.into_steps();
+    let base = plan_content_digest_source(&draft.title, &draft.goal, &draft.sections, &steps);
+
+    assert_ne!(
+        base,
+        plan_content_digest_source("other", &draft.goal, &draft.sections, &steps)
+    );
+    assert_ne!(
+        base,
+        plan_content_digest_source(&draft.title, "other", &draft.sections, &steps)
+    );
+    let mut other_sections = draft.sections.clone();
+    other_sections[0].body = "changed".to_string();
+    assert_ne!(
+        base,
+        plan_content_digest_source(&draft.title, &draft.goal, &other_sections, &steps)
+    );
+    let mut other_steps = steps.clone();
+    other_steps[0].status = PlanStepStatus::Completed;
+    assert_ne!(
+        base,
+        plan_content_digest_source(&draft.title, &draft.goal, &draft.sections, &other_steps)
+    );
+    // Length-prefixed, so two different splits of the same characters cannot
+    // collide into one digest.
+    assert_ne!(
+        plan_content_digest_source("ab", "c", &[], &[]),
+        plan_content_digest_source("a", "bc", &[], &[])
+    );
+}
+
+/// A plan is open while it is `Drafting`, `Proposed`, or `Accepted`. One
+/// definition, because the runtime and the tool both decide "revise or create"
+/// from it.
+#[test]
+fn exactly_three_plan_statuses_are_open() {
+    assert!(PlanDocumentStatus::Drafting.is_open());
+    assert!(PlanDocumentStatus::Proposed.is_open());
+    assert!(PlanDocumentStatus::Accepted.is_open());
+    assert!(!PlanDocumentStatus::Rejected.is_open());
+    assert!(!PlanDocumentStatus::HandedOff.is_open());
+    assert!(!PlanDocumentStatus::Superseded.is_open());
+}
+
+/// The record-carrying event reduces; the two settlement facts do not. Folding
+/// a settlement in as well would give one truth two producers and let an
+/// out-of-order decision overwrite a record that has already moved on.
+#[test]
+fn only_the_plan_document_update_reduces_into_the_view_state() {
+    let snapshot: RuntimeSnapshot = serde_json::from_value(runtime_snapshot_json()).unwrap();
+    let mut view = RuntimeViewState::new(snapshot.clone());
+    assert!(view.plan_documents.is_empty());
+
+    let proposed = plan_record(PlanDocumentStatus::Proposed, 1);
+    view.apply_event(&RuntimeEvent::new(
+        1,
+        RuntimeEventKind::PlanDocumentUpdated {
+            plan: proposed.clone(),
+        },
+    ));
+    assert_eq!(view.plan_documents, vec![proposed.clone()]);
+
+    // A second revision replaces the record rather than appending one.
+    let revised = plan_record(PlanDocumentStatus::Proposed, 2);
+    view.apply_event(&RuntimeEvent::new(
+        2,
+        RuntimeEventKind::PlanDocumentUpdated {
+            plan: revised.clone(),
+        },
+    ));
+    assert_eq!(view.plan_documents, vec![revised.clone()]);
+
+    let before_settlements = view.clone();
+    view.apply_event(&RuntimeEvent::new(
+        3,
+        RuntimeEventKind::PlanDocumentDecided {
+            plan_id: revised.plan_id.clone(),
+            revision: 2,
+            status: PlanDocumentStatus::Accepted,
+            audit_id: "audit_plan_accept".to_string(),
+            owner: revised.owner.clone(),
+        },
+    ));
+    view.apply_event(&RuntimeEvent::new(
+        4,
+        RuntimeEventKind::PlanDocumentHandedOff {
+            plan_id: revised.plan_id.clone(),
+            revision: 2,
+            dag_id: "dag_plan".to_string(),
+            audit_id: "audit_plan_handoff".to_string(),
+            owner: revised.owner.clone(),
+        },
+    ));
+    assert_eq!(before_settlements, view);
+}
+
+/// A view that carries no plan encodes to exactly the bytes it did before the
+/// field existed, which is what keeps the nine frozen base fixtures
+/// byte-identical.
+#[test]
+fn an_empty_plan_list_is_absent_from_the_encoded_view() {
+    let snapshot: RuntimeSnapshot = serde_json::from_value(runtime_snapshot_json()).unwrap();
+    let view = RuntimeViewState::new(snapshot);
+    let encoded = serde_json::to_value(&view).unwrap();
+    assert!(encoded.get("plan_documents").is_none());
+
+    let decoded: RuntimeViewState = serde_json::from_value(encoded).unwrap();
+    assert!(decoded.plan_documents.is_empty());
+}
+
+/// All three plan facts are known events. Quarantining `plan_document_updated`
+/// leaves a client showing "no plan proposed" about a plan Core holds.
+#[test]
+fn every_plan_document_event_is_known_on_the_wire() {
+    let record = plan_record(PlanDocumentStatus::Accepted, 2);
+    let kinds = vec![
+        RuntimeEventKind::PlanDocumentUpdated {
+            plan: record.clone(),
+        },
+        RuntimeEventKind::PlanDocumentDecided {
+            plan_id: record.plan_id.clone(),
+            revision: record.revision,
+            status: PlanDocumentStatus::Accepted,
+            audit_id: "audit_plan_accept".to_string(),
+            owner: record.owner.clone(),
+        },
+        RuntimeEventKind::PlanDocumentHandedOff {
+            plan_id: record.plan_id.clone(),
+            revision: record.revision,
+            dag_id: "dag_plan".to_string(),
+            audit_id: "audit_plan_handoff".to_string(),
+            owner: record.owner.clone(),
+        },
+    ];
+    for kind in kinds {
+        let envelope = RuntimeEventEnvelope {
+            schema_version: FRONTEND_SCHEMA_V1,
+            owner: record.owner.clone(),
+            cursor: EventCursor {
+                stream_id: "stream_plan".to_string(),
+                sequence: 1,
+            },
+            event: RuntimeWireEvent::Known(RuntimeEvent::new(1, kind)),
+        };
+        let encoded = serde_json::to_string(&envelope).unwrap();
+        let decoded: RuntimeEventEnvelope = serde_json::from_str(&encoded).unwrap();
+        assert!(
+            matches!(decoded.event, RuntimeWireEvent::Known(_)),
+            "a plan fact must never quarantine as an unknown event: {encoded}"
+        );
+        assert_eq!(decoded, envelope);
+    }
+}
+
+/// `runtime.plan_documents` is a post-checkpoint addition, so it belongs to
+/// the extension list and never to the frozen base capabilities.
+#[test]
+fn the_plan_documents_capability_is_an_advertised_extension() {
+    assert!(FRONTEND_V1_EXTENSION_CAPABILITIES.contains(&"runtime.plan_documents"));
+    assert!(!FRONTEND_V1_CAPABILITIES.contains(&"runtime.plan_documents"));
+    assert!(
+        FRONTEND_V1_EXTENSION_CAPABILITIES
+            .windows(2)
+            .all(|pair| pair[0] < pair[1]),
+        "extension capabilities must stay sorted and unique"
+    );
+    // 29 -> 30 with C13, the first Core batch of the 0.3.5 increment.
+    assert_eq!(FRONTEND_V1_EXTENSION_CAPABILITIES.len(), 30);
 }
