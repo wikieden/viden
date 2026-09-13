@@ -1,5 +1,6 @@
 #[cfg(test)]
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::OnceLock;
+use std::sync::{Arc, Mutex};
 use std::{
     collections::BTreeSet,
     fs::{self, File},
@@ -70,6 +71,51 @@ pub(crate) struct QueuedRuntimeInput {
     id: String,
     content: String,
     created_at: u64,
+}
+
+/// Core's session follow-up queue, shared between the accept path and the
+/// drain.
+///
+/// The supervisor is one worker, so a `QueueFollowUp` a client sends while a
+/// turn runs cannot be pushed by that worker until the turn ends — which is why
+/// `InputQueued` and `InputDequeued` used to arrive in the same instant and
+/// `queued_inputs` was empty for the whole wait (compatibility follow-up 16).
+/// Sharing the queue lets the *intake* side acknowledge the entry immediately
+/// while the drain still consumes from the same place, so there is one queue
+/// and one ordering rather than two.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct SessionInputQueue {
+    entries: Arc<Mutex<Vec<QueuedRuntimeInput>>>,
+}
+
+impl SessionInputQueue {
+    /// Appends one entry and returns the view the acknowledgement publishes.
+    pub(crate) fn push(&self, content: String) -> QueuedInputView {
+        let queued = QueuedRuntimeInput::new(content);
+        let view = queued.view();
+        if let Ok(mut entries) = self.entries.lock() {
+            entries.push(queued);
+        }
+        view
+    }
+
+    /// Removes and returns the oldest entry as `(id, content)`.
+    pub(crate) fn take_oldest(&self) -> Option<(String, String)> {
+        let mut entries = self.entries.lock().ok()?;
+        if entries.is_empty() {
+            return None;
+        }
+        let input = entries.remove(0);
+        Some((input.id, input.content))
+    }
+
+    /// Every queued entry's published view, oldest first.
+    pub(crate) fn views(&self) -> Vec<QueuedInputView> {
+        self.entries
+            .lock()
+            .map(|entries| entries.iter().map(QueuedRuntimeInput::view).collect())
+            .unwrap_or_default()
+    }
 }
 
 struct RecordAgentEvidenceRequest<'a> {
@@ -396,11 +442,16 @@ impl SessionEngine {
     /// that ran them in any other one would reorder their intent. The entry is
     /// removed before the turn runs so a second drain cannot pick it up.
     pub(crate) fn take_oldest_queued_runtime_input(&mut self) -> Option<(String, String)> {
-        if self.queued_runtime_inputs.is_empty() {
-            return None;
-        }
-        let input = self.queued_runtime_inputs.remove(0);
-        Some((input.id, input.content))
+        self.queued_runtime_inputs.take_oldest()
+    }
+
+    /// The shared handle onto this engine's session queue.
+    ///
+    /// Taken once by `RuntimeSupervisor::start` before the engine moves onto
+    /// the worker thread, so the accept path can acknowledge a follow-up into
+    /// Core's own queue without the worker (compatibility follow-up 16).
+    pub(crate) fn session_input_queue(&self) -> SessionInputQueue {
+        self.queued_runtime_inputs.clone()
     }
 
     /// Runs a native turn and everything its completion releases.
@@ -790,10 +841,12 @@ impl SessionEngine {
             RuntimeCommand::SubmitUserInput { content } => {
                 self.run_native_turn_sequence(&command_id, content, approver, &mut events);
             }
+            // The direct contract path owns the whole acknowledgement, which
+            // is what the frozen `queued-follow-up` fixture replays. Under
+            // `RuntimeSupervisor` the accept path has already pushed and
+            // announced the entry, and the command never reaches here.
             RuntimeCommand::QueueFollowUp { content } => {
-                let queued = QueuedRuntimeInput::new(content);
-                let input = queued.view();
-                self.queued_runtime_inputs.push(queued);
+                let input = self.queued_runtime_inputs.push(content);
                 events.push(RuntimeEvent::new(
                     next_sequence(&events),
                     RuntimeEventKind::InputQueued { input },
@@ -1936,12 +1989,10 @@ impl SessionEngine {
                 ));
             }
         }
-        for input in &self.queued_runtime_inputs {
+        for input in self.queued_runtime_inputs.views() {
             events.push(RuntimeEvent::new(
                 next_sequence(&events),
-                RuntimeEventKind::InputQueued {
-                    input: input.view(),
-                },
+                RuntimeEventKind::InputQueued { input },
             ));
         }
         for dag in &self.runtime_agent_dags {

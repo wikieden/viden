@@ -426,6 +426,15 @@ enum SupervisorMessage {
         request_id: String,
         response: ApprovalResponse,
     },
+    /// A session follow-up the accept path already pushed and announced.
+    ///
+    /// It carries no content: the entry is in Core's queue before this message
+    /// is sent (compatibility follow-up 16). The worker only has to decide
+    /// whether the drain was already armed by a completed turn, which is the
+    /// one thing the intake side cannot know.
+    SessionFollowUpQueued {
+        owner: RuntimeOwner,
+    },
     Snapshot {
         response: Sender<Result<RuntimeSnapshotEnvelope, String>>,
     },
@@ -556,6 +565,10 @@ pub struct RuntimeSupervisor {
     lane_supervisor: Arc<LaneSupervisor>,
     permission_control: Arc<Mutex<PermissionControlState>>,
     approval_audit: ApprovalAuditLog,
+    /// Core's session follow-up queue, shared with the engine on the worker
+    /// thread so the accept path can acknowledge an entry while a turn runs
+    /// (compatibility follow-up 16).
+    session_queue: crate::runtime_contract::SessionInputQueue,
     worker_alive: Arc<AtomicBool>,
     worker: Option<JoinHandle<()>>,
 }
@@ -607,6 +620,9 @@ impl RuntimeSupervisor {
         let approval_audit = ApprovalAuditLog {
             workflows: engine.workflow_store(),
         };
+        // Same rule, same reason: taken before the move so the intake side of
+        // the channel writes into the one queue the drain reads from.
+        let session_queue = engine.session_input_queue();
         let mut lane_agent_hydration_error = None;
         let mut lane_agent_bindings = match lane_agent_store.load_lane_agent_bindings() {
             Ok(bindings) => bindings
@@ -787,6 +803,7 @@ impl RuntimeSupervisor {
             lane_supervisor,
             permission_control,
             approval_audit,
+            session_queue,
             worker_alive,
             worker: Some(worker),
         }
@@ -995,6 +1012,40 @@ impl RuntimeSupervisor {
                 .map_err(|err| format!("runtime supervisor stopped: {err}"));
         }
         let result = match command {
+            // Compatibility follow-up 16. The supervisor is one worker, so a
+            // follow-up sent while a turn runs used to sit in that worker's
+            // channel: `queued_inputs` stayed empty for the whole wait and
+            // `InputQueued` and `InputDequeued` arrived in the same instant,
+            // which is what left the composer showing "working" instead of
+            // "queued". The entry is now pushed onto Core's queue and announced
+            // here, on the accept path, and the worker is told only that it may
+            // need to drain.
+            //
+            // Session scope only. A Lane's follow-ups are held and drained by
+            // its own worker, and `drain_session_queue` refuses a Lane owner
+            // for exactly that reason.
+            RuntimeCommand::QueueFollowUp { content } if owner.lane_id.is_none() => {
+                let input = self.session_queue.push(content.clone());
+                emit_event(
+                    &self.event_bus,
+                    owner.clone(),
+                    RuntimeEventKind::CommandAccepted {
+                        command_id,
+                        command: redacted_runtime_command_for_event(
+                            &RuntimeCommand::QueueFollowUp { content },
+                        ),
+                    },
+                );
+                emit_event(
+                    &self.event_bus,
+                    owner.clone(),
+                    RuntimeEventKind::InputQueued { input },
+                );
+                return self
+                    .commands
+                    .send(SupervisorMessage::SessionFollowUpQueued { owner })
+                    .map_err(|err| format!("runtime supervisor stopped: {err}"));
+            }
             RuntimeCommand::StartAgentSession { ref request }
                 if owner.lane_id.as_deref() != Some(request.lane_id.as_str()) =>
             {
@@ -1507,6 +1558,21 @@ impl RuntimeSupervisor {
         result
     }
 
+    /// The live reduced view, read without going through the command channel.
+    ///
+    /// `snapshot_envelope` is answered by the worker, so it cannot be used to
+    /// observe state *while* a turn occupies that worker — which is exactly
+    /// what compatibility follow-up 16 is about.
+    #[cfg(test)]
+    pub(crate) fn live_view_for_test(&self) -> RuntimeViewState {
+        self.event_bus
+            .state
+            .lock()
+            .expect("runtime event state")
+            .live_view
+            .clone()
+    }
+
     pub fn recv_event_timeout(&self, timeout: Duration) -> Option<RuntimeEvent> {
         self.recv_event_envelope_timeout(timeout)
             .and_then(|envelope| match envelope.event {
@@ -1696,8 +1762,6 @@ fn run_supervisor_worker(
                 // workspace identity is folded in here, once, rather than at
                 // each producer.
                 let owner = stamp_workspace_identity(&engine, owner, &command);
-                let queued_follow_up = matches!(command, RuntimeCommand::QueueFollowUp { .. });
-                let queue_owner = owner.clone();
                 before_supervisor_command_for_test(&command_id);
                 if LaneSupervisor::handles(&command) {
                     if let Err(error) =
@@ -1894,14 +1958,23 @@ fn run_supervisor_worker(
                         }
                     }
                 }
-                // Checked only after a `QueueFollowUp`, never after an
-                // unrelated command: the queue is released by a completed turn
-                // and by a new entry landing while it is still draining, not by
-                // whatever else the operator happened to do next.
-                if queued_follow_up && session_queue_draining && queue_owner.lane_id.is_none() {
+                if let Err(error) =
+                    sync_lane_permissions(&lane_supervisor, &engine, applied_permission_epoch)
+                {
+                    emit_error(&event_bus, RuntimeOwner::default(), error);
+                }
+            }
+            // The accept path already pushed the entry and published
+            // `InputQueued`; the only decision left is whether a completed turn
+            // had armed the drain, which is worker-local state. Released here
+            // rather than after an unrelated command: the queue is released by
+            // a completed turn and by a new entry landing while it is still
+            // draining, not by whatever else the operator happened to do next.
+            SupervisorMessage::SessionFollowUpQueued { owner } => {
+                if session_queue_draining && owner.lane_id.is_none() {
                     session_queue_draining = drain_session_queue(
                         &mut engine,
-                        &queue_owner,
+                        &owner,
                         SupervisorShared {
                             event_bus: &event_bus,
                             active_control: &active_control,
@@ -1913,14 +1986,9 @@ fn run_supervisor_worker(
                     );
                     emit_frontend_status_events_if_changed(
                         &event_bus,
-                        queue_owner,
+                        owner,
                         engine.frontend_status_lifecycle_events(),
                     );
-                }
-                if let Err(error) =
-                    sync_lane_permissions(&lane_supervisor, &engine, applied_permission_epoch)
-                {
-                    emit_error(&event_bus, RuntimeOwner::default(), error);
                 }
             }
             SupervisorMessage::LaneApprovalResponse {
