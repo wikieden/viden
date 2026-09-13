@@ -706,3 +706,241 @@ checkpoint 失效。
 上文提到的 macOS `.app` 是本地构建产物，既未安装也未分发。release gate 的
 prepublish 阶段没有运行；打包、公证、Homebrew 与 live provider 认证按 `0.3.4` 计划
 自己的范围修订属于 `0.3.5` 的范围。
+
+## 原生 GUI 运行 —— 2026-09-13（0.3.4，取自 main 75e2a84a）
+
+这是 `0.3.4` 发布步骤未能做成的那次运行。分支 `claude/evidence-e3a`，位于
+`.worktrees/evidence-e3a`，基线为 `main` 的
+`75e2a84ade9f2363732aa10332cc666ff366d029` —— 与 `0.3.4` 发布提交 `edcc7b3d`
+代码完全相同，两者之间只有计划文档不同，所以下文证明的就是 `0.3.4` 实际交付的东西。
+宿主屏幕处于解锁状态，并且在每一批按键与点击之前都读取了
+`CGSessionCopyCurrentDictionary()`；每一行都记录在本批次报告里，且每一次
+`CGSSessionScreenIsLocked` 都是 `0`。下文没有任何内容是从 fixture 回放推断出来的，
+也没有修复其中任何缺陷：这是证据步骤。
+
+这是一次**部分**运行，而且这个切分很重要。真实任务的整个源码管理半边 —— 暂存、提交
+与推送，各自在自己的 Core 审批之下、在未选中 Lane 的情况下 —— 首次通过驾驶舱端到端
+跑通。Lane 那半边完全没有跑，因为**这个构建里无法创建 Lane**（缺陷 14 与 15），
+它把编辑器输入框、工具审批、内联工具 diff、检查运行块、归档补丁与排队后续消息都挡在
+了后面。
+
+### 被测应用
+
+`npm --prefix apps/gui ci --no-audit --no-fund` 在 9 秒内新增 97 个包；
+`npm --prefix apps/gui run tauri -- build --bundles app` 在 1 分 12 秒内通过
+（05:19:10Z 至 05:20:2xZ），产出 `target/release/bundle/macos/Viden.app`：
+
+| 事实 | 值 |
+| --- | --- |
+| `CFBundleShortVersionString` | `0.1.0-rc.5` |
+| `CFBundleIdentifier` | `dev.viden.gui` |
+| `CFBundleExecutable` | `viden-gui` |
+| 架构 | `Mach-O 64-bit executable arm64` |
+| 可执行文件大小 | 40,655,440 字节 |
+| Bundle 大小 | 39 MB |
+| 签名 | ad-hoc、linker-signed、`TeamIdentifier=not set`、`Sealed Resources=none` |
+
+它是从 bundle 启动的，没有被安装、用身份签名、公证或分发。每次启动都把
+`VIDEN_HOME` 指向一个 scratch 目录，因此本仓库自己的 `.viden/` 从未被读或写。
+启动过的 PID 依次为：93235、9284、59134（那次长运行）、86319、3918、47443。
+
+### Fixture
+
+运行 scratch 目录下的一个全新临时 Git 仓库：一个提交
+`c593aefa2f9fed571e2caef713e9f0b39e6b7f2e`（"Add the fixture README"）、一个七行的
+`README.md`、一个覆盖 `.viden/` 与 `.worktrees/` 的 `.gitignore`，以及一个选择
+`provider = "fallback"` / `model = "test-local"` 的 `.viden/config.toml`。
+Core 在 bootstrap 时铸出了 `.viden/project.toml`
+`[project] id = "prj_1789277024425237000"` —— 这就是 C10 的绑定点，在磁盘上可见，
+也是下文每个审批携带的 id。
+
+### 与脚本任务的两处偏离，以及原因
+
+两处都是本次运行发现的缺陷带来的后果，这里点名说明，而不是藏进步骤行里。
+
+- **工作区改动是在带外做的。** 任务的变更本应是 Lane 内的编辑器输入框
+  `tool edit_file …`。GUI 的输入框是 Lane 作用域的（`Message the selected Lane`
+  处于禁用状态，下方写着 `Create or select a Lane to start.`），而 Lane 无法创建
+  （缺陷 14、15），所以这次改动是用 `sed` 在 fixture 上做的，然后驱动驾驶舱处理这棵
+  变脏的工作树。编辑之后的一切 —— Core 的类型化决策上下文、审批、结果与审计行 ——
+  都是 GUI 驱动、作用在真实改动上的真实 Core 行为，但这次改动的**作者**不是产品。
+- **裸 `origin` 是在任何被拒推送之前加上的。** TUI 那次是靠在没有 remote 的情况下
+  推送拿到 `OperatorGitOutcome::Failed { NoUpstream }` 的。在驾驶舱里，推送的入口
+  只有 DiffReview 提交条上的 `Commit & Push ⇡` 与标题栏同步 chip；chip 只在 Core
+  采样到 `ahead > 0` 时才提供推送，而这需要 upstream，而 `Commit & Push` 会先发起
+  `git_commit` 审批再发起 `git_push` 审批 —— 一个应用会话里两次审批，这正是缺陷 16
+  让人做不到的事。所以 `NoUpstream` **没有在原生环境下走到**，裸 `origin` 与跟踪
+  引用是在带外创建的，而下文那次被接受的推送，是 Core 把一个真实提交推进一个真实
+  remote 的真实推送。
+
+### 逐步记录
+
+每一帧都拍了两次（沿用 `0.3.3` harness 记录里的 `screencapture` 陈旧问题），保留第二
+帧；每一条断言都以 Accessibility 树为准，且列出的每一张 PNG 都在列出前被看过。
+
+| # | 步骤 | 是否走到 | 结果 / 原因 | 帧 |
+| --- | --- | --- | --- | --- |
+| 1 | Welcome | 是 | `No project open`，一个带 `⌘ O` 的 `Open project` 动作，`Recent projects appear once a project is open.` / `Core adapter is not connected`。状态栏 `MODE — · PERM — · CONTEXT — · EVENTS #0 · LANE — · DIAG 0× · REQ —`。 | [`01`](native-0.3.4/01-welcome.png) |
+| 2 | `⌘O` 绑定 | 是 | `⌘O` 打开 `Open project folder` 面板，按 harness 记录要求仅用按键驱动（`⌘⇧G`、粘贴路径、`Return`、`Return`）。面板列出 fixture 的 `README.md`，118 字节，`Open` 可用。 | [`02`](native-0.3.4/02-open-panel-at-fixture.png) |
+| 3 | **驾驶舱已绑定** | 是 | 驾驶舱在 fixture 上起来了：dock Environment `Provider fallback`、`Model test-local`、`Mode build`、`Permission ask`；Local `Branch main`、fixture 路径作为 `Worktree`、`Ahead 0`、`Behind 0`、`Working tree Clean`；状态栏 `MODE build · PERM ask · EVENTS #7 · LANE — · REQ 0 req / 0 err`。带外核对：Core 把 `session_meta` 的 `canonical_root`＝fixture 路径、`work_mode` `build`、`permission_mode` `default`、`model` `test-local` 写进了 scratch `VIDEN_HOME`。 | [`03`](native-0.3.4/03-cockpit-bound.png) |
+| 4 | **未选中 Lane 时可见的工作区 owner** | 是 | `LANE —`，而 dock 的 `Commit or push` 区把 `Open the commit bar` 渲染为**可用**（`AXEnabled=true`），同时标题栏同步 chip 可用，帮助文本为 `0 ahead, 0 behind the upstream, as Core last sampled it.` 两者都没有退回 `D1-OPERATOR-GIT-NO-WORKSPACE-OWNER`，因此 C5 的 `runtime.workspace_owner` 已发布并被消费 —— GUI-CORE-027 在 GUI 上实地关闭。 | [`04`](native-0.3.4/04-workspace-owner-commit-bar.png) |
+| 5 | `⌘L` 新建 Lane | 部分 | `⌘L` 打开了 New Lane 浮层，`Viden Agent built-in` 被选中，三个 ACP adapter 在 `Checking ACP agents…` 下变灰，任务已粘贴，推导出的分支为 `⌁ vd/edit-the-fixture-readme-he`，隔离方式 `local`。 | [`05`](native-0.3.4/05-new-lane-popover.png) |
+| 6 | **在 Core 审批下创建 Lane** | **否** | `Create lane ↵` 始终没有变为可用。`Checking ACP agents…` 在两个独立的应用会话里各自持续超过六分钟，期间 Accessibility 树一直读到 `enabled=false`，而且选中的是内建 agent。`⌘⏎` 无效。从未发起过 `lane_create` 审批。见缺陷 14。 | [`06`](native-0.3.4/06-new-lane-create-blocked.png) |
+| 7 | 作为第二条创建路径的 D4 `Full setup…` | **否** | 向导以整窗形式打开在第 1 步，带着 Core 的只读解析（`Coder`/`Reviewer`/`Tester`、Lane ID、`Branch override`、被带过来的任务并注明它不属于创建命令、`Worktree` 与 `Base revision` 显示 `Core resolves this on preview`）。按下 `Preview with Core`；80 秒内没有 `StarterLanePreviewed` 事实到达，`Create reviewed Lane` 保持禁用。见缺陷 15。 | [`07`](native-0.3.4/07-d4-wizard-step1.png)、[`08`](native-0.3.4/08-d4-preview-unresolved.png) |
+| 8 | 输入框 `tool edit_file …`、该编辑的 D2 hunks、内联工具 diff、检查运行块 | **否** | 这四项在本客户端都是 Lane 作用域的；没有 Lane 时输入框禁用并明说。被第 6、7 步挡住，走不到。 | — |
+| 9 | 运行前的 EvidenceView | 是 | 在驾驶舱 chrome 内打开，带设计自己的筛选 chip（`All`/`Patch`/`Test result`/`Review`/`Doc update`/`Release artifact`）、搜索框、`No evidence in this scope.` 与 `Archive complete — Core published every entry matching this scope.` 这是一个诚实的空归档，不是一个沉默的空归档。 | [`09`](native-0.3.4/09-evidenceview-empty-before.png) |
+| 10 | 变脏工作树上的 DiffReview | 是 | 带外做完改动后，视图自身的重读控件刷新了 Core 的采样：`1 files · +1 −1`、`README.md`、`@@ -1,4 +1,4 @@`、`-# E3a Fixture` / `+# E3a Edited`，dock 的 `Changes` 区列出 `M README.md +1 −1`。 | [`10`](native-0.3.4/10-diffreview-dirty.png) |
+| 11 | **在 Core 审批下暂存** | 是 | `Stage all` → `Stage is waiting for approval in the permission dock.` D2 显示 `Approve git_add prj_1789277024425237000 · pending · low`、`TOOL INPUT PREVIEW all: true`、`EVIDENCE Core published no evidence for this decision.`，以及 `Decision and reason are written to audit audit_1789279167519670000`，下面是 `Approve once` / `Deny`。`Approve once` 完成暂存：`git status --short` 从 ` M README.md` 变成 `M  README.md`。 | [`11`](native-0.3.4/11-stage-waiting-approval.png)、[`12`](native-0.3.4/12-stage-approval-d2.png)、[`13`](native-0.3.4/13-stage-applied.png) |
+| 12 | **暂存的 `OperatorGitOutcome::Completed`** | 是 | 提交条渲染出 `Stage completed · main ↑0 ↓0 · uncommitted changes remain`，带 `▶ Git output` 折叠项，`LANE —`。 | [`14`](native-0.3.4/14-stage-completed.png) |
+| 13 | 决策之后的 D2 | **缺陷** | 已决策的 `git_add` 卡片仍停在 `pending · low`，仍是 `1 awaiting you` 与 `Sent. Waiting for Core to record the verdict.`，而随后发起的 `git_commit` 审批从未出现。见缺陷 16。 | [`15`](native-0.3.4/15-d2-stale-after-decision.png) |
+| 14 | **D14 显示 `approval.allow_once` 审计行** | 是 | 审计时间线渲染出 `approval.allow_once operator success · permission · approval_1789279167519659000 · tool · git_add · job · gui-git-2d695ebc-… · scope=allow_once`，旁边是它的 `source.stage` authorized/completed 对，下方是 `Core reports the audit timeline is complete.` 带外核对 scratch `workflows/projects/*/audit.jsonl`：同样三行、同样的 id。 | [`16`](native-0.3.4/16-d14-audit-stage.png) |
+| 15 | **dock Files 标签打开文件** | 是 | `Files` 标签列出 Core 的工作区清单（`.gitignore` 20、`README.md` 117），inspector 的 `Open file` 读到了它：`workspace root · 117 bytes on disk · sha256 f1d3490374e3…`，下方是文件正文。带外核对：文件是 117 字节，sha256 为 `f1d3490374e339e9f46c273d44757462cf8c0818c5cd54269b6488646bd96bdf`。C9 的 `runtime.workspace_file_reads` 被实地消费。 | [`17`](native-0.3.4/17-dock-files-open.png) |
+| 16 | **专注模式 `⌘.` 与 `Esc`** | 部分 | `Focus mode ⌘.` 控件会隐藏上下文 dock 并把整窗宽度给中栏；`Esc` 从审计时间线回到会话视图，chrome 保留、专注模式仍开着，且记录区带着一条持久的 `PERMISSION approval_… · decision allow_once` 行与 `Open audit trail`。当焦点落在 dock 的文件列表里时 `⌘.` 组合键本身没有触发；控件触发了。这记为下文的观察而非缺陷，因为从外部无法证明一次合成按键的焦点落点。 | [`18`](native-0.3.4/18-focus-mode.png)、[`19`](native-0.3.4/19-esc-return.png) |
+| 17 | **未选中 Lane、在 Core 审批下、带 C1 类型化决策上下文的提交** | 是 | 在一个全新的应用会话里，`git_commit` 审批正确出现了：`Approve git_commit prj_1789277024425237000 · pending · medium`、`TOOL INPUT PREVIEW message: … path: …`，以及**Core 的类型化 hunks 而不是工具输入** —— `README.md`、`@@ -1,4 +1,4 @@`、`-# E3a Fixture` / `+# E3a Edited`，带逐行行号。`Approve once` 完成提交。带外核对：`a5d3d53 Edit the fixture README heading`，工作树干净。**GUI 中实地观察到提交的 `OperatorGitOutcome::Completed`，且 `LANE —`。** | [`20`](native-0.3.4/20-commit-approval-hunks.png)、[`21`](native-0.3.4/21-commit-completed.png) |
+| 18 | 推送被 `NoUpstream` 拒绝 | **否** | 走不到；见上文第二处偏离。第二个提交 `2d0a30d` 是用同样方式通过 `Commit & Push ⇡` 做的，其 `git_push` 审批随后被缺陷 16 吞掉 —— 提交条显示 `Push is waiting for approval in the permission dock.`，而 D2 仍显示已决策的 `git_commit`。 | — |
+| 19 | **推送被接受** | 是 | 在裸 `origin` 与跟踪引用就位、本地领先一个提交的情况下，标题栏同步 chip 显示 `Push 1 local commits. Pull is excluded by contract; this client pushes and fetches only.` 且可用。它发起了 `Approve git_push prj_1789277024425237000 · pending · high`、`remote: origin`、审计 `audit_1789281559244376000`，下面是 `Approve once` / `Approve for repo paths` / `Deny`。`Approve once` 完成推送：提交条渲染出 `Push completed · main ↑0 ↓0 · working tree clean`。带外核对：裸 `origin` 里有 `70bda55`，本地分支读作 `## main...origin/main` 且没有分叉。**GUI 中实地观察到推送的 `OperatorGitOutcome::Completed`，且 `LANE —`。** | [`22`](native-0.3.4/22-sync-chip-ahead.png)、[`23`](native-0.3.4/23-push-approval-d2.png)、[`24`](native-0.3.4/24-push-completed.png) |
+| 20 | **运行之后的 D14** | 是 | `Audit trail 15`、`Outcomes on the loaded page · 15 success 15`：五条 `approval.allow_once`（两条 `git_add`、两条 `git_commit`、一条 `git_push`），每条都带自己的 `gui-git-…` job id，以及两次暂存、两次提交与一次推送各自的 `authorized`/`completed` 对。与 scratch `audit.jsonl` 逐字核对一致。 | [`25`](native-0.3.4/25-d14-audit-full.png) |
+| 21 | 运行之后的 EvidenceView | 是 | 仍是 `No evidence in this scope.` 与 `Archive complete`，搜索框自己的措辞是 `0 entries`。这是正确的：C7 为**原生工具**变更归档 `patch`，而本次没有工具变更可做。 | [`26`](native-0.3.4/26-evidenceview-empty-after.png) |
+| 22 | 排队的后续消息在一轮进行中被排空 | **否** | 本客户端里一轮需要 Lane。被第 6、7 步挡住，走不到。 | — |
+
+### GUI 中实地观察到的 Core 结果变体
+
+- `WorkspaceRuntimeOwnerBound` 走 Tauri 宿主路径，带着铸出的 `.viden/project.toml`
+  id —— 实地观察到（C5 + C10）。
+- `RunOperatorGitAction { target: Workspace }` 在该 owner 之下、**未选中 Lane**
+  的情况下被授权 —— 实地观察到三次（暂存、提交、推送）。
+- `stage`、`commit` **与** `push` 的 `OperatorGitOutcome::Completed` ——
+  在 GUI 中实地观察到。`Failed { NoUpstream }` 与 `RemoteUnreachable` ——
+  **未观察到**；见第二处偏离。
+- `git_commit` 审批上带 `DiffDocument` 的 `ApprovalRequestView.decision_context`
+  （一个文件、一个 hunk、`+1 −1`）—— 实地观察到。`git_add` 与 `git_push` 审批带的是
+  不透明输入预览，并用 Core 自己的措辞加 `GUI-CORE-012` 说明了这一点。
+- 五个审批上的 `ApprovalDecision` allow-once，每一个后面都跟着它在磁盘上的效果 ——
+  实地观察到。
+- `AuditPage` **非空**，每一个释放变更的决策都有 `approval.*` 行及其 `source.*`
+  配对 —— 实地观察到（C7）。
+- 带已验证摘要的 `WorkspaceFileRead` —— 实地观察到（C9）。
+- `EvidencePage` —— 实地观察到且为**空**，这是本次运行的真实答案，而不是 C7 归档的
+  证据。
+- `StarterLanePreviewed`、`StarterLaneCreated`、`TurnStarted`/`TurnFinished`、
+  `InputQueued`/`InputDequeued`、`ToolCallStarted`、`EvidenceRecorded` ——
+  **未观察到**。无法创建 Lane。
+
+### E3a 发现的缺陷与缺口
+
+编号接着上文十三条继续。每一条都是复现出来的，不是推断出来的。这里都没有修复。
+
+14. **只要 ACP adapter 探测还没结束，New Lane 浮层就永远创建不了 Lane**
+    （GUI，阻塞）。`create.disabled` 里或上了 `model.probing`
+    （`apps/gui/src/components/agent_menu.ts:277-282`），而 `model.probing` 就是
+    `discoveryIsProbing()` = `agentDiscoveryStarted && !agentDiscoveryComplete`
+    （`apps/gui/src/screens/d1_cockpit.ts:3046-3048`）。探测会遍历每一个
+    `startability` 为 `probe_required` 的 adapter（`advanceAgentDiscovery`,
+    `:3644-3673`），而每次探测都在等 Core 的 `AgentAdapterProbed` 业务事实
+    （`apps/gui/src-tauri/src/adapter.rs:588-591`）。在一台没有安装 Codex、
+    Claude Agent 或 Kiro CLI 的宿主上，没有任何 `AgentAdapterProbed` 到达：
+    诊断行在两个独立应用会话里各自停在 `Checking ACP agents…` 超过六分钟，
+    `Create lane ↵` 全程读到 `enabled=false` —— **包括在选中根本不需要探测的内建
+    `Viden Agent` 时**。这个门是把一个 ACP 的关切套在了每一次创建上。正是这一条缺陷
+    让真实任务的 Lane 半边在已交付的 `0.3.4` GUI 里走不通。
+15. **D4 起始 Lane 向导的 `Preview with Core` 卡在那次未完成的探测后面**
+    （GUI，阻塞）。`Full setup…` 能带着任务进入 D4，但 `Preview with Core` 在
+    80 秒内没有产出 `StarterLanePreviewed` 事实，`Create reviewed Lane` 保持禁用，
+    所以第二条创建路径被第一条的失败关掉了。机制是一个进程级的命令槽：`PendingD1`
+    占着那个未完成的探测（`apps/gui/src-tauri/src/adapter.rs:507-509`），而 webview
+    自己的派发器在 `pendingCommandId` 置位时会直接返回
+    （`apps/gui/src/screens/d1_cockpit.ts:3599-3612`、`:3644-3656`）。因此一次卡住的
+    探测不是让某一个菜单降级，而是让 Lane 创建整体停摆。只关掉 14 而不同时给这个
+    pending 命令加上界，会把同样的形状留在任何其他无人应答的命令后面。
+16. **决策中心把一个已决策的审批一直当作唯一待办，并且从不呈现下一个**
+    （GUI，对任何需要两次决策的任务都是阻塞）。在 `git_add` 审批上按下 `Approve once`
+    之后，Core 已经把效果落地 —— 文件在磁盘上进了暂存区、审计行已写、提交条渲染出
+    `Stage completed` —— 而 D2 把同一张卡片留在 `pending · low`，留着
+    `1 awaiting you`，也留着页脚 `Sent. Waiting for Core to record the verdict.`
+    随后发起的 `git_commit` 审批从未出现，尽管 DiffReview 写着
+    `Commit is waiting for approval in the permission dock.` 导航到 DiffReview 再
+    回来、以及切换 `Gate approvals` 筛选，都没有刷新它；只有重启应用才行，而在一个
+    还没做出第一次决策的新会话里，下一个审批渲染正常。复现两次（`git_add` 后
+    `git_commit`；`git_commit` 后 `git_push`）。实际效果是一个应用会话只能服务一次
+    审批，这也是第 17 与第 19 步各需要一次自己的启动的原因。
+17. **提交完成之后源码管理的在途状态从不清除**（GUI）。在
+    `Commit completed · main ↑0 ↓0 · working tree clean` 已经显示在屏幕上的情况下，
+    `Commit & Push ⇡` 仍然禁用，提示为 `Waiting for the permission decision.`，
+    标题栏同步 chip 也仍然禁用，提示为
+    `A source-control action is already running.`，30 秒后仍无变化。屏幕上关于这次
+    提交的说法没有一句是假的；假的是客户端自己的忙碌标志，而它让推送在那个会话里
+    不可达。
+18. **应用会在会话中途自行终止**（GUI，对任何长时间原生运行都是阻塞）。本批次中有
+    五次进程以状态 `0` 退出，除了两行 AppKit TSM/IMK 之外没有 stderr，也没有 macOS
+    崩溃报告：05:32:09Z、05:34:06Z、06:10:50Z、06:27:03Z、06:36:29Z。它既发生在有
+    Core 命令挂起时，也发生在一次干净绑定之后约七十秒、什么都没挂起时，还有一次发生
+    在两次都成功的 Accessibility 读取之间。每次退出都丢掉该会话的 Core 状态并要重新
+    绑定。这与 E1b 的缺陷 7 是同一*形状* —— 窗口消失、进程没了 —— 只是现在是干净的
+    退出码而不是可见的 `CONNECTING` 状态，所以单独记录而不是并入那一条。
+19. **上下文 dock 打开时 Lane 标签条与自己的元信息重叠**（GUI，外观）。在没有 Lane
+    时，标签条把 `No Lanes yet`、项目路径与 `Build` 画在了一起。在专注模式下，中栏
+    拿到整窗宽度，同一条标签条渲染正常，所以这是标签条 meta 槽位的宽度预算缺陷，而
+    不是缺少截断规则。
+20. **dock 的 `Changes` 合计与 `Local` 工作树标志与紧挨着它们的文件列表自相矛盾**
+    （GUI，诚实性）。在 Core 刚刚重新采样工作区 diff 之后，dock 在一个仍读作
+    `+0 −0` 的 `Lines` 合计下列出了 `M README.md +1 −1`，下面还写着
+    `Working tree Clean`。这三者来自不同的 Core 采样，而客户端把它们渲染出来时既没有
+    对账也没有标注时间，于是这块面板同时陈述了两个互相矛盾的事实。
+21. **DiffReview 的变更文件列表在提交之后没有重新采样**（GUI，外观）。在
+    `Commit completed · main ↑0 ↓0 · working tree clean` 已显示在屏幕上时，
+    `CHANGES` 仍读作 `1 files · +1 −1`，并仍然画着刚刚被提交掉的那个 hunk。
+
+### 四条预期分歧：复现与否
+
+`0.3.4` 留下了缺陷 10 到 13，E3a 要做的是在原生环境下逐条确认。
+
+- **10 —— 归档补丁渲染出的 diff 把文件叫成 rename。** *未复现；走不到。* 本次运行
+  归档是空的，因为 C7 是为原生**工具**变更归档 `patch` 的，而本次做不出工具变更
+  （缺陷 14、15）。这里也没有任何东西与它矛盾；它继续按 TUI 证据保持开启。
+- **11 —— Lane 生命周期审批决策不写持久审计行。** *未复现；走不到。* 无法发起
+  `lane_create` 审批，因此 lane supervisor 的审批路径从未被触发。本次运行能显示的是
+  另一条路径工作正常：五次运行时路径审批（`git_add`、`git_commit`、`git_push`）
+  都写出了自己的 `approval.allow_once` 行，这与缺陷 11 只针对 lane 路径的说法一致。
+- **12 —— `NoUpstream` 的恢复动作没有客户端控件。** *在 GUI 上未复现；那次拒绝
+  从未出现在屏幕上*（第二处偏离）。本次运行能支撑的观察更窄，也就按更窄的说：GUI
+  的两个推送入口 —— `Commit & Push ⇡` 与标题栏同步 chip —— 都没有提供 set-upstream
+  选项，而 chip 只有在 Core 采样到 `ahead > 0` 时才可用，这本身就已经预设了
+  upstream。Core 那句 `push again with set upstream` 背后是否配了控件，这里没有测到。
+- **13 —— 一轮进行中排队的会话后续消息从不可见地处于 pending。** *未复现；走不到。*
+  本客户端里一轮需要 Lane，因此没有正在跑的一轮可供排队。
+
+### 观察，不是缺陷
+
+- 当键盘焦点落在 dock 的文件列表里时，`⌘.` 组合键没有切换专注模式；`⌘L` 在一个会话
+  里打开了 New Lane 浮层，在另一个会话里没有；而 `Focus mode ⌘.` 控件与
+  `＋ New Lane` 控件每次都有效。从 webview 外部无法确定一次合成按键的焦点落点，
+  所以这些只记录、不编号。
+- 宿主当前的输入源是拼音输入法，它会把合成的 `keystroke` 文本搅乱
+  （`Edit the fixture README heading` 变成了 `的Ei天他和fixture READMEheading`）。
+  本次运行的文本输入都改用剪贴板粘贴，这会绕开输入法；其中有一段把输入源切到了
+  `ABC` 并在之后恢复。下一次原生运行应当粘贴而不是打字。
+- `Open project folder` 面板的 go-to 输入框有一次把很长的粘贴路径静默截断了，重试
+  一次就正确补全；该面板通过 Accessibility 仍然只能用键盘驱动，与 `0.3.3` 的
+  harness 记录一致，而那些记录的其余部分也原样成立。
+- Accessibility 进程名仍是 `viden-gui` 而窗口 owner 是 `Viden`，
+  `screencapture -l` 仍会返回陈旧帧，而且当打开面板弹出时必须按窗口*名字*来选主窗口
+  —— 屏幕上可以同时有三个窗口，第一个 `layer=0` 命中的是那张 sheet。
+
+### 这对计划目标 4 意味着什么（分界面）
+
+`docs/release-0.3.3-plan.md` 的目标 4，在 `0.3.4` 里承接为目标 6 ——「一个真实的
+本地优先开发任务通过 GUI 完成，从接入到一次已提交的变更，并记录审计与证据」：
+
+- **通过 TUI —— 已达成，端到端**，与上文 2026-09-12 的记录一致，未变。
+- **通过原生 GUI 窗口 —— 部分达成，而未达成的那半边是能力缺口，不是环境原因。**
+  接入、未选中 Lane 时 Core 发布的工作区 owner、真实审批上 Core 的类型化决策上下文、
+  三次被决策并落地的审批、暂存/**提交**/被接受的**推送**三者的
+  `OperatorGitOutcome::Completed`、D14 中持久的 `approval.allow_once` 行、dock 里
+  一次经过校验的工作区文件读取、专注模式与 `Esc` 返回路径 —— 全部首次通过驾驶舱
+  驱动完成。驾驶舱**做不到**的是创建 Lane，随之做不到的还有 agent 轮次、工具审批、
+  内联工具 diff、归档补丁与排队后续消息。
+- **诚实的总体结论：** 目标 4 的源码管理半边现在在 GUI 上与在 TUI 上一样已被证明；
+  Lane 半边在 TUI 上已证明，而在 GUI 上被缺陷 14 与 15 **阻塞**。这已经不再是
+  「因环境原因未被证明」—— 屏幕是解锁的，窗口被驱动了，是客户端停住了。因此目标 4
+  **在契约上与 TUI 上已达成，在 GUI 上部分达成并带有一个有名有姓、可复现的阻塞项**，
+  这比 `0.3.4` 留下的状态理解得更清楚，也比 `0.3.4` 所期望的更糟。

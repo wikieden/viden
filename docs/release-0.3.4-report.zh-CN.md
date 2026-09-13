@@ -137,3 +137,32 @@ Core 发布的工作区 owner 之下完成的。
 
 `0.3.5` 负责生产发布门 —— 打包、公证、Homebrew、live provider 认证 —— 以及
 Plan Studio、Agent Board、D5 画廊评审和上文列出的跟进项。
+
+## 附录 2026-09-13 —— 原生 GUI 运行已经存在
+
+本报告称为「目标 6 仅剩的一块」的那次运行，已于 2026-09-13 由批次 E3a 完成，分支为
+`claude/evidence-e3a`，基线是 `main` 的
+`75e2a84ade9f2363732aa10332cc666ff366d029` —— 与 `0.3.4` 发布提交 `edcc7b3d` 代码
+完全相同，因此它就是关于本报告所描述内容的证据。宿主屏幕处于解锁状态并在每一批按键
+之前都做了检查，`0.1.0-rc.5` 的 `.app` 从该 SHA 重新构建，驾驶舱在一个 scratch
+fixture 上被驱动，`VIDEN_HOME` 指向本仓库之外。二十六帧记录在
+[checkpoints.zh-CN.md](release-evidence/gui-trusted-delivery/checkpoints.zh-CN.md)
+的「原生 GUI 运行 —— 2026-09-13」一节，PNG 位于
+`docs/release-evidence/gui-trusted-delivery/native-0.3.4/`。
+
+这是一次部分证明，而这个切分本身就是结论。真实任务的源码管理半边首次通过驾驶舱端到端
+跑通：一次暂存、一次**提交**与一次被接受的**推送**，各自在自己的 Core 审批之下、
+在未选中 Lane 的情况下、运行在 Core 发布的工作区 owner 之上，三者的
+`OperatorGitOutcome::Completed` 都出现在屏幕上，提交审批上带着 Core 的类型化
+`DiffDocument`，D14 里有 `approval.allow_once` 行，dock 里还有一次经过校验的工作区
+文件读取。Lane 那半边完全没有跑：**这个构建里无法创建 Lane**，因为 New Lane 浮层把
+创建卡在 ACP adapter 探测上，而在一台没有安装任何 ACP agent 的宿主上这个探测永远
+不会结束，同时 D4 向导的预览也被同一个未完成的命令挡住（E3a 缺陷 14 与 15）。
+agent 轮次、工具审批、内联工具 diff、归档补丁与排队后续消息全都在这道门后面。那里
+另外记录了五条缺陷，编号 16 到 21，其中包括应用在会话中途五次自行终止。
+
+退出标准 7 已在 [release-0.3.4-plan.zh-CN.md](release-0.3.4-plan.zh-CN.md) 中改述为
+**部分达成**，并带上本日期与证据链接。该表格下方的总体结论段落保持 2026-09-12 当天
+写下的样子，因为它记录的是评估候选时的事实；当前的陈述是本附录，而不是那一段。
+`0.3.4` 的其余部分没有任何变化：没有改动任何代码，分支的推送与合并仍然等待用户明确
+授权。
