@@ -2343,7 +2343,7 @@ impl SessionEngine {
         task_id: &str,
         approver: &mut F,
         control: &ModelRequestControl,
-        mut emit_completed: Option<&mut dyn FnMut(Vec<RuntimeEvent>)>,
+        emit_completed: Option<&mut dyn FnMut(Vec<RuntimeEvent>)>,
     ) -> Result<Vec<RuntimeEvent>, String>
     where
         F: FnMut(PermissionPrompt) -> ApprovalResponse,
