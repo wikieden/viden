@@ -1452,6 +1452,10 @@ immutable rc.3 snapshot record the same evidence paths and remain
 byte-equivalent. The macOS `.app` bundle is a local build artifact only; it is
 not installed, signed, notarized, published, tagged, or released.
 
+The `0.3.5` bundle matrix, checksums, signing state, reproducibility result,
+and the prepared-but-undispatched `release.yml` command are in
+[docs/release-0.3.5-packaging.md](../../docs/release-0.3.5-packaging.md).
+
 The gallery module itself was deleted on `claude/hygiene-h1`: nothing ever
 imported it, no qa state or script rendered it, and its stylesheet never
 reached a bundle, so it produced no capture and could not regress. The

@@ -1099,6 +1099,10 @@ lineage 保留。
 immutable rc.3 snapshot 记录相同证据路径并保持逐字节一致。macOS `.app` bundle
 只是本地构建产物；未安装、签名、公证、发布、打 tag 或 release。
 
+`0.3.5` 的产物矩阵、校验和、签名状态、可复现性结论，以及已准备但未分发的
+`release.yml` 命令，见
+[docs/release-0.3.5-packaging.zh-CN.md](../../docs/release-0.3.5-packaging.zh-CN.md)。
+
 画廊模块本身已在 `claude/hygiene-h1` 上删除：从来没有任何地方 import 它，没有任何
 qa state 或脚本渲染它，它的样式表也从未进入过 bundle，因此它既没有产出 capture，也
 不可能发生回归。于是 `release-manifest.toml` 以及 `0.1.0-rc.2`/`0.1.0-rc.3` 快照中的
