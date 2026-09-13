@@ -819,3 +819,298 @@ referenced above is a local build artifact and was not installed or
 distributed. The release gate's prepublish phase was not run; packaging,
 notarization, Homebrew and live-provider certification are `0.3.5` scope by the
 `0.3.4` plan's own scope amendment.
+
+## Native GUI Run — 2026-09-13 (0.3.4, taken on main 75e2a84a)
+
+This is the run the `0.3.4` release step could not take. Branch
+`claude/evidence-e3a` in `.worktrees/evidence-e3a`, base `main` at
+`75e2a84ade9f2363732aa10332cc666ff366d029` — code-identical to the `0.3.4`
+release commit `edcc7b3d`; only plan documents differ between them, so what is
+proven below is proven about what `0.3.4` shipped. The host screen was
+unlocked and `CGSessionCopyCurrentDictionary()` was read before every keystroke
+and click batch; every line is recorded in the batch report and
+`CGSSessionScreenIsLocked` was `0` at every one of them. Nothing here is
+inferred from a fixture replay, and no defect below was fixed: this is an
+evidence step.
+
+It is a **partial** run, and the partition matters. The whole source-control
+half of the real task — stage, commit and push, each under its own Core
+approval, with no Lane selected — ran end to end through the cockpit for the
+first time. The Lane half did not run at all, because **no Lane can be created
+in this build** (defects 14 and 15), which closes the composer, the tool
+approval, the inline tool diff, the check-run block, the archived patch and the
+queued follow-up behind it.
+
+### The application under test
+
+`npm --prefix apps/gui ci --no-audit --no-fund` added 97 packages in 9 s;
+`npm --prefix apps/gui run tauri -- build --bundles app` PASSED in 1 m 12 s
+(05:19:10Z to 05:20:2xZ) and produced
+`target/release/bundle/macos/Viden.app`:
+
+| Fact | Value |
+| --- | --- |
+| `CFBundleShortVersionString` | `0.1.0-rc.5` |
+| `CFBundleIdentifier` | `dev.viden.gui` |
+| `CFBundleExecutable` | `viden-gui` |
+| Architecture | `Mach-O 64-bit executable arm64` |
+| Executable size | 40,655,440 bytes |
+| Bundle size | 39 MB |
+| Signature | ad-hoc, linker-signed, `TeamIdentifier=not set`, `Sealed Resources=none` |
+
+It was launched from the bundle, never installed, signed with an identity,
+notarized or distributed. Every launch ran with `VIDEN_HOME` pointed at a
+scratch directory, so this repository's own `.viden/` was never read or
+written. Launched PIDs, in order: 93235, 9284, 59134 (the long run), 86319,
+3918, 47443.
+
+### Fixture
+
+A fresh temporary Git repository under the run's scratch directory: one commit
+`c593aefa2f9fed571e2caef713e9f0b39e6b7f2e` ("Add the fixture README"), a
+seven-line `README.md`, a `.gitignore` covering `.viden/` and `.worktrees/`,
+and a `.viden/config.toml` selecting `provider = "fallback"` /
+`model = "test-local"`. Core minted `.viden/project.toml`
+`[project] id = "prj_1789277024425237000"` at bootstrap — the C10 binding site,
+visible on disk, and the id every approval below carries.
+
+### Two deviations from the scripted task, and why
+
+Both are consequences of defects found in this run, and both are named here
+rather than hidden in a step row.
+
+- **The working-tree change was made out of band.** The task's mutation was to
+  be a composer `tool edit_file …` inside a Lane. The GUI composer is
+  Lane-scoped (`Message the selected Lane` is disabled, with
+  `Create or select a Lane to start.` under it) and no Lane can be created
+  (defects 14, 15), so the edit was made with `sed` in the fixture and the
+  cockpit was driven over the resulting dirty tree. Everything downstream of
+  the edit — Core's typed decision context, the approvals, the outcomes and
+  the audit rows — is therefore real GUI-driven Core behaviour over a real
+  change, but the *authorship* of the change is not the product's.
+- **The bare `origin` was added before any refused push.** The TUI run reached
+  `OperatorGitOutcome::Failed { NoUpstream }` by pushing with no remote. In the
+  cockpit the only push entry points are `Commit & Push ⇡` in the DiffReview
+  commit bar and the titlebar sync chip; the chip offers a push only when Core
+  samples `ahead > 0`, which needs an upstream, and `Commit & Push` raises a
+  `git_commit` approval before the `git_push` one — two approvals in one
+  application session, which defect 16 makes impossible. So `NoUpstream` was
+  **not reached natively**, the bare `origin` and the tracking ref were created
+  out of band, and the accepted push below is a real Core push of a real
+  commit into a real remote.
+
+### Step by step
+
+Every frame was captured twice (the `screencapture` staleness carried forward
+from the `0.3.3` harness notes) and the second frame kept; the Accessibility
+tree was read as the state of record for every assertion, and every PNG listed
+was viewed before it was listed.
+
+| # | Step | Reached | Result / reason | Frames |
+| --- | --- | --- | --- | --- |
+| 1 | Welcome | yes | `No project open`, one `Open project` action with `⌘ O`, `Recent projects appear once a project is open.` / `Core adapter is not connected`. Status bar `MODE — · PERM — · CONTEXT — · EVENTS #0 · LANE — · DIAG 0× · REQ —`. | [`01`](native-0.3.4/01-welcome.png) |
+| 2 | `⌘O` bind | yes | `⌘O` opened the `Open project folder` panel, driven by keystroke only as the harness notes require (`⌘⇧G`, the path pasted, `Return`, `Return`). The panel listed the fixture's `README.md`, 118 bytes, with `Open` enabled. | [`02`](native-0.3.4/02-open-panel-at-fixture.png) |
+| 3 | **Cockpit bound** | yes | The cockpit came up on the fixture: dock Environment `Provider fallback`, `Model test-local`, `Mode build`, `Permission ask`; Local `Branch main`, the fixture path as `Worktree`, `Ahead 0`, `Behind 0`, `Working tree Clean`; status bar `MODE build · PERM ask · EVENTS #7 · LANE — · REQ 0 req / 0 err`. Verified out of band: Core wrote `session_meta` `canonical_root` = the fixture path, `work_mode` `build`, `permission_mode` `default`, `model` `test-local` into the scratch `VIDEN_HOME`. | [`03`](native-0.3.4/03-cockpit-bound.png) |
+| 4 | **Workspace owner visible with no Lane** | yes | `LANE —`, and the dock's `Commit or push` section renders `Open the commit bar` **enabled** (`AXEnabled=true`) while the titlebar sync chip is enabled with the help string `0 ahead, 0 behind the upstream, as Core last sampled it.` Neither falls back to `D1-OPERATOR-GIT-NO-WORKSPACE-OWNER`, so C5's `runtime.workspace_owner` is published and consumed — GUI-CORE-027 closed on the GUI, live. | [`04`](native-0.3.4/04-workspace-owner-commit-bar.png) |
+| 5 | `⌘L` New Lane | partly | `⌘L` opened the New Lane popover with `Viden Agent built-in` selected, the three ACP adapters greyed under `Checking ACP agents…`, the task pasted, and the derived branch `⌁ vd/edit-the-fixture-readme-he`, isolation `local`. | [`05`](native-0.3.4/05-new-lane-popover.png) |
+| 6 | **Lane created under a Core approval** | **no** | `Create lane ↵` never became enabled. `Checking ACP agents…` stood for more than six minutes in two separate application sessions, and the Accessibility tree read `enabled=false` throughout, with the built-in agent selected. `⌘⏎` did nothing. No `lane_create` approval was ever raised. See defect 14. | [`06`](native-0.3.4/06-new-lane-create-blocked.png) |
+| 7 | D4 `Full setup…` as the second creation path | **no** | The wizard opened full-window on step 1 with Core's read-only resolution (`Coder`/`Reviewer`/`Tester`, Lane ID, `Branch override`, the carried task with the note that it is not part of the create command, `Worktree` and `Base revision` as `Core resolves this on preview`). `Preview with Core` was pressed; no `StarterLanePreviewed` fact arrived in 80 s and `Create reviewed Lane` stayed disabled. See defect 15. | [`07`](native-0.3.4/07-d4-wizard-step1.png), [`08`](native-0.3.4/08-d4-preview-unresolved.png) |
+| 8 | Composer `tool edit_file …`, D2 hunks for that edit, inline tool diff, check-run block | **no** | All four are Lane-scoped in this client; the composer is disabled without a Lane and says so. Not reachable behind steps 6 and 7. | — |
+| 9 | EvidenceView before the run | yes | Opened inside the cockpit chrome with the design's filter chips (`All`/`Patch`/`Test result`/`Review`/`Doc update`/`Release artifact`), search, `No evidence in this scope.` and `Archive complete — Core published every entry matching this scope.` An honest empty archive, not a silent one. | [`09`](native-0.3.4/09-evidenceview-empty-before.png) |
+| 10 | DiffReview over the dirty tree | yes | After the change was made out of band, the view's own re-read control refreshed Core's sample: `1 files · +1 −1`, `README.md`, `@@ -1,4 +1,4 @@`, `-# E3a Fixture` / `+# E3a Edited`, and the dock's `Changes` section listing `M README.md +1 −1`. | [`10`](native-0.3.4/10-diffreview-dirty.png) |
+| 11 | **Stage under a Core approval** | yes | `Stage all` → `Stage is waiting for approval in the permission dock.` D2 showed `Approve git_add prj_1789277024425237000 · pending · low`, `TOOL INPUT PREVIEW all: true`, `EVIDENCE Core published no evidence for this decision.`, and `Decision and reason are written to audit audit_1789279167519670000` over `Approve once` / `Deny`. `Approve once` staged it: `git status --short` moved from ` M README.md` to `M  README.md`. | [`11`](native-0.3.4/11-stage-waiting-approval.png), [`12`](native-0.3.4/12-stage-approval-d2.png), [`13`](native-0.3.4/13-stage-applied.png) |
+| 12 | **`OperatorGitOutcome::Completed` for a stage** | yes | The commit bar rendered `Stage completed · main ↑0 ↓0 · uncommitted changes remain` with a `▶ Git output` disclosure, `LANE —`. | [`14`](native-0.3.4/14-stage-completed.png) |
+| 13 | D2 after the decision | **defect** | The decided `git_add` card stayed `pending · low` with `1 awaiting you` and `Sent. Waiting for Core to record the verdict.`, and the `git_commit` approval raised next never appeared. See defect 16. | [`15`](native-0.3.4/15-d2-stale-after-decision.png) |
+| 14 | **D14 shows the `approval.allow_once` audit row** | yes | The Audit Timeline rendered `approval.allow_once operator success · permission · approval_1789279167519659000 · tool · git_add · job · gui-git-2d695ebc-… · scope=allow_once` beside its `source.stage` authorized/completed pair, under `Core reports the audit timeline is complete.` Verified out of band in the scratch `workflows/projects/*/audit.jsonl`: the same three rows, same ids. | [`16`](native-0.3.4/16-d14-audit-stage.png) |
+| 15 | **Dock Files tab opens a file** | yes | The `Files` tab listed Core's workspace inventory (`.gitignore` 20, `README.md` 117) and the inspector's `Open file` read it: `workspace root · 117 bytes on disk · sha256 f1d3490374e3…` over the file's text. Verified out of band: the file is 117 bytes and its sha256 is `f1d3490374e339e9f46c273d44757462cf8c0818c5cd54269b6488646bd96bdf`. C9's `runtime.workspace_file_reads` consumed live. | [`17`](native-0.3.4/17-dock-files-open.png) |
+| 16 | **Focus mode `⌘.` and `Esc`** | partly | The `Focus mode ⌘.` control hides the context dock and gives the centre the full width; `Esc` returned from the Audit Timeline to the Conversation view with the chrome retained and focus mode still on, and the transcript carried a durable `PERMISSION approval_… · decision allow_once` row with `Open audit trail`. The `⌘.` chord itself did not fire while focus sat in the dock's file list; the control did. Recorded as an observation below rather than as a defect, because a synthetic keystroke's focus target cannot be proven from here. | [`18`](native-0.3.4/18-focus-mode.png), [`19`](native-0.3.4/19-esc-return.png) |
+| 17 | **Commit with no Lane, under a Core approval, with C1's typed decision context** | yes | In a fresh application session the `git_commit` approval appeared correctly: `Approve git_commit prj_1789277024425237000 · pending · medium`, `TOOL INPUT PREVIEW message: … path: …`, and **Core's typed hunks rather than the tool input** — `README.md`, `@@ -1,4 +1,4 @@`, `-# E3a Fixture` / `+# E3a Edited` with per-line numbering. `Approve once` committed. Verified out of band: `a5d3d53 Edit the fixture README heading`, working tree clean. **`OperatorGitOutcome::Completed` for a commit observed live in the GUI, with `LANE —`.** | [`20`](native-0.3.4/20-commit-approval-hunks.png), [`21`](native-0.3.4/21-commit-completed.png) |
+| 18 | Push refused as `NoUpstream` | **no** | Not reachable; see the second deviation above. A second commit, `2d0a30d`, was made the same way through `Commit & Push ⇡`, and its `git_push` approval was then lost to defect 16 — the commit bar read `Push is waiting for approval in the permission dock.` while D2 still showed the decided `git_commit`. | — |
+| 19 | **Push accepted** | yes | With the bare `origin` and the tracking ref in place and one local commit ahead, the titlebar sync chip read `Push 1 local commits. Pull is excluded by contract; this client pushes and fetches only.` and was enabled. It raised `Approve git_push prj_1789277024425237000 · pending · high`, `remote: origin`, audit `audit_1789281559244376000`, over `Approve once` / `Approve for repo paths` / `Deny`. `Approve once` pushed: the commit bar rendered `Push completed · main ↑0 ↓0 · working tree clean`. Verified out of band: the bare `origin` holds `70bda55` and the local branch reads `## main...origin/main` with no divergence. **`OperatorGitOutcome::Completed` for a push observed live in the GUI, with `LANE —`.** | [`22`](native-0.3.4/22-sync-chip-ahead.png), [`23`](native-0.3.4/23-push-approval-d2.png), [`24`](native-0.3.4/24-push-completed.png) |
+| 20 | **D14 after the run** | yes | `Audit trail 15`, `Outcomes on the loaded page · 15 success 15`: five `approval.allow_once` rows (two `git_add`, two `git_commit`, one `git_push`), each carrying its own `gui-git-…` job id, and an `authorized`/`completed` pair for each of the two stages, the two commits and the push. Verified byte for byte against the scratch `audit.jsonl`. | [`25`](native-0.3.4/25-d14-audit-full.png) |
+| 21 | EvidenceView after the run | yes | Still `No evidence in this scope.` over `Archive complete`, and `0 entries` in the search field's own words. Correct: C7 archives a `patch` for a *native tool* mutation, and no tool mutation could be made. | [`26`](native-0.3.4/26-evidenceview-empty-after.png) |
+| 22 | Queued follow-up drains while a turn runs | **no** | A turn needs a Lane in this client. Not reachable behind steps 6 and 7. | — |
+
+### Exact Core outcome variants observed live in the GUI
+
+- `WorkspaceRuntimeOwnerBound` on the Tauri host path, with the minted
+  `.viden/project.toml` id — observed live (C5 + C10).
+- `RunOperatorGitAction { target: Workspace }` authorized under that owner with
+  **no Lane selected** — observed live, three times (stage, commit, push).
+- `OperatorGitOutcome::Completed` for `stage`, `commit` **and** `push` —
+  observed live in the GUI. `Failed { NoUpstream }` and `RemoteUnreachable` —
+  **not observed**; see the second deviation.
+- `ApprovalRequestView` with `decision_context` carrying a `DiffDocument` (one
+  file, one hunk, `+1 −1`) on the `git_commit` approval — observed live. The
+  `git_add` and `git_push` approvals carried the opaque input preview and said
+  so in Core's own words with `GUI-CORE-012`.
+- `ApprovalDecision` allow-once on five approvals, each followed by its effect
+  on disk — observed live.
+- `AuditPage` **non-empty**, with the `approval.*` row for every decision that
+  released a mutation and its `source.*` pair — observed live (C7).
+- `WorkspaceFileRead` with a verified digest — observed live (C9).
+- `EvidencePage` — observed live and **empty**, which is the truthful answer
+  for this run rather than evidence of C7's archive.
+- `StarterLanePreviewed`, `StarterLaneCreated`, `TurnStarted`/`TurnFinished`,
+  `InputQueued`/`InputDequeued`, `ToolCallStarted`, `EvidenceRecorded` — **not
+  observed.** No Lane could be created.
+
+### Defects And Gaps Found By E3a
+
+Numbering continues from the thirteen above. Each was reproduced, not inferred.
+None was fixed here.
+
+14. **The New Lane popover can never create a Lane while ACP adapter discovery
+    is outstanding** (GUI, blocking). `create.disabled` ORs in `model.probing`
+    (`apps/gui/src/components/agent_menu.ts:277-282`), and `model.probing` is
+    `discoveryIsProbing()` = `agentDiscoveryStarted && !agentDiscoveryComplete`
+    (`apps/gui/src/screens/d1_cockpit.ts:3046-3048`). Discovery walks every
+    adapter whose `startability` is `probe_required`
+    (`advanceAgentDiscovery`, `:3644-3673`) and each probe waits for Core's
+    `AgentAdapterProbed` business fact
+    (`apps/gui/src-tauri/src/adapter.rs:588-591`). On a host with none of
+    Codex, Claude Agent or Kiro CLI installed, no `AgentAdapterProbed` arrived:
+    the diagnostic stayed `Checking ACP agents…` for over six minutes in two
+    separate application sessions and `Create lane ↵` read `enabled=false`
+    throughout — **including with the built-in `Viden Agent` selected, which
+    needs no probe at all.** The gate is an ACP concern applied to every
+    creation. This is the single defect that makes the Lane half of the real
+    task unreachable in the shipped `0.3.4` GUI.
+15. **The D4 starter-Lane wizard's `Preview with Core` never resolves behind
+    that stuck probe** (GUI, blocking). `Full setup…` reaches D4 with the task
+    carried over, but `Preview with Core` produced no `StarterLanePreviewed`
+    fact in 80 s and `Create reviewed Lane` stayed disabled, so the second
+    creation path is closed by the first one's failure. The mechanism is one
+    process-wide command slot: `PendingD1` holds the unresolved probe
+    (`apps/gui/src-tauri/src/adapter.rs:507-509`) and the webview's own
+    dispatchers bail while `pendingCommandId` is set
+    (`apps/gui/src/screens/d1_cockpit.ts:3599-3612`, `:3644-3656`). A stuck
+    probe therefore does not degrade one menu, it stops Lane creation
+    altogether. Closing 14 without also bounding this pending command would
+    leave the same shape behind any other unanswered command.
+16. **The Decision Center keeps a decided approval as the only pending one and
+    never surfaces the next** (GUI, blocking for any two-decision task). After
+    `Approve once` on the `git_add` approval Core applied the effect — the file
+    staged on disk, the audit rows written, the commit bar rendering
+    `Stage completed` — while D2 kept the same card at `pending · low`, kept
+    `1 awaiting you`, and kept the footer `Sent. Waiting for Core to record the
+    verdict.` The `git_commit` approval raised next never appeared, although
+    DiffReview said `Commit is waiting for approval in the permission dock.`
+    Navigating away to DiffReview and back, and toggling the `Gate approvals`
+    filter, did not refresh it; only restarting the application did, and in a
+    fresh session whose first decision had not yet been made the next approval
+    rendered correctly. Reproduced twice (`git_add` then `git_commit`;
+    `git_commit` then `git_push`). The practical effect is one approval per
+    application session, which is why steps 17 and 19 each needed their own
+    launch.
+17. **The source-control in-flight state never clears after a completed
+    commit** (GUI). With `Commit completed · main ↑0 ↓0 · working tree clean`
+    on screen, `Commit & Push ⇡` stayed disabled with the tooltip
+    `Waiting for the permission decision.` and the titlebar sync chip stayed
+    disabled with `A source-control action is already running.`, unchanged
+    30 s later. Nothing on screen is false about the commit; the client's own
+    busy flag is stale, and it makes push unreachable in that session.
+18. **The application terminates itself mid-session** (GUI, blocking for any
+    long native run). Five times in this batch the process exited with status
+    `0`, no stderr beyond the two AppKit TSM/IMK lines, and no macOS crash
+    report: 05:32:09Z, 05:34:06Z, 06:10:50Z, 06:27:03Z, 06:36:29Z. It happened
+    both while a Core command was pending and roughly seventy seconds after a
+    clean bind with nothing pending, and once between two Accessibility reads
+    that both succeeded. Each exit discarded the session's Core state and cost
+    a rebind. This is the same *shape* as E1b's defect 7 — the window
+    disappearing and the process being gone — now with a clean exit status
+    rather than a visible `CONNECTING` state, so it is recorded separately
+    rather than folded into it.
+19. **The Lane tab strip overlaps its own metadata when the context dock is
+    open** (GUI, cosmetic). With no Lanes the strip draws `No Lanes yet`, the
+    project path and `Build` on top of one another. In focus mode, where the
+    centre pane has the full window width, the same strip renders cleanly, so
+    it is a width-budget defect in the strip's meta slot rather than a missing
+    truncation rule.
+20. **The dock's `Changes` total and `Local` working-tree flag disagree with
+    the file list beside them** (GUI, honesty). Immediately after Core
+    re-sampled the workspace diff, the dock listed `M README.md +1 −1` under a
+    `Lines` total still reading `+0 −0`, with `Working tree Clean` below it.
+    The three come from different Core samples and the client renders them
+    without reconciling or dating them, so the panel states two contradictory
+    facts at once.
+21. **DiffReview's changed-file list is not re-sampled after a commit** (GUI,
+    cosmetic). With `Commit completed · main ↑0 ↓0 · working tree clean` on
+    screen, `CHANGES` still read `1 files · +1 −1` and still drew the hunk that
+    had just been committed.
+
+### The four expected divergences, reproduced or not
+
+`0.3.4` left defects 10 to 13 open and E3a was to confirm each natively.
+
+- **10 — an archived patch's rendered diff calls the file a rename.** *Not
+  reproduced; not reachable.* The archive is empty in this run because C7
+  archives a `patch` for a native *tool* mutation and no tool mutation could be
+  made (defects 14, 15). Nothing here contradicts it either; it remains open on
+  the TUI evidence.
+- **11 — a lane-lifecycle approval decision writes no durable audit row.**
+  *Not reproduced; not reachable.* No `lane_create` approval could be raised,
+  so the lane-supervisor approval path was never exercised. What this run does
+  show is the other path behaving: all five runtime-path approvals
+  (`git_add`, `git_commit`, `git_push`) wrote their `approval.allow_once` row,
+  which is consistent with defect 11 being specific to the lane path.
+- **12 — the `NoUpstream` recovery has no client control.** *Not reproduced on
+  the GUI; the refusal was never put on screen* (second deviation). The
+  observation the run can support is narrower and is offered as such: neither
+  GUI push entry point — `Commit & Push ⇡` and the titlebar sync chip — offers
+  a set-upstream option, and the chip is only enabled once Core samples
+  `ahead > 0`, which already presupposes an upstream. Whether Core's
+  `push again with set upstream` sentence is rendered with a control behind it
+  is untested here.
+- **13 — a session follow-up queued during a turn is never observably
+  pending.** *Not reproduced; not reachable.* A turn needs a Lane in this
+  client, so there was no running turn to queue behind.
+
+### Observations, not defects
+
+- The `⌘.` chord did not toggle focus mode while keyboard focus sat in the
+  dock's file list, and `⌘L` opened the New Lane popover in one session and not
+  in another; the `Focus mode ⌘.` control and the `＋ New Lane` control both
+  worked every time. A synthetic keystroke's focus target cannot be established
+  from outside the webview, so these are recorded rather than numbered.
+- The host's active input source is a Pinyin IME, which mangles synthetic
+  `keystroke` text (`Edit the fixture README heading` arrived as
+  `的Ei天他和fixture READMEheading`). Text entry in this run was done by
+  clipboard paste, which bypasses the IME; the input source was switched to
+  `ABC` for one stretch and restored afterwards. The next native run should
+  paste rather than type.
+- The `Open project folder` panel's go-to field silently truncated a long
+  pasted path once and completed it correctly on the retry; the panel remains
+  keyboard-only through Accessibility, as recorded in the `0.3.3` harness
+  notes, and those notes otherwise held unchanged.
+- The Accessibility process name is still `viden-gui` while the window owner is
+  `Viden`, `screencapture -l` still returns stale frames, and the main window
+  must be selected by window *name* when the open panel is up — three windows
+  can be on screen at once and the first `layer=0` hit is the sheet.
+
+### What This Means For Plan Goal 4, Per Surface
+
+`docs/release-0.3.3-plan.md` goal 4, carried into `0.3.4` as goal 6 — "one real
+local-first development task completes through the GUI, from intake to a
+committed change, with audit and evidence recorded":
+
+- **Through the TUI — met, end to end**, unchanged from the 2026-09-12 record
+  above.
+- **Through the native GUI window — partly met, and the unmet half is a
+  capability gap rather than an environmental one.** Intake, the Core-published
+  workspace owner with no Lane, Core's typed decision context on a real
+  approval, three approvals decided and applied, `OperatorGitOutcome::Completed`
+  for a stage, a **commit** and an accepted **push**, the durable
+  `approval.allow_once` rows in D14, a verified workspace file read in the dock,
+  focus mode and the `Esc` return path — all driven through the cockpit for the
+  first time. What the cockpit could **not** do is create a Lane, and with it
+  the agent turn, the tool approval, the inline tool diff, the archived patch
+  and the queued follow-up.
+- **The honest aggregate:** the source-control half of goal 4 is now proven on
+  the GUI as well as the TUI; the Lane half is proven on the TUI and
+  **blocked** on the GUI by defects 14 and 15. This is no longer "unproven for
+  an environmental reason" — the screen was unlocked, the window was driven,
+  and the client stopped. Goal 4 is therefore **met on the contract and on the
+  TUI, and partly met on the GUI with a named, reproducible blocker**, which is
+  a better-understood position than `0.3.4` left it in and a worse one than
+  `0.3.4` hoped for.
