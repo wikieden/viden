@@ -555,7 +555,7 @@
   "d4.seed.note": "The task is not part of the create command: Core's StarterLaneRequest carries the Lane id, preset, branch and worktree only. It travels as the first message once the Lane is open, exactly as the compact New Lane creator sends it.",
   "d4.agent.chosen": "chosen in New Lane",
   "d4.agent.none": "No host is bound, so Core published no agent adapters to list here.",
-  "d4.agent.note": "Creating a starter Lane does not start an Agent session: Core's StarterLaneRequest carries no agent. The chosen agent is started from the cockpit once the Lane exists.",
+  "d4.agent.note": "Core now carries an agent on StarterLaneRequest (runtime.starter_lane_agent), but viden-core does not re-export the two types this client needs to build one, so the pick still cannot travel and the agent is started from the cockpit once the Lane exists. Contract request GUI-CORE-036.",
   "d4.skills.unavailable": "Core publishes no skill pack, skill list, or context-injection fact on frontend-contract-v1, and the starter-Lane request carries no field for one, so nothing can be selected here.",
   "d4.target.localOnly": "Execution target is local: Core resolves every starter Lane to the machine it runs on, and the request carries no target. Remote targets are designed in D9 and are not on this contract.",
   "d4.progress": "Step {step} of {total} · {name}",

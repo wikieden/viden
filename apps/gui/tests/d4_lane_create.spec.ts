@@ -351,9 +351,12 @@ describe("D4 design steps", () => {
     expect(rows.map((row) => row.dataset.d4Agent)).toEqual(["codex-acp", "claude-acp"]);
     expect(rows[0]!.dataset.d4AgentChosen).toBe("true");
     expect(rows[1]!.dataset.d4AgentChosen).toBeUndefined();
-    // The step says plainly that creating the Lane does not start the agent.
+    // The step says plainly why the pick still cannot travel: Core added the
+    // field in C15, and `viden-core` does not re-export the two types this
+    // client needs to build one (GUI-CORE-036). The reason moved; the honesty
+    // did not.
     expect(root.querySelector("[data-d4-agent-note]")?.textContent).toContain(
-      "carries no agent",
+      "GUI-CORE-036",
     );
   });
 
