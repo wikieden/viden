@@ -7785,6 +7785,11 @@ fn the_transcript_rows_capability_is_an_advertised_extension() {
             .all(|pair| pair[0] < pair[1]),
         "extension capabilities must stay sorted and unique"
     );
-    // The milestone's final count: C8 is the last Core batch of 0.3.4.
-    assert_eq!(FRONTEND_V1_EXTENSION_CAPABILITIES.len(), 29);
+    // The 0.3.5 milestone's final count. C13 (`runtime.plan_documents`) is 30
+    // and C14 (`runtime.agent_session_control`) is 31 — both land on the
+    // integration branch beside C15 — and C15 adds `runtime.approval_scopes`
+    // and `runtime.starter_lane_agent` as 32 and 33. On the C15 branch alone
+    // this reads 31 until the dispatcher reconciles the two increments in
+    // between.
+    assert_eq!(FRONTEND_V1_EXTENSION_CAPABILITIES.len(), 33);
 }
