@@ -46,8 +46,8 @@
 
 .stp .nn {
   display: grid;
-  width: var(--sp-7);
-  height: var(--sp-7);
+  width: var(--sp-6);
+  height: var(--sp-6);
   place-items: center;
   border: 1px solid var(--border);
   border-radius: var(--r-full);
