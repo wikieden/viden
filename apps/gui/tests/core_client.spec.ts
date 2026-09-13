@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 import { hydrateShellFromCore } from "../src/main";
 import type { CoreClient } from "../src/host/core_client";
 import { IDLE_LAYOUT_PREFERENCES } from "../src/models/layout_preferences";
+import { IDLE_PLAN_STUDIO } from "../src/models/plan";
 import { IDLE_TRANSCRIPT_ROWS } from "../src/models/transcript_rows";
 import { IDLE_WORKSPACE_FILE } from "../src/models/workspace_file";
 import { D1_PROJECTION } from "./support/d1_projection";
@@ -97,6 +98,12 @@ function fakeCoreClient(overrides: Partial<CoreClient> = {}): CoreClient {
     d12IntegrationGate: unreachable("d12_integration_gate"),
     d12SendIntent: unreachable("d12_send_intent"),
     d13FleetWorkflow: unreachable("d13_fleet_workflow"),
+    // The plan answers with the honest absence, so the rail slot renders
+    // disabled-and-named without any shell route spec depending on a Core
+    // that publishes plan documents.
+    d15PlanStudio: async () => IDLE_PLAN_STUDIO,
+    d15SendIntent: unreachable("d15_send_intent"),
+    d15Poll: unreachable("d15_poll"),
     d14AuditTimeline: unreachable("d14_audit_timeline"),
     d14AuditQuery: unreachable("d14_audit_query"),
     d14AuditLoadOlder: unreachable("d14_audit_load_older"),

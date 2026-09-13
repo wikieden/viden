@@ -10,7 +10,15 @@ import { translate, type Locale, type MessageKey } from "../i18n/catalog";
  * transcript, so the id is the centre view the cockpit switches to rather than
  * a window route.
  */
-export type D1RailDestination = "review" | "evidence" | "d2" | "d10" | "d12" | "d13" | "d14";
+export type D1RailDestination =
+  | "review"
+  | "evidence"
+  | "d2"
+  | "d10"
+  | "d12"
+  | "d13"
+  | "d14"
+  | "d15";
 
 export interface D1RailSlot {
   /** Stable slot id; equals the destination for a routing slot. */
@@ -39,6 +47,16 @@ export interface D1RailSlot {
  */
 export const D1_RAIL_ROUTES: readonly D1RailSlot[] = [
   { id: "conversation", icon: "chat", key: "d1.activity.work", kind: "conversation" },
+  // `D-PLANBOARD` registers `plan` between `chat` and `lanes` and fixes that
+  // order for both new screens: the plan is what the conversation produces and
+  // what the Lanes then carry out, so it sits between them.
+  {
+    id: "d15",
+    icon: "plan",
+    key: "d1.activity.plan",
+    kind: "destination",
+    destination: "d15",
+  },
   { id: "lanes", icon: "lanes", key: "d1.activity.lanes", kind: "lanes" },
   {
     id: "review",
@@ -81,6 +99,7 @@ export const D1_RAIL_ROUTES: readonly D1RailSlot[] = [
 
 export type CanonicalGuiIcon =
   | "chat"
+  | "plan"
   | "worktree"
   | "lanes"
   | "review"
@@ -163,6 +182,15 @@ export function createCanonicalGuiIcon(name: CanonicalGuiIcon): SVGSVGElement {
     );
   } else if (name === "pin") {
     svg.append(svgNode("path", { d: "M9 3h6M10 3v6l-3 3v2h10v-2l-3-3V3M12 16v5" }));
+  } else if (name === "plan") {
+    // The `plan` key `D-PLANBOARD` registered for D15: a step list whose first
+    // item is ticked. Deliberately not `decide`'s clipboard-and-tick, which is
+    // the decision queue's own glyph.
+    svg.append(
+      svgNode("path", { d: "M3.2 6.4l1.7 1.7L8.4 4.6" }),
+      svgNode("path", { d: "M3.4 12.6h2.2M3.4 18.6h2.2" }),
+      svgNode("path", { d: "M11 6.4h9.6M11 12.6h9.6M11 18.6h6.2" }),
+    );
   } else if (name === "diagnostics") {
     svg.append(svgNode("path", { d: "M3 12h4l3 8 4-16 3 8h4" }));
   } else if (name === "fleet") {

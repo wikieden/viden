@@ -29,6 +29,7 @@ const DESTINATIONS: Record<D1RailDestination, { en: string; zh: string }> = {
   d12: { en: "Integration gate", zh: "集成闸" },
   d13: { en: "Fleet board", zh: "舰队看板" },
   d14: { en: "Audit timeline", zh: "审计时间线" },
+  d15: { en: "Plan Studio", zh: "规划工作台" },
 };
 
 function rail(): HTMLElement {
@@ -80,7 +81,16 @@ describe("activity rail destinations", () => {
       rail().querySelectorAll<HTMLElement>("[data-rail-route]"),
       (slot) => slot.dataset.railRoute,
     );
-    expect(routed.sort()).toEqual(["d10", "d12", "d13", "d14", "d2", "evidence", "review"]);
+    expect(routed.sort()).toEqual([
+      "d10",
+      "d12",
+      "d13",
+      "d14",
+      "d15",
+      "d2",
+      "evidence",
+      "review",
+    ]);
   });
 
   test("gives each slot a distinct registered glyph", () => {
@@ -91,6 +101,8 @@ describe("activity rail destinations", () => {
     // `GUI/gui-icons.jsx` set; no slot invents art of its own.
     expect(icons).toEqual([
       "chat",
+      // `D-PLANBOARD` puts `plan` between `chat` and `lanes`.
+      "plan",
       "lanes",
       "review",
       "evidence",

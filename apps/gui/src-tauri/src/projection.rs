@@ -62,6 +62,11 @@ use crate::evidence_view::{
     EvidenceRowProjection,
 };
 use crate::operator_git::OperatorGitResultProjection;
+use crate::plan::{
+    D15DecisionProjection, D15PlanAuthorProjection, D15PlanHandoffProjection, D15PlanProjection,
+    D15PlanRoleCountProjection, D15PlanSectionProjection, D15PlanStepProjection,
+    D15PlanStudioProjection,
+};
 use crate::transcript_rows::TranscriptRowProjection;
 use crate::workspace_files::WorkspaceFileFactsProjection;
 use crate::{
@@ -662,6 +667,92 @@ impl RuntimeProjection {
                     code: Some(crate::D2_CONTRACT_DECIDED_CODE),
                 },
             ],
+        })
+    }
+
+    /// Projects the D15 Plan Studio for one owner (`runtime.plan_documents`).
+    ///
+    /// `lane_id` is the cockpit's selected Lane, or `None` for the session —
+    /// the same two scopes the transcript reads. Owner matching mirrors the
+    /// runtime's own `plans_share_owner` rule (`crates/runtime/src/
+    /// plan_documents.rs`): a plan addresses the same owner when it names the
+    /// same Lane, or when both name the session rather than a Lane. Full owner
+    /// equality is deliberately not used — the turn id moves every turn, and a
+    /// client matching on it would find no plan for an owner that has one.
+    pub fn d15_plan_studio(&self, lane_id: Option<&str>) -> Option<D15PlanStudioProjection> {
+        let confirmed = self.confirmed.as_ref()?;
+        let view = &confirmed.view;
+        let capability_available = confirmed
+            .capabilities
+            .iter()
+            .any(|capability| capability.0 == crate::PLAN_DOCUMENTS_CAPABILITY);
+        let work_mode = view.snapshot.work_mode.cli_name();
+        let permission_mode = view.snapshot.permission_mode.cli_name();
+        // Core checks its permission mode before it refuses a handoff, and
+        // `set_work_mode` couples the two. Either fact is enough to know the
+        // mutation is refused; fail-closed on both.
+        let plan_mode_active = view.snapshot.permission_mode == viden_core::PermissionMode::Plan
+            || view.snapshot.work_mode == WorkMode::Plan;
+
+        // A Core that published no capability gets no plan rendered, whatever
+        // its view state happens to carry: the capability is the promise that
+        // these records mean what this screen would say they mean, and drawing
+        // one under "plan documents are unavailable" states both at once.
+        let candidates: Vec<&viden_core::PlanDocumentRecord> = if capability_available {
+            view.plan_documents
+                .iter()
+                .filter(|plan| plan_addresses_owner(plan, lane_id))
+                .collect()
+        } else {
+            Vec::new()
+        };
+        // An owner has at most one *open* plan by Core's own rule, so an open
+        // one wins; with none open the newest decided record is the plan this
+        // owner last had, which is what the handed-off and rejected states show.
+        // Two open plans for one owner is a state Core does not produce: the
+        // client names the ambiguity rather than picking one of them.
+        let open: Vec<&viden_core::PlanDocumentRecord> = candidates
+            .iter()
+            .copied()
+            .filter(|plan| plan.status.is_open())
+            .collect();
+        let ambiguous_plan_ids: Vec<String> = if open.len() > 1 {
+            open.iter().map(|plan| plan.plan_id.0.clone()).collect()
+        } else {
+            Vec::new()
+        };
+        let selected = if ambiguous_plan_ids.is_empty() {
+            open.first().copied().or_else(|| {
+                candidates
+                    .iter()
+                    .copied()
+                    .max_by_key(|plan| (plan.updated_at, plan.plan_id.0.clone()))
+            })
+        } else {
+            None
+        };
+        let plan = selected.map(plan_projection);
+        let decision = if capability_available {
+            plan_decision(plan.as_ref(), &ambiguous_plan_ids, plan_mode_active)
+        } else {
+            D15DecisionProjection {
+                can_decide: false,
+                decide_block: Some(crate::D15_CAPABILITY_ABSENT_CODE),
+                can_hand_off: false,
+                hand_off_block: Some(crate::D15_CAPABILITY_ABSENT_CODE),
+                reject_reason_max_bytes: crate::D15_REJECT_REASON_MAX_BYTES,
+            }
+        };
+
+        Some(D15PlanStudioProjection {
+            capability_available,
+            work_mode: work_mode.to_string(),
+            permission_mode: permission_mode.to_string(),
+            plan_mode_active,
+            owner_lane_id: lane_id.map(str::to_string),
+            plan,
+            ambiguous_plan_ids,
+            decision,
         })
     }
 
@@ -2105,6 +2196,190 @@ fn agent_task_status(status: AgentTaskStatus) -> &'static str {
         AgentTaskStatus::Failed => "failed",
         AgentTaskStatus::Cancelled => "cancelled",
         AgentTaskStatus::Archived => "archived",
+    }
+}
+
+/// Whether one plan belongs to the owner this view is scoped to.
+///
+/// Mirrors the runtime's `plans_share_owner` narrowed to what a client can see:
+/// a Lane-scoped plan matches its own Lane, and a plan with no Lane is the
+/// session's. Workspace and project are not compared because Core supervises
+/// exactly one workspace at a time and publishes one view for it.
+fn plan_addresses_owner(plan: &viden_core::PlanDocumentRecord, lane_id: Option<&str>) -> bool {
+    match lane_id {
+        Some(lane) => plan.owner.lane_id.as_deref() == Some(lane),
+        None => plan.owner.lane_id.is_none(),
+    }
+}
+
+fn plan_status_name(status: viden_core::PlanDocumentStatus) -> &'static str {
+    match status {
+        viden_core::PlanDocumentStatus::Drafting => "drafting",
+        viden_core::PlanDocumentStatus::Proposed => "proposed",
+        viden_core::PlanDocumentStatus::Accepted => "accepted",
+        viden_core::PlanDocumentStatus::Rejected => "rejected",
+        viden_core::PlanDocumentStatus::HandedOff => "handed_off",
+        viden_core::PlanDocumentStatus::Superseded => "superseded",
+        // `PlanDocumentStatus` is `#[non_exhaustive]`: a status this build
+        // cannot name is still a real plan, and nearest-matching it would
+        // report a decision Core never made.
+        _ => "unknown",
+    }
+}
+
+fn plan_step_status_name(status: viden_core::PlanStepStatus) -> &'static str {
+    match status {
+        viden_core::PlanStepStatus::Pending => "pending",
+        viden_core::PlanStepStatus::InProgress => "in_progress",
+        viden_core::PlanStepStatus::Completed => "completed",
+    }
+}
+
+fn plan_author_projection(author: &viden_core::PlanAuthor) -> D15PlanAuthorProjection {
+    match author {
+        viden_core::PlanAuthor::Assistant {
+            session_id,
+            turn_id,
+        } => D15PlanAuthorProjection {
+            kind: "assistant".to_string(),
+            session_id: Some(session_id.clone()),
+            turn_id: Some(turn_id.clone()),
+        },
+        viden_core::PlanAuthor::Operator => D15PlanAuthorProjection {
+            kind: "operator".to_string(),
+            session_id: None,
+            turn_id: None,
+        },
+        // `#[non_exhaustive]`: an author this build cannot name is reported as
+        // itself rather than credited to the operator or to the model.
+        _ => D15PlanAuthorProjection {
+            kind: "unknown".to_string(),
+            session_id: None,
+            turn_id: None,
+        },
+    }
+}
+
+fn plan_projection(plan: &viden_core::PlanDocumentRecord) -> D15PlanProjection {
+    // One section per kind is a Core bound, so ordering by kind loses nothing
+    // and gives every plan the reading order D15 draws. `PlanSectionKind`
+    // derives `Ord` in its declaration order for exactly this.
+    let mut sections: Vec<&viden_core::PlanSection> = plan.sections.iter().collect();
+    sections.sort_by_key(|section| section.kind);
+    let sections = sections
+        .into_iter()
+        .map(|section| D15PlanSectionProjection {
+            kind: section.kind.as_str().to_string(),
+            body: section.body.clone(),
+        })
+        .collect();
+
+    let steps: Vec<D15PlanStepProjection> = plan
+        .steps
+        .iter()
+        .map(|step| D15PlanStepProjection {
+            id: step.id.clone(),
+            title: step.title.clone(),
+            status: plan_step_status_name(step.status).to_string(),
+            role: step.role.map(|role| agent_role(role).to_string()),
+            file_scope: step.file_scope.clone(),
+            dependencies: step.dependencies.clone(),
+        })
+        .collect();
+
+    // Roles in the order the steps declare them, counted. A step with no role
+    // is not folded into `coder`: Core applies that default at handoff, and
+    // printing it here would report a role the author never wrote.
+    let mut steps_by_role: Vec<D15PlanRoleCountProjection> = Vec::new();
+    for step in &steps {
+        let Some(role) = step.role.as_deref() else {
+            continue;
+        };
+        match steps_by_role.iter_mut().find(|entry| entry.role == role) {
+            Some(entry) => entry.steps += 1,
+            None => steps_by_role.push(D15PlanRoleCountProjection {
+                role: role.to_string(),
+                steps: 1,
+            }),
+        }
+    }
+
+    let completed_steps = steps
+        .iter()
+        .filter(|step| step.status == "completed")
+        .count();
+
+    D15PlanProjection {
+        plan_id: plan.plan_id.0.clone(),
+        title: plan.title.clone(),
+        goal: plan.goal.clone(),
+        status: plan_status_name(plan.status).to_string(),
+        revision: plan.revision,
+        content_sha256: plan.content_sha256.clone(),
+        owner_lane_id: plan.owner.lane_id.clone(),
+        owner_session_id: plan.owner.session_id.clone(),
+        sections,
+        steps,
+        steps_by_role,
+        completed_steps,
+        proposed_by: plan_author_projection(&plan.proposed_by),
+        created_at: plan.created_at,
+        updated_at: plan.updated_at,
+        decided_at: plan.decided_at,
+        decision_audit_id: plan.decision_audit_id.clone(),
+        handoff: plan
+            .handoff
+            .as_ref()
+            .map(|handoff| D15PlanHandoffProjection {
+                dag_id: handoff.dag_id.clone(),
+                handed_off_at: handoff.handed_off_at,
+                audit_id: handoff.audit_id.clone(),
+            }),
+    }
+}
+
+/// What the decision row may send, resolved from Core's own refusal rules.
+///
+/// Every `false` carries the code the view prints. The rules are the producer's
+/// (`crates/runtime/src/plan_documents.rs`): a decision needs a `Drafting` or
+/// `Proposed` plan, a handoff needs an `Accepted` one with at least one step,
+/// and plan mode refuses the handoff before anything is authorized.
+fn plan_decision(
+    plan: Option<&D15PlanProjection>,
+    ambiguous_plan_ids: &[String],
+    plan_mode_active: bool,
+) -> D15DecisionProjection {
+    let blocked = |code: &'static str| D15DecisionProjection {
+        can_decide: false,
+        decide_block: Some(code),
+        can_hand_off: false,
+        hand_off_block: Some(code),
+        reject_reason_max_bytes: crate::D15_REJECT_REASON_MAX_BYTES,
+    };
+    if !ambiguous_plan_ids.is_empty() {
+        return blocked(crate::D15_AMBIGUOUS_OWNER_CODE);
+    }
+    let Some(plan) = plan else {
+        return blocked(crate::D15_NO_PLAN_CODE);
+    };
+    let decidable = matches!(plan.status.as_str(), "drafting" | "proposed");
+    let hand_off_block = if plan.status == "handed_off" {
+        Some(crate::D15_ALREADY_HANDED_OFF_CODE)
+    } else if plan.status != "accepted" {
+        Some(crate::D15_NOT_ACCEPTED_CODE)
+    } else if plan.steps.is_empty() {
+        Some(crate::D15_NO_STEPS_CODE)
+    } else if plan_mode_active {
+        Some(crate::D15_PLAN_MODE_CODE)
+    } else {
+        None
+    };
+    D15DecisionProjection {
+        can_decide: decidable,
+        decide_block: (!decidable).then_some(crate::D15_ALREADY_DECIDED_CODE),
+        can_hand_off: hand_off_block.is_none(),
+        hand_off_block,
+        reject_reason_max_bytes: crate::D15_REJECT_REASON_MAX_BYTES,
     }
 }
 

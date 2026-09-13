@@ -8,6 +8,7 @@
  */
 
 import { IDLE_LAYOUT_PREFERENCES } from "../../src/models/layout_preferences";
+import { IDLE_PLAN_STUDIO } from "../../src/models/plan";
 import { IDLE_TRANSCRIPT_ROWS } from "../../src/models/transcript_rows";
 import { IDLE_WORKSPACE_FILE } from "../../src/models/workspace_file";
 import type { CoreClient } from "../../src/host/core_client";
@@ -162,6 +163,12 @@ export function fakeCoreClient(overrides: Partial<CoreClient> = {}): CoreClient 
     d12IntegrationGate: unreachable("d12_integration_gate"),
     d12SendIntent: unreachable("d12_send_intent"),
     d13FleetWorkflow: unreachable("d13_fleet_workflow"),
+    // The plan answers with the honest absence: a shell route spec must not
+    // depend on a Core that publishes plan documents, and the rail slot reads
+    // this before it decides whether it may open anything.
+    d15PlanStudio: async () => IDLE_PLAN_STUDIO,
+    d15SendIntent: unreachable("d15_send_intent"),
+    d15Poll: unreachable("d15_poll"),
     d14AuditTimeline: unreachable("d14_audit_timeline"),
     d14AuditQuery: unreachable("d14_audit_query"),
     d14AuditLoadOlder: unreachable("d14_audit_load_older"),

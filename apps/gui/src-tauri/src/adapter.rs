@@ -118,6 +118,13 @@ pub struct GuiCoreAdapter {
     /// verdict sent while the first is unanswered could only race Core's own
     /// "already decided" rejection; the slot refuses it locally instead.
     pending_d2_review: Option<PendingD2Review>,
+    /// One plan decision at a time (`runtime.plan_documents`, C13).
+    ///
+    /// A plan settles exactly once and a handoff spawns real work, so a second
+    /// command sent while the first is unanswered could only race Core's own
+    /// refusal — or, worse, hand the same plan off twice. The slot refuses it
+    /// locally instead. See [`PendingD15`].
+    pending_d15: Option<PendingD15>,
     /// One audit read at a time. Core now names the read each page answers
     /// (GUI-CORE-024), so two reads *could* be told apart, but a single slot
     /// keeps the receipt's replace/append decision unambiguous and keeps the
@@ -751,6 +758,72 @@ fn decide_review_command(
     }
     serde_json::from_value(wire)
         .map_err(|error| format!("Core rejected this client's review verdict encoding: {error}"))
+}
+
+/// One in-flight plan decision awaiting its ordered Core receipt.
+///
+/// Acceptance is not the decision: Core answers `AcceptPlanDocument` and
+/// `RejectPlanDocument` with `PlanDocumentDecided` and `HandOffPlanDocument`
+/// with `PlanDocumentHandedOff`, each after the audit row is durable. Only
+/// those confirm, so a republished snapshot can never be mistaken for a
+/// settled decision.
+struct PendingD15 {
+    command_id: String,
+    plan_id: String,
+    /// Whether this command was a handoff, which is answered by a different
+    /// fact from a decision and must not be confirmed by one.
+    handoff: bool,
+    accepted: bool,
+}
+
+impl PendingD15 {
+    fn observe(&mut self, envelope: &RuntimeEventEnvelope) -> D12Observation {
+        let RuntimeWireEvent::Known(event) = &envelope.event else {
+            return D12Observation::Continue;
+        };
+        match &event.kind {
+            RuntimeEventKind::CommandRejected { command_id, reason }
+                if command_id == &self.command_id =>
+            {
+                D12Observation::Rejected(reason.clone())
+            }
+            RuntimeEventKind::CommandAccepted {
+                command_id,
+                command,
+            }
+            | RuntimeEventKind::LaneCommandAccepted {
+                command_id,
+                command,
+            } if command_id == &self.command_id && self.matches_command(command) => {
+                self.accepted = true;
+                D12Observation::Continue
+            }
+            RuntimeEventKind::PlanDocumentDecided { plan_id, .. }
+                if self.accepted && !self.handoff && plan_id.0 == self.plan_id =>
+            {
+                D12Observation::Confirmed
+            }
+            RuntimeEventKind::PlanDocumentHandedOff { plan_id, .. }
+                if self.accepted && self.handoff && plan_id.0 == self.plan_id =>
+            {
+                D12Observation::Confirmed
+            }
+            _ => D12Observation::Continue,
+        }
+    }
+
+    fn matches_command(&self, command: &RuntimeCommand) -> bool {
+        match command {
+            RuntimeCommand::AcceptPlanDocument { plan_id, .. }
+            | RuntimeCommand::RejectPlanDocument { plan_id, .. } => {
+                !self.handoff && plan_id.0 == self.plan_id
+            }
+            RuntimeCommand::HandOffPlanDocument { plan_id, .. } => {
+                self.handoff && plan_id.0 == self.plan_id
+            }
+            _ => false,
+        }
+    }
 }
 
 /// One in-flight review verdict awaiting its ordered Core receipt.
@@ -1695,6 +1768,7 @@ impl GuiCoreAdapter {
             connection_detail: None,
             d2_selected: None,
             pending_d2_review: None,
+            pending_d15: None,
             pending_audit: None,
             turn_failure: None,
             pending_transcript_rows: None,
@@ -3324,6 +3398,235 @@ impl GuiCoreAdapter {
     /// Kept for the fact families whose confirmation is a projection refresh
     /// rather than an ordered receipt; a review verdict polls with a zero
     /// budget here and only drains what Core already delivered.
+    /// Whether Core's handshake published `runtime.plan_documents`.
+    pub fn supports_plan_documents(&self) -> bool {
+        self.supports(crate::PLAN_DOCUMENTS_CAPABILITY)
+    }
+
+    /// The Plan Studio projection for one owner, with no Core traffic.
+    pub fn d15_plan_studio(&self, lane_id: Option<&str>) -> Option<crate::D15PlanStudioProjection> {
+        self.projection.d15_plan_studio(lane_id)
+    }
+
+    /// Sends one plan decision and waits briefly for the ordered Core receipt.
+    ///
+    /// The pin — `revision` and `content_sha256` — travels from the render that
+    /// the operator actually read, never from a fresh lookup here. That is the
+    /// single deviation from D12's "re-resolve everything before sending"
+    /// pattern, and it is the whole point of the capability: a host that
+    /// refreshed the pin would turn a stale decision into a silent accept of a
+    /// revision nobody saw, which is precisely what `plan_revision_stale`
+    /// exists to refuse.
+    ///
+    /// The *actor* is still Core's own: the envelope owner is the owner Core
+    /// published on the plan, so the client never constructs a runtime
+    /// identity. A plan id Core no longer publishes is refused here rather than
+    /// sent as a command Core would have to reject.
+    pub fn send_d15_intent_and_wait(
+        &mut self,
+        command_id: &str,
+        intent: crate::D15Intent,
+        event_timeout: Duration,
+    ) -> Result<crate::D15IntentResult, String> {
+        if !self.supports_plan_documents() {
+            return Err(format!(
+                "Core publishes no {}, so no plan decision can be sent",
+                crate::PLAN_DOCUMENTS_CAPABILITY
+            ));
+        }
+        if let Some(pending) = &self.pending_d15 {
+            return Err(format!(
+                "plan command `{}` is still pending",
+                pending.command_id
+            ));
+        }
+        let (plan_id, handoff, lane_id, command) = self.d15_command(&intent)?;
+        let owner = self.d15_owner(&plan_id)?;
+        self.pending_d15 = Some(PendingD15 {
+            command_id: command_id.to_string(),
+            plan_id,
+            handoff,
+            accepted: false,
+        });
+        self.client
+            .send(RuntimeCommandEnvelope {
+                schema_version: FRONTEND_SCHEMA_V1,
+                client_id: "viden-gui".to_string(),
+                command_id: command_id.to_string(),
+                owner,
+                command,
+            })
+            .map_err(|error| {
+                self.pending_d15 = None;
+                error.to_string()
+            })?;
+        let outcome = self.poll_d15_decision(event_timeout)?;
+        self.d15_result(lane_id.as_deref(), command_id, outcome)
+    }
+
+    /// Drains ordered Core events for a plan command still in flight.
+    pub fn poll_d15(
+        &mut self,
+        lane_id: Option<&str>,
+        event_timeout: Duration,
+    ) -> Result<crate::D15IntentResult, String> {
+        let pending_command_id = self
+            .pending_d15
+            .as_ref()
+            .map(|pending| pending.command_id.clone());
+        let outcome = self.poll_d15_decision(event_timeout)?;
+        let command_id = pending_command_id.unwrap_or_default();
+        self.d15_result(lane_id, &command_id, outcome)
+    }
+
+    fn d15_result(
+        &self,
+        lane_id: Option<&str>,
+        command_id: &str,
+        outcome: D1OutcomeProjection,
+    ) -> Result<crate::D15IntentResult, String> {
+        let projection = self
+            .d15_plan_studio(lane_id)
+            .ok_or_else(|| "Core has not published a plan projection".to_string())?;
+        Ok(crate::D15IntentResult {
+            projection,
+            pending_command_id: (outcome.state == "pending" && !command_id.is_empty())
+                .then(|| command_id.to_string()),
+            outcome,
+        })
+    }
+
+    /// Builds the Core command one intent names, plus the bookkeeping the
+    /// pending slot and the re-read need.
+    fn d15_command(
+        &self,
+        intent: &crate::D15Intent,
+    ) -> Result<(String, bool, Option<String>, RuntimeCommand), String> {
+        let plan_id = match intent {
+            crate::D15Intent::Accept { plan_id, .. }
+            | crate::D15Intent::Reject { plan_id, .. }
+            | crate::D15Intent::HandOff { plan_id, .. } => plan_id.clone(),
+        };
+        let lane_id = self.d15_plan_record(&plan_id)?.owner.lane_id.clone();
+        let command = match intent {
+            crate::D15Intent::Accept {
+                plan_id,
+                revision,
+                content_sha256,
+            } => RuntimeCommand::AcceptPlanDocument {
+                plan_id: viden_core::PlanDocumentId(plan_id.clone()),
+                revision: *revision,
+                content_sha256: content_sha256.clone(),
+            },
+            crate::D15Intent::Reject {
+                plan_id,
+                revision,
+                content_sha256,
+                reason,
+            } => {
+                // Refused, never repaired: a reason over Core's bound is sent
+                // back as a refusal the operator can act on rather than
+                // truncated into a rejection they did not write.
+                let reason = reason.trim();
+                if reason.is_empty() {
+                    return Err("a rejected plan requires a reason".to_string());
+                }
+                if reason.len() > crate::D15_REJECT_REASON_MAX_BYTES {
+                    return Err(format!(
+                        "the rejection reason is {} bytes, over Core's {} byte bound",
+                        reason.len(),
+                        crate::D15_REJECT_REASON_MAX_BYTES
+                    ));
+                }
+                RuntimeCommand::RejectPlanDocument {
+                    plan_id: viden_core::PlanDocumentId(plan_id.clone()),
+                    revision: *revision,
+                    content_sha256: content_sha256.clone(),
+                    reason: reason.to_string(),
+                }
+            }
+            crate::D15Intent::HandOff {
+                plan_id,
+                revision,
+                content_sha256,
+            } => RuntimeCommand::HandOffPlanDocument {
+                plan_id: viden_core::PlanDocumentId(plan_id.clone()),
+                revision: *revision,
+                content_sha256: content_sha256.clone(),
+            },
+        };
+        let handoff = matches!(intent, crate::D15Intent::HandOff { .. });
+        Ok((plan_id, handoff, lane_id, command))
+    }
+
+    fn d15_plan_record(&self, plan_id: &str) -> Result<&viden_core::PlanDocumentRecord, String> {
+        self.projection
+            .view()
+            .ok_or_else(|| "Core has not published a plan projection".to_string())?
+            .plan_documents
+            .iter()
+            .find(|plan| plan.plan_id.0 == plan_id)
+            .ok_or_else(|| format!("plan `{plan_id}` is not published by Core"))
+    }
+
+    /// The actor a plan decision travels as: the owner Core recorded on the
+    /// plan itself, never one this client assembled.
+    fn d15_owner(&self, plan_id: &str) -> Result<RuntimeOwner, String> {
+        let owner = self.d15_plan_record(plan_id)?.owner.clone();
+        if owner == RuntimeOwner::default() {
+            return Err(format!(
+                "plan `{plan_id}` names no Core owner this client may decide as"
+            ));
+        }
+        Ok(owner)
+    }
+
+    fn poll_d15_decision(
+        &mut self,
+        event_timeout: Duration,
+    ) -> Result<D1OutcomeProjection, String> {
+        if self.pending_d15.is_none() {
+            return Ok(D1OutcomeProjection::idle());
+        }
+        let mut received = false;
+        let mut outcome = D1OutcomeProjection::pending();
+        for _ in 0..8 {
+            let event = match self
+                .receive_event_until(if received {
+                    Duration::ZERO
+                } else {
+                    event_timeout
+                })
+                .map_err(|error| error.to_string())?
+            {
+                Some(event) => event,
+                None => break,
+            };
+            received = true;
+            let Some(pending) = self.pending_d15.as_mut() else {
+                break;
+            };
+            match pending.observe(&event) {
+                D12Observation::Continue => {}
+                D12Observation::Confirmed => {
+                    self.pending_d15 = None;
+                    outcome = D1OutcomeProjection::confirmed();
+                    break;
+                }
+                D12Observation::Rejected(reason) => {
+                    self.pending_d15 = None;
+                    outcome = D1OutcomeProjection::rejected(reason);
+                    break;
+                }
+            }
+        }
+        if received {
+            self.refresh_projection()
+                .map_err(|error| error.to_string())?;
+        }
+        Ok(outcome)
+    }
+
     pub fn d2_send_intent(
         &mut self,
         command_id: &str,

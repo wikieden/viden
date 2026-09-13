@@ -13,6 +13,11 @@ import type {
   LayoutPreferencePatch,
   LayoutPreferencesProjection,
 } from "../models/layout_preferences";
+import type {
+  D15Intent,
+  D15IntentResult,
+  D15PlanStudioProjection,
+} from "../models/plan";
 import type { RecentWorkResult } from "../models/recent_work";
 import type { TranscriptRowsProjection } from "../models/transcript_rows";
 import type { WorkspaceFileProjection } from "../models/workspace_file";
@@ -354,6 +359,30 @@ export interface CoreClient {
    */
   d12SendIntent(commandId: string, intent: D12Intent): Promise<D12IntentResult>;
   d13FleetWorkflow(): Promise<D13FleetWorkflowProjection | null>;
+
+  /**
+   * The owner's plan document with no Core traffic (`runtime.plan_documents`,
+   * C13).
+   *
+   * `laneId` is the selected Lane, or `null` for the session — the two scopes
+   * the transcript already reads, and the owner rule is Core's own
+   * `plans_share_owner`. The projection states the capability, so an absent one
+   * is read as a named gap rather than as an owner with no plan.
+   */
+  d15PlanStudio(laneId: string | null): Promise<D15PlanStudioProjection | null>;
+  /**
+   * Sends one plan decision as `AcceptPlanDocument`, `RejectPlanDocument`, or
+   * `HandOffPlanDocument` and resolves with Core's own answer.
+   *
+   * The intent carries the revision and `content_sha256` the operator read; the
+   * host forwards them untouched, because the pin *is* the decision. Core
+   * refuses a moved revision with `plan_revision_stale`, refuses a handoff in
+   * plan mode with `plan_mode`, and writes the audit row before it announces
+   * anything — none of which this client re-implements.
+   */
+  d15SendIntent(commandId: string, intent: D15Intent): Promise<D15IntentResult>;
+  /** Drains ordered Core events while a plan command is still pending. */
+  d15Poll(laneId: string | null): Promise<D15IntentResult>;
   /** D14's diagnostic mode: one raw replay page through the Core cursor. */
   d14AuditTimeline(after: string | null, limit: number): Promise<D14AuditTimelineProjection>;
 

@@ -114,6 +114,10 @@ name = "d13_fleet_workflow"
 path = "../tests/d13_fleet_workflow.rs"
 
 [[test]]
+name = "d15_plan_studio"
+path = "../tests/d15_plan_studio.rs"
+
+[[test]]
 name = "capture_projections"
 path = "../tests/capture_projections.rs"
 

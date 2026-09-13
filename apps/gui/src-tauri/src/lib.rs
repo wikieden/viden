@@ -15,6 +15,7 @@ mod evidence_view;
 mod layout_preferences;
 mod operator_git;
 mod permission;
+mod plan;
 mod presentation;
 mod projection;
 mod recent_work;
@@ -92,6 +93,15 @@ pub use permission::{
     PermissionActionProjection, PermissionChoice, PermissionDockProjection, PermissionIntent,
     PermissionIntentResult, PermissionOutcomeProjection, PermissionRequestProjection,
     PermissionTargetProjection,
+};
+pub use plan::{
+    D15_ALREADY_DECIDED_CODE, D15_ALREADY_HANDED_OFF_CODE, D15_AMBIGUOUS_OWNER_CODE,
+    D15_CAPABILITY_ABSENT_CODE, D15_NO_PLAN_CODE, D15_NO_STEPS_CODE, D15_NOT_ACCEPTED_CODE,
+    D15_PLAN_MODE_CODE, D15_REJECT_REASON_MAX_BYTES, D15_REVISION_STALE_CODE,
+    D15DecisionProjection, D15Intent, D15IntentResult, D15PlanAuthorProjection,
+    D15PlanHandoffProjection, D15PlanProjection, D15PlanRoleCountProjection,
+    D15PlanSectionProjection, D15PlanStepProjection, D15PlanStudioProjection,
+    PLAN_DOCUMENTS_CAPABILITY,
 };
 
 pub use layout_preferences::{
@@ -965,6 +975,57 @@ fn permission_poll(
         .poll_permission(Duration::ZERO)
 }
 
+/// The Plan Studio projection for the selected owner (`runtime.plan_documents`).
+///
+/// `lane_id` is the cockpit's selected Lane, or `None` for the session scope.
+#[tauri::command]
+fn d15_plan_studio(
+    lane_id: Option<String>,
+    state: tauri::State<'_, DesktopState>,
+) -> Result<Option<D15PlanStudioProjection>, String> {
+    Ok(state
+        .adapter
+        .lock()
+        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?
+        .as_ref()
+        .ok_or_else(|| "Core adapter is not connected".to_string())?
+        .d15_plan_studio(lane_id.as_deref()))
+}
+
+/// Sends one plan decision (`AcceptPlanDocument` / `RejectPlanDocument` /
+/// `HandOffPlanDocument`) and waits briefly for its ordered Core receipt.
+///
+/// The intent carries the revision and content digest the operator read; the
+/// host never refreshes them, because the pin is the decision.
+#[tauri::command]
+fn d15_send_intent(
+    command_id: String,
+    intent: D15Intent,
+    state: tauri::State<'_, DesktopState>,
+) -> Result<D15IntentResult, String> {
+    state
+        .adapter
+        .lock()
+        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?
+        .as_mut()
+        .ok_or_else(|| "Core adapter is not connected".to_string())?
+        .send_d15_intent_and_wait(&command_id, intent, Duration::from_millis(250))
+}
+
+#[tauri::command]
+fn d15_poll(
+    lane_id: Option<String>,
+    state: tauri::State<'_, DesktopState>,
+) -> Result<D15IntentResult, String> {
+    state
+        .adapter
+        .lock()
+        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?
+        .as_mut()
+        .ok_or_else(|| "Core adapter is not connected".to_string())?
+        .poll_d15(lane_id.as_deref(), Duration::ZERO)
+}
+
 #[tauri::command]
 fn d13_fleet_workflow(
     state: tauri::State<'_, DesktopState>,
@@ -1277,6 +1338,9 @@ pub fn run_with_adapter(adapter: Option<GuiCoreAdapter>) {
             d12_integration_gate,
             d12_send_intent,
             d13_fleet_workflow,
+            d15_plan_studio,
+            d15_send_intent,
+            d15_poll,
             d14_audit_timeline,
             d14_audit_query,
             d14_audit_load_older,
