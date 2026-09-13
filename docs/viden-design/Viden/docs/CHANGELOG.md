@@ -20,6 +20,12 @@
 
 ---
 
+## 2026-09-13
+- [GUI][文档] **新增两屏并登记:D15 Plan Studio + D16 Agent Board**(SPEC 新增 `D-PLANBOARD` · 0.3.5 契约设计的 Design Package Inputs 表为控件→事实真源):
+  - 两屏都是 **驾驶舱中央面**(chrome 保留 · 同 D-RAILNAV 宿主模型),接 `gui-kit`;D15 画 7 类 section / 步骤+依赖 / 修订+作者 / Accept·附理由 Reject·Hand off 决策行 + 三个诚实态(no plan proposed · `plan_revision_stale` · `plan_mode` 拒绝移交)+ 移交进 D13 的链接;D16 画 lane→会话层级(会话绝不脱离 lane)、新状态 Paused/Killed、事件时间线、证据芯片与 Pause/Resume/Kill/Stop/Retry/换模型(两步)动作行。
+  - **零新增可复用组件**:chrome 走 `.frame`/`GuiTitleBar`/`.act`/`GuiStatusBar`/`.composer`,D16 右栏详情壳复用已登记的 EvidenceView 家族(`.evdethead`/`.evsec`/`.evkv`/`.evchip`/`.evfoot`);页面专属类前缀 `.ps*`/`.ab*`,不占裸登记族名(PROTO-STANDARD §5)。**新增 1 个图标 key `plan`**(步骤清单),D16 复用已登记的 `robot`。
+  - 同步:`screens-status.js` 新增 D15(新组「规划 / Plan」)与 D16(归「监视与编排 / Monitor」)并把 GUI 索引卡的「D1–D13」更正为「D1–D16」;DESIGN-REF 补图标 key + 两屏进 kit/GuiTitleBar/GuiStatusBar 已接清单 + EvidenceView 记第二消费者。五条 guard 全 PASS、零 baseline 新增。
+
 ## 2026-09-09
 - [GUI][文档] **DiffReview / EvidenceView 升进 gui-kit 的尝试受阻,先记录实测再裁决**（D-SOT · D-RAILNAV ①②;本次**未动任何 CSS**,纯文档）：
   - **D1 不能反向 link `gui-kit.css`**：两边同名规则已有意分叉,D1 只声明部分属性、kit 多出的属性会泄漏（`.envrow .cv` 多 font-family/font-size）→ 实测 chat 视图 **2584 px** 变化;结论写进 PROTO-STANDARD §5,升进只能做成逐字镜像。

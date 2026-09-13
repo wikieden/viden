@@ -270,7 +270,7 @@
 > **GUI canonical kit（`gui-kit.css` · 对标 tui-kit.css · 防漂移)**
 > **新 GUI 桌面屏一律用 `gui-kit.css` 的类**(窗口壳/标题栏/活动 rail/lane 行/Environment/状态栏/输入区/边缘浮出),别再各页内联自造。视觉真源 = D1 驾驶舱;数值真源仍是 tokens.css(本套件只引用 `var(--*)`)。
 > 接入:`<link href="../tokens.css"><link href="gui-kit.css">`。
-> 存量页迁移状态(2026-06-29 · **2026-09-09 更正 D1**):**D2决策 / D4 / D5 / D6 / D7 / D8 / D9 / D10 / D11 / D12 / D13 / D14 + 组件库 已接 gui-kit**(窗口壳/标题栏/活动 rail `.act`·`.actbtn`·`.badge`/winbar dots 用套件,各页内联 `.vbar`/`.vrail`/`.vbtn` fork 已删,裸色收 token);**D1 旗舰有意不接** —— 它是视觉真源、kit 是它的镜像,反向 link 会让 kit 里已分叉的同名规则属性泄漏(2026-09-09 实测 chat 视图 2584 px 变化;原文列 D1 为「已接」是笔误,实物从未 link);D2存档 UI 语义色已收(图表数据序列色基线保留);**召唤坞 D2横/D3竖 与 宠物 Pip 为独立浮层/装饰概念,有意保持自包含**(token-clean·不接套件,避免全局 `.composer`/`.side` 泄漏)。新页直接用套件。下列条目即套件登记内容。
+> 存量页迁移状态(2026-06-29 · **2026-09-09 更正 D1**):**D2决策 / D4 / D5 / D6 / D7 / D8 / D9 / D10 / D11 / D12 / D13 / D14 / D15 / D16 + 组件库 已接 gui-kit**(窗口壳/标题栏/活动 rail `.act`·`.actbtn`·`.badge`/winbar dots 用套件,各页内联 `.vbar`/`.vrail`/`.vbtn` fork 已删,裸色收 token);**D1 旗舰有意不接** —— 它是视觉真源、kit 是它的镜像,反向 link 会让 kit 里已分叉的同名规则属性泄漏(2026-09-09 实测 chat 视图 2584 px 变化;原文列 D1 为「已接」是笔误,实物从未 link);D2存档 UI 语义色已收(图表数据序列色基线保留);**召唤坞 D2横/D3竖 与 宠物 Pip 为独立浮层/装饰概念,有意保持自包含**(token-clean·不接套件,避免全局 `.composer`/`.side` 泄漏)。新页直接用套件。下列条目即套件登记内容。
 
 **图标目录（`gui-icons.jsx` · GUI 图标单一真源 · 防重绘）** — 所有 GUI 线性图标 + agent 品牌徽标一份收口,视觉母版 = D1 驾驶舱。**别再各页内联 `VRAIL_ICONS`/`I*` 自画**(同一 worktree/lanes/review 此前被各画各的,已统一)。接入:`<script type="text/babel" src="../gui-icons.jsx"></script>`(gui-titlebar / 主脚本**之前**;根目录页用 `gui-icons.jsx`)。导出 `window.ICONS`(元素表)/ `GuiIcon`(换 class/尺寸)/ `AgentLogo`。
 ```jsx
@@ -280,7 +280,9 @@
 <AgentLogo agent="codex"/>                      /* codex/claude/kiro/viden·品牌固定色不换肤 */
 ```
 > **画法规范**:线性 · viewBox 24 · class `ic`(gui-kit `svg.ic` 给 stroke currentColor / 19px / 圆端)·`ic sm`=15px。颜色一律 `currentColor`;唯 `AgentLogo` 用品牌色(codex 绿/claude 橙/kiro 紫/viden 青+金)。
-> **key 目录**(语义):rail/视图 = `chat worktree lanes(swimlanes) review decide fleet evidence diagnostics inbox brief gallery remote rocket` · 标题栏工具 = `palette focus popout term panel slot pin settings` · 替 emoji = `lock(🔒) robot(🤖) game(🎮) ml(📈)`。
+> **key 目录**(语义):rail/视图 = `chat worktree lanes(swimlanes) plan review decide fleet evidence diagnostics inbox brief gallery remote rocket` · 标题栏工具 = `palette focus popout term panel slot pin settings` · 替 emoji = `lock(🔒) robot(🤖) game(🎮) ml(📈)`。
+> `plan`(2026-09-13 新增 · SPEC `D-PLANBOARD`)= **步骤清单**(首项已勾、其余待办),D15 Plan Studio 的 rail 目的地;刻意不与 `decide`(剪贴板 + 勾)同形 —— 它讲的是 steps 本身。
+> `robot` 自 2026-09-13 起**同时**是 D16 Agent Board 的 rail 目的地(语义 = agent),不再只作 🤖 的替身;两屏 rail 顺序统一 `chat · plan · lanes · robot · fleet · decide`。
 > **铁律**:GUI 禁 emoji——要图标走这里的线性 SVG。新图标先在此加 key + 登记语义再页面引用;没登记 = 临时草稿。护栏见 SPEC `D-ICON`。
 
 **窗口标题栏 chrome（D1 同源 · 全 GUI 横屏页统一规范）** — 三套等价实现,**度量必须一致**:`.titlebar`(D1/召唤坞,含 `.tbtitle`)· `.vbar`(流程/内容页,共享壳)· `.winbar`(D10 监视墙,用 `.dots` 代 `.tl`)。规范:**栏高 46px · gap 13px · padding 0 14px · 交通灯点 12px(gap 8,红 `--error`/黄 `--warning`/绿 `--success`)· 字标 mono 700 13.5px**。字标 = `[◉]`(括号 `--accent` + `◉` `--accent-bright`)+ `v`(`.r`=`--gold`)+ `iden`(`.c`=`--accent`)。
@@ -295,7 +297,7 @@
 <GuiTitleBar project="Robocode 工作区" branch="18 项目" git={false}/>
 <GuiTitleBar project="未接入项目" branch="" git={false} dim tools={['index','settings']}/>
 ```
-> props 均可省:`project`/`branch`(projsel 文字)· `git`(显示 gitops·默认 true)· `sync`{up,down}/`worktrees`(数·null 隐)· `tools`(按钮 key 数组:palette focus popout term panel index settings `|`分隔)· `active`/`onTool` · `indexHref`(▤ 设计稿索引)· `dim`(projsel 半透,如无项目)。已接:D2决策/D4/D5/D7/D9/D11/D12/D13/D14。D1 旗舰保留其交互版 `.titlebar`(窗口管理器拖拽/最大化依赖之),作视觉真源不替换。
+> props 均可省:`project`/`branch`(projsel 文字)· `git`(显示 gitops·默认 true)· `sync`{up,down}/`worktrees`(数·null 隐)· `tools`(按钮 key 数组:palette focus popout term panel index settings `|`分隔)· `active`/`onTool` · `indexHref`(▤ 设计稿索引)· `dim`(projsel 半透,如无项目)。已接:D2决策/D4/D5/D7/D9/D11/D12/D13/D14/D15/D16。D1 旗舰保留其交互版 `.titlebar`(窗口管理器拖拽/最大化依赖之),作视觉真源不替换。
 
 **`<GuiPopoutBar>`(gui-titlebar.jsx 内 · popout 独立窗口顶栏 canonical · SPEC D-POPOUT)** — 监视墙/竖条等 popout 窗口的轻量顶栏：`.winbar`(度量同源 gui-kit) + dots + 字标 + `.tt` 题字 + 右侧插槽(`.winbar .pin`/`.pop` 已进 gui-kit)。**各页禁再手抄 dots/字标。**已接：D10 监视墙 + 竖条。
 ```html
@@ -312,7 +314,7 @@
 ```html
 <div class="frame"> … <GuiStatusBar right="⏸ 1 gate waiting" /> </div>
 ```
-> props 均可省:`items`(中段指标 `[label,value]` 数组,默认 Aurora 占位 provider/model/ctx/cost/mode/perm/branch)· `right`(右侧固定状态段,默认隐藏)。**钉/滚契约见 SPEC `D-STATUSBAR`**:`right`(`.sb-right`)钉可操作项(gate/error,绝不进 ticker),`.sb-tickwrap` 仅跑 ambient。D1 驾驶舱保留其更丰富的交互版 `.statusbar`(含配置弹层),不替换。已铺:D2决策/D2存档/D4/D5/D7/D9/D11/D12/D13。未铺(有意):D2横/D3 召唤坞 · D10 双独立窗口 showcase(监视墙+竖条,无单一 cockpit 窗) · Pip 装饰页。
+> props 均可省:`items`(中段指标 `[label,value]` 数组,默认 Aurora 占位 provider/model/ctx/cost/mode/perm/branch)· `right`(右侧固定状态段,默认隐藏)。**钉/滚契约见 SPEC `D-STATUSBAR`**:`right`(`.sb-right`)钉可操作项(gate/error,绝不进 ticker),`.sb-tickwrap` 仅跑 ambient。D1 驾驶舱保留其更丰富的交互版 `.statusbar`(含配置弹层),不替换。已铺:D2决策/D2存档/D4/D5/D7/D9/D11/D12/D13/D15/D16。未铺(有意):D2横/D3 召唤坞 · D10 双独立窗口 showcase(监视墙+竖条,无单一 cockpit 窗) · Pip 装饰页。
 ```html
 <div class="frame">…</div>  <!-- 或 .win，二者度量必须一致 -->
 ```
@@ -451,6 +453,7 @@
 ```
 
 **`.evwrap` > `.evmain`(`.evbar`>`.fchip`+`.search` · `.evscroll`>`.evday`+`.evrow2.on`) + `.evdet`(`.evdethead`+`.evsec`+`.evfoot`)** — **EvidenceView**:in-cockpit 证据视图(按天分组的证据时间线 + 右侧详情 + 关联芯片)。行 `.evrow2`>`.tm2` 时间·`.ic2` 类型字形(色 = 语义)·`.tt2` 标题·`.lane-b` 归属 lane;详情 `.evkv`(`.k`/`.v` 键值)·`.evterm`(`.gp`/`.rp`/`.dim` 输出尾)·`.evchip`(关联 patch/resume/approval)·`.evfoot`>`.mpill.go` 主动作。读侧先行;配 **D-AUDIT**「审计行链接证据、不反向」的单向链。**实现目标 0.3.3**(排在 DiffReview 之后)。
+> **第二消费者(2026-09-13)**:D16 Agent Board 的右栏会话详情复用本族的 `.evdethead`/`.evsec`/`.evkv`/`.evchip`/`.evfoot`(与 DiagnosticsView 同一复用法),不新造一族;D16 只在容器里放自己的 `.abact` 动作按钮。
 ```html
 <div class="evwrap">
   <div class="evmain">
