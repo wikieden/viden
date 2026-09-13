@@ -1,4 +1,5 @@
 use super::{
+    approval_scopes::APPROVAL_SCOPES_CAPABILITY,
     audit_panel::{AUDIT_ROW_WIDTH, audit_row},
     canvas::Frame,
     command_palette::render_command_suggestions,
@@ -19,14 +20,18 @@ use super::{
     operator_git::{OPERATOR_GIT_CAPABILITY, action_label_key, operator_git_owner},
     panel::panel,
     pending::SupervisionOutcome,
+    plan_lens::plan_lens_rows,
     preferences::{
-        PreferenceValue, SettingsPanel, UI_PREFERENCE_PERSISTENCE_CAPABILITY,
-        color_depth_label_key, density_label_key, mode_label_key, motion_label_key, skin_label_key,
+        ColorDepth, PreferenceValue, SettingsPanel, TerminalCapabilities,
+        UI_PREFERENCE_PERSISTENCE_CAPABILITY, color_depth_label_key, density_label_key,
+        mode_label_key, motion_label_key, resolve_appearance, skin_label_key,
     },
     projection::CockpitProjection,
+    session_control::{SESSION_CONTROL_CAPABILITY, SessionControl, control_suffix, status_glyph},
+    starter_lane_agent::{starter_lane_agent_picks, starter_lane_agent_rows},
     state::{
-        AcpPickerPhase, ConflictDetailTarget, GitPickerPhase, InteractionPanel, TuiState,
-        has_active_work,
+        AcpPickerPhase, ConflictDetailTarget, GitPickerPhase, InteractionPanel, NewLanePhase,
+        TuiState, has_active_work,
     },
     text::{truncate, truncate_tail},
 };
@@ -106,6 +111,7 @@ pub(super) fn render_overlays(frame: &mut Frame, state: &TuiState, _right_rail_w
             OverlayKind::SupervisionDecision => "overlay.title.supervision",
             OverlayKind::AuditTimeline => "overlay.title.audit",
             OverlayKind::EvidenceInspector => "overlay.title.evidence",
+            OverlayKind::PlanLens => "overlay.title.plan",
             OverlayKind::ConflictContent => "overlay.title.conflict",
             OverlayKind::ContextHelp => "overlay.title.context_help",
             OverlayKind::ExitConfirm => "overlay.title.exit",
@@ -118,7 +124,11 @@ pub(super) fn render_overlays(frame: &mut Frame, state: &TuiState, _right_rail_w
             // The approval panel grows with the hunk rows it renders so the
             // decision context never pushes the approval actions off a short
             // terminal. The growth is bounded by the row cap in `diff_rows`.
-            OverlayKind::Approval => 14 + approval_diff_row_budget(state),
+            // The base was 14 before `runtime.approval_scopes` added the
+            // standing-scope row, the revision row, and the two rows an open
+            // revision field needs; without the extra height the `Deny` and
+            // `Edit` rows fell off the bottom of the panel.
+            OverlayKind::Approval => 18 + approval_diff_row_budget(state),
             OverlayKind::Decisions
             | OverlayKind::SupervisionDecision
             | OverlayKind::AuditTimeline => 14,
@@ -129,6 +139,9 @@ pub(super) fn render_overlays(frame: &mut Frame, state: &TuiState, _right_rail_w
             // Three labelled sides per rejected hunk need a taller panel than
             // a decision list does.
             OverlayKind::ConflictContent => 22,
+            // Sections, steps, and the three decision rows do not fit a
+            // decision list's height; the panel scrolls beyond this.
+            OverlayKind::PlanLens => 22,
             _ => 10,
         };
         let hint = match overlay.kind {
@@ -137,6 +150,7 @@ pub(super) fn render_overlays(frame: &mut Frame, state: &TuiState, _right_rail_w
             OverlayKind::AuditTimeline => super::i18n::text(state, "audit.hint"),
             OverlayKind::EvidenceInspector => super::i18n::text(state, "evidence.hint"),
             OverlayKind::ConflictContent => super::i18n::text(state, "conflict.hint"),
+            OverlayKind::PlanLens => super::i18n::text(state, "plan.hint"),
             _ => super::i18n::text(state, "overlay.close_hint"),
         };
         let block = panel(
@@ -198,7 +212,12 @@ pub(super) fn render_overlays(frame: &mut Frame, state: &TuiState, _right_rail_w
                 GitPickerPhase::Browse => "interaction.git",
                 GitPickerPhase::CommitMessage { .. } => "interaction.git.commit",
             },
+            Some(InteractionPanel::NewLaneTask {
+                phase: NewLanePhase::AgentPick { .. },
+                ..
+            }) => "interaction.native_lane.agent",
             Some(InteractionPanel::NewLaneTask { .. }) => "interaction.native_lane.task",
+            Some(InteractionPanel::StandingApprovals { .. }) => "interaction.standing_approvals",
             None => unreachable!("panel presence checked above"),
         };
         let title = super::i18n::text(state, title_key);
@@ -332,6 +351,10 @@ fn global_overlay_rows(state: &TuiState, kind: OverlayKind, filter: &str) -> Vec
             return evidence_rows(state, EVIDENCE_ROW_WIDTH);
         }
         OverlayKind::ConflictContent => return conflict_content_rows(state),
+        // The plan lens owns its keys: `a`, `r` and `h` decide, arrows
+        // scroll, and while the rejection reason is open every printable
+        // character types it. There is no text filter to apply here.
+        OverlayKind::PlanLens => return plan_lens_rows(state),
         OverlayKind::Lane => state
             .runtime
             .lanes
@@ -908,6 +931,9 @@ fn global_jump_rows(state: &TuiState, filter: &str) -> Vec<String> {
 
 pub(super) fn interaction_rows(state: &TuiState) -> Vec<String> {
     match state.ui.interaction_panel.as_ref() {
+        Some(InteractionPanel::StandingApprovals { selected }) => {
+            standing_approval_rows(state, *selected)
+        }
         Some(InteractionPanel::Settings(panel)) => settings_rows(state, panel),
         Some(InteractionPanel::Setup { selected, draft }) => {
             if !state.has_capability("runtime.project_onboarding") {
@@ -1021,7 +1047,15 @@ pub(super) fn interaction_rows(state: &TuiState) -> Vec<String> {
                 format!("> {draft}"),
             ],
         },
-        Some(InteractionPanel::NewLaneTask { task }) => {
+        // The Agent step replaces the task rows entirely rather than sitting
+        // under them: the task is already typed and the operator is choosing,
+        // and a panel that showed both would invite editing text that the next
+        // Enter no longer submits.
+        Some(InteractionPanel::NewLaneTask {
+            phase: NewLanePhase::AgentPick { selected },
+            ..
+        }) => starter_lane_agent_rows(state, *selected),
+        Some(InteractionPanel::NewLaneTask { task, .. }) => {
             let eligibility = state.runtime.workspace_eligibility.as_ref();
             let status = match eligibility {
                 Some(value)
@@ -1245,30 +1279,64 @@ pub(super) fn acp_picker_rows(state: &TuiState) -> Vec<AcpPickerRow> {
             kind: AcpPickerRowKind::Disabled,
         }];
     };
+    let glyphs = resolve_appearance(
+        &state.runtime.snapshot.ui_preferences,
+        ColorDepth::Auto,
+        TerminalCapabilities::default(),
+    )
+    .glyphs;
     let mut rows = state
         .runtime
         .agent_sessions
         .iter()
         .filter(|session| session.lane_id == lane_id)
-        .map(|session| {
-            let retry = matches!(
+        .map(|session| AcpPickerRow {
+            id: format!("session:{}", session.session_id),
+            // The status glyph, the held-input count, and the termination are
+            // Core's own facts (`runtime.agent_session_control`): a paused
+            // session shows what it is holding and a settled one says whether
+            // a cancel or a kill ended it, which the status alone can no
+            // longer tell apart.
+            label: format!(
+                "{} {} · {} · {:?}{}",
+                status_glyph(glyphs, session.status),
+                session.agent_id,
+                session.task,
                 session.status,
-                viden_core::AgentSessionStatus::Failed | viden_core::AgentSessionStatus::Cancelled
-            )
-            .then(|| format!(" · {}", super::i18n::text(state, "acp.retry_hint")))
-            .unwrap_or_default();
-            AcpPickerRow {
-                id: format!("session:{}", session.session_id),
-                label: format!(
-                    "{} · {} · {:?}{retry}",
-                    session.agent_id, session.task, session.status
-                ),
-                kind: AcpPickerRowKind::Session {
-                    session_id: session.session_id.clone(),
-                },
-            }
+                control_suffix(state, session),
+            ),
+            kind: AcpPickerRowKind::Session {
+                session_id: session.session_id.clone(),
+            },
         })
         .collect::<Vec<_>>();
+    // The control row is appended after the sessions and before the adapters,
+    // so it never shifts the index of a session row. It states what every key
+    // sends for the selected session and why a key is inert, including the
+    // switch-model flow Core publishes no command for.
+    if !rows.is_empty() {
+        rows.push(AcpPickerRow {
+            id: "session-control".to_string(),
+            label: session_control_row(state),
+            kind: AcpPickerRowKind::Disabled,
+        });
+        rows.push(AcpPickerRow {
+            id: "session-control-switch-model".to_string(),
+            label: super::i18n::translate(
+                state,
+                "session.control.switch_model",
+                &[(
+                    "kill",
+                    &super::i18n::translate(
+                        state,
+                        SessionControl::Kill.label_key(),
+                        &[("availability", "")],
+                    ),
+                )],
+            ),
+            kind: AcpPickerRowKind::Disabled,
+        });
+    }
     rows.extend(
         state
             .runtime
@@ -1309,6 +1377,127 @@ pub(super) fn acp_picker_rows(state: &TuiState) -> Vec<AcpPickerRow> {
         });
     }
     rows
+}
+
+/// What each session-control key sends for the row the operator has selected.
+///
+/// Every control is listed, always: a key that the session's current status
+/// refuses says which status refused it, and a key this Core does not publish
+/// names the missing capability. Hiding either would make "Core cannot pause"
+/// indistinguishable from "this session cannot be paused".
+pub(super) fn session_control_row(state: &TuiState) -> String {
+    let status = selected_acp_session_status(state);
+    SessionControl::ALL
+        .into_iter()
+        .map(|control| {
+            let availability = if control.needs_capability()
+                && !state.has_capability(SESSION_CONTROL_CAPABILITY)
+            {
+                super::i18n::translate(
+                    state,
+                    "session.control.capability",
+                    &[("capability", SESSION_CONTROL_CAPABILITY)],
+                )
+            } else {
+                match status {
+                    Some(status) if control.applies_to(status) => String::new(),
+                    Some(status) => super::i18n::translate(
+                        state,
+                        "session.control.unavailable",
+                        &[("status", &format!("{status:?}").to_ascii_lowercase())],
+                    ),
+                    None => String::new(),
+                }
+            };
+            super::i18n::translate(
+                state,
+                control.label_key(),
+                &[("availability", availability.as_str())],
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("  ")
+}
+
+/// The status of the Agent session the `/acp` picker has selected.
+///
+/// Read from `RuntimeViewState` through the row list rather than remembered,
+/// so a session that settled since the last frame gates the keys by what it is
+/// now.
+pub(super) fn selected_acp_session_status(
+    state: &TuiState,
+) -> Option<viden_core::AgentSessionStatus> {
+    let session_id = selected_acp_session_id(state)?;
+    state
+        .runtime
+        .agent_sessions
+        .iter()
+        .find(|session| session.session_id == session_id)
+        .map(|session| session.status)
+}
+
+/// The id of the Agent session the `/acp` picker has selected, if the selected
+/// row is a session at all.
+///
+/// Indexed against the same Lane-filtered session list the rows are built
+/// from, rather than against the rendered rows: `acp_picker_rows` asks this
+/// function which session is selected, so reading it back out of those rows
+/// would recurse. Session rows are emitted first, so the index is exact.
+pub(super) fn selected_acp_session_id(state: &TuiState) -> Option<String> {
+    let Some(InteractionPanel::AcpPicker {
+        selected,
+        phase: AcpPickerPhase::Browse,
+    }) = state.ui.interaction_panel.as_ref()
+    else {
+        return None;
+    };
+    let lane_id = state.ui.focused_lane.as_deref()?;
+    state
+        .runtime
+        .agent_sessions
+        .iter()
+        .filter(|session| session.lane_id == lane_id)
+        .nth(*selected)
+        .map(|session| session.session_id.clone())
+}
+
+/// The standing `Always` rules in force, read from Core
+/// (`runtime.approval_scopes`, GUI-CORE-019).
+///
+/// `RuntimeViewState.standing_approvals` is the authority: this list never
+/// shows a grant this client remembers seeing and never hides one it did not
+/// witness, because the rules load at bootstrap from a file that outlives
+/// every session. An empty list is a real answer and is rendered as absence.
+pub(super) fn standing_approval_rows(state: &TuiState, selected: usize) -> Vec<String> {
+    if !state.has_capability(APPROVAL_SCOPES_CAPABILITY) {
+        return vec![super::i18n::translate(
+            state,
+            "approval.standing.unavailable",
+            &[("capability", APPROVAL_SCOPES_CAPABILITY)],
+        )];
+    }
+    if state.runtime.standing_approvals.is_empty() {
+        return vec![super::i18n::text(state, "approval.standing.empty")];
+    }
+    state
+        .runtime
+        .standing_approvals
+        .iter()
+        .enumerate()
+        .map(|(index, rule)| {
+            super::i18n::translate(
+                state,
+                "approval.standing.row",
+                &[
+                    ("marker", if index == selected { ">" } else { " " }),
+                    ("tool", rule.tool_name.as_str()),
+                    ("content", &truncate(&rule.rule_content, 40)),
+                    ("workspace", rule.granted_in_workspace.as_str()),
+                    ("audit", rule.audit_id.as_str()),
+                ],
+            )
+        })
+        .collect()
 }
 
 fn settings_rows(state: &TuiState, panel: &SettingsPanel) -> Vec<String> {
@@ -1466,6 +1655,10 @@ fn focused_approval_rows(state: &TuiState) -> Vec<String> {
             .allowed_scopes
             .iter()
             .any(|scope| matches!(scope, viden_core::ApprovalScope::RepoAllowlist { .. }));
+        let always = approval
+            .allowed_scopes
+            .iter()
+            .any(|scope| matches!(scope, viden_core::ApprovalScope::Always));
         let availability = |available: bool| {
             if available {
                 String::new()
@@ -1490,6 +1683,18 @@ fn focused_approval_rows(state: &TuiState) -> Vec<String> {
         let once_availability = availability(once);
         let session_availability = availability(session);
         let repo_availability = availability(repo);
+        // The standing scope is offered by Core only below `High` risk and
+        // outside plan mode, so the key is shown disabled with the reason
+        // rather than hidden: an operator must be able to see that the rule
+        // exists and that this request is not eligible for it.
+        let always_availability = availability(always);
+        // `editable` is Core's answer about this tool's input shape, and it is
+        // the only thing that makes the revision key live.
+        let edit_availability = if approval.editable {
+            String::new()
+        } else {
+            super::i18n::text(state, "approval.edit.unavailable")
+        };
         // Core's typed rows replace the preview string rather than joining it:
         // the preview is a lossy rendering of the same proposal, and showing
         // both would invite a reader to compare two spellings of one fact.
@@ -1529,7 +1734,17 @@ fn focused_approval_rows(state: &TuiState) -> Vec<String> {
                 "approval.action.allow_repo",
                 &[("availability", repo_availability.as_str())],
             ),
+            super::i18n::translate(
+                state,
+                "approval.action.allow_always",
+                &[("availability", always_availability.as_str())],
+            ),
             super::i18n::text(state, "approval.action.deny"),
+            super::i18n::translate(
+                state,
+                "approval.action.edit",
+                &[("availability", edit_availability.as_str())],
+            ),
             expiry,
             super::i18n::translate(
                 state,
@@ -1537,6 +1752,28 @@ fn focused_approval_rows(state: &TuiState) -> Vec<String> {
                 &[("audit_id", approval.audit_id.as_str())],
             ),
         ]);
+        // A second request produced by an `Edit` replaces the row the operator
+        // was looking at rather than stacking beside it, so it says which
+        // request it revises.
+        if let Some(revised_from) = approval.revised_from.as_deref() {
+            rows.push(super::i18n::translate(
+                state,
+                "approval.revised_from",
+                &[("request_id", revised_from)],
+            ));
+        }
+        if let Some(edit) = state
+            .ui
+            .approval_edit
+            .as_ref()
+            .filter(|edit| edit.request_id == approval.id)
+        {
+            rows.push(super::i18n::text(state, "approval.edit.prompt"));
+            rows.push(format!("› {}", edit.draft));
+            if let Some(notice) = edit.notice.as_deref() {
+                rows.push(super::i18n::text(state, notice));
+            }
+        }
         // Appended last, so it can never shift the index of a row above it.
         // A client without the extension must say that hunk rows are
         // unavailable rather than let the preview text stand for the change.
@@ -1651,7 +1888,12 @@ pub(super) fn interaction_panel_choice_count(state: &TuiState) -> usize {
             AcpPickerPhase::Browse => acp_picker_rows(state).len(),
             AcpPickerPhase::TaskEntry { .. } => 1,
         },
+        Some(InteractionPanel::NewLaneTask {
+            phase: NewLanePhase::AgentPick { .. },
+            ..
+        }) => starter_lane_agent_picks(state).len(),
         Some(InteractionPanel::NewLaneTask { .. }) => 1,
+        Some(InteractionPanel::StandingApprovals { .. }) => state.runtime.standing_approvals.len(),
         _ => interaction_rows(state).len(),
     }
 }
@@ -1664,6 +1906,9 @@ pub(super) fn selected_interaction_command(state: &TuiState) -> Option<String> {
     match state.ui.interaction_panel.as_ref()? {
         InteractionPanel::Settings(_) => None,
         InteractionPanel::Setup { .. } => None,
+        // The list revokes directly through Core; it never routes a revocation
+        // through the composer as text.
+        InteractionPanel::StandingApprovals { .. } => None,
         InteractionPanel::ConnectProvider { selected, .. } => state
             .ui
             .provider_catalog
@@ -1996,8 +2241,18 @@ mod tests {
         let rows = acp_picker_rows(&state);
 
         assert_eq!(rows[0].id, "session:acp-1");
-        assert_eq!(rows[1].id, "adapter:claude-acp");
-        assert!(rows[1].label.contains("Authentication required"));
+        // Two inert control rows sit between the sessions and the adapters
+        // since `runtime.agent_session_control`: they state what each key
+        // sends for the selected session, and that switching model is a
+        // two-step flow Core publishes no command for. They are appended after
+        // the sessions so they can never shift a session row's index.
+        assert_eq!(rows[1].id, "session-control");
+        assert!(rows[1].label.contains("p Pause"), "{}", rows[1].label);
+        assert!(rows[1].label.contains("u Resume"), "{}", rows[1].label);
+        assert!(rows[1].label.contains("k Kill"), "{}", rows[1].label);
+        assert_eq!(rows[2].id, "session-control-switch-model");
+        assert_eq!(rows[3].id, "adapter:claude-acp");
+        assert!(rows[3].label.contains("Authentication required"));
     }
 
     #[test]
@@ -2041,8 +2296,9 @@ mod tests {
     fn global_jump_windows_rows_to_keep_selected_item_visible() {
         let mut state = TuiState::default();
         let mut overlay = OverlayState::global_jump(None);
-        // One row further down since `/evidence` joined the command registry.
-        overlay.selected = 14;
+        // Two rows further down since `/plan` and `/approvals` joined the
+        // command registry (C13 and GUI-CORE-019).
+        overlay.selected = 16;
         state.ui.overlay = Some(overlay);
         let mut frame = Frame::new(120, 40);
 
@@ -2264,9 +2520,9 @@ mod tests {
     fn global_jump_window_keeps_default_disabled_tail_selected() {
         let mut state = TuiState::default();
         let mut overlay = OverlayState::global_jump(None);
-        // The disabled FILES tail, one row further down since `/evidence`
-        // joined the command registry.
-        overlay.selected = 16;
+        // The disabled FILES tail, two rows further down since `/plan` and
+        // `/approvals` joined the command registry (C13 and GUI-CORE-019).
+        overlay.selected = 18;
         state.ui.overlay = Some(overlay);
 
         let rows = global_jump_rows(&state, "");

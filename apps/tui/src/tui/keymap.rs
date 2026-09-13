@@ -44,6 +44,10 @@ pub(super) enum OverlayKind {
     /// overlay's evidence row or the `/evidence` system command, so it has no
     /// global chord of its own; it browses and reads and decides nothing.
     EvidenceInspector,
+    /// The plan lens (`runtime.plan_documents`, C13). Reached by the `/plan`
+    /// system command, so it has no global chord of its own; it reads one
+    /// Core-owned plan record and sends only the three pinned decisions.
+    PlanLens,
     ContextHelp,
     ExitConfirm,
     Approval,

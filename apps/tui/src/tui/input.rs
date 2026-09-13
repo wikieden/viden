@@ -6,7 +6,7 @@ use super::modal::{
     ApprovalAction, approval_is_expired, focused_approval_action, focused_approval_request,
     move_approval_focus, set_approval_focus_for_action,
 };
-use super::state::{TuiEntry, TuiState};
+use super::state::{ApprovalEdit, TuiEntry, TuiState};
 use super::ui_state::Lens;
 use viden_core::{ApprovalDecision, ApprovalResponse, ApprovalScope};
 
@@ -92,12 +92,19 @@ pub(super) fn apply_approval_key(key: KeyEvent, state: &mut TuiState) -> Approva
     if focused_approval_request(state).is_some_and(approval_is_expired)
         && matches!(
             key.code,
-            KeyCode::Char('y' | 'Y' | 'n' | 'N' | '1' | '2' | '3' | '4') | KeyCode::Enter
+            KeyCode::Char('y' | 'Y' | 'n' | 'N' | 'a' | 'A' | 'e' | 'E' | '1' | '2' | '3' | '4')
+                | KeyCode::Enter
         )
     {
         // Expiry is a Core-owned fact transition. The TUI leaves the request
         // visible and inert until ApprovalResolved arrives.
         return ApprovalKeyEffect::None;
+    }
+    // While a revision is open the field owns every printable key, exactly as
+    // the supervision reason line does. Nothing else can be decided from here
+    // until the operator sends or abandons the revision.
+    if state.ui.approval_edit.is_some() {
+        return apply_approval_edit_key(key, state);
     }
     match key.code {
         KeyCode::Char('y') | KeyCode::Char('Y') => {
@@ -116,6 +123,16 @@ pub(super) fn apply_approval_key(key: KeyEvent, state: &mut TuiState) -> Approva
             matches!(scope, ApprovalScope::RepoAllowlist { .. })
         }),
         KeyCode::Char('4') => ApprovalKeyEffect::ResolveScoped(ApprovalResponse::deny(None)),
+        // `a` is the standing grant, and only where Core offered it: a rule
+        // that outlives every session and workspace is never invented locally
+        // from a request whose `allowed_scopes` did not carry it. Where it was
+        // not offered the key is inert and the row says why.
+        KeyCode::Char('a') | KeyCode::Char('A') => {
+            resolve_allowed_scope(state, |scope| matches!(scope, ApprovalScope::Always))
+        }
+        // `e` opens the revision field, and only where the request says Core
+        // accepts one.
+        KeyCode::Char('e') | KeyCode::Char('E') => begin_approval_edit(state),
         KeyCode::Char(' ') => {
             if focused_approval_action(state) != ApprovalAction::ToggleApplyAll {
                 return ApprovalKeyEffect::None;
@@ -138,6 +155,80 @@ pub(super) fn apply_approval_key(key: KeyEvent, state: &mut TuiState) -> Approva
         }
         _ => ApprovalKeyEffect::None,
     }
+}
+
+/// Opens the revision field for the focused request, when Core accepts one.
+///
+/// `editable` is Core's answer, not a guess: Core marks editable only the
+/// built-in tools whose input is a flat text map, and never a patch-bearing
+/// one. Where it is false the key is inert and the action row already says so.
+fn begin_approval_edit(state: &mut TuiState) -> ApprovalKeyEffect {
+    let Some(request_id) = focused_approval_request(state)
+        .filter(|approval| approval.editable)
+        .map(|approval| approval.id.clone())
+    else {
+        return ApprovalKeyEffect::None;
+    };
+    state.ui.approval_edit = Some(ApprovalEdit {
+        request_id,
+        draft: String::new(),
+        notice: None,
+    });
+    ApprovalKeyEffect::Redraw
+}
+
+/// Owns every key while the revision field is open.
+///
+/// `Esc` abandons the revision and leaves the request pending — Core is told
+/// nothing, because abandoning a draft is not a decision. `Enter` decodes the
+/// draft through Core's own `ToolInput` wire encoding and sends
+/// `ApprovalDecision::Edit`; an empty or undecodable draft is refused here and
+/// nothing is sent, because there is no revision to re-decide.
+fn apply_approval_edit_key(key: KeyEvent, state: &mut TuiState) -> ApprovalKeyEffect {
+    match key.code {
+        KeyCode::Esc => {
+            state.ui.approval_edit = None;
+            ApprovalKeyEffect::Redraw
+        }
+        KeyCode::Backspace => {
+            if let Some(edit) = state.ui.approval_edit.as_mut() {
+                edit.draft.pop();
+                edit.notice = None;
+            }
+            ApprovalKeyEffect::Redraw
+        }
+        KeyCode::Enter => send_approval_edit(state),
+        KeyCode::Char(value) => {
+            if let Some(edit) = state.ui.approval_edit.as_mut() {
+                edit.draft.push(value);
+                edit.notice = None;
+            }
+            ApprovalKeyEffect::Redraw
+        }
+        _ => ApprovalKeyEffect::None,
+    }
+}
+
+/// Decodes the typed revision and answers the request with it.
+///
+/// The draft is decoded with `viden_types::decode_tool_input`, which is the
+/// contract's own encoding of a `ToolInput`, rather than parsed out of the
+/// rendered `input_preview`: display text is not a command payload. A draft
+/// that decodes to nothing is refused locally and the request stays
+/// answerable, exactly as Core leaves it after `revision_unchanged`.
+fn send_approval_edit(state: &mut TuiState) -> ApprovalKeyEffect {
+    let Some(edit) = state.ui.approval_edit.as_ref() else {
+        return ApprovalKeyEffect::None;
+    };
+    let revised = viden_types::decode_tool_input(edit.draft.trim());
+    if revised.is_empty() {
+        if let Some(edit) = state.ui.approval_edit.as_mut() {
+            edit.notice = Some("approval.edit.undecodable".to_string());
+        }
+        return ApprovalKeyEffect::Redraw;
+    }
+    state.ui.approval_edit = None;
+    ApprovalKeyEffect::ResolveScoped(ApprovalResponse::edit(revised, None))
 }
 
 fn resolve_allowed_scope(

@@ -1,9 +1,12 @@
+use viden_types::StarterLaneAgentBinding;
+
 use super::{
     audit_panel::AuditPanel,
     composer_buffer::ComposerBuffer,
     decision::{SupervisionAction, SupervisionTarget},
     evidence_panel::EvidencePanel,
     keymap::{InputMode, OverlayKind},
+    plan_lens::PlanPanel,
     preferences::{ColorDepth, SettingsPanel},
     workspace_files::WorkspaceFileIndex,
 };
@@ -192,10 +195,22 @@ pub(super) enum FocusedConversation {
     AcpSession(String),
 }
 
+/// Where Lane creation is: typing the first turn, or picking the Agent that
+/// will answer it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum NewLanePhase {
+    Task,
+    AgentPick { selected: usize },
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum PendingNativeLane {
     AwaitingPreview {
         task: String,
+        /// The operator's Agent pick, travelling with the request rather than
+        /// being dropped at the client boundary (GUI-CORE-030). `None` is the
+        /// two-step flow and serializes to the bytes it always did.
+        agent: Option<StarterLaneAgentBinding>,
     },
     AwaitingReceipt {
         task: String,
@@ -221,6 +236,13 @@ pub(super) enum InteractionPanel {
         search: String,
         selected: usize,
     },
+    /// The `/approvals` standing-rule list
+    /// (`runtime.approval_scopes`, GUI-CORE-019). It reads
+    /// `RuntimeViewState.standing_approvals` and revokes from it, never from
+    /// this client's memory of grants it has seen.
+    StandingApprovals {
+        selected: usize,
+    },
     #[allow(dead_code)]
     ProviderConfig {
         provider_id: String,
@@ -243,7 +265,35 @@ pub(super) enum InteractionPanel {
     },
     NewLaneTask {
         task: String,
+        /// Which step of Lane creation the panel is on
+        /// (`runtime.starter_lane_agent`, GUI-CORE-030). A phase rather than
+        /// an optional field so the task can never be submitted while the
+        /// Agent pick is still open, and the pick can never be made before
+        /// there is a task to create the Lane for.
+        phase: NewLanePhase,
     },
+}
+
+/// The operator's in-progress revision of one approval's tool input
+/// (`runtime.approval_scopes`, GUI-CORE-019).
+///
+/// It names the request rather than caching it, so a revision can only ever be
+/// sent against the request Core still has pending. `draft` is the revision in
+/// Core's own `ToolInput` wire encoding — `key=value`, tab-separated for more
+/// than one — which is decoded with `viden_types::decode_tool_input` rather
+/// than with a spelling invented here.
+///
+/// The draft starts empty rather than pre-filled: `ApprovalRequestView`
+/// carries no typed `ToolInput`, only the rendered `input_preview`, and
+/// scraping display text to build a command payload is exactly what this
+/// client must not do. Pre-filling needs a Core fact that does not exist yet;
+/// the prompt row says so.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct ApprovalEdit {
+    pub(super) request_id: String,
+    pub(super) draft: String,
+    /// Catalog key of the last local refusal (empty or undecodable draft).
+    pub(super) notice: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -378,6 +428,9 @@ pub(super) struct TuiUiState {
     pub(super) command_palette_hidden_for: Option<String>,
     pub(super) approval_focus: usize,
     pub(super) approval_apply_all: bool,
+    /// Present exactly while the operator is revising the focused approval's
+    /// input (`runtime.approval_scopes`, GUI-CORE-019).
+    pub(super) approval_edit: Option<ApprovalEdit>,
     pub(super) transcript_scroll: usize,
     pub(super) entries: Vec<TuiEntry>,
     /// The Lane this client's Lane-scoped commands address — the `/git`
@@ -415,6 +468,11 @@ pub(super) struct TuiUiState {
     /// instead of showing a page of unknown age, and the per-row content cache
     /// lives exactly as long as the overlay that filled it.
     pub(super) evidence: Option<EvidencePanel>,
+    /// Present exactly while `overlay` is `OverlayKind::PlanLens`. It holds
+    /// scroll, the rejection reason being typed, and the one in-flight command
+    /// id — never the plan, which is re-read from `RuntimeViewState` on every
+    /// frame so a decision can never be sent against a row this client cached.
+    pub(super) plan: Option<PlanPanel>,
     /// Client-local view of the Core workspace file inventory. It outlives one
     /// overlay so reopening the jump index does not re-read a tree Core
     /// already published, and it holds no authoritative record — see
@@ -452,6 +510,7 @@ impl Default for TuiUiState {
             command_palette_hidden_for: None,
             approval_focus: 0,
             approval_apply_all: false,
+            approval_edit: None,
             transcript_scroll: 0,
             entries: Vec::new(),
             focused_lane: None,
@@ -466,6 +525,7 @@ impl Default for TuiUiState {
             conflict_detail: None,
             audit: None,
             evidence: None,
+            plan: None,
             workspace_files: WorkspaceFileIndex::default(),
             idle_ctrl_c_armed: false,
             color_depth: ColorDepth::Auto,

@@ -713,8 +713,13 @@ mod tests {
                 .map(|item| item.kind)
                 .collect::<Vec<_>>(),
             vec![
-                // Sixteen registered commands since `/evidence` joined the
-                // registry (`runtime.evidence_reads`, GUI-CORE-025).
+                // Eighteen registered commands: `/evidence` took it to
+                // sixteen (`runtime.evidence_reads`, GUI-CORE-025), `/plan`
+                // to seventeen (`runtime.plan_documents`, C13), and
+                // `/approvals` to eighteen (`runtime.approval_scopes`,
+                // GUI-CORE-019).
+                JumpKind::Command,
+                JumpKind::Command,
                 JumpKind::Command,
                 JumpKind::Command,
                 JumpKind::Command,

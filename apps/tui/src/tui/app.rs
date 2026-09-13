@@ -7,6 +7,7 @@ use viden_core::{
     TuiColorDepth,
 };
 
+use super::approval_scopes::{APPROVAL_SCOPES_CAPABILITY, revoke_standing_approval_intent};
 use super::audit_panel::AuditPanel;
 use super::client::{PumpOutcome, TuiClientDriver, TuiClientError};
 use super::command_palette::{
@@ -27,21 +28,29 @@ use super::jump::{JumpIndex, JumpItem, JumpKind};
 use super::keymap::{InputIntent, InputMode, OverlayKind, RuntimeFacts, reduce_input};
 use super::modal::{
     AcpPickerRowKind, DEFAULT_APPROVAL_FOCUS, GitPickerRowKind, acp_picker_rows, git_picker_rows,
-    git_target, interaction_panel_choice_count, selected_interaction_command,
+    git_target, interaction_panel_choice_count, selected_acp_session_id,
+    selected_interaction_command,
 };
 use super::operator_git::{
     OPERATOR_GIT_CAPABILITY, OperatorGitSettlement, action_label_key, collapsed_output,
     failure_copy, operator_git_owner,
+};
+use super::plan_lens::{
+    MAX_PLAN_REJECT_REASON_BYTES, PlanDecision, PlanPanel, focused_plan, plan_decision_command,
 };
 use super::preferences::{
     ColorDepth, PreferenceField, SettingsPanel, TerminalCapabilities,
     UI_PREFERENCE_PERSISTENCE_CAPABILITY,
 };
 use super::projection::{CancelOwnerProjection, CockpitProjection};
+use super::session_control::{
+    SESSION_CONTROL_CAPABILITY, SessionControl, SessionControlSettlement,
+};
+use super::starter_lane_agent::{StarterLaneAgentPick, starter_lane_agent_picks};
 use super::state::{
     AcpPickerPhase, ConflictDetailTarget, FocusedConversation, GitPickerPhase, InteractionPanel,
-    Lens, OverlayState, PendingAcpStart, PendingNativeLane, SupervisionInput, SupervisionPanel,
-    TuiEntry, TuiState, composer_target_busy, has_active_work,
+    Lens, NewLanePhase, OverlayState, PendingAcpStart, PendingNativeLane, SupervisionInput,
+    SupervisionPanel, TuiEntry, TuiState, composer_target_busy, has_active_work,
 };
 use super::terminal::TerminalGuard;
 use super::text::truncate_tail;
@@ -476,8 +485,11 @@ fn handle_ui_key<C: CoreClient>(
     key: KeyEvent,
     terminal_size: (u16, u16),
 ) -> Result<UiEventOutcome, TuiError> {
-    if key.code == KeyCode::Char('r')
-        && key.modifiers.is_empty()
+    // The Lane view's session-control keys are intercepted before the input
+    // reducer, exactly as the retry key has been since the `/acp` picker
+    // existed: the picker is a selector, so an unclaimed printable character
+    // would otherwise fall through to the composer.
+    if key.modifiers.is_empty()
         && matches!(
             state.ui.interaction_panel,
             Some(InteractionPanel::AcpPicker {
@@ -485,8 +497,12 @@ fn handle_ui_key<C: CoreClient>(
                 ..
             })
         )
+        && let KeyCode::Char(value) = key.code
+        && let Some(control) = SessionControl::ALL
+            .into_iter()
+            .find(|control| control.key() == value)
     {
-        retry_selected_acp_session(driver, state)?;
+        send_session_control(driver, state, control)?;
         return Ok(UiEventOutcome::Redraw);
     }
     let mode = effective_input_mode(state);
@@ -503,35 +519,102 @@ fn handle_ui_key<C: CoreClient>(
     apply_input_intent(driver, state, key, intent, terminal_size)
 }
 
-fn retry_selected_acp_session<C: CoreClient>(
+/// Sends one session control for the `/acp` row the operator has selected.
+///
+/// Three refusals happen here and send nothing, because in each case there is
+/// no honest command to send:
+///
+/// - no session row selected — the key names no session;
+/// - the control needs `runtime.agent_session_control` and this Core does not
+///   publish it — the command would never be answered;
+/// - the session's *current* status does not accept the control — Core's own
+///   contract says it refuses, and the row already says which status it is.
+///
+/// The status is re-read here rather than taken from the row that was drawn,
+/// so a session that settled between render and keypress is never asked the
+/// question its previous status allowed. Everything else is Core's: the
+/// command is sent under the session's own published owner, exactly as cancel
+/// already was, and the answer is correlated on this client's command id.
+fn send_session_control<C: CoreClient>(
     driver: &mut TuiClientDriver<C>,
-    state: &TuiState,
+    state: &mut TuiState,
+    control: SessionControl,
 ) -> Result<(), TuiClientError> {
-    let Some(InteractionPanel::AcpPicker { selected, .. }) = state.ui.interaction_panel.as_ref()
+    let Some(session_id) = selected_acp_session_id(state) else {
+        return Ok(());
+    };
+    if control.needs_capability() && !driver.has_capability(SESSION_CONTROL_CAPABILITY) {
+        state.ui.entries.push(TuiEntry {
+            label: "system".to_string(),
+            body: super::i18n::translate(
+                state,
+                "session.control.refused",
+                &[
+                    (
+                        "action",
+                        &super::i18n::translate(
+                            state,
+                            control.label_key(),
+                            &[("availability", "")],
+                        ),
+                    ),
+                    ("session", &session_id),
+                    ("reason", SESSION_CONTROL_CAPABILITY),
+                ],
+            ),
+        });
+        return Ok(());
+    }
+    let Some(session) = state
+        .runtime
+        .agent_sessions
+        .iter()
+        .find(|session| session.session_id == session_id)
+        .filter(|session| control.applies_to(session.status))
     else {
         return Ok(());
     };
-    let rows = acp_picker_rows(state);
-    let Some(AcpPickerRowKind::Session { session_id }) = rows.get(*selected).map(|row| &row.kind)
-    else {
-        return Ok(());
-    };
-    let Some(session) = state.runtime.agent_sessions.iter().find(|session| {
-        &session.session_id == session_id
-            && matches!(
-                session.status,
-                viden_core::AgentSessionStatus::Failed | viden_core::AgentSessionStatus::Cancelled
-            )
-    }) else {
-        return Ok(());
-    };
-    driver.send_for_owner(
-        session.owner.clone(),
-        RuntimeCommand::RetryAgentSession {
-            session_id: session.session_id.clone(),
-        },
-    )?;
+    let owner = session.owner.clone();
+    let command_id = driver.send_for_owner(owner, control.command(&session_id))?;
+    state.session_control.begin(command_id, control, session_id);
     Ok(())
+}
+
+/// The transcript sentence for one settled session-control command.
+///
+/// A refusal quotes Core's own reason — `session_status_<current>` among them
+/// — because only Core knows which status refused. An acceptance says exactly
+/// that: it is a receipt, and the session's own facts follow it.
+fn session_control_entry(state: &TuiState, settlement: &SessionControlSettlement) -> TuiEntry {
+    let (control, session, key, reason) = match settlement {
+        SessionControlSettlement::Rejected {
+            control,
+            session_id,
+            reason,
+        } => (
+            *control,
+            session_id.as_str(),
+            "session.control.refused",
+            reason.trim(),
+        ),
+        SessionControlSettlement::Accepted {
+            control,
+            session_id,
+        } => (*control, session_id.as_str(), "session.control.sent", ""),
+    };
+    let action = super::i18n::translate(state, control.label_key(), &[("availability", "")]);
+    TuiEntry {
+        label: "system".to_string(),
+        body: super::i18n::translate(
+            state,
+            key,
+            &[
+                ("action", action.as_str()),
+                ("session", session),
+                ("reason", reason),
+            ],
+        ),
+    }
 }
 
 fn apply_input_intent<C: CoreClient>(
@@ -556,6 +639,9 @@ fn apply_input_intent<C: CoreClient>(
         return Ok(outcome);
     }
     if let Some(outcome) = apply_conflict_detail_intent(state, &intent) {
+        return Ok(outcome);
+    }
+    if let Some(outcome) = apply_plan_lens_intent(driver, state, key, &intent)? {
         return Ok(outcome);
     }
     match intent {
@@ -613,6 +699,7 @@ fn apply_input_intent<C: CoreClient>(
             state.ui.overlay = None;
             state.ui.interaction_panel = Some(InteractionPanel::NewLaneTask {
                 task: String::new(),
+                phase: NewLanePhase::Task,
             });
         }
         InputIntent::Exit => return Ok(UiEventOutcome::Exit),
@@ -785,15 +872,19 @@ fn apply_pending_approval_intent<C: CoreClient>(
     };
     let approval_selected = approval_overlay.selected;
     let approval_request_id = approval_overlay.selected_id.clone();
-    if state.runtime.pending_approvals.is_empty()
-        || !matches!(
-            intent,
-            InputIntent::MoveSelection(_)
-                | InputIntent::CompleteSelection
-                | InputIntent::CompleteOrSubmit
-                | InputIntent::InsertChar(_)
-        )
-    {
+    // While a revision field is open it also owns `Esc` and `Backspace`: `Esc`
+    // abandons the draft one rung before the overlay, exactly as it does for
+    // the supervision reason line and the plan lens rejection reason.
+    let editing = state.ui.approval_edit.is_some();
+    let owns_intent = matches!(
+        intent,
+        InputIntent::MoveSelection(_)
+            | InputIntent::CompleteSelection
+            | InputIntent::CompleteOrSubmit
+            | InputIntent::InsertChar(_)
+    ) || (editing
+        && matches!(intent, InputIntent::CloseOverlay | InputIntent::Backspace));
+    if state.runtime.pending_approvals.is_empty() || !owns_intent {
         return Ok(None);
     }
 
@@ -1165,6 +1256,246 @@ fn apply_conflict_detail_intent(
         }
         _ => None,
     }
+}
+
+/// Revokes the standing rule the `/approvals` list has selected.
+///
+/// The `rule_id` is the one Core published on the row; nothing is composed
+/// here. Without the capability nothing is sent at all, because a command
+/// this Core never published could not be answered, and the row already says
+/// which extension is missing.
+fn revoke_selected_standing_approval<C: CoreClient>(
+    driver: &mut TuiClientDriver<C>,
+    state: &mut TuiState,
+    selected: usize,
+) -> Result<(), TuiClientError> {
+    if !driver.has_capability(APPROVAL_SCOPES_CAPABILITY) {
+        return Ok(());
+    }
+    let Some(rule_id) = state
+        .runtime
+        .standing_approvals
+        .get(selected)
+        .map(|rule| rule.rule_id.clone())
+    else {
+        return Ok(());
+    };
+    driver.send(revoke_standing_approval_intent(rule_id))?;
+    Ok(())
+}
+
+/// Opens the plan lens over the plan Core already published.
+///
+/// Nothing is sent: `plan_documents` rides the authoritative snapshot, so the
+/// lens is a read of state this client already holds. Without the capability
+/// the overlay still opens and its single row names the missing extension,
+/// which is what keeps "Core does not publish plans" distinguishable from "no
+/// plan was proposed".
+fn open_plan_lens(state: &mut TuiState) {
+    state.ui.supervision = None;
+    state.ui.audit = None;
+    state.ui.evidence = None;
+    state.ui.conflict_detail = None;
+    state.ui.plan = Some(PlanPanel::default());
+    state.ui.overlay = Some(OverlayState::new(OverlayKind::PlanLens));
+}
+
+/// Closes the plan lens and drops its scroll, reason draft, and correlation.
+///
+/// Dropping the panel drops the correlation with it, so a refusal that arrives
+/// afterwards is ignored rather than shown on a surface nobody is looking at.
+/// The plan itself is untouched: it is Core's record, not this panel's.
+fn close_plan_lens(state: &mut TuiState) {
+    state.ui.plan = None;
+    state.ui.overlay = None;
+}
+
+/// Owns every key while the plan lens is focused.
+///
+/// `Esc` unwinds the rejection reason before the overlay itself, arrows
+/// scroll, `a`/`r`/`h` decide, and every other printable character keeps
+/// editing the composer so a streaming turn stays answerable while a plan is
+/// open. The decision is built from the record re-read at this instant, never
+/// from the row that was drawn.
+fn apply_plan_lens_intent<C: CoreClient>(
+    driver: &mut TuiClientDriver<C>,
+    state: &mut TuiState,
+    key: KeyEvent,
+    intent: &InputIntent,
+) -> Result<Option<UiEventOutcome>, TuiError> {
+    if !state
+        .ui
+        .overlay
+        .as_ref()
+        .is_some_and(|overlay| overlay.kind == OverlayKind::PlanLens)
+        || state.ui.plan.is_none()
+    {
+        return Ok(None);
+    }
+    let typing_reason = state
+        .ui
+        .plan
+        .as_ref()
+        .is_some_and(|panel| panel.reason.is_some());
+    match intent {
+        InputIntent::CloseOverlay => {
+            let panel = state.ui.plan.as_mut().expect("panel checked above");
+            if panel.reason.take().is_some() {
+                panel.notice = None;
+            } else {
+                close_plan_lens(state);
+            }
+            Ok(Some(UiEventOutcome::Redraw))
+        }
+        InputIntent::MoveSelection(delta) => {
+            let panel = state.ui.plan.as_mut().expect("panel checked above");
+            panel.scroll = if *delta < 0 {
+                panel.scroll.saturating_sub(1)
+            } else {
+                panel.scroll.saturating_add(1)
+            };
+            Ok(Some(UiEventOutcome::Redraw))
+        }
+        InputIntent::InsertChar(value) => {
+            if typing_reason {
+                let panel = state.ui.plan.as_mut().expect("panel checked above");
+                if let Some(reason) = panel.reason.as_mut() {
+                    reason.push(*value);
+                }
+                panel.notice = None;
+                return Ok(Some(UiEventOutcome::Redraw));
+            }
+            match plan_decision_for_key(key) {
+                Some(decision) => {
+                    begin_plan_decision(driver, state, decision)?;
+                    Ok(Some(UiEventOutcome::Redraw))
+                }
+                // This overlay has no text filter, so anything that is not a
+                // decision key belongs to the composer.
+                None => {
+                    push_composer_char(state, *value);
+                    Ok(Some(UiEventOutcome::Redraw))
+                }
+            }
+        }
+        InputIntent::Backspace => {
+            if typing_reason {
+                let panel = state.ui.plan.as_mut().expect("panel checked above");
+                if let Some(reason) = panel.reason.as_mut() {
+                    reason.pop();
+                }
+                panel.notice = None;
+            } else {
+                state.ui.input.backspace();
+                reset_for_input_change(state);
+            }
+            Ok(Some(UiEventOutcome::Redraw))
+        }
+        InputIntent::CompleteSelection | InputIntent::CompleteOrSubmit if typing_reason => {
+            send_plan_rejection(driver, state)?;
+            Ok(Some(UiEventOutcome::Redraw))
+        }
+        _ => Ok(None),
+    }
+}
+
+fn plan_decision_for_key(key: KeyEvent) -> Option<PlanDecision> {
+    match key.code {
+        KeyCode::Char('a') | KeyCode::Char('A') => Some(PlanDecision::Accept),
+        KeyCode::Char('r') | KeyCode::Char('R') => Some(PlanDecision::Reject),
+        KeyCode::Char('h') | KeyCode::Char('H') => Some(PlanDecision::HandOff),
+        _ => None,
+    }
+}
+
+/// Opens the reason line, or sends the decision straight away.
+///
+/// A key whose decision cannot apply to the plan's current status sends
+/// nothing at all: the row already says which status blocked it, and Core is
+/// not asked a question its own contract says it will refuse. Hand off is the
+/// deliberate exception in Plan mode — the status allows it and only Core may
+/// say the mode does not, so the refusal is rendered from Core's reason.
+fn begin_plan_decision<C: CoreClient>(
+    driver: &mut TuiClientDriver<C>,
+    state: &mut TuiState,
+    decision: PlanDecision,
+) -> Result<(), TuiClientError> {
+    let Some(status) = focused_plan(state).map(|plan| plan.status) else {
+        return Ok(());
+    };
+    if !decision.applies_to(status) {
+        return Ok(());
+    }
+    if decision.needs_reason() {
+        let panel = state.ui.plan.as_mut().expect("panel checked by caller");
+        panel.reason = Some(String::new());
+        panel.notice = None;
+        return Ok(());
+    }
+    send_plan_decision(driver, state, decision, None)
+}
+
+/// Sends the typed rejection, or refuses it locally without sending.
+///
+/// Core stores the reason and refuses an empty one, and it bounds the text.
+/// Both refusals happen here rather than as a round trip, and neither
+/// truncates: an operator must not discover afterwards that Core stored half a
+/// sentence.
+fn send_plan_rejection<C: CoreClient>(
+    driver: &mut TuiClientDriver<C>,
+    state: &mut TuiState,
+) -> Result<(), TuiClientError> {
+    let Some(reason) = state
+        .ui
+        .plan
+        .as_ref()
+        .and_then(|panel| panel.reason.clone())
+    else {
+        return Ok(());
+    };
+    let trimmed = reason.trim().to_string();
+    let notice = if trimmed.is_empty() {
+        Some("plan.reject.empty")
+    } else if trimmed.len() > MAX_PLAN_REJECT_REASON_BYTES {
+        Some("plan.reject.too_long")
+    } else {
+        None
+    };
+    if let Some(notice) = notice {
+        let panel = state.ui.plan.as_mut().expect("panel checked above");
+        panel.notice = Some(notice.to_string());
+        return Ok(());
+    }
+    send_plan_decision(driver, state, PlanDecision::Reject, Some(trimmed))?;
+    if let Some(panel) = state.ui.plan.as_mut() {
+        panel.reason = None;
+    }
+    Ok(())
+}
+
+/// Sends one pinned plan decision under the plan's own Core-published owner.
+fn send_plan_decision<C: CoreClient>(
+    driver: &mut TuiClientDriver<C>,
+    state: &mut TuiState,
+    decision: PlanDecision,
+    reason: Option<String>,
+) -> Result<(), TuiClientError> {
+    // Re-read at the instant of the keypress: the pin must name the revision
+    // and digest Core holds now, so a plan that moved is refused as stale
+    // rather than decided from a row this client drew.
+    let Some((owner, command)) = focused_plan(state).map(|plan| {
+        (
+            plan.owner.clone(),
+            plan_decision_command(plan, decision, reason),
+        )
+    }) else {
+        return Ok(());
+    };
+    let command_id = driver.send_for_owner(owner, command)?;
+    if let Some(panel) = state.ui.plan.as_mut() {
+        panel.begin(command_id, decision);
+    }
+    Ok(())
 }
 
 /// Closes the audit timeline and drops its page.
@@ -1694,7 +2025,10 @@ fn complete_overlay_selection<C: CoreClient>(
         | OverlayKind::SupervisionDecision
         | OverlayKind::AuditTimeline
         | OverlayKind::EvidenceInspector
-        | OverlayKind::ConflictContent => {}
+        | OverlayKind::ConflictContent
+        // The plan lens owns its own keys and reaches this arm only if its
+        // handler declined the intent; confirming a row there means nothing.
+        | OverlayKind::PlanLens => {}
         OverlayKind::CommandPalette
         | OverlayKind::NewSession
         | OverlayKind::ContextHelp
@@ -1798,6 +2132,24 @@ fn open_local_picker_command<C: CoreClient>(
             selected: 0,
             phase: GitPickerPhase::Browse,
         }),
+        // `/approvals` lists the standing rules Core holds
+        // (`runtime.approval_scopes`, GUI-CORE-019) and revokes from that
+        // list. Selector-first like `/git`: opening it sends nothing, and the
+        // rows stay listed without the capability so the surface is visible
+        // and its reason for being inert is stated.
+        "/approvals" | "/approvals standing" => {
+            Some(InteractionPanel::StandingApprovals { selected: 0 })
+        }
+        // `/plan` is not a picker either: it is the lens over the plan Core
+        // already published. It opens with or without the capability, because
+        // a surface that names the missing extension is what keeps "Core does
+        // not publish this" distinguishable from "there is no plan".
+        "/plan" => {
+            open_plan_lens(state);
+            state.ui.input.clear();
+            reset_for_input_change(state);
+            return Ok(true);
+        }
         // `/evidence` is not a picker: it is the read itself, scoped to the
         // focused Lane when there is one. Without the capability nothing is
         // sent and the gap is stated, because an inspector that can never be
@@ -2064,6 +2416,10 @@ fn interaction_selected(state: &TuiState) -> usize {
         | Some(InteractionPanel::ModelPicker { selected, .. })
         | Some(InteractionPanel::AcpPicker { selected, .. })
         | Some(InteractionPanel::GitPicker { selected, .. }) => *selected,
+        Some(InteractionPanel::NewLaneTask {
+            phase: NewLanePhase::AgentPick { selected },
+            ..
+        }) => *selected,
         Some(InteractionPanel::NewLaneTask { .. }) => 0,
         _ => 0,
     }
@@ -2099,6 +2455,10 @@ fn set_interaction_panel_selected(state: &mut TuiState, index: usize) {
         | Some(InteractionPanel::ModelPicker { selected, .. })
         | Some(InteractionPanel::AcpPicker { selected, .. })
         | Some(InteractionPanel::GitPicker { selected, .. }) => *selected = index,
+        Some(InteractionPanel::NewLaneTask {
+            phase: NewLanePhase::AgentPick { selected },
+            ..
+        }) => *selected = index,
         Some(InteractionPanel::NewLaneTask { .. }) => {}
         _ => {}
     }
@@ -2145,13 +2505,23 @@ fn edit_interaction_panel_text(state: &mut TuiState, value: Option<char>) {
                 }
             }
         }
-        Some(InteractionPanel::NewLaneTask { task }) => match value {
+        // Only the task step has a text field; the Agent step is a selector
+        // and its keys are the selector's.
+        Some(InteractionPanel::NewLaneTask {
+            task,
+            phase: NewLanePhase::Task,
+        }) => match value {
             Some(value) => task.push(value),
             None => {
                 task.pop();
             }
         },
-        Some(InteractionPanel::ProviderConfig { .. }) | None => {}
+        Some(InteractionPanel::NewLaneTask { .. }) => {}
+        // Neither panel has a text field: the standing list is a selector and
+        // the provider-config panel routes through the composer.
+        Some(InteractionPanel::StandingApprovals { .. })
+        | Some(InteractionPanel::ProviderConfig { .. })
+        | None => {}
     }
 }
 
@@ -2285,13 +2655,20 @@ fn apply_interaction_panel_selection<C: CoreClient>(
         }
         return Ok(false);
     }
+    if let Some(InteractionPanel::StandingApprovals { selected }) =
+        state.ui.interaction_panel.clone()
+    {
+        revoke_selected_standing_approval(driver, state, selected)?;
+        return Ok(false);
+    }
     if let Some(InteractionPanel::GitPicker { selected, phase }) =
         state.ui.interaction_panel.clone()
     {
         apply_git_picker_selection(driver, state, selected, &phase)?;
         return Ok(false);
     }
-    if let Some(InteractionPanel::NewLaneTask { task }) = state.ui.interaction_panel.clone() {
+    if let Some(InteractionPanel::NewLaneTask { task, phase }) = state.ui.interaction_panel.clone()
+    {
         if task.trim().is_empty()
             || !driver.has_capability(WORKSPACE_ELIGIBILITY_CAPABILITY)
             || !state
@@ -2302,11 +2679,29 @@ fn apply_interaction_panel_selection<C: CoreClient>(
         {
             return Ok(false);
         }
+        // The task step never creates anything: it hands over to the Agent
+        // pick, whose default row is the two-step flow this client had before
+        // `runtime.starter_lane_agent`. Nothing has been sent yet, so backing
+        // out of the pick costs nothing.
+        if phase == NewLanePhase::Task {
+            state.ui.interaction_panel = Some(InteractionPanel::NewLaneTask {
+                task,
+                phase: NewLanePhase::AgentPick { selected: 0 },
+            });
+            return Ok(false);
+        }
+        let NewLanePhase::AgentPick { selected } = phase else {
+            return Ok(false);
+        };
+        let agent = starter_lane_agent_picks(state)
+            .get(selected)
+            .and_then(StarterLaneAgentPick::binding);
         driver.send(RuntimeCommand::PreviewDefaultStarterLane {
             preset: StarterLanePreset::Coder,
         })?;
         state.ui.pending_native_lane = Some(PendingNativeLane::AwaitingPreview {
             task: task.trim().to_string(),
+            agent,
         });
         state.ui.interaction_panel = None;
         return Ok(false);
@@ -2413,7 +2808,31 @@ fn settings_choice_is_selected(
     }
 }
 
+/// `Esc` in Lane creation unwinds the Agent pick back to the task the operator
+/// typed before it closes the panel, so a mis-picked Agent does not cost the
+/// text. Nothing has been sent at either rung.
+fn close_new_lane_agent_pick(key: KeyEvent, state: &mut TuiState) -> bool {
+    if key.code != KeyCode::Esc {
+        return false;
+    }
+    let Some(InteractionPanel::NewLaneTask {
+        task,
+        phase: NewLanePhase::AgentPick { .. },
+    }) = state.ui.interaction_panel.clone()
+    else {
+        return false;
+    };
+    state.ui.interaction_panel = Some(InteractionPanel::NewLaneTask {
+        task,
+        phase: NewLanePhase::Task,
+    });
+    true
+}
+
 fn close_interaction_panel_or_palette(key: KeyEvent, state: &mut TuiState) {
+    if close_new_lane_agent_pick(key, state) {
+        return;
+    }
     if let Some(InteractionPanel::Settings(panel)) = state.ui.interaction_panel.as_mut()
         && let Some(field) = panel.field.take()
     {
@@ -2459,6 +2878,16 @@ fn observe_driver_events<C: CoreClient>(
             let entry = operator_git_entry(state, &settlement);
             state.ui.entries.push(entry);
         }
+        // The session-control slot correlates on its own command id too, so a
+        // pause and a `/git` action never settle each other. Only a refusal is
+        // stated: an acceptance is a receipt, and the session's own status
+        // fact is what says what actually happened.
+        if let Some(settlement) = state.session_control.observe_event(event)
+            && matches!(settlement, SessionControlSettlement::Rejected { .. })
+        {
+            let entry = session_control_entry(state, &settlement);
+            state.ui.entries.push(entry);
+        }
         // The audit read correlates independently of the supervision slot, so a
         // pending decision can never block a page and a page can never settle a
         // decision. With no overlay open there is no panel and the page is
@@ -2471,6 +2900,12 @@ fn observe_driver_events<C: CoreClient>(
         // can settle the other. With no overlay open there is no panel and the
         // answer is dropped entirely.
         if let Some(panel) = state.ui.evidence.as_mut() {
+            panel.observe_event(event);
+        }
+        // The plan decision correlates on this client's own command id, so a
+        // refusal for somebody else's command never lands on this lens and a
+        // settled decision never clears a decision that is still in flight.
+        if let Some(panel) = state.ui.plan.as_mut() {
             panel.observe_event(event);
         }
         // The inventory read correlates on the exact required command id, so a
@@ -2526,18 +2961,18 @@ fn observe_driver_events<C: CoreClient>(
         match (&event.kind, state.ui.pending_native_lane.clone()) {
             (
                 viden_core::RuntimeEventKind::StarterLanePreviewed { preview },
-                Some(PendingNativeLane::AwaitingPreview { task }),
+                Some(PendingNativeLane::AwaitingPreview { task, agent }),
             ) => {
                 driver.send_for_owner(
                     preview.owner.clone(),
                     RuntimeCommand::CreateStarterLane {
                         request: viden_core::StarterLaneRequest {
-                            // `runtime.starter_lane_agent` (GUI-CORE-030).
-                            // The TUI's `/lanes` creation takes an optional
-                            // agent in batch T4; until then it sends the
-                            // two-step flow, which is byte-identical to what
-                            // it sent before the field existed.
-                            agent: None,
+                            // The operator's pick, travelling with the request
+                            // (`runtime.starter_lane_agent`, GUI-CORE-030).
+                            // `None` is the two-step flow and is byte-identical
+                            // to what this client sent before the field
+                            // existed.
+                            agent,
                             lane_id: preview.lane.id.clone(),
                             preset: StarterLanePreset::Coder,
                             branch: preview.lane.branch.clone(),
@@ -2547,6 +2982,40 @@ fn observe_driver_events<C: CoreClient>(
                         content_sha256: preview.content_sha256.clone(),
                     },
                 )?;
+                // Core's echo of the binding, not this client's memory of the
+                // pick: an `agent_id` Core does not know is echoed with a
+                // `starter_lane.agent_unknown` diagnostic and the Lane is
+                // still created, so the operator has to see what Core actually
+                // resolved before the receipt arrives.
+                if let Some(echoed) = preview.agent.as_ref() {
+                    state.ui.entries.push(TuiEntry {
+                        label: "system".to_string(),
+                        body: super::i18n::translate(
+                            state,
+                            "starter_lane.preview.agent",
+                            &[
+                                ("agent", echoed.agent_id.as_str()),
+                                (
+                                    "model",
+                                    echoed.model.as_deref().unwrap_or(&super::i18n::text(
+                                        state,
+                                        "starter_lane.agent.default_model",
+                                    )),
+                                ),
+                            ],
+                        ),
+                    });
+                }
+                for diagnostic in &preview.diagnostics {
+                    state.ui.entries.push(TuiEntry {
+                        label: "system".to_string(),
+                        body: super::i18n::translate(
+                            state,
+                            "starter_lane.preview.diagnostic",
+                            &[("diagnostic", diagnostic.as_str())],
+                        ),
+                    });
+                }
                 state.ui.pending_native_lane = Some(PendingNativeLane::AwaitingReceipt {
                     task,
                     preview_id: preview.preview_id.clone(),
@@ -2567,6 +3036,38 @@ fn observe_driver_events<C: CoreClient>(
                         content: task.clone(),
                     },
                 )?;
+                // The receipt's own answer about the bound session. Lane
+                // creation never fails because a session did not start, so
+                // `Refused` is stated beside a Lane that exists rather than
+                // read as a failed creation.
+                if let Some(outcome) = receipt.session.as_ref() {
+                    let body = match outcome {
+                        viden_types::StarterLaneSessionOutcome::Started { session_id } => {
+                            super::i18n::translate(
+                                state,
+                                "starter_lane.session.started",
+                                &[
+                                    ("session", session_id.as_str()),
+                                    ("lane", receipt.lane.id.as_str()),
+                                ],
+                            )
+                        }
+                        viden_types::StarterLaneSessionOutcome::Refused { reason } => {
+                            super::i18n::translate(
+                                state,
+                                "starter_lane.session.refused",
+                                &[
+                                    ("lane", receipt.lane.id.as_str()),
+                                    ("reason", reason.as_str()),
+                                ],
+                            )
+                        }
+                    };
+                    state.ui.entries.push(TuiEntry {
+                        label: "system".to_string(),
+                        body,
+                    });
+                }
                 state.ui.focus_lane(receipt.lane.id.clone());
                 state.ui.focused_conversation =
                     Some(FocusedConversation::NativeLane(receipt.lane.id.clone()));
@@ -4100,9 +4601,15 @@ mod tests {
         }
         project_driver_view(&mut state, &driver);
         observe_driver_events(&mut state, &mut driver).expect("observe eligibility");
+        // Lane creation is two steps since `runtime.starter_lane_agent`: the
+        // task hands over to the Agent pick, whose first row is the two-step
+        // flow this test's subject predates. Nothing is sent until the pick.
         state.ui.interaction_panel = Some(InteractionPanel::NewLaneTask {
             task: "fix the parser".to_string(),
+            phase: NewLanePhase::Task,
         });
+        apply_interaction_panel_selection(&mut driver, &mut state).expect("open the agent pick");
+        assert!(sent.lock().expect("sent commands").is_empty());
         apply_interaction_panel_selection(&mut driver, &mut state).expect("request preview");
         assert!(matches!(
             sent.lock().expect("sent commands")[0].command,
@@ -4189,9 +4696,15 @@ mod tests {
         }
         project_driver_view(&mut state, &driver);
         observe_driver_events(&mut state, &mut driver).expect("observe eligibility");
+        // Lane creation is two steps since `runtime.starter_lane_agent`: the
+        // task hands over to the Agent pick, whose first row is the two-step
+        // flow this test's subject predates. Nothing is sent until the pick.
         state.ui.interaction_panel = Some(InteractionPanel::NewLaneTask {
             task: "inspect this folder".to_string(),
+            phase: NewLanePhase::Task,
         });
+        apply_interaction_panel_selection(&mut driver, &mut state).expect("open the agent pick");
+        assert!(sent.lock().expect("sent commands").is_empty());
         apply_interaction_panel_selection(&mut driver, &mut state).expect("request preview");
         driver.pump().expect("direct workspace preview");
         project_driver_view(&mut state, &driver);
@@ -9377,5 +9890,792 @@ mod tests {
             )],
         );
         assert!(entries.iter().all(|entry| entry.kind() != "assistant"));
+    }
+
+    /// Replays the shared `runtime.plan_documents` fixture up to the revision
+    /// the operator would be looking at, then drives the lens.
+    ///
+    /// The fixture is the wire truth for this capability, so the pin the `a`
+    /// key sends is asserted against Core's own `revision` and
+    /// `content_sha256` rather than against values this test composed.
+    fn plan_lens_driver(
+        events: usize,
+    ) -> (
+        TuiClientDriver<FakeCoreClient>,
+        TuiState,
+        Arc<Mutex<Vec<RuntimeCommandEnvelope>>>,
+    ) {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../crates/types/tests/fixtures/frontend-contract-v1/plan-documents.json"
+        ))
+        .expect("plan fixture");
+        let mut view: RuntimeViewState =
+            serde_json::from_value(serde_json::json!({ "snapshot": fixture["initial_snapshot"] }))
+                .map(|_: serde_json::Value| ())
+                .err()
+                .map(|_| unreachable!())
+                .unwrap_or_else(|| {
+                    RuntimeViewState::new(
+                        serde_json::from_value(fixture["initial_snapshot"].clone())
+                            .expect("fixture snapshot"),
+                    )
+                });
+        for raw in fixture["events"]
+            .as_array()
+            .expect("fixture events")
+            .iter()
+            .take(events)
+        {
+            let envelope: RuntimeEventEnvelope =
+                serde_json::from_value(raw.clone()).expect("fixture event");
+            if let RuntimeWireEvent::Known(event) = envelope.event {
+                view.apply_event(&event);
+            }
+        }
+        let client = FakeCoreClient {
+            transport: FakeCoreTransport {
+                view: Some(view),
+                ..FakeCoreTransport::default()
+            },
+            ..FakeCoreClient::default()
+        };
+        let sent = Arc::clone(&client.sent);
+        let driver = TuiClientDriver::connect(client).expect("connect");
+        let mut state = TuiState::new(driver.view().clone());
+        state.capabilities = driver.capabilities();
+        state.ui.input_mode = InputMode::Insert;
+        (driver, state, sent)
+    }
+
+    fn open_plan_lens_through_the_composer(
+        driver: &mut TuiClientDriver<FakeCoreClient>,
+        state: &mut TuiState,
+    ) {
+        state.ui.input = "/plan".into();
+        handle_ui_event(
+            driver,
+            state,
+            Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+            (120, 40),
+        )
+        .expect("open the plan lens");
+    }
+
+    #[test]
+    fn the_plan_lens_accepts_the_exact_revision_and_digest_core_published() {
+        let (mut driver, mut state, sent) = plan_lens_driver(7);
+        open_plan_lens_through_the_composer(&mut driver, &mut state);
+        assert_eq!(
+            state.ui.overlay.as_ref().map(|overlay| overlay.kind),
+            Some(OverlayKind::PlanLens)
+        );
+        assert!(sent.lock().expect("sent commands").is_empty());
+
+        handle_ui_event(
+            &mut driver,
+            &mut state,
+            Event::Key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE)),
+            (120, 40),
+        )
+        .expect("accept the plan");
+
+        let commands = sent.lock().expect("sent commands");
+        let plan = state
+            .runtime
+            .plan_documents
+            .first()
+            .expect("the fixture published one plan");
+        assert_eq!(plan.revision, 2);
+        assert!(matches!(
+            &commands[..],
+            [RuntimeCommandEnvelope {
+                command: RuntimeCommand::AcceptPlanDocument {
+                    revision,
+                    content_sha256,
+                    ..
+                },
+                ..
+            }] if *revision == plan.revision && content_sha256 == &plan.content_sha256
+        ));
+    }
+
+    #[test]
+    fn a_hand_off_refused_in_plan_mode_is_rendered_from_cores_own_reason() {
+        let (mut driver, mut state, sent) = plan_lens_driver(11);
+        open_plan_lens_through_the_composer(&mut driver, &mut state);
+
+        handle_ui_event(
+            &mut driver,
+            &mut state,
+            Event::Key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::NONE)),
+            (120, 40),
+        )
+        .expect("hand the plan off");
+
+        let command_id = sent
+            .lock()
+            .expect("sent commands")
+            .first()
+            .expect("one hand-off command")
+            .command_id
+            .clone();
+        state
+            .ui
+            .plan
+            .as_mut()
+            .expect("the lens is open")
+            .observe_event(&RuntimeEvent {
+                kind: RuntimeEventKind::CommandRejected {
+                    command_id,
+                    reason: "plan_mode: handing a plan off starts agent work".to_string(),
+                },
+                sequence: 12,
+                timestamp: Some(0),
+            });
+
+        let rendered = super::super::render::render_frame(&state, 120, 40);
+        assert!(rendered.contains("plan_mode"), "{rendered}");
+    }
+
+    #[test]
+    fn a_key_whose_status_forbids_it_sends_nothing_at_all() {
+        // Revision 2 is `proposed`, so handing it off cannot apply. The row
+        // already says which status blocked it; Core is not asked a question
+        // its own contract says it will refuse.
+        let (mut driver, mut state, sent) = plan_lens_driver(7);
+        open_plan_lens_through_the_composer(&mut driver, &mut state);
+
+        handle_ui_event(
+            &mut driver,
+            &mut state,
+            Event::Key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::NONE)),
+            (120, 40),
+        )
+        .expect("hand off a proposed plan");
+
+        assert!(sent.lock().expect("sent commands").is_empty());
+    }
+
+    #[test]
+    fn rejecting_opens_a_reason_line_and_refuses_an_empty_one_without_sending() {
+        let (mut driver, mut state, sent) = plan_lens_driver(7);
+        open_plan_lens_through_the_composer(&mut driver, &mut state);
+
+        for key in [KeyCode::Char('r'), KeyCode::Enter] {
+            handle_ui_event(
+                &mut driver,
+                &mut state,
+                Event::Key(KeyEvent::new(key, KeyModifiers::NONE)),
+                (120, 40),
+            )
+            .expect("reject with no reason");
+        }
+        assert!(sent.lock().expect("sent commands").is_empty());
+        // The fixture's snapshot resolves the interface to zh-CN, so the
+        // refusal is asserted on the catalog key and on its rendered zh-CN
+        // text: a client that only refused in English would be refusing
+        // invisibly for half its operators.
+        assert_eq!(
+            state
+                .ui
+                .plan
+                .as_ref()
+                .and_then(|panel| panel.notice.clone())
+                .as_deref(),
+            Some("plan.reject.empty")
+        );
+        let rendered = super::super::render::render_frame(&state, 120, 40);
+        assert!(rendered.contains("拒绝空理由"), "{rendered}");
+
+        for key in [KeyCode::Char('t'), KeyCode::Char('o'), KeyCode::Enter] {
+            handle_ui_event(
+                &mut driver,
+                &mut state,
+                Event::Key(KeyEvent::new(key, KeyModifiers::NONE)),
+                (120, 40),
+            )
+            .expect("reject with a reason");
+        }
+        assert!(matches!(
+            sent.lock().expect("sent commands").as_slice(),
+            [RuntimeCommandEnvelope {
+                command: RuntimeCommand::RejectPlanDocument { reason, .. },
+                ..
+            }] if reason == "to"
+        ));
+    }
+
+    /// The `/acp` Lane view with one Agent session in `status`, and the
+    /// capabilities Core's local handshake advertises.
+    fn session_control_state(
+        status: viden_core::AgentSessionStatus,
+        control: Option<viden_types::AgentSessionControlView>,
+    ) -> (
+        TuiClientDriver<FakeCoreClient>,
+        TuiState,
+        Arc<Mutex<Vec<RuntimeCommandEnvelope>>>,
+        RuntimeOwner,
+    ) {
+        let client = FakeCoreClient::default();
+        let sent = Arc::clone(&client.sent);
+        let driver = TuiClientDriver::connect(client).expect("connect");
+        let mut state = TuiState::new(driver.view().clone());
+        state.capabilities = driver.capabilities();
+        let owner = RuntimeOwner {
+            lane_id: Some("lane-1".to_string()),
+            session_id: Some("acp-1".to_string()),
+            ..RuntimeOwner::default()
+        };
+        state.ui.focus_lane("lane-1".to_string());
+        state
+            .runtime
+            .agent_sessions
+            .push(viden_core::AgentSessionView {
+                session_id: "acp-1".to_string(),
+                lane_id: "lane-1".to_string(),
+                agent_id: "codex-acp".to_string(),
+                model: None,
+                status,
+                owner: owner.clone(),
+                task: "refactor the config loader".to_string(),
+                diagnostic: None,
+                output: None,
+                control,
+            });
+        state.ui.interaction_panel = Some(InteractionPanel::AcpPicker {
+            selected: 0,
+            phase: AcpPickerPhase::Browse,
+        });
+        (driver, state, sent, owner)
+    }
+
+    #[test]
+    fn pause_kill_and_resume_send_the_c14_commands_under_the_sessions_own_owner() {
+        for (key, status, expected) in [
+            (
+                'p',
+                viden_core::AgentSessionStatus::Running,
+                RuntimeCommand::PauseAgentSession {
+                    session_id: "acp-1".to_string(),
+                },
+            ),
+            (
+                'k',
+                viden_core::AgentSessionStatus::Running,
+                RuntimeCommand::KillAgentSession {
+                    session_id: "acp-1".to_string(),
+                },
+            ),
+            (
+                'u',
+                viden_core::AgentSessionStatus::Paused,
+                RuntimeCommand::ResumeAgentSession {
+                    session_id: "acp-1".to_string(),
+                },
+            ),
+            (
+                's',
+                viden_core::AgentSessionStatus::Running,
+                RuntimeCommand::CancelAgentSession {
+                    session_id: "acp-1".to_string(),
+                },
+            ),
+        ] {
+            let (mut driver, mut state, sent, owner) = session_control_state(status, None);
+
+            handle_ui_event(
+                &mut driver,
+                &mut state,
+                Event::Key(KeyEvent::new(KeyCode::Char(key), KeyModifiers::NONE)),
+                (120, 40),
+            )
+            .expect("session control key");
+
+            let commands = sent.lock().expect("sent commands");
+            assert_eq!(commands.len(), 1, "{key} on {status:?}: {commands:?}");
+            assert_eq!(commands[0].command, expected, "{key} on {status:?}");
+            assert_eq!(commands[0].owner, owner, "{key} on {status:?}");
+        }
+    }
+
+    #[test]
+    fn a_control_the_status_refuses_sends_nothing_at_all() {
+        // Core's contract accepts resume from `Paused` only and pause from the
+        // three live statuses. Sending either anyway would ask Core a question
+        // its own contract says it refuses.
+        for (key, status) in [
+            ('u', viden_core::AgentSessionStatus::Running),
+            ('p', viden_core::AgentSessionStatus::Paused),
+            ('k', viden_core::AgentSessionStatus::Completed),
+            ('r', viden_core::AgentSessionStatus::Running),
+        ] {
+            let (mut driver, mut state, sent, _) = session_control_state(status, None);
+
+            handle_ui_event(
+                &mut driver,
+                &mut state,
+                Event::Key(KeyEvent::new(KeyCode::Char(key), KeyModifiers::NONE)),
+                (120, 40),
+            )
+            .expect("session control key");
+
+            assert!(
+                sent.lock().expect("sent commands").is_empty(),
+                "{key} on {status:?} must send nothing"
+            );
+        }
+    }
+
+    #[test]
+    fn a_status_refusal_reaches_the_transcript_as_cores_own_reason() {
+        let (mut driver, mut state, sent, _) =
+            session_control_state(viden_core::AgentSessionStatus::Running, None);
+        handle_ui_event(
+            &mut driver,
+            &mut state,
+            Event::Key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::NONE)),
+            (120, 40),
+        )
+        .expect("pause");
+        let command_id = sent
+            .lock()
+            .expect("sent commands")
+            .first()
+            .expect("one pause command")
+            .command_id
+            .clone();
+
+        if let Some(settlement) = state.session_control.observe_event(&RuntimeEvent {
+            kind: RuntimeEventKind::CommandRejected {
+                command_id,
+                reason: "session_status_completed".to_string(),
+            },
+            sequence: 2,
+            timestamp: Some(0),
+        }) {
+            let entry = session_control_entry(&state, &settlement);
+            state.ui.entries.push(entry);
+        }
+
+        assert!(
+            state
+                .ui
+                .entries
+                .iter()
+                .any(|entry| entry.body.contains("session_status_completed")),
+            "{:?}",
+            state.ui.entries
+        );
+    }
+
+    #[test]
+    fn a_paused_session_row_shows_its_glyph_its_held_inputs_and_its_termination() {
+        let (_driver, state, _sent, _) = session_control_state(
+            viden_core::AgentSessionStatus::Paused,
+            Some(viden_types::AgentSessionControlView {
+                paused_at: Some(1_700_006_010),
+                resumed_at: None,
+                terminated_by: None,
+                held_input_count: 2,
+            }),
+        );
+
+        let rows = acp_picker_rows(&state);
+
+        assert!(rows[0].label.starts_with('⏸'), "{}", rows[0].label);
+        assert!(rows[0].label.contains("held 2"), "{}", rows[0].label);
+        assert!(
+            rows.iter().any(|row| row.label.contains("load_session_id")),
+            "switch model must be stated as the two-step flow: {rows:?}"
+        );
+    }
+
+    /// A focused approval whose `allowed_scopes` and `editable` are exactly
+    /// what the shared `runtime.approval_scopes` fixture publishes.
+    fn approval_scopes_driver(
+        request: usize,
+    ) -> (
+        TuiClientDriver<FakeCoreClient>,
+        TuiState,
+        Arc<Mutex<Vec<RuntimeCommandEnvelope>>>,
+    ) {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../crates/types/tests/fixtures/frontend-contract-v1/approval-scopes.json"
+        ))
+        .expect("approval scopes fixture");
+        let mut view = RuntimeViewState::new(
+            serde_json::from_value(fixture["initial_snapshot"].clone()).expect("fixture snapshot"),
+        );
+        let mut seen = 0;
+        for raw in fixture["events"].as_array().expect("fixture events") {
+            let envelope: RuntimeEventEnvelope =
+                serde_json::from_value(raw.clone()).expect("fixture event");
+            if let RuntimeWireEvent::Known(event) = envelope.event {
+                let is_request = matches!(event.kind, RuntimeEventKind::ApprovalRequested { .. });
+                view.apply_event(&event);
+                if is_request {
+                    seen += 1;
+                    if seen > request {
+                        break;
+                    }
+                }
+            }
+        }
+        let approval = view
+            .pending_approvals
+            .first_mut()
+            .expect("one pending approval");
+        // The fixture's expiry is a fixed past timestamp; an expired request
+        // is inert by design, and expiry is not this test's subject.
+        approval.expires_at = 0;
+        let client = FakeCoreClient {
+            transport: FakeCoreTransport {
+                view: Some(view),
+                ..FakeCoreTransport::default()
+            },
+            ..FakeCoreClient::default()
+        };
+        let sent = Arc::clone(&client.sent);
+        let mut driver = TuiClientDriver::connect(client).expect("connect");
+        let mut state = TuiState::new(driver.view().clone());
+        state.capabilities = driver.capabilities();
+        state.ui.input_mode = InputMode::Insert;
+        focus_pending_approval(&mut driver, &mut state);
+        (driver, state, sent)
+    }
+
+    #[test]
+    fn the_always_key_sends_the_standing_scope_core_offered_and_no_longer_a_once_off() {
+        let (mut driver, mut state, sent) = approval_scopes_driver(0);
+        assert!(
+            state.runtime.pending_approvals[0]
+                .allowed_scopes
+                .contains(&ApprovalScope::Always),
+            "the fixture's medium-risk request offers the standing scope"
+        );
+
+        handle_ui_event(
+            &mut driver,
+            &mut state,
+            Event::Key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE)),
+            (120, 40),
+        )
+        .expect("allow always");
+
+        assert!(matches!(
+            sent.lock().expect("sent commands").as_slice(),
+            [RuntimeCommandEnvelope {
+                command: RuntimeCommand::RespondToApproval {
+                    response: viden_core::ApprovalResponse {
+                        decision: viden_core::ApprovalDecision::Allow {
+                            scope: ApprovalScope::Always
+                        },
+                        ..
+                    },
+                    ..
+                },
+                ..
+            }]
+        ));
+    }
+
+    #[test]
+    fn a_request_that_does_not_offer_the_standing_scope_answers_nothing() {
+        let (mut driver, mut state, sent) = approval_scopes_driver(0);
+        state.runtime.pending_approvals[0]
+            .allowed_scopes
+            .retain(|scope| !matches!(scope, ApprovalScope::Always));
+
+        handle_ui_event(
+            &mut driver,
+            &mut state,
+            Event::Key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE)),
+            (120, 40),
+        )
+        .expect("allow always where it was not offered");
+
+        assert!(sent.lock().expect("sent commands").is_empty());
+        // The fixture's snapshot resolves the interface to zh-CN, so the
+        // disabled row is asserted in the locale it actually renders in: a
+        // control that only says why it is inert in English is inert and
+        // unexplained for half its operators.
+        let rows =
+            super::super::modal::overlay_rows_for_test(&state, OverlayKind::Approval).join("\n");
+        assert!(rows.contains("a 始终允许 · 不可用"), "{rows}");
+    }
+
+    #[test]
+    fn the_edit_key_opens_a_revision_field_and_sends_the_decoded_tool_input() {
+        let (mut driver, mut state, sent) = approval_scopes_driver(0);
+        assert!(state.runtime.pending_approvals[0].editable);
+
+        for key in [
+            KeyCode::Char('e'),
+            KeyCode::Char('c'),
+            KeyCode::Char('='),
+            KeyCode::Char('x'),
+            KeyCode::Enter,
+        ] {
+            handle_ui_event(
+                &mut driver,
+                &mut state,
+                Event::Key(KeyEvent::new(key, KeyModifiers::NONE)),
+                (120, 40),
+            )
+            .expect("revise the input");
+        }
+
+        assert!(state.ui.approval_edit.is_none());
+        let commands = sent.lock().expect("sent commands");
+        assert!(
+            matches!(
+                &commands[..],
+                [RuntimeCommandEnvelope {
+                    command: RuntimeCommand::RespondToApproval {
+                        response: viden_core::ApprovalResponse {
+                            decision: viden_core::ApprovalDecision::Edit { revised_input },
+                            ..
+                        },
+                        ..
+                    },
+                    ..
+                }] if revised_input.get("c").map(String::as_str) == Some("x")
+            ),
+            "{commands:?}"
+        );
+    }
+
+    #[test]
+    fn a_request_core_marks_not_editable_never_opens_a_revision_field() {
+        let (mut driver, mut state, sent) = approval_scopes_driver(0);
+        state.runtime.pending_approvals[0].editable = false;
+
+        handle_ui_event(
+            &mut driver,
+            &mut state,
+            Event::Key(KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE)),
+            (120, 40),
+        )
+        .expect("edit where Core accepts none");
+
+        assert!(state.ui.approval_edit.is_none());
+        assert!(sent.lock().expect("sent commands").is_empty());
+        let rows =
+            super::super::modal::overlay_rows_for_test(&state, OverlayKind::Approval).join("\n");
+        assert!(
+            rows.contains("e 修改输入 · Core 标记该输入不可修改"),
+            "{rows}"
+        );
+    }
+
+    #[test]
+    fn a_follow_up_request_says_which_request_it_revises() {
+        let (_driver, mut state, _sent) = approval_scopes_driver(0);
+        state.runtime.pending_approvals[0].revised_from = Some("approval_scopes_wide".to_string());
+
+        let rows =
+            super::super::modal::overlay_rows_for_test(&state, OverlayKind::Approval).join("\n");
+
+        assert!(rows.contains("approval_scopes_wide"), "{rows}");
+    }
+
+    #[test]
+    fn the_standing_list_revokes_the_rule_id_core_published() {
+        let client = FakeCoreClient::default();
+        let sent = Arc::clone(&client.sent);
+        let mut driver = TuiClientDriver::connect(client).expect("connect");
+        let mut state = TuiState::new(driver.view().clone());
+        state.capabilities = driver.capabilities();
+        state.runtime.standing_approvals = vec![viden_types::StandingApprovalView {
+            rule_id: "rule_approval_scopes".to_string(),
+            tool_name: "shell".to_string(),
+            rule_content: "command=cargo fmt --all -- --check".to_string(),
+            granted_at: 1_700_004_002,
+            granted_in_workspace: "workspace_contract_v1".to_string(),
+            audit_id: "audit_approval_scopes_always".to_string(),
+        }];
+        state.ui.input_mode = InputMode::Insert;
+        state.ui.input = "/approvals".into();
+
+        handle_ui_event(
+            &mut driver,
+            &mut state,
+            Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+            (120, 40),
+        )
+        .expect("open the standing list");
+        assert!(sent.lock().expect("sent commands").is_empty());
+        assert!(
+            super::super::render::render_frame(&state, 120, 40).contains("cargo fmt"),
+            "the list renders Core's own rule content"
+        );
+
+        handle_ui_event(
+            &mut driver,
+            &mut state,
+            Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+            (120, 40),
+        )
+        .expect("revoke the selected rule");
+
+        assert!(matches!(
+            sent.lock().expect("sent commands").as_slice(),
+            [RuntimeCommandEnvelope {
+                command: RuntimeCommand::RevokeStandingApproval { rule_id },
+                ..
+            }] if rule_id == "rule_approval_scopes"
+        ));
+    }
+
+    /// Lane creation with the operator's Agent pick travelling on the request
+    /// (`runtime.starter_lane_agent`, GUI-CORE-030).
+    ///
+    /// The preview and receipt come from the shared fixture, so what is
+    /// asserted about the echo and the refusal is Core's own wire truth.
+    #[test]
+    fn creating_a_lane_carries_the_agent_pick_and_renders_the_receipts_session_outcome() {
+        let interaction: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../crates/types/tests/fixtures/frontend-contract-v1/interaction-closed-loop.json"
+        ))
+        .expect("interaction fixture");
+        let mut events = interaction["events"]
+            .as_array()
+            .expect("fixture events")
+            .iter()
+            .take(4)
+            .map(|value| {
+                serde_json::from_value::<RuntimeEventEnvelope>(value.clone())
+                    .expect("runtime event")
+            })
+            .collect::<VecDeque<_>>();
+        for event in &mut events {
+            event.cursor.stream_id = "fixture".to_string();
+        }
+        // Core's own answer about the bound session, replayed onto the
+        // receipt this flow waits for.
+        if let viden_core::RuntimeWireEvent::Known(viden_core::RuntimeEvent {
+            kind: viden_core::RuntimeEventKind::StarterLaneCreated { receipt },
+            ..
+        }) = &mut events[3].event
+        {
+            receipt.session = Some(viden_types::StarterLaneSessionOutcome::Refused {
+                reason: "starter_lane.agent_unknown:claude-code".to_string(),
+            });
+        } else {
+            panic!("the fourth fixture event is the starter Lane receipt");
+        }
+        let client = FakeCoreClient {
+            transport: FakeCoreTransport {
+                events,
+                ..FakeCoreTransport::default()
+            },
+            ..FakeCoreClient::default()
+        };
+        let sent = Arc::clone(&client.sent);
+        let mut driver = TuiClientDriver::connect(client).expect("connect");
+        let mut state = TuiState::default();
+        for _ in 0..2 {
+            driver.pump().expect("eligibility event");
+        }
+        project_driver_view(&mut state, &driver);
+        observe_driver_events(&mut state, &mut driver).expect("observe eligibility");
+        state.capabilities = driver.capabilities();
+        state
+            .runtime
+            .agent_adapters
+            .push(viden_core::AgentAdapterView {
+                agent_id: "claude-code".to_string(),
+                display_name: "Claude Code".to_string(),
+                route: viden_core::AgentRoute::Acp,
+                source: viden_core::AgentAdapterSource::Registry,
+                availability: viden_core::AgentAvailability::Available,
+                auth_state: viden_core::AgentAuthState::Ready,
+                startability: viden_core::AgentStartability::Ready,
+                capabilities: Vec::new(),
+                models: vec!["claude-sonnet".to_string()],
+                diagnostics: Vec::new(),
+            });
+        state.ui.interaction_panel = Some(InteractionPanel::NewLaneTask {
+            task: "fix the parser".to_string(),
+            // Row 0 is the two-step flow; row 2 is the adapter at its
+            // published model.
+            phase: NewLanePhase::AgentPick { selected: 2 },
+        });
+
+        apply_interaction_panel_selection(&mut driver, &mut state).expect("request preview");
+        assert_eq!(
+            state.ui.pending_native_lane,
+            Some(PendingNativeLane::AwaitingPreview {
+                task: "fix the parser".to_string(),
+                agent: Some(viden_types::StarterLaneAgentBinding {
+                    agent_id: "claude-code".to_string(),
+                    model: Some("claude-sonnet".to_string()),
+                    task: None,
+                }),
+            })
+        );
+
+        driver.pump().expect("preview event");
+        project_driver_view(&mut state, &driver);
+        observe_driver_events(&mut state, &mut driver).expect("create from preview");
+        assert!(
+            matches!(
+                &sent.lock().expect("sent commands")[1].command,
+                RuntimeCommand::CreateStarterLane { request, .. }
+                    if request.agent
+                        == Some(viden_types::StarterLaneAgentBinding {
+                            agent_id: "claude-code".to_string(),
+                            model: Some("claude-sonnet".to_string()),
+                            task: None,
+                        })
+            ),
+            "the pick must travel with the request"
+        );
+
+        driver.pump().expect("receipt event");
+        project_driver_view(&mut state, &driver);
+        observe_driver_events(&mut state, &mut driver).expect("render the session outcome");
+        assert!(
+            state.ui.entries.iter().any(|entry| entry
+                .body
+                .contains("starter_lane.agent_unknown:claude-code")),
+            "the receipt's refusal must be stated beside the Lane that exists: {:?}",
+            state.ui.entries
+        );
+        assert!(
+            state
+                .runtime
+                .lanes
+                .iter()
+                .any(|lane| lane.id == state.ui.focused_lane.clone().unwrap_or_default()),
+            "Lane creation never fails because a session did not start"
+        );
+    }
+
+    #[test]
+    fn escape_unwinds_the_agent_pick_back_to_the_task_without_losing_it() {
+        let client = FakeCoreClient::default();
+        let mut driver = TuiClientDriver::connect(client).expect("connect");
+        let mut state = TuiState::default();
+        state.ui.interaction_panel = Some(InteractionPanel::NewLaneTask {
+            task: "fix the parser".to_string(),
+            phase: NewLanePhase::AgentPick { selected: 0 },
+        });
+
+        handle_ui_event(
+            &mut driver,
+            &mut state,
+            Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
+            (120, 40),
+        )
+        .expect("unwind the agent pick");
+
+        assert_eq!(
+            state.ui.interaction_panel,
+            Some(InteractionPanel::NewLaneTask {
+                task: "fix the parser".to_string(),
+                phase: NewLanePhase::Task,
+            })
+        );
     }
 }
