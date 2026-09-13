@@ -3767,6 +3767,121 @@ mod tests {
         assert!(entry.body.contains("dirty"), "{entry:?}");
     }
 
+    /// E2 defect 12, closed through the whole loop rather than in the picker
+    /// alone.
+    ///
+    /// Core refuses a first push on an untracked branch with
+    /// `Failed { NoUpstream }` and the words "push again with set upstream",
+    /// and the contract prescribes the same step
+    /// (`crates/types/src/source_control.rs:225`). The refusal arrives as an
+    /// ordered event through `observe_driver_events`, so the recovery row is
+    /// offered from Core's own answer, never from the client predicting that a
+    /// branch is untracked. Picking it sends the *same* action with
+    /// `set_upstream: true`; the outcome renders from
+    /// `OperatorGitActionFinished` exactly as every other action's does.
+    #[test]
+    fn a_no_upstream_refusal_offers_the_set_upstream_retry_and_sends_it() {
+        let client = FakeCoreClient {
+            transport: FakeCoreTransport {
+                events: VecDeque::from([event(
+                    1,
+                    RuntimeEventKind::OperatorGitActionFinished {
+                        command_id: "tui-1".to_string(),
+                        target: viden_core::SourceTarget::Workspace,
+                        action: viden_core::OperatorGitAction::Push {
+                            remote: None,
+                            set_upstream: false,
+                        },
+                        outcome: viden_core::OperatorGitOutcome::Failed {
+                            class: viden_core::OperatorGitFailureClass::NoUpstream,
+                            detail: "the current branch has no upstream branch; push with set_upstream to create one"
+                                .to_string(),
+                        },
+                        audit_id: "audit-push-refused".to_string(),
+                    },
+                )]),
+                ..FakeCoreTransport::default()
+            },
+            ..FakeCoreClient::default()
+        };
+        let sent = Arc::clone(&client.sent);
+        let mut driver = TuiClientDriver::connect(client).expect("connect");
+        let mut state = TuiState {
+            capabilities: driver.capabilities(),
+            ..TuiState::default()
+        };
+        let workspace_owner = RuntimeOwner {
+            workspace_id: "ws_no_upstream".to_string(),
+            project_id: "prj_no_upstream".to_string(),
+            lane_id: None,
+            session_id: None,
+            task_id: None,
+            turn_id: None,
+        };
+        state.runtime.workspace_owner = Some(workspace_owner.clone());
+
+        // Row 2 is Push, and it still asks for a plain push.
+        apply_git_picker_selection(&mut driver, &mut state, 2, &GitPickerPhase::Browse)
+            .expect("send the push");
+        let in_flight = crate::tui::modal::git_picker_rows(&state);
+        assert!(
+            !in_flight
+                .iter()
+                .any(|row| row.id == "git:push-set-upstream"),
+            "no recovery is offered while the push is still unanswered: {in_flight:?}"
+        );
+
+        while !matches!(driver.pump().expect("pump"), PumpOutcome::Idle) {
+            observe_driver_events(&mut state, &mut driver).expect("observe");
+        }
+        observe_driver_events(&mut state, &mut driver).expect("observe");
+
+        let refusal = state
+            .ui
+            .entries
+            .iter()
+            .find(|entry| entry.label == "system" && entry.body.contains("no upstream"))
+            .unwrap_or_else(|| panic!("no refusal entry: {:?}", state.ui.entries));
+        assert!(
+            refusal.body.contains("push again with set upstream"),
+            "the outcome still renders Core's own recovery copy: {refusal:?}"
+        );
+
+        let rows = crate::tui::modal::git_picker_rows(&state);
+        assert_eq!(rows.len(), 5, "the recovery row appears: {rows:?}");
+        assert_eq!(rows[4].id, "git:push-set-upstream");
+        assert!(
+            !matches!(rows[4].kind, GitPickerRowKind::Disabled),
+            "the owner is published, so the recovery is pickable: {rows:?}"
+        );
+
+        apply_git_picker_selection(&mut driver, &mut state, 4, &GitPickerPhase::Browse)
+            .expect("send the retry");
+
+        let commands = sent.lock().expect("sent commands");
+        assert_eq!(commands.len(), 2, "one push, then one retry: {commands:?}");
+        let envelope = commands.last().expect("the retry");
+        assert_eq!(envelope.owner, workspace_owner);
+        let RuntimeCommand::RunOperatorGitAction {
+            owner,
+            target,
+            action,
+        } = &envelope.command
+        else {
+            panic!("expected an operator git action: {:?}", envelope.command);
+        };
+        assert_eq!(owner, &workspace_owner, "command and envelope must agree");
+        assert_eq!(target, &viden_core::SourceTarget::Workspace);
+        assert_eq!(
+            action,
+            &viden_core::OperatorGitAction::Push {
+                remote: None,
+                set_upstream: true,
+            },
+            "the retry is the step Core's refusal named"
+        );
+    }
+
     #[test]
     fn operator_git_fixture_replays_into_typed_outcome_entries() {
         let fixture: serde_json::Value = serde_json::from_str(include_str!(

@@ -1124,7 +1124,14 @@ fn git_target_row(state: &TuiState) -> String {
 }
 
 /// The four operator source-control rows, in the fixed order Stage, Commit,
-/// Push, Fetch.
+/// Push, Fetch, plus the set-upstream retry when Core has refused this target's
+/// push for `NoUpstream`.
+///
+/// The recovery row is appended *after* Fetch rather than inserted beside Push,
+/// so the four fixed rows keep their indices and a remembered position never
+/// picks a different action. It is offered only from Core's own answer: this
+/// client never decides that a branch is untracked, and creating a tracking ref
+/// is a different effect from pushing to an existing one.
 ///
 /// A row is pickable only when Core published both the capability *and* an
 /// owner for this target; otherwise it stays listed and is rendered disabled
@@ -1142,9 +1149,10 @@ pub(super) fn git_picker_rows(state: &TuiState) -> Vec<GitPickerRow> {
         "git.unavailable",
         &[("capability", OPERATOR_GIT_CAPABILITY)],
     );
+    let target = git_target(state);
     // Read once, from the same resolver the send path uses, so a row is never
     // offered as pickable and then refused after the operator picked it.
-    let owner_refusal = operator_git_owner(state, &git_target(state)).err();
+    let owner_refusal = operator_git_owner(state, &target).err();
     let reason = if available {
         owner_refusal
             .as_ref()
@@ -1171,6 +1179,17 @@ pub(super) fn git_picker_rows(state: &TuiState) -> Vec<GitPickerRow> {
         ),
     ]
     .into_iter()
+    .chain(state.operator_git.set_upstream_offer(&target).map(|offer| {
+        (
+            "push-set-upstream",
+            GitPickerRowKind::Send(viden_core::OperatorGitAction::Push {
+                // The remote the refused push carried, so the retry
+                // differs from it in the one field Core named.
+                remote: offer.remote.clone(),
+                set_upstream: true,
+            }),
+        )
+    }))
     .map(|(id, kind)| {
         // A picker row says what picking it *does* — it stages everything, or
         // it opens a prompt. An outcome entry names the same action as a plain
@@ -1183,6 +1202,12 @@ pub(super) fn git_picker_rows(state: &TuiState) -> Vec<GitPickerRow> {
             GitPickerRowKind::Send(viden_core::OperatorGitAction::Unstage { .. }) => {
                 "git.action.unstage_all"
             }
+            // The retry says what it does, not just that it is a push: it
+            // creates the tracking ref the plain push above does not.
+            GitPickerRowKind::Send(viden_core::OperatorGitAction::Push {
+                set_upstream: true,
+                ..
+            }) => "git.action.push_set_upstream",
             GitPickerRowKind::Send(action) => action_label_key(action),
             GitPickerRowKind::Commit => "git.action.commit_prompt",
             GitPickerRowKind::Disabled | GitPickerRowKind::Dismiss => "git.unavailable",
@@ -1822,6 +1847,111 @@ mod tests {
         assert!(row.contains(&lane_id), "{row}");
         assert!(!row.contains("main"), "{row}");
         assert!(!row.contains('4'), "{row}");
+    }
+
+    /// The `NoUpstream` recovery is a *fifth* row, and it exists only after
+    /// Core has refused this exact target for that class.
+    ///
+    /// `crates/types/src/source_control.rs:225` states the recovery Core
+    /// prescribes ("`NoUpstream` -> offer `set_upstream`"), and the four fixed
+    /// rows keep their order and indices so a remembered position never picks
+    /// a different action. Before the refusal the surface offers no
+    /// set-upstream at all: creating a tracking ref is a different effect from
+    /// pushing to an existing one, and offering it unasked would let an
+    /// operator create an upstream they never chose.
+    #[test]
+    fn the_no_upstream_recovery_row_appears_only_after_core_refused_that_target() {
+        let mut state = TuiState {
+            capabilities: viden_core::frontend_capabilities(),
+            ..TuiState::default()
+        };
+        state.runtime.workspace_owner = Some(viden_core::RuntimeOwner {
+            workspace_id: "ws_recovery".to_string(),
+            project_id: "prj_recovery".to_string(),
+            ..Default::default()
+        });
+
+        let before = git_picker_rows(&state);
+        assert_eq!(before.len(), 4, "{before:?}");
+        assert!(
+            !before.iter().any(|row| matches!(
+                row.kind,
+                GitPickerRowKind::Send(viden_core::OperatorGitAction::Push {
+                    set_upstream: true,
+                    ..
+                })
+            )),
+            "set-upstream must not be offered before Core refused: {before:?}"
+        );
+
+        state
+            .operator_git
+            .begin(
+                "tui-push-1",
+                viden_core::SourceTarget::Workspace,
+                viden_core::OperatorGitAction::Push {
+                    remote: None,
+                    set_upstream: false,
+                },
+            )
+            .expect("nothing in flight");
+        state
+            .operator_git
+            .observe_event(&viden_core::RuntimeEvent::new(
+                1,
+                viden_core::RuntimeEventKind::OperatorGitActionFinished {
+                    command_id: "tui-push-1".to_string(),
+                    target: viden_core::SourceTarget::Workspace,
+                    action: viden_core::OperatorGitAction::Push {
+                        remote: None,
+                        set_upstream: false,
+                    },
+                    outcome: viden_core::OperatorGitOutcome::Failed {
+                        class: viden_core::OperatorGitFailureClass::NoUpstream,
+                        detail: "the current branch has no upstream branch".to_string(),
+                    },
+                    audit_id: "audit-push-1".to_string(),
+                },
+            ))
+            .expect("the finished event settles the action");
+
+        let after = git_picker_rows(&state);
+        assert_eq!(after.len(), 5, "the recovery row is appended: {after:?}");
+        assert_eq!(
+            after[..4]
+                .iter()
+                .map(|row| row.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["git:stage", "git:commit", "git:push", "git:fetch"],
+            "the four fixed rows keep their order and indices: {after:?}"
+        );
+        let recovery = after.last().expect("the recovery row");
+        assert_eq!(recovery.id, "git:push-set-upstream");
+        assert_eq!(
+            recovery.kind,
+            GitPickerRowKind::Send(viden_core::OperatorGitAction::Push {
+                remote: None,
+                set_upstream: true,
+            }),
+            "the row sends the retry Core's own refusal names"
+        );
+        assert_eq!(
+            recovery.label, "Push and set upstream",
+            "the row is labelled as what it does"
+        );
+
+        // A different target never inherits another tree's refusal.
+        state.runtime.lanes = serde_json::from_str(include_str!(
+            "../../../../crates/types/tests/fixtures/frontend-contract-v1/typed-lanes.json"
+        ))
+        .expect("typed lanes");
+        let lane_id = state.runtime.lanes[0].id.clone();
+        state.ui.focus_lane(lane_id);
+        let other = git_picker_rows(&state);
+        assert!(
+            !other.iter().any(|row| row.id == "git:push-set-upstream"),
+            "the offer belongs to the target Core refused: {other:?}"
+        );
     }
 
     #[test]

@@ -757,6 +757,16 @@ declared.
     unreachable from the client that showed the refusal. E2 had to configure
     the tracking ref out of band to evidence an accepted push, which is
     recorded in step 16 rather than hidden.
+    **Closed by T3 3a4ce963** (2026-09-13). Once Core has answered
+    `Failed { NoUpstream }` for a target, the picker appends a `Push and set
+    upstream` row that sends `Push { remote, set_upstream: true }` — armed
+    from Core's echoed target and action in
+    `apps/tui/src/tui/operator_git.rs:172` and rendered in
+    `apps/tui/src/tui/modal.rs:1182`. It is never offered before that answer,
+    it carries the remote the refused push carried, and a push Core reports as
+    completed for that target removes it. No Core change was required: the
+    command field already existed. Step 16's out-of-band qualification stands
+    as the record of *that* run.
 13. **A session follow-up queued during a turn is never observably pending**
     (Core/TUI seam, product gap — nothing on screen is false). The composer
     offered `[^J Queue]`, the prompt was genuinely queued, and it ran 39

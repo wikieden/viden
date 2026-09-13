@@ -73,6 +73,20 @@ pub(super) struct OperatorGitBusy {
     pub(super) pending_command_id: String,
 }
 
+/// The set-upstream retry Core's own `NoUpstream` refusal named, remembered
+/// for the target it refused.
+///
+/// It is not a prediction: this client never decides that a branch is
+/// untracked, and it never offers `set_upstream` before Core has answered
+/// `Failed { NoUpstream }` for that exact target. The remote is the one the
+/// refused push carried, so the retry differs from it in the single field the
+/// contract names (`crates/types/src/source_control.rs:225`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct SetUpstreamOffer {
+    pub(super) target: SourceTarget,
+    pub(super) remote: Option<String>,
+}
+
 /// TUI-local correlation for the operator source-control surface.
 ///
 /// Holds no authoritative record: a command id this client issued, and the
@@ -80,6 +94,12 @@ pub(super) struct OperatorGitBusy {
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub(super) struct OperatorGitMachine {
     pending: Option<PendingOperatorGit>,
+    /// Armed by Core's `NoUpstream` answer and disarmed by a push Core
+    /// reported as completed for the same target — at which point the tracking
+    /// ref exists and the recovery has nothing left to recover. A retry that
+    /// fails for a *different* class leaves it armed, because the branch still
+    /// has no upstream.
+    set_upstream: Option<SetUpstreamOffer>,
 }
 
 impl OperatorGitMachine {
@@ -124,12 +144,13 @@ impl OperatorGitMachine {
             }
             RuntimeEventKind::OperatorGitActionFinished {
                 command_id,
+                target,
                 action,
                 outcome,
                 audit_id,
-                ..
             } if command_id == &pending.command_id => {
                 self.pending = None;
+                self.observe_push_upstream(target, action, outcome);
                 // The echoed action is rendered rather than the remembered one:
                 // Core answers about what it actually ran.
                 Some(OperatorGitSettlement::Finished {
@@ -140,6 +161,50 @@ impl OperatorGitMachine {
             }
             _ => None,
         }
+    }
+
+    /// Arms or disarms the set-upstream recovery from one settled push.
+    ///
+    /// Both the target and the action are the ones *Core echoed*, not the ones
+    /// this client remembered, so the offer can never belong to a tree Core did
+    /// not answer about. Nothing but a push moves it: staging, committing and
+    /// fetching do not create or remove a tracking ref.
+    fn observe_push_upstream(
+        &mut self,
+        target: &SourceTarget,
+        action: &OperatorGitAction,
+        outcome: &OperatorGitOutcome,
+    ) {
+        let OperatorGitAction::Push { remote, .. } = action else {
+            return;
+        };
+        match outcome {
+            OperatorGitOutcome::Failed {
+                class: OperatorGitFailureClass::NoUpstream,
+                ..
+            } => {
+                self.set_upstream = Some(SetUpstreamOffer {
+                    target: target.clone(),
+                    remote: remote.clone(),
+                });
+            }
+            OperatorGitOutcome::Completed { .. } => {
+                // The tracking ref now exists for the tree Core answered
+                // about, and only for that one.
+                self.set_upstream.take_if(|offer| &offer.target == target);
+            }
+            // Any other failure — and any outcome variant this build cannot
+            // read — leaves the offer exactly as it was: the branch's upstream
+            // is unchanged by a push that did not complete.
+            _ => {}
+        }
+    }
+
+    /// The set-upstream retry Core named for this target, if it named one.
+    pub(super) fn set_upstream_offer(&self, target: &SourceTarget) -> Option<&SetUpstreamOffer> {
+        self.set_upstream
+            .as_ref()
+            .filter(|offer| &offer.target == target)
     }
 
     pub(super) fn pending(&self) -> Option<&PendingOperatorGit> {
@@ -522,6 +587,218 @@ mod tests {
                     },
                 ))
                 .is_some()
+        );
+    }
+
+    fn push_finished(
+        command_id: &str,
+        target: SourceTarget,
+        remote: Option<&str>,
+        set_upstream: bool,
+        outcome: OperatorGitOutcome,
+    ) -> RuntimeEvent {
+        event(
+            3,
+            RuntimeEventKind::OperatorGitActionFinished {
+                command_id: command_id.to_string(),
+                target,
+                action: OperatorGitAction::Push {
+                    remote: remote.map(str::to_string),
+                    set_upstream,
+                },
+                outcome,
+                audit_id: "audit-push".to_string(),
+            },
+        )
+    }
+
+    fn machine_awaiting_push(command_id: &str, target: SourceTarget) -> OperatorGitMachine {
+        let mut machine = OperatorGitMachine::default();
+        machine
+            .begin(
+                command_id,
+                target,
+                OperatorGitAction::Push {
+                    remote: None,
+                    set_upstream: false,
+                },
+            )
+            .expect("nothing in flight");
+        machine
+    }
+
+    /// The recovery is armed by Core's own answer and belongs to the target
+    /// Core answered about. A push Core reported as completed disarms it: the
+    /// tracking ref exists and there is nothing left to recover.
+    #[test]
+    fn a_no_upstream_answer_arms_the_set_upstream_retry_for_that_target_only() {
+        let lane = SourceTarget::Lane {
+            lane_id: "lane-a".to_string(),
+        };
+        let mut machine = machine_awaiting_push("tui-1", SourceTarget::Workspace);
+
+        assert!(
+            machine
+                .set_upstream_offer(&SourceTarget::Workspace)
+                .is_none(),
+            "nothing is offered before Core answers"
+        );
+
+        machine
+            .observe_event(&push_finished(
+                "tui-1",
+                SourceTarget::Workspace,
+                Some("upstream"),
+                false,
+                OperatorGitOutcome::Failed {
+                    class: OperatorGitFailureClass::NoUpstream,
+                    detail: "no upstream branch".to_string(),
+                },
+            ))
+            .expect("the finished event settles the action");
+
+        let offer = machine
+            .set_upstream_offer(&SourceTarget::Workspace)
+            .expect("the refusal armed the retry");
+        assert_eq!(
+            offer.remote.as_deref(),
+            Some("upstream"),
+            "the retry carries the remote the refused push carried"
+        );
+        assert!(
+            machine.set_upstream_offer(&lane).is_none(),
+            "one tree's refusal never reaches another tree"
+        );
+
+        machine
+            .begin(
+                "tui-2",
+                SourceTarget::Workspace,
+                OperatorGitAction::Push {
+                    remote: Some("upstream".to_string()),
+                    set_upstream: true,
+                },
+            )
+            .expect("the slot was freed");
+        machine
+            .observe_event(&push_finished(
+                "tui-2",
+                SourceTarget::Workspace,
+                Some("upstream"),
+                true,
+                OperatorGitOutcome::Completed {
+                    output: "branch main set up to track origin/main".to_string(),
+                    truncated: false,
+                    source: source(),
+                },
+            ))
+            .expect("the retry settles too");
+
+        assert!(
+            machine
+                .set_upstream_offer(&SourceTarget::Workspace)
+                .is_none(),
+            "a completed push disarms the recovery"
+        );
+    }
+
+    /// A retry that failed for a different class leaves the branch without an
+    /// upstream, so the recovery stays offered rather than disappearing behind
+    /// an unrelated failure.
+    #[test]
+    fn a_failure_of_another_class_leaves_the_set_upstream_retry_armed() {
+        let mut machine = machine_awaiting_push("tui-1", SourceTarget::Workspace);
+        machine
+            .observe_event(&push_finished(
+                "tui-1",
+                SourceTarget::Workspace,
+                None,
+                false,
+                OperatorGitOutcome::Failed {
+                    class: OperatorGitFailureClass::NoUpstream,
+                    detail: "no upstream branch".to_string(),
+                },
+            ))
+            .expect("armed");
+
+        machine
+            .begin(
+                "tui-2",
+                SourceTarget::Workspace,
+                OperatorGitAction::Push {
+                    remote: None,
+                    set_upstream: true,
+                },
+            )
+            .expect("the slot was freed");
+        machine
+            .observe_event(&push_finished(
+                "tui-2",
+                SourceTarget::Workspace,
+                None,
+                true,
+                OperatorGitOutcome::Failed {
+                    class: OperatorGitFailureClass::RemoteUnreachable,
+                    detail: "could not read from remote repository".to_string(),
+                },
+            ))
+            .expect("settled");
+
+        assert!(
+            machine
+                .set_upstream_offer(&SourceTarget::Workspace)
+                .is_some(),
+            "the branch still has no upstream"
+        );
+    }
+
+    /// Only a push moves the recovery. Staging, committing and fetching change
+    /// nothing about a tracking ref, so a completed one must not disarm it.
+    #[test]
+    fn a_non_push_outcome_never_disarms_the_set_upstream_retry() {
+        let mut machine = machine_awaiting_push("tui-1", SourceTarget::Workspace);
+        machine
+            .observe_event(&push_finished(
+                "tui-1",
+                SourceTarget::Workspace,
+                None,
+                false,
+                OperatorGitOutcome::Failed {
+                    class: OperatorGitFailureClass::NoUpstream,
+                    detail: "no upstream branch".to_string(),
+                },
+            ))
+            .expect("armed");
+
+        machine
+            .begin(
+                "tui-2",
+                SourceTarget::Workspace,
+                OperatorGitAction::Fetch { remote: None },
+            )
+            .expect("the slot was freed");
+        machine
+            .observe_event(&event(
+                4,
+                RuntimeEventKind::OperatorGitActionFinished {
+                    command_id: "tui-2".to_string(),
+                    target: SourceTarget::Workspace,
+                    action: OperatorGitAction::Fetch { remote: None },
+                    outcome: OperatorGitOutcome::Completed {
+                        output: "fetched".to_string(),
+                        truncated: false,
+                        source: source(),
+                    },
+                    audit_id: "audit-fetch".to_string(),
+                },
+            ))
+            .expect("settled");
+
+        assert!(
+            machine
+                .set_upstream_offer(&SourceTarget::Workspace)
+                .is_some(),
+            "a fetch says nothing about the upstream"
         );
     }
 

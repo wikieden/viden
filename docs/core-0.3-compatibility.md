@@ -1622,11 +1622,13 @@ in `docs/release-evidence/gui-trusted-delivery/checkpoints.md` (defects 10 to
    or event-shape change.
 
 A fourth E2 finding is client-side and is recorded where it belongs rather than
-here: the `/git` picker hard-codes `set_upstream: false`
-(`apps/tui/src/tui/modal.rs:1163-1167`), so the `NoUpstream` recovery this
-document's own contract prescribes
-(`crates/types/src/source_control.rs:225`) has no TUI control. See
-`docs/release-tui-0.3.4-source-control-parity.md`, Known Gaps.
+here: the `/git` picker hard-coded `set_upstream: false`, so the `NoUpstream`
+recovery this document's own contract prescribes
+(`crates/types/src/source_control.rs:225`) had no TUI control. **Closed
+2026-09-13 by T3 3a4ce963**, with no Core change: the picker appends a
+`Push and set upstream` row once Core has answered `Failed { NoUpstream }` for
+that target. See `docs/release-tui-0.3.4-source-control-parity.md`, Known
+Gaps.
 
 Open follow-ups added 2026-09-13 by the C12 review, from C12's own report:
 
