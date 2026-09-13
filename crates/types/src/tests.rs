@@ -4202,6 +4202,7 @@ fn runtime_events_replay_into_ui_independent_view_state() {
         decision_context: None,
         revised_from: None,
         editable: false,
+        input: None,
     };
     let evidence = EvidenceView {
         id: "evidence_1".to_string(),
@@ -5977,11 +5978,16 @@ fn an_approval_without_a_decision_context_encodes_as_it_did_before() {
         decision_context: None,
         revised_from: None,
         editable: false,
+        input: None,
     };
     let encoded = serde_json::to_value(&approval).unwrap();
     assert!(
         encoded.get("decision_context").is_none(),
         "an absent decision context must not appear on the wire"
+    );
+    assert!(
+        encoded.get("input").is_none(),
+        "a request with no editable input must not appear on the wire with one"
     );
     let decoded: ApprovalRequestView = serde_json::from_value(encoded).unwrap();
     assert_eq!(decoded, approval);

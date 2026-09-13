@@ -70,7 +70,7 @@ durable_work_evidence_fixture = "durable-work-evidence.json"
 durable_work_evidence_fixture_sha256 = "457c0879ad5e7475b3d79c29dd47af4feaa84d8f95f3317c4335cb04d38a27b5"
 durable_work_evidence_view_sha256 = "b2719e73785bc9e3a71b459e3eb83ae3a551ac62aa61f8a7c3807e2f883c6f45"
 approval_scopes_fixture = "approval-scopes.json"
-approval_scopes_fixture_sha256 = "67b1080c875d8432beefb15ec6153f00903da05a49f480e308b475b21a3fd454"
+approval_scopes_fixture_sha256 = "1f984cd7228572f6e45fc867ee8f10eb6315a93190c1b1dc32e4ca847dd87a14"
 approval_scopes_view_sha256 = "ff20cf15a8a8b857a4d3de9a677eff6bc6ad1bf2c57490709803917d770f453d"
 starter_lane_agent_fixture = "starter-lane-agent.json"
 starter_lane_agent_fixture_sha256 = "171ebd5a6770119df91bc0477e630dec4406e4b0150cdaadd06e0cfe01e0dd81"
@@ -340,6 +340,7 @@ revision_unchanged = "a revision byte-identical to the original is `command_reje
 bound = "at most 8 revisions per approval; past that the gate fails closed with a deny, because an unbounded revision chain is a turn that never settles and a turn that never settles is indistinguishable from a hang"
 audit = "`approval.always` and `approval.edit` are decision rows under the pre-minted `audit_id` like every other scope, on both the runtime-owned and the lane-owned approval branches; an `approval.edit` row carries a bounded `revised_input` argument, because a row naming only the tool would not say what the operator changed it to, which is the whole content of the decision. `approval.revoke` is its own row naming the rule and the tool it governed"
 state = "`standing_approvals` on the view is skipped when empty and `revised_from` and `editable` on `ApprovalRequestView` are both omitted when absent or false, so a view and a request that carry none of this encode to exactly the bytes they did before and the nine frozen base fixtures do not move"
+typed_input = "`ApprovalRequestView.input` carries the exact `ToolInput` the engine decided on, and only for a request whose `editable` is true — the bytes a revision has to start from and the bytes `revision_unchanged` compares against, which a client could otherwise only recover by re-parsing Core's own `input_preview` rendering (GUI-CORE-036, found by T4). Omitted when absent, so every non-editable request and the nine frozen base fixtures encode unchanged; the `approval-scopes` extension fixture does move, because its editable requests now carry the field"
 
 [runtime_starter_lane_agent]
 events = ["starter_lane_previewed", "starter_lane_created"]

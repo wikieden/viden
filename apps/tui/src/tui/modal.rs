@@ -2759,6 +2759,7 @@ mod tests {
             decision_context: None,
             revised_from: None,
             editable: false,
+            input: None,
         });
         let mut overlay = OverlayState::new(OverlayKind::Approval);
         overlay.selected_id = Some("approval-four".to_string());
@@ -2835,6 +2836,7 @@ mod tests {
             decision_context: None,
             revised_from: None,
             editable: false,
+            input: None,
         });
         let mut overlay = OverlayState::new(OverlayKind::Approval);
         overlay.selected_id = Some("approval-visible".to_string());

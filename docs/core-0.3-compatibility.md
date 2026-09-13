@@ -561,7 +561,7 @@ registered schema-1 extension fixtures are:
 | `transcript-rows` | Three owner-scoped transcript reads over one durable transcript, outstanding at once and answered out of order: two Lanes and the session composer each get their own page with no row on more than one of them, one Lane's page is cut by its limit and resumed through the exact opaque `older` cursor it published so the boundary row lands on one side only, every row variant appears once, an assistant body carries the real 8 KiB cut and names the canonical evidence that still holds it whole, a tool result names the archived `patch` row for its own tool call, a scoped allow's permission row admits it does not know the decision the audit row never stored, and a cursor this build did not issue is answered by `CommandRejected` with no page at all | `2fa91b16aff8c0d896ae2b6cd7843acea86be1cf04ddf2c69394b86d5fa2ad13` | `f17c3e7fad2baf3d5670cf320ec172f50a9048baa3aedbe09c8cd38456ff4ea8` |
 | `plan-documents` | One plan over its whole life, in plan mode where it is written: `update_plan` proposes revision 1, a second call revises and republishes revision 1 as `Superseded` before publishing revision 2, an accept naming the revision the operator *was* reading is refused with `plan_revision_stale` and settles nothing, the pinned accept publishes the decided record and a `PlanDocumentDecided` that shares its `audit_id`, a handoff is refused with `plan_mode` while planning, and after `SetWorkMode Build` the same handoff publishes the two-task DAG with the step dependency mapped *before* the plan says it became work | `4bb38df5fb986239ff02422f0aaa518327eec9bfb903fcfae0bbf93f1bc5a13b` | `c476eba39b579b9ff41231b55dba9d918104cdeac0003e8a3cb32c270e512112` |
 | `agent-session-control` | Pause, resume, and kill for one Agent session: the approval the paused turn was waiting on is resolved by Core as a denial so no client leaves a prompt for a turn that is gone, the two inputs typed while paused are accepted and counted in `held_input_count` rather than forwarded, resume releases the first and the completion of that turn releases the second with no client command of its own so the count walks to zero, a control command against a status that does not allow it is refused as `session_status_<current>` in both directions, `AgentSessionKilled` settles the session with `terminated_by: Killed` so a kill stays distinguishable from a cancel, and the killed session is retried under the same logical session id | `7b9ece0d1673adf67ccbc1f1c1cd83c84c2149f12082bd6dfa1b50b95868da0d` | `19fda086d830ebf6d7cc3bb4f6a16515d875f02a5d9d3a4ac4a1acbe3139fcd3` |
-| `approval-scopes` | One standing `Always` grant written to the user-level settings file before `StandingApprovalGranted` announces it and naming the decision's own audit row, the same tool and input in a second session running with no approval request between the grant and the revocation at all, a revocation whose own audit row brings the prompt back, an `Edit` that resolves the original as `Edit` and publishes a second request naming it through `revised_from` with a freshly pre-minted audit id, a high-risk request whose `allowed_scopes` lacks `Always` and whose grant attempt is refused `scope_not_offered`, and a revision refused by plan mode on the request itself | `ff20cf15a8a8b857a4d3de9a677eff6bc6ad1bf2c57490709803917d770f453d` | `67b1080c875d8432beefb15ec6153f00903da05a49f480e308b475b21a3fd454` |
+| `approval-scopes` | One standing `Always` grant written to the user-level settings file before `StandingApprovalGranted` announces it and naming the decision's own audit row, the same tool and input in a second session running with no approval request between the grant and the revocation at all, a revocation whose own audit row brings the prompt back, an `Edit` that resolves the original as `Edit` and publishes a second request naming it through `revised_from` with a freshly pre-minted audit id, a high-risk request whose `allowed_scopes` lacks `Always` and whose grant attempt is refused `scope_not_offered`, and a revision refused by plan mode on the request itself | `ff20cf15a8a8b857a4d3de9a677eff6bc6ad1bf2c57490709803917d770f453d` | `1f984cd7228572f6e45fc867ee8f10eb6315a93190c1b1dc32e4ca847dd87a14` |
 | `starter-lane-agent` | A starter-Lane preview echoing the operator's Agent pick and a receipt whose `session` says the bound session started under the Lane owner, beside a second preview naming an adapter this Core does not have: echoed with a `starter_lane.agent_unknown` diagnostic rather than dropped, still creatable, and its receipt saying the session was refused while the Lane exists — plus a request with no binding that still encodes without the field | `e5ca0bbf8698731316f37def929f35370102296e320a2f35ebba8763ec424267` | `171ebd5a6770119df91bc0477e630dec4406e4b0150cdaadd06e0cfe01e0dd81` |
 
 Semantics fix 2026-09-07 (review finding 4): `RuntimeViewState.assistant_stream`
@@ -1658,6 +1658,47 @@ Open follow-ups added 2026-09-13 by the C12 review, from C12's own report:
    `viden-agents` and should follow the rule `crates/AGENTS.md` now states.
    `0.3.5` hygiene if a slot exists, else `0.3.6`.
 
+Follow-up added and closed 2026-09-13 by batch C16, from H4's native GUI re-run
+(`apps/gui/contract-requests.md`, GUI-CORE-035):
+
+19. **Adapter discovery held Core's command worker** (Core, 2026-09-13).
+   `RuntimeCommand::ProbeAgentAdapter` was executed inline on the supervisor's
+   single command worker, and the work it does is a real subprocess handshake:
+   `probe_typed_agent_adapter` -> `run_acp_initialize_probe_for_agent`
+   (`crates/agents/src/glue.rs:78`, `crates/agents/src/acp.rs:718`) spawns the
+   adapter's command and blocks on `read_line_with_timeout` for
+   `DEFAULT_LOCAL_ACP_HANDSHAKE_TIMEOUT_SECS` 30 s or
+   `DEFAULT_REGISTRY_ACP_HANDSHAKE_TIMEOUT_SECS` 90 s
+   (`crates/agents/src/acp.rs:32`, `:34`), the latter for the two built-in
+   registry adapters whose command is `npx -y <package>`
+   (`crates/plugin-host/src/lib.rs:1178`). Every other command —
+   `PreviewDefaultStarterLane`, `SubmitUserInput`, `RunOperatorGitAction`,
+   `RespondToApproval` — waited behind it in the supervisor's channel, which is
+   what closed both Lane-creation paths in `0.1.0-rc.5`: E3a watched
+   `Checking ACP agents…` stand for over six minutes and D4's
+   `Preview with Core` never resolved behind it. **Closed 2026-09-13 by C16.**
+   A probe is now accepted on the worker and nothing more: an unregistered
+   `agent_id` is still refused synchronously through
+   `unknown_typed_agent_adapter_reason` (`crates/agents/src/glue.rs:57`, a
+   registry lookup that touches no process), and a registered one is handed to
+   `AgentAdapterProbes` (`crates/runtime/src/runtime_supervisor.rs:537`), which
+   runs the handshake on its own thread and posts the result back as
+   `SupervisorMessage::AgentAdapterProbed`
+   (`crates/runtime/src/runtime_supervisor.rs:500`) — the same
+   adapter-thread-to-worker posting shape C14 uses for session facts. The
+   worker turns that message into the `AgentAdapterProbed` fact
+   (`:2463`) and keeps answering every other command meanwhile. At most
+   `MAX_CONCURRENT_ADAPTER_PROBES` (4) handshakes run at once and a further
+   probe queues off-worker; a duplicate probe of an adapter already pending is
+   coalesced onto that one handshake, so both command ids are acknowledged and
+   one fact answers both. An absent or non-answering adapter therefore
+   publishes a probed fact with its existing `AgentStartability` diagnostic
+   within the handshake timeout instead of the silence H4 observed. Tests:
+   `crates/runtime/src/tests/runtime_supervisor_tests.rs:8697`, `:8761`,
+   `:8821`, `:8905`, `:8984`. The direct `handle_runtime_command` contract path
+   is unchanged, so no capability, count, event shape, or fixture moved; the
+   GUI keeps its own 15 s client-side bound as defense in depth.
+
 
 The `context-budgets` fixture backs the frontend-neutral facade export of
 `ContextScope` and `ContextBudgetRecord`. A budget belongs to a Lane only
@@ -1766,6 +1807,21 @@ frozen base fixtures and every other extension fixture are byte-identical to
 `git show edcc7b3d:<path>`. The new bytes are reflected in
 `crates/core/release-manifest.toml`,
 `crates/core/frontend-contract-extensions.toml`, and the corpus table above.
+
+Corpus digest refresh 2026-09-13 (C16, GUI-CORE-036). `ApprovalRequestView`
+gained `input: Option<ToolInput>`, published only for a request whose
+`editable` is true, so the `approval-scopes` extension fixture's five editable
+requests now carry the field and it was regenerated from its own generator. The
+canonical fixture bytes went
+`67b1080c875d8432beefb15ec6153f00903da05a49f480e308b475b21a3fd454` ->
+`1f984cd7228572f6e45fc867ee8f10eb6315a93190c1b1dc32e4ca847dd87a14`. The
+recorded final-view digest is unchanged at
+`ff20cf15a8a8b857a4d3de9a677eff6bc6ad1bf2c57490709803917d770f453d`, because the
+fixture's requests are all resolved by its last event and none survives into the
+reduced view. The field is omitted when absent, so the nine frozen base
+fixtures and every other extension fixture are byte-identical to
+`git show 20580e36:<path>`. The new bytes are reflected in
+`crates/core/frontend-contract-extensions.toml` and the corpus table above.
 
 ## Migration Gate And Order
 

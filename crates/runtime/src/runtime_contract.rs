@@ -5996,6 +5996,10 @@ fn approval_request_view(request_id: &str, prompt: &PermissionPrompt) -> Approva
         // at, so a revision here replaces nothing.
         revised_from: None,
         editable: viden_permissions::tool_input_is_editable(&prompt.tool_name),
+        // Same rule as the supervisor path: the bytes ride along only where an
+        // `Edit` could use them (GUI-CORE-036).
+        input: viden_permissions::tool_input_is_editable(&prompt.tool_name)
+            .then(|| prompt.input.clone()),
     }
 }
 

@@ -12,8 +12,9 @@ use viden_types::{
     ApprovalDecision, ApprovalResponse, ApprovalScope, ContextBundleRecord, EventCursor,
     FRONTEND_SCHEMA_V1, MergeGateStatus, ModelEvent, ModelRequest, PermissionBehavior,
     PermissionLevel, PermissionMode, PermissionRule, PermissionRuleSource, PermissionRuleValue,
-    ReplayRequest, RuntimeCommand, RuntimeCommandEnvelope, RuntimeEvent, RuntimeEventKind,
-    RuntimeOwner, RuntimeWireEvent, ToolCall, ToolInput, TranscriptPageRequest, WorkMode,
+    ReplayRequest, RuntimeCommand, RuntimeCommandEnvelope, RuntimeEvent, RuntimeEventEnvelope,
+    RuntimeEventKind, RuntimeOwner, RuntimeWireEvent, ToolCall, ToolInput, TranscriptPageRequest,
+    WorkMode,
 };
 use viden_workflows::stores::WorkflowStore;
 
@@ -21,6 +22,7 @@ use crate::{
     RuntimeSupervisor, SessionEngine,
     runtime_contract::{set_retrieve_context_publish_test_hook, set_retrieve_context_test_hook},
     runtime_supervisor::{
+        AgentAdapterProbeWaiter, AgentAdapterProbes, MAX_CONCURRENT_ADAPTER_PROBES,
         set_before_context_resume_enqueue_hook, set_before_permission_control_hook,
     },
 };
@@ -8639,4 +8641,390 @@ fn runtime_supervisor_resume_drains_every_held_input_in_order() {
         "every held input must run in the order it was typed, with the count \
          walking 3 -> 2 -> 1 -> 0"
     );
+}
+
+// --- Adapter probes off the command worker (GUI-CORE-035, C16) ---------------
+
+/// Waits for a file the test's own mock adapter creates.
+///
+/// Deterministic by construction: the signal is a file this process controls,
+/// and the elapsed bound is only a liveness ceiling, never the thing asserted
+/// (`crates/AGENTS.md`, timing tests).
+fn wait_for_probe_file(path: &Path, what: &str) {
+    let started = Instant::now();
+    while !path.exists() {
+        assert!(
+            started.elapsed() < Duration::from_secs(60),
+            "{what} never appeared at {}",
+            path.display()
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+/// A mock ACP adapter that answers `initialize` only after the test releases
+/// it, and records every spawn so coalescing can be proved.
+fn blocking_probe_adapter_script(script: &Path, spawns: &Path, release: &Path) {
+    fs::write(
+        script,
+        format!(
+            "{}\n",
+            [
+                "#!/bin/sh".to_string(),
+                format!("printf '%s\\n' \"$$\" >> '{}'", spawns.display()),
+                "read _init".to_string(),
+                format!("while [ ! -f '{}' ]; do sleep 0.02; done", release.display()),
+                "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":0,\"result\":{\"protocolVersion\":1,\"agentCapabilities\":{},\"agentInfo\":{\"name\":\"mock-probe-acp\",\"version\":\"0.1.0\"}}}'".to_string(),
+                "sleep 1".to_string(),
+            ]
+            .join("\n")
+        ),
+    )
+    .expect("write blocking probe mock");
+}
+
+fn probed_adapters(events: &[RuntimeEvent]) -> Vec<String> {
+    events
+        .iter()
+        .filter_map(|event| match &event.kind {
+            RuntimeEventKind::AgentAdapterProbed { adapter } => Some(adapter.agent_id.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn runtime_supervisor_answers_other_commands_while_an_adapter_probe_is_in_flight() {
+    let _guard = CUSTOM_ACP_ENV_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .expect("custom ACP env lock");
+    let cwd = temp_dir("runtime_supervisor_probe_offworker_cwd");
+    let home = temp_dir("runtime_supervisor_probe_offworker_home");
+    let script = cwd.join("mock-probe-acp.sh");
+    let spawns = cwd.join("mock-probe-acp-spawns.log");
+    let release = cwd.join("mock-probe-acp-release");
+    blocking_probe_adapter_script(&script, &spawns, &release);
+    unsafe {
+        std::env::set_var(
+            "VIDEN_AGENT_ACP_COMMAND",
+            format!("sh {}", script.display()),
+        );
+    }
+
+    let engine = SessionEngine::new_with_home(
+        &cwd,
+        Box::new(SequenceProvider::new(Vec::new())),
+        Some(home),
+    )
+    .unwrap();
+    let supervisor = RuntimeSupervisor::start(engine);
+    supervisor
+        .send_command(
+            "cmd_probe_blocking",
+            RuntimeCommand::ProbeAgentAdapter {
+                agent_id: "custom-acp".to_string(),
+            },
+        )
+        .unwrap();
+    // The child is running and blocked, so the probe is genuinely in flight.
+    wait_for_probe_file(&spawns, "the blocking adapter spawn record");
+
+    supervisor
+        .send_command("cmd_cheap_read", RuntimeCommand::QueryAgentAdapters)
+        .unwrap();
+    let while_probing = collect_events_until(&supervisor, Duration::from_secs(10), |events| {
+        events
+            .iter()
+            .any(|event| matches!(&event.kind, RuntimeEventKind::AgentAdaptersLoaded { .. }))
+    });
+    assert!(
+        probed_adapters(&while_probing).is_empty(),
+        "the probe must still be in flight when the cheap command is answered: {while_probing:#?}"
+    );
+
+    fs::write(&release, "go").expect("release the blocking adapter");
+    let after_release = collect_events_until(&supervisor, Duration::from_secs(45), |events| {
+        !probed_adapters(events).is_empty()
+    });
+    unsafe {
+        std::env::remove_var("VIDEN_AGENT_ACP_COMMAND");
+    }
+    assert_eq!(
+        probed_adapters(&after_release),
+        vec!["custom-acp".to_string()],
+        "the released probe publishes its fact: {after_release:#?}"
+    );
+}
+
+#[test]
+fn runtime_supervisor_probe_of_an_absent_adapter_binary_answers_with_a_diagnostic() {
+    let _guard = CUSTOM_ACP_ENV_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .expect("custom ACP env lock");
+    let cwd = temp_dir("runtime_supervisor_probe_absent_cwd");
+    let home = temp_dir("runtime_supervisor_probe_absent_home");
+    let absent = cwd.join("viden-absent-acp-binary");
+    unsafe {
+        std::env::set_var("VIDEN_AGENT_ACP_COMMAND", absent.display().to_string());
+    }
+
+    let engine = SessionEngine::new_with_home(
+        &cwd,
+        Box::new(SequenceProvider::new(Vec::new())),
+        Some(home),
+    )
+    .unwrap();
+    let supervisor = RuntimeSupervisor::start(engine);
+    supervisor
+        .send_command(
+            "cmd_probe_absent",
+            RuntimeCommand::ProbeAgentAdapter {
+                agent_id: "custom-acp".to_string(),
+            },
+        )
+        .unwrap();
+    let events = collect_events_until(&supervisor, Duration::from_secs(20), |events| {
+        !probed_adapters(events).is_empty()
+    });
+    unsafe {
+        std::env::remove_var("VIDEN_AGENT_ACP_COMMAND");
+    }
+
+    let adapter = events
+        .iter()
+        .find_map(|event| match &event.kind {
+            RuntimeEventKind::AgentAdapterProbed { adapter } => Some(adapter.clone()),
+            _ => None,
+        })
+        .expect("an absent adapter is still probed, never silent");
+    assert_eq!(adapter.agent_id, "custom-acp");
+    assert_eq!(
+        adapter.startability,
+        viden_types::AgentStartability::Unavailable,
+        "an absent binary is classified through the existing startability vocabulary"
+    );
+    assert!(
+        !adapter.diagnostics.is_empty(),
+        "an absent adapter answers with a diagnostic: {adapter:#?}"
+    );
+    assert!(
+        !events
+            .iter()
+            .any(|event| matches!(&event.kind, RuntimeEventKind::CommandRejected { .. })),
+        "an absent adapter is a probed fact, not a rejection: {events:#?}"
+    );
+}
+
+#[test]
+fn runtime_supervisor_coalesces_duplicate_adapter_probes_into_one_fact() {
+    let _guard = CUSTOM_ACP_ENV_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .expect("custom ACP env lock");
+    let cwd = temp_dir("runtime_supervisor_probe_coalesce_cwd");
+    let home = temp_dir("runtime_supervisor_probe_coalesce_home");
+    let script = cwd.join("mock-probe-acp.sh");
+    let spawns = cwd.join("mock-probe-acp-spawns.log");
+    let release = cwd.join("mock-probe-acp-release");
+    blocking_probe_adapter_script(&script, &spawns, &release);
+    unsafe {
+        std::env::set_var(
+            "VIDEN_AGENT_ACP_COMMAND",
+            format!("sh {}", script.display()),
+        );
+    }
+
+    let engine = SessionEngine::new_with_home(
+        &cwd,
+        Box::new(SequenceProvider::new(Vec::new())),
+        Some(home),
+    )
+    .unwrap();
+    let supervisor = RuntimeSupervisor::start(engine);
+    supervisor
+        .send_command(
+            "cmd_probe_first",
+            RuntimeCommand::ProbeAgentAdapter {
+                agent_id: "custom-acp".to_string(),
+            },
+        )
+        .unwrap();
+    wait_for_probe_file(&spawns, "the blocking adapter spawn record");
+    supervisor
+        .send_command(
+            "cmd_probe_duplicate",
+            RuntimeCommand::ProbeAgentAdapter {
+                agent_id: "custom-acp".to_string(),
+            },
+        )
+        .unwrap();
+    let accepted = collect_events_until(&supervisor, Duration::from_secs(10), |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::CommandAccepted { command_id, .. }
+                    if command_id == "cmd_probe_duplicate"
+            )
+        })
+    });
+    assert!(
+        accepted.iter().any(|event| matches!(
+            &event.kind,
+            RuntimeEventKind::CommandAccepted { command_id, .. }
+                if command_id == "cmd_probe_first"
+        )),
+        "both probe command ids are acknowledged: {accepted:#?}"
+    );
+
+    fs::write(&release, "go").expect("release the blocking adapter");
+    let mut events = collect_events_until(&supervisor, Duration::from_secs(45), |events| {
+        !probed_adapters(events).is_empty()
+    });
+    events.extend(collect_events_for(&supervisor, Duration::from_secs(2)));
+    unsafe {
+        std::env::remove_var("VIDEN_AGENT_ACP_COMMAND");
+    }
+    assert_eq!(
+        probed_adapters(&events),
+        vec!["custom-acp".to_string()],
+        "a duplicate probe of an adapter already in flight is coalesced into one fact: {events:#?}"
+    );
+    let spawn_count = fs::read_to_string(&spawns)
+        .expect("read the spawn record")
+        .lines()
+        .count();
+    assert_eq!(
+        spawn_count, 1,
+        "a coalesced probe starts one handshake, not two"
+    );
+}
+
+#[test]
+fn runtime_supervisor_probe_fact_keeps_its_owner_and_follows_its_acceptance() {
+    let _guard = CUSTOM_ACP_ENV_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .expect("custom ACP env lock");
+    let cwd = temp_dir("runtime_supervisor_probe_owner_cwd");
+    let home = temp_dir("runtime_supervisor_probe_owner_home");
+    let absent = cwd.join("viden-absent-acp-binary");
+    unsafe {
+        std::env::set_var("VIDEN_AGENT_ACP_COMMAND", absent.display().to_string());
+    }
+
+    let engine = SessionEngine::new_with_home(
+        &cwd,
+        Box::new(SequenceProvider::new(Vec::new())),
+        Some(home),
+    )
+    .unwrap();
+    let supervisor = RuntimeSupervisor::start(engine);
+    let owner = owner_for_lane("lane-probe-owner");
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "cmd_probe_owned",
+            RuntimeCommand::ProbeAgentAdapter {
+                agent_id: "custom-acp".to_string(),
+            },
+        )
+        .unwrap();
+
+    let started = Instant::now();
+    let mut accepted: Option<RuntimeEventEnvelope> = None;
+    let mut probed: Option<RuntimeEventEnvelope> = None;
+    while probed.is_none() {
+        assert!(
+            started.elapsed() < Duration::from_secs(20),
+            "the owned probe never published its fact"
+        );
+        let Some(envelope) = supervisor.recv_event_envelope_timeout(Duration::from_millis(50))
+        else {
+            continue;
+        };
+        let RuntimeWireEvent::Known(event) = &envelope.event else {
+            continue;
+        };
+        match &event.kind {
+            RuntimeEventKind::CommandAccepted { command_id, .. }
+                if command_id == "cmd_probe_owned" =>
+            {
+                accepted = Some(envelope);
+            }
+            RuntimeEventKind::AgentAdapterProbed { .. } => probed = Some(envelope),
+            _ => {}
+        }
+    }
+    unsafe {
+        std::env::remove_var("VIDEN_AGENT_ACP_COMMAND");
+    }
+
+    let accepted = accepted.expect("the probe is accepted on the worker before it runs");
+    let probed = probed.expect("the probe publishes a fact");
+    assert_eq!(
+        probed.owner, accepted.owner,
+        "the probed fact carries the owner its command was accepted under"
+    );
+    assert_eq!(
+        probed.owner.lane_id.as_deref(),
+        Some("lane-probe-owner"),
+        "the probed fact keeps the requesting Lane owner"
+    );
+    assert!(
+        probed.cursor.sequence > accepted.cursor.sequence,
+        "the probed fact sequences after its acceptance: {} then {}",
+        accepted.cursor.sequence,
+        probed.cursor.sequence
+    );
+}
+
+#[test]
+fn adapter_probe_scheduler_bounds_concurrency_and_queues_in_arrival_order() {
+    let mut probes = AgentAdapterProbes::default();
+    let waiter = |command_id: &str| AgentAdapterProbeWaiter {
+        owner: RuntimeOwner::default(),
+        command_id: command_id.to_string(),
+    };
+
+    let admitted = (0..MAX_CONCURRENT_ADAPTER_PROBES)
+        .map(|index| probes.admit(format!("adapter-{index}"), waiter(&format!("cmd-{index}"))))
+        .collect::<Vec<_>>();
+    assert!(
+        admitted.iter().all(|started| *started),
+        "every probe up to the bound starts immediately: {admitted:?}"
+    );
+
+    assert!(
+        !probes.admit("adapter-overflow-a".to_string(), waiter("cmd-overflow-a")),
+        "a probe past the bound waits for a slot instead of spawning"
+    );
+    assert!(
+        !probes.admit("adapter-overflow-b".to_string(), waiter("cmd-overflow-b")),
+        "so does the one behind it"
+    );
+    assert!(
+        !probes.admit("adapter-0".to_string(), waiter("cmd-0-duplicate")),
+        "a duplicate of an adapter already in flight is coalesced, never queued"
+    );
+
+    let (waiters, started) = probes.release("adapter-0");
+    assert_eq!(
+        waiters
+            .iter()
+            .map(|waiter| waiter.command_id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["cmd-0", "cmd-0-duplicate"],
+        "one finished handshake answers every command coalesced onto it"
+    );
+    assert_eq!(
+        started,
+        vec!["adapter-overflow-a".to_string()],
+        "the freed slot admits exactly one queued adapter, in arrival order"
+    );
+
+    let (waiters, started) = probes.release("adapter-overflow-a");
+    assert_eq!(waiters.len(), 1);
+    assert_eq!(started, vec!["adapter-overflow-b".to_string()]);
 }

@@ -432,7 +432,7 @@ Fixture 文件位于 `crates/types/tests/fixtures/frontend-contract-v1/`。下�
 | `transcript-rows` | 在同一份持久转录之上的三次所有者作用域转录读取，同时在途且被乱序回答：两个 Lane 与会话编辑器各得到自己的一页，没有任何一行出现在两页之上；其中一个 Lane 的一页被 limit 截断，并通过它自己公布的那个不透明 `older` 游标续读，使边界行只落在一侧；每一种行变体各出现一次；一条 assistant 正文承载真实的 8 KiB 截断并指名仍完整保存它的规范证据；一条 tool result 指名属于它自己那次工具调用的归档 `patch` 行；一条作用域放行的权限行承认它不知道审计行从未存下的那个决定；而一个本构建从未签发的游标以 `CommandRejected` 回答，完全不带任何分页 | `2fa91b16aff8c0d896ae2b6cd7843acea86be1cf04ddf2c69394b86d5fa2ad13` | `f17c3e7fad2baf3d5670cf320ec172f50a9048baa3aedbe09c8cd38456ff4ea8` |
 | `plan-documents` | 一份计划的完整一生，且发生在它被写下的 plan 模式里：`update_plan` 提出修订 1；第二次调用做出修订，并在发布修订 2 之前把修订 1 重新发布为 `Superseded`；一次指名操作者**当时正在读**的那个修订的接受被以 `plan_revision_stale` 拒绝且不落定任何东西；被钉住的接受发布已决定的记录，以及一条与之共享 `audit_id` 的 `PlanDocumentDecided`；规划期间的移交被以 `plan_mode` 拒绝；而在 `SetWorkMode Build` 之后，同一次移交在计划声称自己变成工作**之前**发布了带映射步骤依赖的两任务 DAG | `4bb38df5fb986239ff02422f0aaa518327eec9bfb903fcfae0bbf93f1bc5a13b` | `c476eba39b579b9ff41231b55dba9d918104cdeac0003e8a3cb32c270e512112` |
 | `agent-session-control` | 对同一个 Agent 会话的暂停、恢复与终止：被暂停的那一轮所等待的审批由 Core 解析为拒绝，因此没有客户端会为一轮已经不存在的工作留下提示；暂停期间键入的两条输入被接受并计入 `held_input_count`，而不是被转发；恢复放行第一条，而该轮的完成放行第二条 —— 后者没有属于自己的客户端命令 —— 于是计数一路走到零；对不允许该命令的状态发出的控制命令在两个方向上都以 `session_status_<current>` 被拒绝；`AgentSessionKilled` 以 `terminated_by: Killed` 了结会话，使终止与取消在事后仍可区分；而被终止的会话在同一个逻辑会话 id 之下被重试 | `7b9ece0d1673adf67ccbc1f1c1cd83c84c2149f12082bd6dfa1b50b95868da0d` | `19fda086d830ebf6d7cc3bb4f6a16515d875f02a5d9d3a4ac4a1acbe3139fcd3` |
-| `approval-scopes` | 一次 `Always` 常驻授权：规则先写入用户级设置文件，`StandingApprovalGranted` 才对外宣告，并指名该决定自己的审计行；在授权与撤销之间，第二个会话用同样的工具与输入运行，其间完全没有任何审批请求；撤销拥有自己的审计行，并让提示重新出现；一次 `Edit` 把原请求解决为 `Edit`，随后公布第二个请求，通过 `revised_from` 指名它所替换的那一个，并携带全新预铸的审计 id；一个高风险请求的 `allowed_scopes` 不含 `Always`，对它发送 `Always` 以 `scope_not_offered` 被拒；以及计划模式在请求这一层直接拒绝一次改写 | `ff20cf15a8a8b857a4d3de9a677eff6bc6ad1bf2c57490709803917d770f453d` | `67b1080c875d8432beefb15ec6153f00903da05a49f480e308b475b21a3fd454` |
+| `approval-scopes` | 一次 `Always` 常驻授权：规则先写入用户级设置文件，`StandingApprovalGranted` 才对外宣告，并指名该决定自己的审计行；在授权与撤销之间，第二个会话用同样的工具与输入运行，其间完全没有任何审批请求；撤销拥有自己的审计行，并让提示重新出现；一次 `Edit` 把原请求解决为 `Edit`，随后公布第二个请求，通过 `revised_from` 指名它所替换的那一个，并携带全新预铸的审计 id；一个高风险请求的 `allowed_scopes` 不含 `Always`，对它发送 `Always` 以 `scope_not_offered` 被拒；以及计划模式在请求这一层直接拒绝一次改写 | `ff20cf15a8a8b857a4d3de9a677eff6bc6ad1bf2c57490709803917d770f453d` | `1f984cd7228572f6e45fc867ee8f10eb6315a93190c1b1dc32e4ca847dd87a14` |
 | `starter-lane-agent` | 一次起步 Lane 预览回显操作者所选的 Agent，其回执的 `session` 说明被绑定的会话已在该 Lane 所有者之下启动；旁边是第二个预览，指名本 Core 并不具备的适配器：它被回显并附带 `starter_lane.agent_unknown` 诊断，而不是被丢弃，预览仍可创建，其回执说明会话被拒绝而 Lane 确实存在 —— 另有一个不带绑定的请求，其编码依然不含该字段 | `e5ca0bbf8698731316f37def929f35370102296e320a2f35ebba8763ec424267` | `171ebd5a6770119df91bc0477e630dec4406e4b0150cdaadd06e0cfe01e0dd81` |
 
 2026-09-07 语义修正（评审发现 4）：`RuntimeViewState.assistant_stream` 此前没有生命
@@ -1264,6 +1264,38 @@ E2 的第四项发现属于客户端侧，记录在它该在的地方而不是�
    `viden-agents` 中改为确定性的测试属同一类，应遵循 `crates/AGENTS.md` 现在陈述的规则。
    有空位则在 `0.3.5` 卫生批次处理，否则 `0.3.6`。
 
+2026-09-13 由批次 C16 依据 H4 的原生 GUI 复跑新增并同时关闭的后续项
+（`apps/gui/contract-requests.zh-CN.md`，GUI-CORE-035）：
+
+19. **Adapter 发现曾占住 Core 的 command worker**（Core，2026-09-13）。
+   `RuntimeCommand::ProbeAgentAdapter` 过去在 supervisor 唯一的 command worker 上就地执行，
+   而它做的是真正的子进程握手：`probe_typed_agent_adapter` ->
+   `run_acp_initialize_probe_for_agent`（`crates/agents/src/glue.rs:78`、
+   `crates/agents/src/acp.rs:718`）会启动 adapter 的命令并在 `read_line_with_timeout` 上
+   阻塞，时长为 `DEFAULT_LOCAL_ACP_HANDSHAKE_TIMEOUT_SECS` 30 秒或
+   `DEFAULT_REGISTRY_ACP_HANDSHAKE_TIMEOUT_SECS` 90 秒（`crates/agents/src/acp.rs:32`、
+   `:34`），后者适用于两个内置 registry adapter，因为它们的命令是 `npx -y <package>`
+   （`crates/plugin-host/src/lib.rs:1178`）。其余每一条命令——
+   `PreviewDefaultStarterLane`、`SubmitUserInput`、`RunOperatorGitAction`、
+   `RespondToApproval`——都在 supervisor 的 channel 里排在它后面，这正是 `0.1.0-rc.5`
+   两条 Lane 创建路径双双关闭的原因：E3a 看着 `Checking ACP agents…` 停了六分多钟，
+   D4 的 `Preview with Core` 排在它后面始终没有解析。**已于 2026-09-13 由 C16 关闭。**
+   现在 probe 只在 worker 上被受理：未注册的 `agent_id` 仍由
+   `unknown_typed_agent_adapter_reason`（`crates/agents/src/glue.rs:57`，只查注册表、
+   不触碰任何进程）同步拒绝；已注册的则交给 `AgentAdapterProbes`
+   （`crates/runtime/src/runtime_supervisor.rs:537`），由它在自己的线程上运行握手，
+   并把结果作为 `SupervisorMessage::AgentAdapterProbed`
+   （`crates/runtime/src/runtime_supervisor.rs:500`）回传——与 C14 用于 session 事实的
+   adapter 线程到 worker 的投递形状相同。worker 把该消息转成 `AgentAdapterProbed` 事实
+   （`:2463`），期间继续回答其他每一条命令。同时最多运行
+   `MAX_CONCURRENT_ADAPTER_PROBES`（4）次握手，更多的 probe 在 worker 之外排队；对已在
+   等待中的 adapter 的重复 probe 会合并到那一次握手上，因此两个 command id 都被确认，
+   而由一条事实回答两者。于是缺失或不应答的 adapter 会在握手超时之内发布带有既有
+   `AgentStartability` 诊断的 probed 事实，而不是 H4 观察到的沉默。测试：
+   `crates/runtime/src/tests/runtime_supervisor_tests.rs:8697`、`:8761`、`:8821`、
+   `:8905`、`:8984`。直接的 `handle_runtime_command` 契约路径未改动，因此没有 capability、
+   计数、事件形状或 fixture 发生移动；GUI 保留其 15 秒客户端侧上限作为纵深防御。
+
 `context-budgets` fixture 为 `ContextScope` 与 `ContextBudgetRecord` 的 frontend-neutral
 facade 导出提供依据。Budget 只能通过该 Lane 精确绑定的 runtime owner 所指名的 typed task
 scope 归属到 Lane；"取最近一条 budget" 永远不是有效归属，fixture 中两个 scope 刻意互不相交。
@@ -1343,6 +1375,19 @@ final-view digest 仍为
 `c43d9fe304c28a50349e441c643837a9899cccab79566f9c193838248df2da1d`。九个冻结的
 base fixture 与其余每个扩展 fixture 与 `git show edcc7b3d:<path>` 逐字节一致。新
 字节已同步到 `crates/core/release-manifest.toml`、
+`crates/core/frontend-contract-extensions.toml` 与上方的 corpus 表。
+
+Corpus digest 刷新 2026-09-13（C16，GUI-CORE-036）。`ApprovalRequestView` 新增
+`input: Option<ToolInput>`，仅对 `editable` 为真的请求发布，因此 `approval-scopes`
+扩展 fixture 的五个可编辑请求现在携带该字段，该 fixture 已由其生成器重新生成。
+Canonical fixture 字节从
+`67b1080c875d8432beefb15ec6153f00903da05a49f480e308b475b21a3fd454` 变为
+`1f984cd7228572f6e45fc867ee8f10eb6315a93190c1b1dc32e4ca847dd87a14`。记录的
+final-view digest 不变，仍为
+`ff20cf15a8a8b857a4d3de9a677eff6bc6ad1bf2c57490709803917d770f453d`，因为该 fixture
+的请求在其最后一个事件处全部已被解决，没有任何一个留存到归约后的视图中。该字段在缺失
+时省略，因此九个冻结的 base fixture 与其余每个扩展 fixture 与
+`git show 20580e36:<path>` 逐字节一致。新字节已同步到
 `crates/core/frontend-contract-extensions.toml` 与上方的 corpus 表。
 
 ## Migration Gate 与顺序

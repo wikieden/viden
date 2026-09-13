@@ -17,8 +17,8 @@ use crate::{
     ReviewedEvidenceBinding, RuntimeOwner, RuntimeServiceHealthView, RuntimeSnapshot, SessionId,
     SourceTarget, StandingApprovalView, StarterLanePreset, StarterLanePreview,
     StarterLanePreviewInvalidationReason, StarterLaneReceipt, StarterLaneRequest, ToolCallId,
-    TranscriptPage, TranscriptPageRequest, TranscriptRowsPage, TranscriptRowsQuery, TurnOutcome,
-    TurnView, UiLayoutPreferencePatch, UiLayoutPreferences, UiPreferenceDiagnostic,
+    ToolInput, TranscriptPage, TranscriptPageRequest, TranscriptRowsPage, TranscriptRowsQuery,
+    TurnOutcome, TurnView, UiLayoutPreferencePatch, UiLayoutPreferences, UiPreferenceDiagnostic,
     UiPreferencePatch, UiPreferences, WorkMode, WorkspaceChangeView, WorkspaceDiffPage,
     WorkspaceDiffQuery, WorkspaceEligibility, WorkspaceFileContent, WorkspaceFilePage,
     WorkspaceFileReadQuery, WorkspaceFilesQuery, WorkspaceRuntimeOwnerBinding, WorkspaceSourceView,
@@ -551,6 +551,21 @@ pub struct ApprovalRequestView {
     /// fixtures, which the extension procedure forbids.
     #[serde(default, skip_serializing_if = "core::ops::Not::not")]
     pub editable: bool,
+    /// The exact tool input this request describes, for a request an `Edit`
+    /// may revise (`runtime.approval_scopes`, GUI-CORE-036).
+    ///
+    /// Core compares a revision against these bytes and refuses an identical
+    /// one as `revision_unchanged`, so a client that had only `input_preview`
+    /// would have to re-parse Core's own rendering to build the revision Core
+    /// then compares byte-for-byte — the one comparison a rendering cannot
+    /// survive.
+    ///
+    /// Present only when `editable` is true, and omitted when absent: a
+    /// request no `Edit` can target has no revision to seed, and publishing
+    /// the bytes anyway would add a key to every `ApprovalRequestView` and
+    /// move the nine frozen base fixtures.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input: Option<ToolInput>,
 }
 
 fn default_approval_risk() -> ApprovalRisk {

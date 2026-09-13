@@ -1103,6 +1103,33 @@ session 自身的 `status` 读取存活性，而绝不从它在该列表中的�
 切换模型是客户端对 Kill（或 Cancel）加上携带新 `model` 与原 `load_session_id` 的
 `StartAgentSession` 的组合。没有切换模型命令，客户端必须把它渲染成它本来的两步流程。
 
+### Adapter 发现（`runtime.agent_adapters`，GUI-CORE-035）
+
+`QueryAgentAdapters` 是对已注册 adapter 的同步投影：它不启动任何进程，由 Core 的
+command worker 直接回答。
+
+`ProbeAgentAdapter` 不是。一次 probe 会启动 adapter 自身的命令，并等待 ACP
+`initialize` 应答，最长等到该 adapter 的握手超时——本地命令 30 秒，通过 `npx -y`
+启动的 registry 包 90 秒——因此 **probe 是异步事实**：
+
+- `CommandAccepted` 立即在 worker 上到达，它只表示 probe 已被受理；
+- 握手在 worker 之外运行，因此 probe 在飞行期间其他命令照常被回答。Core 不再把
+  无关工作串行排在 adapter 发现之后；
+- `AgentAdapterProbed` 稍后到达，它才是答案。两者之间没有第二次确认，也没有进度事实；
+- **probe 一定会回答。** 二进制缺失、包未安装或始终不应答的 adapter，都会在其握手
+  超时之内以 `AgentAdapterProbed` 发布，携带归类后的 `AgentStartability`——
+  `InstallRequired`、`AuthenticationRequired` 或 `Unavailable`——以及一条诊断。
+  沉默不是可能的结果。只有未注册的 `agent_id` 会被拒绝，且该拒绝是同步回答的普通
+  `CommandRejected`；
+- **同时最多四次握手**，第五次在 worker 之外排队。同一 adapter 在飞行期间的重复
+  probe 会被合并：每个 command id 各自得到 `CommandAccepted`，而两者由该次握手发布的
+  同一条 `AgentAdapterProbed` 回答。因此客户端必须用 `AgentAdapterView.agent_id`
+  关联 probed 事实，而绝不能按"发出一条命令就数一条事实"来关联。
+
+客户端仍可自行设上限并提供重试——GUI 就是这样做的，上限 15 秒
+（`apps/gui/src/components/agent_menu.ts`）——但那现在是纵深防御，而不再是唯一的上限。
+Core 自身的上限是上述握手超时。
+
 ## Approval 和 Permission UI 契约
 
 Approval 使用 `ApprovalRequestView` 和 `RespondToApproval`。
@@ -1155,6 +1182,11 @@ task 标记为 failed，保留已经 terminal 的 task，不改变无关 active 
   `approval.revoke`，发布 `StandingApprovalRevoked`，最后才清理在用引擎。
   文件中不存在的 `rule_id` 以 `CommandRejected` 回答，而不是回以一次什么也没
   移除的撤销。
+- **可编辑请求携带什么**（GUI-CORE-036）。`editable` 为真的请求还会发布
+  `input`，即引擎实际裁决的那份 `ToolInput` —— 改写的起点字节，也是
+  `revision_unchanged` 所比较的字节。它只在 `editable` 为真时出现，否则省略，
+  因此客户端应当用这个类型化字段来填充编辑器，而不是去反解 `input_preview`：
+  后者是 Core 的渲染，不是输入本身。
 - **一次编辑意味着什么。** 改写会被重新裁决，而不是被放行：Core 运行
   `decide(tool, revised_input)`。放行则以改写后的字节执行工具并带上
   `user_modified: true`，原请求以决定 `edit` 结束。仍需裁决则原请求以 `edit`

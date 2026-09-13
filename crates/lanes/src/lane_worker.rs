@@ -1375,6 +1375,9 @@ fn lane_approval(
         // what it does not offer.
         revised_from: None,
         editable: false,
+        // A request no `Edit` can target seeds no revision, so it publishes no
+        // input either (GUI-CORE-036).
+        input: None,
         policy_reason_key: "lane.requires_approval".to_string(),
         policy_reason_args: Default::default(),
         expires_at,

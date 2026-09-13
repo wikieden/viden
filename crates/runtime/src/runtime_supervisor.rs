@@ -1,5 +1,5 @@
-use std::collections::{BTreeMap, BTreeSet};
-use std::path::PathBuf;
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::path::{Path, PathBuf};
 #[cfg(test)]
 use std::sync::OnceLock;
 use std::sync::{
@@ -16,14 +16,14 @@ use viden_lanes::{
 };
 use viden_provider::ModelRequestControl;
 use viden_types::{
-    AgentLaneRecord, AgentSessionControlView, AgentSessionRequest, AgentSessionStatus,
-    AgentSessionTermination, AgentSessionView, ApprovalDecision, ApprovalDefaultAction,
-    ApprovalRequestView, ApprovalResponse, ApprovalRisk, ApprovalScope, ApprovalTarget, AuditActor,
-    AuditObjectRef, AuditOutcome, AuditRecord, CapabilityId, EventCursor, FRONTEND_SCHEMA_V1,
-    FRONTEND_V1_CAPABILITIES, FRONTEND_V1_EXTENSION_CAPABILITIES, GapRecovery,
-    LaneRuntimeOwnerBinding, OperatorGitAction, PermissionLevel, PermissionPrompt, ReplayBatch,
-    ReplayRequest, RuntimeCommand, RuntimeCommandEnvelope, RuntimeErrorView, RuntimeEvent,
-    RuntimeEventEnvelope, RuntimeEventKind, RuntimeOwner, RuntimeSnapshotEnvelope,
+    AgentAdapterView, AgentLaneRecord, AgentSessionControlView, AgentSessionRequest,
+    AgentSessionStatus, AgentSessionTermination, AgentSessionView, ApprovalDecision,
+    ApprovalDefaultAction, ApprovalRequestView, ApprovalResponse, ApprovalRisk, ApprovalScope,
+    ApprovalTarget, AuditActor, AuditObjectRef, AuditOutcome, AuditRecord, CapabilityId,
+    EventCursor, FRONTEND_SCHEMA_V1, FRONTEND_V1_CAPABILITIES, FRONTEND_V1_EXTENSION_CAPABILITIES,
+    GapRecovery, LaneRuntimeOwnerBinding, OperatorGitAction, PermissionLevel, PermissionPrompt,
+    ReplayBatch, ReplayRequest, RuntimeCommand, RuntimeCommandEnvelope, RuntimeErrorView,
+    RuntimeEvent, RuntimeEventEnvelope, RuntimeEventKind, RuntimeOwner, RuntimeSnapshotEnvelope,
     RuntimeViewState, RuntimeWireEvent, StandingApprovalView, StarterLaneAgentBinding,
     StarterLaneSessionOutcome, ToolInput, TranscriptPage, TranscriptPageRequest, TurnOutcome,
     TurnSource, TurnView, WorkMode, fresh_id, now_timestamp,
@@ -33,9 +33,10 @@ use viden_workflows::stores::WorkflowStore;
 use viden_agents::{
     AgentSessionApprover, cancel_typed_agent_session, cancelled_session_control,
     kill_typed_agent_session, mark_typed_agent_session_status, pause_typed_agent_session,
-    resume_typed_agent_session, retry_typed_agent_session, shutdown_resident_acp_sessions,
-    start_typed_agent_session, typed_agent_adapter_views,
-    typed_agent_session_request_from_compat_input, validate_typed_agent_session_request,
+    probe_typed_agent_adapter, resume_typed_agent_session, retry_typed_agent_session,
+    shutdown_resident_acp_sessions, start_typed_agent_session, typed_agent_adapter_views,
+    typed_agent_session_request_from_compat_input, unknown_typed_agent_adapter_reason,
+    validate_typed_agent_session_request,
 };
 
 use crate::{
@@ -489,9 +490,149 @@ enum SupervisorMessage {
         tool_name: String,
         rule_content: String,
     },
+    /// One adapter handshake finished on its own thread
+    /// (`runtime.agent_adapters`, GUI-CORE-035).
+    ///
+    /// The same posting shape `DrainHeldSessionInput` uses: the blocking work
+    /// happened off the worker, and only the worker turns the result into a
+    /// published fact. Carries the adapter id rather than the requesting
+    /// command, because one handshake may answer several coalesced probes.
+    AgentAdapterProbed {
+        agent_id: String,
+        result: Box<Result<AgentAdapterView, String>>,
+    },
     Shutdown {
         response: Option<Sender<()>>,
     },
+}
+
+/// How many adapter handshakes may run at once (GUI-CORE-035).
+///
+/// A probe is a subprocess that can hold its stdout for the full ACP handshake
+/// timeout — 30 s local, 90 s for a registry package started through `npx -y` —
+/// so an unbounded fan-out would trade one blocked worker for an unbounded
+/// number of blocked children. Four covers every adapter a client lists today
+/// in one pass; a fifth waits for a slot rather than spawning.
+pub(crate) const MAX_CONCURRENT_ADAPTER_PROBES: usize = 4;
+
+/// One accepted `ProbeAgentAdapter` still waiting for its adapter's handshake.
+pub(crate) struct AgentAdapterProbeWaiter {
+    pub(crate) owner: RuntimeOwner,
+    pub(crate) command_id: String,
+}
+
+/// The worker's off-worker adapter-probe scheduler (GUI-CORE-035).
+///
+/// Worker-local and therefore lock-free: every mutation happens on the command
+/// worker, either when a probe is accepted or when a handshake thread posts
+/// `SupervisorMessage::AgentAdapterProbed` back. The handshake itself is the
+/// only part that runs elsewhere.
+///
+/// Coalescing is keyed on the adapter id, not the command id: two probes of the
+/// same adapter share one handshake and therefore one `AgentAdapterProbed`
+/// fact, while each keeps its own `CommandAccepted`. Probing the same adapter
+/// twice would spawn the same process twice and answer with the same view, so
+/// the second spawn buys a client nothing and costs it a process.
+#[derive(Default)]
+pub(crate) struct AgentAdapterProbes {
+    /// Every adapter with an unfinished probe, and the commands waiting on it.
+    waiters: BTreeMap<String, Vec<AgentAdapterProbeWaiter>>,
+    /// The subset whose handshake thread is alive.
+    running: BTreeSet<String>,
+    /// Adapters admitted but not yet started, in arrival order.
+    queued: VecDeque<String>,
+}
+
+impl AgentAdapterProbes {
+    /// Registers one accepted probe and answers whether its handshake starts
+    /// now.
+    ///
+    /// Pure bookkeeping, deliberately separate from spawning: `false` means the
+    /// probe was either coalesced onto an adapter already pending or queued
+    /// behind the concurrency bound, and in both cases the caller starts
+    /// nothing.
+    pub(crate) fn admit(&mut self, agent_id: String, waiter: AgentAdapterProbeWaiter) -> bool {
+        let already_pending = self.waiters.contains_key(&agent_id);
+        self.waiters
+            .entry(agent_id.clone())
+            .or_default()
+            .push(waiter);
+        if already_pending {
+            return false;
+        }
+        if self.running.len() < MAX_CONCURRENT_ADAPTER_PROBES {
+            self.running.insert(agent_id);
+            return true;
+        }
+        self.queued.push_back(agent_id);
+        false
+    }
+
+    /// Releases one finished adapter and answers with the commands that were
+    /// waiting on it plus the adapters a freed slot admits, in arrival order.
+    pub(crate) fn release(
+        &mut self,
+        agent_id: &str,
+    ) -> (Vec<AgentAdapterProbeWaiter>, Vec<String>) {
+        self.running.remove(agent_id);
+        let waiters = self.waiters.remove(agent_id).unwrap_or_default();
+        let mut started = Vec::new();
+        while self.running.len() < MAX_CONCURRENT_ADAPTER_PROBES {
+            let Some(next) = self.queued.pop_front() else {
+                break;
+            };
+            if self.waiters.contains_key(&next) {
+                self.running.insert(next.clone());
+                started.push(next);
+            }
+        }
+        (waiters, started)
+    }
+
+    /// Records one accepted probe and starts its handshake when a slot is free.
+    fn submit(
+        &mut self,
+        cwd: &Path,
+        agent_id: String,
+        waiter: AgentAdapterProbeWaiter,
+        worker_commands: &Sender<SupervisorMessage>,
+    ) {
+        if self.admit(agent_id.clone(), waiter) {
+            self.start(cwd, agent_id, worker_commands);
+        }
+    }
+
+    /// Spawns the blocking handshake for one adapter.
+    ///
+    /// Detached on purpose: the thread is bounded by the ACP handshake timeout
+    /// and kills its child on the way out, so a shutdown that stops reading its
+    /// result leaks neither a process nor an unbounded wait.
+    fn start(&self, cwd: &Path, agent_id: String, worker_commands: &Sender<SupervisorMessage>) {
+        let cwd = cwd.to_path_buf();
+        let commands = worker_commands.clone();
+        thread::spawn(move || {
+            let result = probe_typed_agent_adapter(&cwd, &agent_id);
+            let _ = commands.send(SupervisorMessage::AgentAdapterProbed {
+                agent_id,
+                result: Box::new(result),
+            });
+        });
+    }
+
+    /// Releases one finished adapter, admits the next queued one, and returns
+    /// the commands that were waiting on it.
+    fn finish(
+        &mut self,
+        cwd: &Path,
+        agent_id: &str,
+        worker_commands: &Sender<SupervisorMessage>,
+    ) -> Vec<AgentAdapterProbeWaiter> {
+        let (waiters, started) = self.release(agent_id);
+        for agent_id in started {
+            self.start(cwd, agent_id, worker_commands);
+        }
+        waiters
+    }
 }
 
 /// The supervisor's narrow durable-audit handle
@@ -2266,6 +2407,12 @@ fn run_supervisor_worker(
     let session_audit = ApprovalAuditLog {
         workflows: engine.workflow_store(),
     };
+    // Adapter handshakes in flight (`runtime.agent_adapters`, GUI-CORE-035).
+    //
+    // Worker-local for the same reason `held_session_inputs` is: every read
+    // and write happens on this thread, and a probe is not a durable fact — a
+    // Core that restarts has nothing to resume.
+    let mut adapter_probes = AgentAdapterProbes::default();
     while let Ok(message) = command_receiver.recv() {
         match message {
             SupervisorMessage::StartStarterLaneSession {
@@ -2309,6 +2456,40 @@ fn run_supervisor_worker(
                     );
                 }
             }
+            // One handshake, one fact. A probe coalesced behind this adapter
+            // acknowledged its own command and shares this result; publishing a
+            // second identical fact per waiter would make a client believe two
+            // handshakes happened.
+            SupervisorMessage::AgentAdapterProbed { agent_id, result } => {
+                let cwd = engine.cwd().to_path_buf();
+                let waiters = adapter_probes.finish(&cwd, &agent_id, &worker_commands);
+                match *result {
+                    Ok(adapter) => {
+                        if let Some(first) = waiters.first() {
+                            emit_event(
+                                &event_bus,
+                                first.owner.clone(),
+                                RuntimeEventKind::AgentAdapterProbed { adapter },
+                            );
+                        }
+                    }
+                    // Only an adapter that left the registry between acceptance
+                    // and the handshake reaches this, and it is still an answer
+                    // per waiter rather than silence.
+                    Err(reason) => {
+                        for waiter in waiters {
+                            emit_event(
+                                &event_bus,
+                                waiter.owner,
+                                RuntimeEventKind::CommandRejected {
+                                    command_id: waiter.command_id,
+                                    reason: reason.clone(),
+                                },
+                            );
+                        }
+                    }
+                }
+            }
             SupervisorMessage::Shutdown { response } => {
                 worker_alive.store(false, Ordering::Release);
                 if let Some(response) = response {
@@ -2338,6 +2519,43 @@ fn run_supervisor_worker(
                     if let Err(error) = lane_supervisor.send(owner.clone(), command_id, command) {
                         emit_error(&event_bus, owner, error);
                     }
+                    continue;
+                }
+                // A probe is a subprocess handshake, so it never occupies this
+                // worker (`runtime.agent_adapters`, GUI-CORE-035). It is
+                // accepted here, runs on its own thread, and comes back as
+                // `SupervisorMessage::AgentAdapterProbed`. Everything else this
+                // worker owes an answer to keeps being answered meanwhile,
+                // which is the whole point: before this, an uninstalled
+                // registry adapter held every other command for up to 90 s.
+                if let RuntimeCommand::ProbeAgentAdapter { agent_id } = &command {
+                    let agent_id = agent_id.clone();
+                    // Resolution is in-process, so an unknown id is still
+                    // refused synchronously and exactly as before: a plain
+                    // `CommandRejected` with no acceptance in front of it.
+                    if let Some(reason) = unknown_typed_agent_adapter_reason(&agent_id) {
+                        emit_event(
+                            &event_bus,
+                            owner,
+                            RuntimeEventKind::CommandRejected { command_id, reason },
+                        );
+                        continue;
+                    }
+                    emit_event(
+                        &event_bus,
+                        owner.clone(),
+                        RuntimeEventKind::CommandAccepted {
+                            command_id: command_id.clone(),
+                            command: redacted_runtime_command_for_event(&command),
+                        },
+                    );
+                    let cwd = engine.cwd().to_path_buf();
+                    adapter_probes.submit(
+                        &cwd,
+                        agent_id,
+                        AgentAdapterProbeWaiter { owner, command_id },
+                        &worker_commands,
+                    );
                     continue;
                 }
                 // Background engine work clones the installed sink, so bind
@@ -5356,6 +5574,10 @@ fn approval_request_view(
         decision_context: prompt.decision_context.clone(),
         revised_from,
         editable,
+        // Only an editable request seeds a revision, so only an editable
+        // request publishes the bytes (GUI-CORE-036). Every other request
+        // encodes exactly as it did before this field existed.
+        input: editable.then(|| prompt.input.clone()),
     }
 }
 

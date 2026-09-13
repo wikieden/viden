@@ -1355,9 +1355,9 @@ What a client needs: `pub use viden_types::MAX_PLAN_REJECT_REASON_BYTES` in
 `crates/core/src/lib.rs`, beside the four plan bounds already there. One line;
 the GUI then deletes its literal.
 
-## GUI-CORE-035: Adapter discovery must not hold Core's command worker
+## GUI-CORE-035: Adapter discovery must not hold Core's command worker — CLOSED (Core 2026-09-13)
 
-Opened 2026-09-13 by batch H4, from the native re-run of the E3a defects. OPEN.
+Opened 2026-09-13 by batch H4, from the native re-run of the E3a defects.
 
 `RuntimeCommand::ProbeAgentAdapter` is executed inline on the runtime
 supervisor's single command worker
@@ -1395,6 +1395,61 @@ cockpit bounds its own wait at `AGENT_PROBE_TIMEOUT_MS` (15 s,
 through `GuiCoreAdapter::abandon_pending_probe` so its own command slot is
 free. Core's worker is not freed by any of that; a command sent while Core is
 still probing still waits in Core's channel. The client never claims otherwise.
+
+**Closed 2026-09-13 by Core batch C16.** `ProbeAgentAdapter` no longer runs on
+the command worker. The worker accepts it — an unregistered `agent_id` is still
+refused synchronously through `unknown_typed_agent_adapter_reason`
+(`crates/agents/src/glue.rs:57`), which only consults the descriptor registry —
+and hands the handshake to `AgentAdapterProbes`
+(`crates/runtime/src/runtime_supervisor.rs:537`), which runs it on its own
+thread and posts the result back as `SupervisorMessage::AgentAdapterProbed`
+(`:500`); the worker turns that into the `AgentAdapterProbed` fact (`:2463`)
+and keeps answering every other command while a probe is in flight. At most
+four handshakes run at once and a further probe queues off the worker; a
+duplicate probe of an adapter already pending is coalesced onto that one
+handshake, so both command ids keep their own `CommandAccepted` and one fact
+answers both — correlate by `AgentAdapterView.agent_id`, not by counting facts
+per command. An absent or non-answering adapter now publishes a probed fact
+carrying its existing `AgentStartability` diagnostic within the handshake
+timeout rather than the silence H4 observed; only an unregistered id is a
+`CommandRejected`. Contract text:
+`docs/frontend-integration-contract.md`, "Adapter Discovery
+(`runtime.agent_adapters`, GUI-CORE-035)". Compatibility follow-up 19 in
+`docs/core-0.3-compatibility.md`. No capability, count, event-shape, or fixture
+change.
+
+The GUI's client-side bound stays as it is and is now defense in depth rather
+than the only bound: `AGENT_PROBE_TIMEOUT_MS` (15 s), the
+`Probe did not answer within 15s.` label, the `Retry ACP check` control, and
+`GuiCoreAdapter::abandon_pending_probe` remain correct against a Core that no
+longer blocks, and they still cover a host where the handshake itself runs long.
+
+## GUI-CORE-036: An editable approval request must publish its typed input — CLOSED (Core 2026-09-13)
+
+Opened and closed 2026-09-13. Found by batch T4 while building the TUI's
+revision editor.
+
+`ApprovalRequestView` offered `editable` but no input. A client that wanted to
+seed a revision had only `input_preview`, which is Core's own rendering of the
+input (`  key: value` per line), not the input. Core then compares the revision
+byte-for-byte against the original and refuses an identical one as
+`revision_unchanged`, so a client re-parsing the rendering was reconstructing
+the exact bytes of the very comparison it had to survive — the one place a
+rendering cannot stand in for the value. Core already held those bytes:
+`PermissionPrompt.input` is what C15's `revision_unchanged` check reads.
+
+**Closed by Core batch C16.** `ApprovalRequestView` gains
+`input: Option<ToolInput>` (`crates/types/src/runtime.rs:568`), populated only
+when `editable` is true — on the supervisor path
+(`crates/runtime/src/runtime_supervisor.rs`, `approval_request_view`) and on the
+direct contract path (`crates/runtime/src/runtime_contract.rs`,
+`approval_request_view`) alike. A Lane approval is never editable and carries
+none. The field is `skip_serializing_if = "Option::is_none"`, so every
+non-editable request and all nine frozen base fixtures encode byte-identically;
+the `approval-scopes` extension fixture does move, because its five editable
+requests now carry the field. Test:
+`crates/runtime/src/tests/approval_scopes_tests.rs:489`. No capability, count,
+or event-shape change.
 
 ## Retired pre-register codes
 

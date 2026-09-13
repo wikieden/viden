@@ -46,20 +46,44 @@ pub fn typed_agent_adapter_views() -> Vec<AgentAdapterView> {
         .collect()
 }
 
+/// Why this adapter id cannot be probed, or `None` when it is registered.
+///
+/// Resolution only: it touches no process and no filesystem beyond the
+/// descriptor registry, so a caller that must stay off a blocking path — the
+/// runtime supervisor's command worker, which accepts a probe and then hands
+/// the handshake to its own thread (GUI-CORE-035) — can still refuse an
+/// unknown id synchronously, with the exact reason the probe itself would
+/// have returned.
+pub fn unknown_typed_agent_adapter_reason(agent_id: &str) -> Option<String> {
+    let agents = acp_agent_descriptors();
+    if agents.iter().any(|agent| agent.agent_id == agent_id) {
+        return None;
+    }
+    let known = agents
+        .iter()
+        .map(|agent| agent.agent_id.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
+    Some(format!(
+        "Unknown ACP agent `{agent_id}`. Known ACP agents: {known}"
+    ))
+}
+
 /// Probe one adapter by id and project the observed availability, auth state,
 /// and startability into its view.
+///
+/// Blocking: the ACP handshake spawns the adapter's command and waits up to
+/// its configured handshake timeout. Never call this on a thread that owes
+/// another caller an answer.
 pub fn probe_typed_agent_adapter(cwd: &Path, agent_id: &str) -> Result<AgentAdapterView, String> {
+    if let Some(reason) = unknown_typed_agent_adapter_reason(agent_id) {
+        return Err(reason);
+    }
     let agents = acp_agent_descriptors();
-    let Some(agent) = agents.iter().find(|agent| agent.agent_id == agent_id) else {
-        let known = agents
-            .iter()
-            .map(|agent| agent.agent_id.as_str())
-            .collect::<Vec<_>>()
-            .join(", ");
-        return Err(format!(
-            "Unknown ACP agent `{agent_id}`. Known ACP agents: {known}"
-        ));
-    };
+    let agent = agents
+        .iter()
+        .find(|agent| agent.agent_id == agent_id)
+        .expect("a registered adapter id resolves to its descriptor");
     Ok(probe_typed_agent_adapter_descriptor(cwd, agent))
 }
 

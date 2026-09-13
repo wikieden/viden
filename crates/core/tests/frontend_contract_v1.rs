@@ -35,7 +35,7 @@ use viden_types::{
     RuntimeWireEvent, SchemaVersion, SourceTarget, StandingApprovalView, StarterLaneAgentBinding,
     StarterLanePreset, StarterLanePreview, StarterLanePreviewInvalidationReason,
     StarterLaneReceipt, StarterLaneRequest, StarterLaneSessionOutcome, TokenCostView, TokenUsage,
-    TurnOutcome, TurnSource, TurnView, UiColorMode, UiDensity, UiLayoutPreferencePatch,
+    ToolInput, TurnOutcome, TurnSource, TurnView, UiColorMode, UiDensity, UiLayoutPreferencePatch,
     UiLayoutPreferences, UiMotion, UiPreferenceDiagnostic, UiPreferences, UiSkin, WorkMode,
     WorkspaceChangeKind, WorkspaceDiffEntry, WorkspaceDiffPage, WorkspaceDiffQuery,
     WorkspaceDiffScope, WorkspaceEligibility, WorkspaceFileBody, WorkspaceFileContent,
@@ -4130,6 +4130,7 @@ fn agent_session_control_fixture() -> FrontendContractFixtureOut {
         allowed_scopes: vec![ApprovalScope::Once],
         revised_from: None,
         editable: false,
+        input: None,
         policy_reason_key: "permission.requires_approval".to_string(),
         policy_reason_args: BTreeMap::new(),
         expires_at: 1_700_006_000,
@@ -4761,6 +4762,7 @@ fn structured_diff_fixture() -> FrontendContractFixtureOut {
                 decision_context: Some(decision_context),
                 revised_from: None,
                 editable: false,
+                input: None,
             }
         };
 
@@ -5321,6 +5323,7 @@ fn operator_git_fixture() -> FrontendContractFixtureOut {
                 }),
                 revised_from: None,
                 editable: false,
+                input: None,
             },
         },
         RuntimeEventKind::ApprovalResolved {
@@ -6966,6 +6969,7 @@ fn approval(id: &str, title: &str, is_mutating: bool) -> ApprovalRequestView {
         decision_context: None,
         revised_from: None,
         editable: false,
+        input: None,
     }
 }
 
@@ -7722,6 +7726,15 @@ fn approval_scopes_fixture() -> FrontendContractFixtureOut {
             decision_context: None,
             revised_from: revised_from.map(str::to_string),
             editable,
+            // Only an editable request seeds a revision, so only an editable
+            // request carries the bytes (GUI-CORE-036). The map is the same
+            // one `input_preview` renders, so a client can see that the
+            // rendering and the typed field describe one input.
+            input: editable.then(|| {
+                let mut input = ToolInput::new();
+                input.insert("command".to_string(), command.to_string());
+                input
+            }),
         }
     };
 
@@ -9355,6 +9368,7 @@ fn durable_work_evidence_fixture() -> FrontendContractFixtureOut {
                     decision_context: None,
                     revised_from: None,
                     editable: false,
+                    input: None,
                 },
             },
             owner.clone(),

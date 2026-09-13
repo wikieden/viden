@@ -1043,9 +1043,9 @@ Core 侧可被查阅，而不是为它排期。
 客户端需要的：在 `crates/core/src/lib.rs` 里，紧挨着已有的四个 plan 上界，加一行
 `pub use viden_types::MAX_PLAN_REJECT_REASON_BYTES`。一行；GUI 随即删掉自己的字面量。
 
-## GUI-CORE-035：适配器探测不应占用 Core 的命令工作线程
+## GUI-CORE-035：适配器探测不应占用 Core 的命令工作线程 —— 已关闭（Core 2026-09-13）
 
-2026-09-13 由 H4 批次开立，来自对 E3a 缺陷的原生复跑。开放。
+2026-09-13 由 H4 批次开立，来自对 E3a 缺陷的原生复跑。
 
 `RuntimeCommand::ProbeAgentAdapter` 在运行时 supervisor 唯一的命令工作线程上就地执行
 （`crates/runtime/src/runtime_supervisor.rs:1015`，「The supervisor is one worker」，
@@ -1075,6 +1075,48 @@ Core 侧可被查阅，而不是为它排期。
 只限 `ProbeAgentAdapter` 或 `QueryAgentAdapters`，绝不包括任何带副作用的命令 ——
 以便释放它自己的命令槽位。这些都不会释放 Core 的工作线程；在 Core 仍在探测时发出的命令
 依旧会在 Core 的通道里等待。客户端从不声称相反的事。
+
+**2026-09-13 由 Core 批次 C16 关闭。** `ProbeAgentAdapter` 不再在命令工作线程上运行。
+worker 只负责受理——未注册的 `agent_id` 仍由只查描述符注册表的
+`unknown_typed_agent_adapter_reason`（`crates/agents/src/glue.rs:57`）同步拒绝——
+随后把握手交给 `AgentAdapterProbes`（`crates/runtime/src/runtime_supervisor.rs:537`），
+由它在自己的线程上运行，并把结果作为 `SupervisorMessage::AgentAdapterProbed`（`:500`）
+回传；worker 把它转成 `AgentAdapterProbed` 事实（`:2463`），并在 probe 飞行期间继续
+回答其他每一条命令。同时最多四次握手，更多的 probe 在 worker 之外排队；对已在等待中的
+adapter 的重复 probe 会合并到那一次握手上，因此两个 command id 各自保留自己的
+`CommandAccepted`，而由一条事实回答两者——请按 `AgentAdapterView.agent_id` 关联，
+而不要按「每条命令一条事实」计数。缺失或不应答的 adapter 现在会在握手超时之内发布带有
+既有 `AgentStartability` 诊断的 probed 事实，而不是 H4 观察到的沉默；只有未注册的 id
+才是 `CommandRejected`。契约文本：`docs/frontend-integration-contract.zh-CN.md` 的
+「Adapter 发现（`runtime.agent_adapters`，GUI-CORE-035）」。兼容性后续项 19 见
+`docs/core-0.3-compatibility.zh-CN.md`。没有 capability、计数、事件形状或 fixture 变化。
+
+GUI 的客户端侧上限保持原样，现在它是纵深防御而不再是唯一的上限：
+`AGENT_PROBE_TIMEOUT_MS`（15 秒）、`Probe did not answer within 15s.` 标注、
+`Retry ACP check` 控件以及 `GuiCoreAdapter::abandon_pending_probe`，对一个不再阻塞的
+Core 依然正确，并且仍然覆盖握手本身耗时很长的主机。
+
+## GUI-CORE-036：可编辑的审批请求必须发布其类型化输入 —— 已关闭（Core 2026-09-13）
+
+2026-09-13 开立并同时关闭。由批次 T4 在构建 TUI 的改写编辑器时发现。
+
+`ApprovalRequestView` 提供了 `editable`，却没有提供输入。想要填充改写的客户端
+只有 `input_preview`，而那是 Core 对输入的渲染（每行 `  key: value`），不是输入
+本身。随后 Core 会把改写与原输入逐字节比较，对完全相同的改写以
+`revision_unchanged` 拒绝——于是反解渲染的客户端，实际上是在重建它必须通过的
+那次比较所用的确切字节，这正是渲染无法替代值的那个位置。Core 本就持有这些字节：
+`PermissionPrompt.input` 就是 C15 的 `revision_unchanged` 检查所读取的内容。
+
+**由 Core 批次 C16 关闭。** `ApprovalRequestView` 新增
+`input: Option<ToolInput>`（`crates/types/src/runtime.rs:568`），仅在 `editable`
+为真时填充——supervisor 路径（`crates/runtime/src/runtime_supervisor.rs` 的
+`approval_request_view`）与直接契约路径（`crates/runtime/src/runtime_contract.rs`
+的 `approval_request_view`）一致。Lane 审批从不可编辑，因此不携带该字段。该字段
+带 `skip_serializing_if = "Option::is_none"`，因此所有非可编辑请求以及九个冻结
+base fixture 都逐字节不变；`approval-scopes` extension fixture 确实发生了移动，
+因为它的五个可编辑请求现在携带了该字段。测试：
+`crates/runtime/src/tests/approval_scopes_tests.rs:489`。没有 capability、计数或
+事件形状变化。
 
 ## 已退役的前登记编码
 

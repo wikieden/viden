@@ -81,6 +81,7 @@ pub use glue::{
     resume_typed_agent_session, retry_typed_agent_session, shutdown_resident_acp_sessions,
     start_typed_agent_session, tracked_agent_job_runtime_events, tracked_agent_job_sessions,
     tracked_agent_job_tasks, typed_agent_adapter_views,
-    typed_agent_session_request_from_compat_input, validate_typed_agent_session_request,
+    typed_agent_session_request_from_compat_input, unknown_typed_agent_adapter_reason,
+    validate_typed_agent_session_request,
 };
 pub use render::{render_agent_doctor, render_agent_list, render_agent_logs_help};
