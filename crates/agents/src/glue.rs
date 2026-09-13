@@ -582,11 +582,16 @@ pub fn start_typed_agent_session(
         runtime_event_sink,
         approver,
         None,
+        None,
     )
 }
 
 /// Send another prompt turn into an existing typed agent session, reusing its
 /// resident connection when one is still cached.
+/// `control` is the session's operator-control history, which the runtime owns
+/// and this crate only carries onto the facts it publishes. Without it a
+/// resumed turn would republish the session with no control record at all, and
+/// a client watching `held_input_count` drain would see it vanish instead.
 pub fn resume_typed_agent_session(
     cwd: &Path,
     session_id: &str,
@@ -594,6 +599,7 @@ pub fn resume_typed_agent_session(
     owner: RuntimeOwner,
     runtime_event_sink: RuntimeEventSink,
     approver: AgentSessionApprover,
+    control: Option<AgentSessionControlView>,
 ) -> Result<String, String> {
     let job = find_codex_job(cwd, session_id)?
         .ok_or_else(|| format!("Unknown agent session `{session_id}`"))?;
@@ -635,6 +641,7 @@ pub fn resume_typed_agent_session(
         runtime_event_sink,
         approver,
         Some(input_id.clone()),
+        control,
     )?;
     Ok(input_id)
 }
@@ -647,6 +654,7 @@ pub fn retry_typed_agent_session(
     owner: RuntimeOwner,
     runtime_event_sink: RuntimeEventSink,
     approver: AgentSessionApprover,
+    control: Option<AgentSessionControlView>,
 ) -> Result<String, String> {
     let job = find_codex_job(cwd, session_id)?
         .ok_or_else(|| format!("Unknown agent session `{session_id}`"))?;
@@ -657,6 +665,7 @@ pub fn retry_typed_agent_session(
         owner,
         runtime_event_sink,
         approver,
+        control,
     )
 }
 
@@ -670,6 +679,7 @@ pub(super) fn start_typed_agent_session_attempt(
     runtime_event_sink: RuntimeEventSink,
     mut approver: AgentSessionApprover,
     accepted_input_id: Option<String>,
+    control: Option<AgentSessionControlView>,
 ) -> Result<AgentSessionView, String> {
     validate_typed_agent_session_request(&request)?;
     let agents = acp_agent_descriptors();
@@ -735,7 +745,10 @@ pub(super) fn start_typed_agent_session_attempt(
         task: request.task,
         diagnostic: None,
         output: None,
-        control: None,
+        // The runtime's control record travels with every fact of this turn,
+        // including the terminal one the monitor builds from this view, so a
+        // client never loses the count of what is still held.
+        control,
     };
     let mut start_events = Vec::new();
     if let Some(input_id) = accepted_input_id {

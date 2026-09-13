@@ -111,9 +111,9 @@ final_cursor = 10
 # they land on their own branches.
 [fixtures.agent_session_control]
 path = "../types/tests/fixtures/frontend-contract-v1/agent-session-control.json"
-payload_sha256 = "0ff531b6ec98fd25a0efdea96367b902910871e5345416119f1b239029b43636"
-view_sha256 = "7f4dbbc80ac27fe29409d52acc49b6923c836b337cb622f154fee60ba916e18a"
-final_cursor = 19
+payload_sha256 = "19fda086d830ebf6d7cc3bb4f6a16515d875f02a5d9d3a4ac4a1acbe3139fcd3"
+view_sha256 = "7b9ece0d1673adf67ccbc1f1c1cd83c84c2149f12082bd6dfa1b50b95868da0d"
+final_cursor = 24
 
 [verification]
 date = "2026-09-12"

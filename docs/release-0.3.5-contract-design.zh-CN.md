@@ -475,11 +475,20 @@ Agent Board（覆盖 Lane/会话层级的中央面板视图）：
   让一个被暂停的 session 完全不带 `control`。持久作业记录承载 `paused` 与
   `killed`，因此两者在重启后仍能重建。取消保持不变，仍由监视线程发布，并且现在
   会盖上 `terminated_by: Cancelled`，使两个写入者不可能互相矛盾。
-- **恢复转发第一条被持有的输入，其余继续被持有。** 正文说“第一条被转发”，没有说
-  其余的去向。在被恢复的那一轮之后排空其余输入需要一个本批次并不拥有的会话作用域
-  队列排空机制，因此其余输入继续被持有、继续计入 `held_input_count`，并在 session
-  的 diagnostic 中被指明。没有任何东西被悄悄丢弃，终止仍然会丢弃并指明它们。已作为
-  已知限制记入 `docs/frontend-integration-contract.zh-CN.md`。
+- **每一条被持有的输入都会按序转发，且排空动作跨线程。** 正文既说“第一条被转发”，
+  又说“被持有的输入在恢复时按序转发”，只有当某个东西放行其余输入时两者才自洽。恢复
+  转发第一条；此后每一轮*完成*都放行下一条，于是 `held_input_count` 一路走到零。
+  触发信号是终态 session 事实，它到达于适配器的监视线程，而该线程无法触碰由 worker
+  独占的被持有输入表 —— 因此该 session 的 sink 投递
+  `SupervisorMessage::DrainHeldSessionInput`，由 worker 执行排空，这正是 C6 的
+  “置位—排空”配对，只是置位一侧位于另一个线程。失败、被取消或被终止的那一轮之后不
+  放行任何东西，这正是 C6 已经对会话队列采用的规则：剩余输入继续被持有并计数，由
+  操作者重试或终止，而不是眼看每一条被持有的提示词涌入一个已经损坏的 session。这一点
+  收窄了评审意见中把 `AgentSessionFailed` 列为放行事实的那个括注。
+- **控制记录随每一轮的事实一同传递。** 被恢复或被排空的一轮会重新发布整个 session
+  视图，因此若不这样做，`held_input_count` 会在它所描述的那一轮启动的瞬间消失。
+  `resume_typed_agent_session` 与 `retry_typed_agent_session` 因此接收由 runtime
+  拥有的 `control` 并把它放到所发布的视图上；agents crate 对它不做任何决定。
 - **“现有输入队列上界”是 50。** 即 `RUNTIME_VIEW_COLLECTION_LIMIT` 已经用来限制
   runtime 视图各集合的那个值，因此客户端读到的 `held_input_count` 所对的上界正是
   视图自身强制的那个。超出它的输入以 `CommandRejected` 回答。

@@ -1268,6 +1268,14 @@ state over the session's input path rather than a frozen adapter:
   which in this contract already means "no turn in flight, session alive and
   accepting input" rather than "the work finished". `control.resumed_at` is set
   and an `agent_session.resume` row is audited.
+- **Each completed turn releases the next held input.** A resumed session drains
+  what it held in the order it was typed: when a turn completes and inputs
+  remain, Core starts the next one itself and `held_input_count` decreases with
+  it, reaching zero on the last. A client must expect an `AgentSessionStarted`
+  it did not command — no `CommandAccepted` precedes a drained turn, and the
+  session's `control` is how the client knows why it appeared. Nothing is
+  released behind a turn that failed, was cancelled, or was killed: the
+  remaining inputs stay held and counted, and the operator retries or kills.
 - **Kill** is accepted from any non-terminal status, `Paused` included. The
   process is terminated with no grace at all, the resident connection is
   retired, held inputs are discarded and named in the diagnostic, and the
@@ -1295,11 +1303,6 @@ Switching model is a client composition of Kill (or Cancel) followed by
 `StartAgentSession` carrying the new `model` and the previous
 `load_session_id`. There is no switch-model command and a client must render it
 as the two-step flow it is.
-
-Known limitation (0.3.5): resume forwards only the first held input. Any
-remaining held inputs stay held and are reported in `held_input_count`; the
-session's diagnostic names how many. Draining the rest behind the resumed turn
-is a follow-up.
 
 ## Approval And Permission UI Contract
 

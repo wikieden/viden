@@ -303,7 +303,7 @@
         "kind": {
           "type": "command_accepted",
           "payload": {
-            "command_id": "cmd_session_held_input",
+            "command_id": "cmd_session_held_input_one",
             "command": {
               "type": "send_agent_session_input",
               "input": {
@@ -336,7 +336,7 @@
           "type": "agent_session_input_accepted",
           "payload": {
             "session_id": "session_control",
-            "input_id": "agent-input_session_control_held"
+            "input_id": "agent-input_session_control_held_one"
           }
         }
       }
@@ -406,10 +406,16 @@
         "sequence": 10,
         "timestamp": 1700006010,
         "kind": {
-          "type": "command_rejected",
+          "type": "command_accepted",
           "payload": {
-            "command_id": "cmd_session_pause_again",
-            "reason": "session_status_paused"
+            "command_id": "cmd_session_held_input_two",
+            "command": {
+              "type": "send_agent_session_input",
+              "input": {
+                "session_id": "session_control",
+                "content": "[REDACTED]"
+              }
+            }
           }
         }
       }
@@ -432,13 +438,10 @@
         "sequence": 11,
         "timestamp": 1700006011,
         "kind": {
-          "type": "command_accepted",
+          "type": "agent_session_input_accepted",
           "payload": {
-            "command_id": "cmd_session_resume",
-            "command": {
-              "type": "resume_agent_session",
-              "session_id": "session_control"
-            }
+            "session_id": "session_control",
+            "input_id": "agent-input_session_control_held_two"
           }
         }
       }
@@ -468,7 +471,7 @@
               "lane_id": "lane_session_control",
               "agent_id": "codex-acp",
               "model": "gpt-5-codex",
-              "status": "running",
+              "status": "paused",
               "owner": {
                 "workspace_id": "workspace_contract_v1",
                 "project_id": "project_viden",
@@ -478,12 +481,12 @@
                 "turn_id": "turn_session_control"
               },
               "task": "task.session_control.refactor",
-              "diagnostic": null,
+              "diagnostic": "paused by owner; the agent connection is held",
               "control": {
                 "paused_at": 1700006010,
-                "resumed_at": 1700006020,
+                "resumed_at": null,
                 "terminated_by": null,
-                "held_input_count": 0
+                "held_input_count": 2
               }
             }
           }
@@ -510,8 +513,8 @@
         "kind": {
           "type": "command_rejected",
           "payload": {
-            "command_id": "cmd_session_resume_running",
-            "reason": "session_status_running"
+            "command_id": "cmd_session_pause_again",
+            "reason": "session_status_paused"
           }
         }
       }
@@ -536,9 +539,9 @@
         "kind": {
           "type": "command_accepted",
           "payload": {
-            "command_id": "cmd_session_kill",
+            "command_id": "cmd_session_resume",
             "command": {
-              "type": "kill_agent_session",
+              "type": "resume_agent_session",
               "session_id": "session_control"
             }
           }
@@ -563,14 +566,14 @@
         "sequence": 15,
         "timestamp": 1700006015,
         "kind": {
-          "type": "agent_session_killed",
+          "type": "agent_session_started",
           "payload": {
             "session": {
               "session_id": "session_control",
               "lane_id": "lane_session_control",
               "agent_id": "codex-acp",
               "model": "gpt-5-codex",
-              "status": "killed",
+              "status": "starting",
               "owner": {
                 "workspace_id": "workspace_contract_v1",
                 "project_id": "project_viden",
@@ -579,13 +582,13 @@
                 "task_id": "task_session_control",
                 "turn_id": "turn_session_control"
               },
-              "task": "task.session_control.refactor",
-              "diagnostic": "killed by owner",
+              "task": "task.session_control.held_one",
+              "diagnostic": null,
               "control": {
                 "paused_at": 1700006010,
-                "resumed_at": null,
-                "terminated_by": "killed",
-                "held_input_count": 0
+                "resumed_at": 1700006020,
+                "terminated_by": null,
+                "held_input_count": 1
               }
             }
           }
@@ -610,6 +613,203 @@
         "sequence": 16,
         "timestamp": 1700006016,
         "kind": {
+          "type": "command_rejected",
+          "payload": {
+            "command_id": "cmd_session_resume_running",
+            "reason": "session_status_running"
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_session_control",
+        "session_id": "session_control",
+        "task_id": "task_session_control",
+        "turn_id": "turn_session_control"
+      },
+      "cursor": {
+        "stream_id": "fixture:agent-session-control",
+        "sequence": 17
+      },
+      "event": {
+        "sequence": 17,
+        "timestamp": 1700006017,
+        "kind": {
+          "type": "agent_session_completed",
+          "payload": {
+            "session": {
+              "session_id": "session_control",
+              "lane_id": "lane_session_control",
+              "agent_id": "codex-acp",
+              "model": "gpt-5-codex",
+              "status": "completed",
+              "owner": {
+                "workspace_id": "workspace_contract_v1",
+                "project_id": "project_viden",
+                "lane_id": "lane_session_control",
+                "session_id": "session_control",
+                "task_id": "task_session_control",
+                "turn_id": "turn_session_control"
+              },
+              "task": "task.session_control.held_one",
+              "diagnostic": null,
+              "output": "the first held prompt ran",
+              "control": {
+                "paused_at": 1700006010,
+                "resumed_at": 1700006020,
+                "terminated_by": null,
+                "held_input_count": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_session_control",
+        "session_id": "session_control",
+        "task_id": "task_session_control",
+        "turn_id": "turn_session_control"
+      },
+      "cursor": {
+        "stream_id": "fixture:agent-session-control",
+        "sequence": 18
+      },
+      "event": {
+        "sequence": 18,
+        "timestamp": 1700006018,
+        "kind": {
+          "type": "agent_session_started",
+          "payload": {
+            "session": {
+              "session_id": "session_control",
+              "lane_id": "lane_session_control",
+              "agent_id": "codex-acp",
+              "model": "gpt-5-codex",
+              "status": "starting",
+              "owner": {
+                "workspace_id": "workspace_contract_v1",
+                "project_id": "project_viden",
+                "lane_id": "lane_session_control",
+                "session_id": "session_control",
+                "task_id": "task_session_control",
+                "turn_id": "turn_session_control"
+              },
+              "task": "task.session_control.held_two",
+              "diagnostic": null,
+              "control": {
+                "paused_at": 1700006010,
+                "resumed_at": 1700006020,
+                "terminated_by": null,
+                "held_input_count": 0
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_session_control",
+        "session_id": "session_control",
+        "task_id": "task_session_control",
+        "turn_id": "turn_session_control"
+      },
+      "cursor": {
+        "stream_id": "fixture:agent-session-control",
+        "sequence": 19
+      },
+      "event": {
+        "sequence": 19,
+        "timestamp": 1700006019,
+        "kind": {
+          "type": "command_accepted",
+          "payload": {
+            "command_id": "cmd_session_kill",
+            "command": {
+              "type": "kill_agent_session",
+              "session_id": "session_control"
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_session_control",
+        "session_id": "session_control",
+        "task_id": "task_session_control",
+        "turn_id": "turn_session_control"
+      },
+      "cursor": {
+        "stream_id": "fixture:agent-session-control",
+        "sequence": 20
+      },
+      "event": {
+        "sequence": 20,
+        "timestamp": 1700006020,
+        "kind": {
+          "type": "agent_session_killed",
+          "payload": {
+            "session": {
+              "session_id": "session_control",
+              "lane_id": "lane_session_control",
+              "agent_id": "codex-acp",
+              "model": "gpt-5-codex",
+              "status": "killed",
+              "owner": {
+                "workspace_id": "workspace_contract_v1",
+                "project_id": "project_viden",
+                "lane_id": "lane_session_control",
+                "session_id": "session_control",
+                "task_id": "task_session_control",
+                "turn_id": "turn_session_control"
+              },
+              "task": "task.session_control.held_two",
+              "diagnostic": "killed by owner",
+              "control": {
+                "paused_at": 1700006010,
+                "resumed_at": 1700006020,
+                "terminated_by": "killed",
+                "held_input_count": 0
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_session_control",
+        "session_id": "session_control",
+        "task_id": "task_session_control",
+        "turn_id": "turn_session_control"
+      },
+      "cursor": {
+        "stream_id": "fixture:agent-session-control",
+        "sequence": 21
+      },
+      "event": {
+        "sequence": 21,
+        "timestamp": 1700006021,
+        "kind": {
           "type": "command_accepted",
           "payload": {
             "command_id": "cmd_session_retry",
@@ -633,11 +833,11 @@
       },
       "cursor": {
         "stream_id": "fixture:agent-session-control",
-        "sequence": 17
+        "sequence": 22
       },
       "event": {
-        "sequence": 17,
-        "timestamp": 1700006017,
+        "sequence": 22,
+        "timestamp": 1700006022,
         "kind": {
           "type": "agent_session_started",
           "payload": {
@@ -674,11 +874,11 @@
       },
       "cursor": {
         "stream_id": "fixture:agent-session-control",
-        "sequence": 18
+        "sequence": 23
       },
       "event": {
-        "sequence": 18,
-        "timestamp": 1700006018,
+        "sequence": 23,
+        "timestamp": 1700006023,
         "kind": {
           "type": "command_accepted",
           "payload": {
@@ -712,11 +912,11 @@
       },
       "cursor": {
         "stream_id": "fixture:agent-session-control",
-        "sequence": 19
+        "sequence": 24
       },
       "event": {
-        "sequence": 19,
-        "timestamp": 1700006019,
+        "sequence": 24,
+        "timestamp": 1700006024,
         "kind": {
           "type": "audit_page_loaded",
           "payload": {
@@ -840,7 +1040,7 @@
   ],
   "expected_final_cursor": {
     "stream_id": "fixture:agent-session-control",
-    "sequence": 19
+    "sequence": 24
   },
-  "expected_view_sha256": "7f4dbbc80ac27fe29409d52acc49b6923c836b337cb622f154fee60ba916e18a"
+  "expected_view_sha256": "7b9ece0d1673adf67ccbc1f1c1cd83c84c2149f12082bd6dfa1b50b95868da0d"
 }

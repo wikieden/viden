@@ -7866,22 +7866,26 @@ while True:
 // `runtime.agent_session_control` (0.3.5 C14).
 // ---------------------------------------------------------------------------
 
-/// A mock ACP agent that asks for permission, answers `session/cancel`, and
-/// keeps serving prompts afterwards.
+/// A mock ACP agent whose *first* turn hangs on a permission request and whose
+/// later turns complete, and which answers `session/cancel` throughout.
+///
+/// The first turn has to stay in flight for a pause to have anything to
+/// interrupt; the later ones have to finish for the held-input drain to be
+/// observable at all. The turn counter is a file beside the script because a
+/// pause that falls back to process termination restarts the agent, and a
+/// counter in the shell would reset with it — which is exactly the case where a
+/// resumed turn would otherwise ask for permission a second time and hang.
 fn write_session_control_mock(path: &Path, remote_session: &str) {
     fs::write(
         path,
         [
             "#!/bin/sh".to_string(),
+            "first_turn=\"$0.first-turn\"".to_string(),
             "read _init".to_string(),
             "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":0,\"result\":{\"protocolVersion\":1,\"agentCapabilities\":{\"sessionCancel\":true},\"agentInfo\":{\"name\":\"mock-control-acp\",\"version\":\"0.1.0\"}}}'".to_string(),
             "read _new_session".to_string(),
             format!(
                 "printf '%s\\n' '{{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{{\"sessionId\":\"{remote_session}\"}}}}'"
-            ),
-            "read _prompt".to_string(),
-            format!(
-                "printf '%s\\n' '{{\"jsonrpc\":\"2.0\",\"id\":39,\"method\":\"session/request_permission\",\"params\":{{\"sessionId\":\"{remote_session}\",\"toolCall\":{{\"toolCallId\":\"tool_control\",\"title\":\"Edit file\",\"kind\":\"edit\"}},\"options\":[{{\"optionId\":\"allow\",\"kind\":\"allow_once\",\"name\":\"Allow\"}},{{\"optionId\":\"reject\",\"kind\":\"reject_once\",\"name\":\"Reject\"}}]}}}}'"
             ),
             "while IFS= read -r line; do".to_string(),
             "  case \"$line\" in".to_string(),
@@ -7889,12 +7893,19 @@ fn write_session_control_mock(path: &Path, remote_session: &str) {
             "      printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{\"status\":\"cancelled\"}}'".to_string(),
             "      ;;".to_string(),
             "    *'\"method\":\"session/prompt\"'*)".to_string(),
+            "      if [ -f \"$first_turn\" ]; then".to_string(),
             format!(
-                "      printf '%s\\n' '{{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{{\"sessionId\":\"{remote_session}\",\"update\":{{\"type\":\"AgentMessageChunk\",\"content\":\"resumed work\"}}}}}}'"
+                "        printf '%s\\n' '{{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{{\"sessionId\":\"{remote_session}\",\"update\":{{\"type\":\"AgentMessageChunk\",\"content\":\"resumed work\"}}}}}}'"
             ),
             format!(
-                "      printf '%s\\n' '{{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{{\"sessionId\":\"{remote_session}\",\"update\":{{\"type\":\"TurnEnd\",\"status\":\"completed\"}}}}}}'"
+                "        printf '%s\\n' '{{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{{\"sessionId\":\"{remote_session}\",\"update\":{{\"type\":\"TurnEnd\",\"status\":\"completed\"}}}}}}'"
             ),
+            "      else".to_string(),
+            "        : > \"$first_turn\"".to_string(),
+            format!(
+                "        printf '%s\\n' '{{\"jsonrpc\":\"2.0\",\"id\":39,\"method\":\"session/request_permission\",\"params\":{{\"sessionId\":\"{remote_session}\",\"toolCall\":{{\"toolCallId\":\"tool_control\",\"title\":\"Edit file\",\"kind\":\"edit\"}},\"options\":[{{\"optionId\":\"allow\",\"kind\":\"allow_once\",\"name\":\"Allow\"}},{{\"optionId\":\"reject\",\"kind\":\"reject_once\",\"name\":\"Reject\"}}]}}}}'"
+            ),
+            "      fi".to_string(),
             "      ;;".to_string(),
             "  esac".to_string(),
             "done".to_string(),
@@ -8347,4 +8358,171 @@ fn runtime_supervisor_kill_discards_held_inputs_and_stays_retryable() {
     unsafe {
         std::env::remove_var("VIDEN_AGENT_ACP_COMMAND");
     }
+}
+
+/// Every input held while paused runs, in order, once resume releases the
+/// first: each completed turn forwards the next and `held_input_count` walks
+/// down to zero.
+///
+/// A resume that forwarded only the first would leave the rest held forever —
+/// invisible work an operator typed and Core acknowledged — and the count would
+/// never reach zero.
+#[test]
+fn runtime_supervisor_resume_drains_every_held_input_in_order() {
+    let _guard = CUSTOM_ACP_ENV_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .expect("custom ACP env lock");
+    let cwd = temp_dir("runtime_supervisor_session_drain_cwd");
+    let home = temp_dir("runtime_supervisor_session_drain_home");
+    let script = cwd.join("mock-typed-acp-drain.sh");
+    write_session_control_mock(&script, "remote-drain-session");
+    unsafe {
+        std::env::set_var(
+            "VIDEN_AGENT_ACP_COMMAND",
+            format!("sh {}", script.display()),
+        );
+    }
+    let engine = SessionEngine::new_with_home(
+        &cwd,
+        Box::new(SequenceProvider::new(Vec::new())),
+        Some(home),
+    )
+    .unwrap();
+    let supervisor = RuntimeSupervisor::start(engine);
+    supervisor
+        .send_command_from_owner(
+            owner_for_lane("lane-drain-acp"),
+            "cmd_drain_start",
+            RuntimeCommand::StartAgentSession {
+                request: AgentSessionRequest {
+                    lane_id: "lane-drain-acp".to_string(),
+                    agent_id: "custom-acp".to_string(),
+                    model: None,
+                    load_session_id: None,
+                    task: "wait for the operator".to_string(),
+                },
+            },
+        )
+        .unwrap();
+    let started = collect_events_until(&supervisor, Duration::from_secs(10), |events| {
+        events
+            .iter()
+            .any(|event| matches!(event.kind, RuntimeEventKind::AgentSessionStarted { .. }))
+            && events
+                .iter()
+                .any(|event| matches!(event.kind, RuntimeEventKind::ApprovalRequested { .. }))
+    });
+    let session = started
+        .iter()
+        .find_map(|event| match &event.kind {
+            RuntimeEventKind::AgentSessionStarted { session } => Some(session.clone()),
+            _ => None,
+        })
+        .expect("started session");
+    let owner = session.owner.clone();
+
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "cmd_drain_pause",
+            RuntimeCommand::PauseAgentSession {
+                session_id: session.session_id.clone(),
+            },
+        )
+        .unwrap();
+    collect_events_until(&supervisor, Duration::from_secs(15), |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::AgentSessionUpdated { session }
+                    if session.status == AgentSessionStatus::Paused
+            )
+        })
+    });
+
+    let held = ["held one", "held two", "held three"];
+    for (index, content) in held.iter().enumerate() {
+        let expected = index as u32 + 1;
+        supervisor
+            .send_command_from_owner(
+                owner.clone(),
+                format!("cmd_drain_input_{expected}"),
+                RuntimeCommand::SendAgentSessionInput {
+                    input: viden_types::AgentSessionInput {
+                        session_id: session.session_id.clone(),
+                        content: (*content).to_string(),
+                    },
+                },
+            )
+            .unwrap();
+        collect_events_until(&supervisor, Duration::from_secs(10), |events| {
+            events.iter().any(|event| {
+                matches!(
+                    &event.kind,
+                    RuntimeEventKind::AgentSessionUpdated { session }
+                        if session.status == AgentSessionStatus::Paused
+                            && session.control.is_some_and(|control| {
+                                control.held_input_count == expected
+                            })
+                )
+            })
+        });
+    }
+
+    supervisor
+        .send_command_from_owner(
+            owner,
+            "cmd_drain_resume",
+            RuntimeCommand::ResumeAgentSession {
+                session_id: session.session_id.clone(),
+            },
+        )
+        .unwrap();
+    // One resume releases the first; each completed turn releases the next.
+    let drained = collect_events_until(&supervisor, Duration::from_secs(60), |events| {
+        events
+            .iter()
+            .filter(|event| {
+                matches!(
+                    &event.kind,
+                    RuntimeEventKind::AgentSessionStarted { session }
+                        if held.contains(&session.task.as_str())
+                )
+            })
+            .count()
+            == held.len()
+    });
+    unsafe {
+        std::env::remove_var("VIDEN_AGENT_ACP_COMMAND");
+    }
+
+    let forwarded = drained
+        .iter()
+        .filter_map(|event| match &event.kind {
+            RuntimeEventKind::AgentSessionStarted { session }
+                if held.contains(&session.task.as_str()) =>
+            {
+                Some((
+                    session.task.clone(),
+                    session
+                        .control
+                        .map(|control| control.held_input_count)
+                        .expect("a forwarded turn carries the control record"),
+                ))
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        forwarded,
+        vec![
+            ("held one".to_string(), 2),
+            ("held two".to_string(), 1),
+            ("held three".to_string(), 0),
+        ],
+        "every held input must run in the order it was typed, with the count \
+         walking 3 -> 2 -> 1 -> 0"
+    );
 }

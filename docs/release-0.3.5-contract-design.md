@@ -557,13 +557,26 @@ shipped for section 2, `runtime.agent_session_control`.
   record carries `paused` and `killed`, so both still rebuild after a restart.
   Cancel is unchanged and still published by the monitor, which now stamps
   `terminated_by: Cancelled` so the two writers cannot disagree.
-- **Resume forwards the first held input; the rest stay held.** The body says
-  "the first is forwarded" and does not say what becomes of the others.
-  Draining the remainder behind the resumed turn needs a session-scoped queue
-  drain this batch does not own, so the remainder stay held, stay counted in
-  `held_input_count`, and are named in the session's diagnostic. Nothing is
-  silently dropped, and a kill still discards and names them. Recorded as a
-  known limitation in `docs/frontend-integration-contract.md`.
+- **Every held input is forwarded, in order, and the drain crosses a thread.**
+  The body says "the first is forwarded" and "held inputs forwarded in order on
+  resume", which only agree if something releases the rest. Resume forwards the
+  first; each *completed* turn then releases the next, so `held_input_count`
+  walks to zero. The arming signal is a terminal session fact, which arrives on
+  the adapter's monitor thread and cannot touch the worker-owned held-input
+  map — so the session's sink posts `SupervisorMessage::DrainHeldSessionInput`
+  and the worker drains, which is C6's arm-then-drain pair with the arming side
+  on another thread. Nothing is released behind a turn that failed, was
+  cancelled, or was killed, which is the rule C6 already applies to the session
+  queue: the remaining inputs stay held and counted, and the operator retries or
+  kills rather than watching every held prompt cascade into a broken session.
+  This narrows the review note's parenthetical, which listed `AgentSessionFailed`
+  among the releasing facts.
+- **The control record travels on the facts of every turn.** A resumed or
+  drained turn republishes the whole session view, so without this
+  `held_input_count` would vanish the instant the turn it describes started.
+  `resume_typed_agent_session` and `retry_typed_agent_session` therefore take
+  the runtime-owned `control` and put it on the view they publish; the agents
+  crate decides nothing about it.
 - **"The existing input queue bound" is 50.** The value
   `RUNTIME_VIEW_COLLECTION_LIMIT` already caps the runtime view's collections
   at, so a client reads `held_input_count` against a bound the view itself

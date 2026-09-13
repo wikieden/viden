@@ -409,6 +409,18 @@ enum SupervisorMessage {
         command: RuntimeCommand,
         submitted_permission_epoch: Option<u64>,
     },
+    /// A supervised Agent session turn completed; forward the next input the
+    /// operator typed while it was paused, if any
+    /// (`runtime.agent_session_control`).
+    ///
+    /// Posted by the session's own event sink, which runs on the adapter's
+    /// monitor thread and therefore cannot touch the worker-owned held-input
+    /// map. This is the same arm-then-drain shape C6 uses for the session
+    /// queue, with the arming signal crossing a thread boundary.
+    DrainHeldSessionInput {
+        owner: RuntimeOwner,
+        session_id: String,
+    },
     ResumeContextRetrieval {
         owner_id: String,
         request_id: String,
@@ -770,6 +782,7 @@ impl RuntimeSupervisor {
 
         install_runtime_event_sink(&mut engine, event_bus.clone(), RuntimeOwner::default());
 
+        let worker_commands = command_sender.clone();
         let worker_event_bus = event_bus.clone();
         let worker_active_control = Arc::clone(&active_control);
         let worker_pending_approvals = Arc::clone(&pending_approvals);
@@ -781,6 +794,7 @@ impl RuntimeSupervisor {
             run_supervisor_worker(
                 engine,
                 command_receiver,
+                worker_commands,
                 worker_event_bus,
                 worker_active_control,
                 worker_pending_approvals,
@@ -1621,9 +1635,14 @@ impl Drop for RuntimeSupervisor {
 }
 
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments)]
 fn run_supervisor_worker(
     mut engine: SessionEngine,
     command_receiver: Receiver<SupervisorMessage>,
+    // The worker's own handle back into its queue: an Agent session's sink
+    // runs on the adapter monitor thread and posts the held-input drain here
+    // rather than reaching into worker-owned state.
+    worker_commands: Sender<SupervisorMessage>,
     event_bus: RuntimeEventBus,
     active_control: ActiveControlRegistry,
     pending_approvals: Arc<Mutex<BTreeMap<String, PendingApproval>>>,
@@ -1750,6 +1769,7 @@ fn run_supervisor_worker(
                             &approval_timers,
                             &permission_control,
                             approval_ttl_secs,
+                            &worker_commands,
                         );
                     }
                     RuntimeCommand::SendAgentSessionInput { input } => {
@@ -1774,21 +1794,26 @@ fn run_supervisor_worker(
                                 command_id,
                                 input.session_id,
                                 Some(input.content),
+                                None,
                                 &event_bus,
                                 &active_control,
                                 &pending_approvals,
                                 &approval_timers,
                                 &permission_control,
                                 approval_ttl_secs,
+                                &worker_commands,
                             );
                         }
                     }
                     RuntimeCommand::RetryAgentSession { session_id } => {
+                        // A retry re-runs the last prompt of a settled session
+                        // and starts no new control history of its own.
                         run_supervised_agent_session_continuation(
                             &engine,
                             owner,
                             command_id,
                             session_id,
+                            None,
                             None,
                             &event_bus,
                             &active_control,
@@ -1796,6 +1821,7 @@ fn run_supervisor_worker(
                             &approval_timers,
                             &permission_control,
                             approval_ttl_secs,
+                            &worker_commands,
                         );
                     }
                     RuntimeCommand::CancelAgentSession { session_id } => {
@@ -1841,6 +1867,7 @@ fn run_supervisor_worker(
                             approval_ttl_secs,
                             &session_audit,
                             &mut held_session_inputs,
+                            &worker_commands,
                         );
                     }
                     RuntimeCommand::KillAgentSession { session_id } => {
@@ -2016,6 +2043,22 @@ fn run_supervisor_worker(
                     ),
                     Err(error) => emit_error(&event_bus, owner, error),
                 }
+            }
+            SupervisorMessage::DrainHeldSessionInput { owner, session_id } => {
+                install_runtime_event_sink(&mut engine, event_bus.clone(), owner.clone());
+                drain_held_session_input(
+                    &engine,
+                    owner,
+                    session_id,
+                    &event_bus,
+                    &active_control,
+                    &pending_approvals,
+                    &approval_timers,
+                    &permission_control,
+                    approval_ttl_secs,
+                    &mut held_session_inputs,
+                    &worker_commands,
+                );
             }
             SupervisorMessage::ResumeContextRetrieval {
                 owner_id,
@@ -2918,6 +2961,7 @@ fn run_supervised_agent_session(
     approval_timers: &Arc<ApprovalTimerRegistry>,
     permission_control: &Arc<Mutex<PermissionControlState>>,
     approval_ttl_secs: u64,
+    worker_commands: &Sender<SupervisorMessage>,
 ) {
     match lane_agent_session_binding(event_bus, &owner) {
         Ok(Some(binding)) => {
@@ -3039,6 +3083,7 @@ fn run_supervised_agent_session(
         session_id.clone(),
         active_control,
         engine.context_engine_root().to_path_buf(),
+        worker_commands.clone(),
     );
 
     if let Err(error) = start_typed_agent_session(
@@ -3161,6 +3206,7 @@ fn supervised_agent_session_sink(
     session_id: String,
     active_control: &ActiveControlRegistry,
     context_engine_root: PathBuf,
+    worker_commands: Sender<SupervisorMessage>,
 ) -> RuntimeEventSink {
     let sink_bus = event_bus.clone();
     let sink_active = Arc::clone(active_control);
@@ -3179,9 +3225,31 @@ fn supervised_agent_session_sink(
                     if session.status.is_terminal()
             )
         });
+        // Only a turn that *completed* releases the next held input, which is
+        // the rule C6 already applies to the session queue: nothing runs behind
+        // a failed, cancelled, or killed turn. A failure leaves the inputs held
+        // and counted, so the operator retries or kills rather than watching
+        // every held prompt cascade into a session that is already broken.
+        let completed = events.iter().any(|event| {
+            matches!(event.kind, RuntimeEventKind::AgentSessionCompleted { .. })
+                || matches!(
+                    &event.kind,
+                    RuntimeEventKind::AgentSessionUpdated { session }
+                        if session.status == AgentSessionStatus::Completed
+                )
+        });
         emit_events(&sink_bus, owner.clone(), events);
         if terminal {
             clear_active_control(&sink_active, &session_id);
+        }
+        if completed {
+            // Arm the drain on the worker. This runs on the adapter's monitor
+            // thread, so the held-input map — which only the worker owns — is
+            // reached by message, never by lock.
+            let _ = worker_commands.send(SupervisorMessage::DrainHeldSessionInput {
+                owner: owner.clone(),
+                session_id: session_id.clone(),
+            });
         }
     })
 }
@@ -3193,12 +3261,17 @@ fn run_supervised_agent_session_continuation(
     command_id: String,
     session_id: String,
     content: Option<String>,
+    // The session's operator-control history, carried onto every fact of the
+    // turn this starts so a client watching `held_input_count` drain never sees
+    // the record disappear between turns.
+    control: Option<AgentSessionControlView>,
     event_bus: &RuntimeEventBus,
     active_control: &ActiveControlRegistry,
     pending_approvals: &Arc<Mutex<BTreeMap<String, PendingApproval>>>,
     approval_timers: &Arc<ApprovalTimerRegistry>,
     permission_control: &Arc<Mutex<PermissionControlState>>,
     approval_ttl_secs: u64,
+    worker_commands: &Sender<SupervisorMessage>,
 ) {
     if permission_control
         .lock()
@@ -3273,10 +3346,14 @@ fn run_supervised_agent_session_continuation(
     }
     session.status = AgentSessionStatus::Starting;
     session.diagnostic = None;
-    let control = ModelRequestControl::new();
-    if let Err(error) =
-        acquire_active_agent_session(active_control, session_id.clone(), owner.clone(), control)
-    {
+    session.control = control;
+    let request_control = ModelRequestControl::new();
+    if let Err(error) = acquire_active_agent_session(
+        active_control,
+        session_id.clone(),
+        owner.clone(),
+        request_control,
+    ) {
         emit_event(
             event_bus,
             owner,
@@ -3325,6 +3402,7 @@ fn run_supervised_agent_session_continuation(
         session_id.clone(),
         active_control,
         engine.context_engine_root().to_path_buf(),
+        worker_commands.clone(),
     );
     let result = if let Some(content) = content {
         resume_typed_agent_session(
@@ -3334,6 +3412,7 @@ fn run_supervised_agent_session_continuation(
             owner.clone(),
             runtime_event_sink,
             approver,
+            control,
         )
     } else {
         retry_typed_agent_session(
@@ -3342,6 +3421,7 @@ fn run_supervised_agent_session_continuation(
             owner.clone(),
             runtime_event_sink,
             approver,
+            control,
         )
     };
     if let Err(error) = result {
@@ -3661,6 +3741,7 @@ fn run_supervised_agent_session_resume(
     approval_ttl_secs: u64,
     audit: &ApprovalAuditLog,
     held_inputs: &mut BTreeMap<String, Vec<String>>,
+    worker_commands: &Sender<SupervisorMessage>,
 ) {
     let Some(mut session) = agent_session_view(event_bus, &session_id) else {
         emit_event(
@@ -3728,11 +3809,12 @@ fn run_supervised_agent_session_resume(
     };
     // Publishing the resumed session before the turn starts is what lets the
     // continuation path see a terminal status; the continuation republishes it
-    // as `Starting` the moment the prompt is actually sent.
+    // as `Starting` the moment the prompt is actually sent, carrying this same
+    // control record so the count stays readable across the turn boundary.
     session.status = AgentSessionStatus::Completed;
-    session.diagnostic = (remaining > 0).then(|| {
-        format!("resumed by owner; {remaining} held input(s) still waiting for the next resume")
-    });
+    session.diagnostic = (remaining > 0)
+        .then(|| format!("resumed by owner; {remaining} held input(s) run after this turn"));
+    let control = session.control;
     emit_event(
         event_bus,
         owner.clone(),
@@ -3744,12 +3826,76 @@ fn run_supervised_agent_session_resume(
         command_id,
         session_id,
         Some(next),
+        control,
         event_bus,
         active_control,
         pending_approvals,
         approval_timers,
         permission_control,
         approval_ttl_secs,
+        worker_commands,
+    );
+}
+
+/// Forward the next input a paused session held, once the turn before it
+/// completed (`runtime.agent_session_control`).
+///
+/// This is the drain half of the arm-then-drain pair: the session's sink arms
+/// it from the adapter's monitor thread, and it runs here, on the worker, which
+/// is the only owner of the held-input map. Nothing runs behind a turn that did
+/// not complete — the arming side already refuses to post for one — so a failed
+/// turn leaves the remaining inputs held, counted, and visible rather than
+/// cascading them into a session that is already broken.
+#[allow(clippy::too_many_arguments)]
+fn drain_held_session_input(
+    engine: &SessionEngine,
+    owner: RuntimeOwner,
+    session_id: String,
+    event_bus: &RuntimeEventBus,
+    active_control: &ActiveControlRegistry,
+    pending_approvals: &Arc<Mutex<BTreeMap<String, PendingApproval>>>,
+    approval_timers: &Arc<ApprovalTimerRegistry>,
+    permission_control: &Arc<Mutex<PermissionControlState>>,
+    approval_ttl_secs: u64,
+    held_inputs: &mut BTreeMap<String, Vec<String>>,
+    worker_commands: &Sender<SupervisorMessage>,
+) {
+    let Some(queue) = held_inputs.get_mut(&session_id) else {
+        return;
+    };
+    if queue.is_empty() {
+        held_inputs.remove(&session_id);
+        return;
+    }
+    let Some(session) = agent_session_view(event_bus, &session_id) else {
+        return;
+    };
+    // A session paused again while its turn ran keeps holding: the operator's
+    // newer intent wins over the drain the older turn armed.
+    if session.status == AgentSessionStatus::Paused || !session.status.is_terminal() {
+        return;
+    }
+    let next = queue.remove(0);
+    let remaining = queue.len() as u32;
+    if queue.is_empty() {
+        held_inputs.remove(&session_id);
+    }
+    let mut control = session.control.unwrap_or_default();
+    control.held_input_count = remaining;
+    run_supervised_agent_session_continuation(
+        engine,
+        owner,
+        fresh_id("cmd-drain-held-input"),
+        session_id,
+        Some(next),
+        Some(control),
+        event_bus,
+        active_control,
+        pending_approvals,
+        approval_timers,
+        permission_control,
+        approval_ttl_secs,
+        worker_commands,
     );
 }
 

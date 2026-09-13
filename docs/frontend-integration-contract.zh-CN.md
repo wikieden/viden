@@ -1035,6 +1035,12 @@ ACP 与 Codex app-server 都没有暂停动词，因此暂停是 Core 侧对该 
   持有的输入，session 落到 `Completed`，在本契约中它本来就表示“没有在途轮次，
   session 存活并接受输入”，而不是“工作完成了”。设置 `control.resumed_at` 并写入
   `agent_session.resume` 行。
+- **每一轮完成都会放行下一条被持有的输入。** 被恢复的 session 按键入顺序排空它所
+  持有的内容：当一轮完成且仍有输入在手时，Core 自己启动下一轮，`held_input_count`
+  随之递减，在最后一条上归零。客户端必须预期出现自己并未命令的
+  `AgentSessionStarted` —— 被排空的那一轮之前没有 `CommandAccepted`，而 session 的
+  `control` 正是客户端据以知道它为何出现的依据。失败、被取消或被终止的那一轮之后
+  不放行任何东西：剩余输入继续被持有并计数，由操作者重试或终止。
 - **Kill** 接受任何非终态状态，包括 `Paused`。进程被立即终止、完全没有宽限期，
   常驻连接被退役，被持有的输入被丢弃并在 diagnostic 中指明数量，session 以新的
   终态事件 `AgentSessionKilled` 了结，携带 `control.terminated_by: Killed`，并写入
@@ -1054,10 +1060,6 @@ session 自身的 `status` 读取存活性，而绝不从它在该列表中的�
 
 切换模型是客户端对 Kill（或 Cancel）加上携带新 `model` 与原 `load_session_id` 的
 `StartAgentSession` 的组合。没有切换模型命令，客户端必须把它渲染成它本来的两步流程。
-
-已知限制（0.3.5）：resume 只转发第一条被持有的输入。其余被持有的输入仍然保持被持有
-并计入 `held_input_count`，session 的 diagnostic 指明还剩多少条。在被恢复的那一轮
-之后继续排空其余输入是后续工作。
 
 ## Approval 和 Permission UI 契约
 

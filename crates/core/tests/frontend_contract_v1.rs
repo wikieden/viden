@@ -1083,7 +1083,7 @@ fn agent_session_control_fixture_holds_input_while_paused_and_settles_a_kill() {
         "the denial's audit id must resolve to a row on the page"
     );
 
-    // The held input is accepted, so "typed but not sent" is a Core fact.
+    // Held inputs are accepted, so "typed but not sent" is a Core fact.
     let paused_counts = kinds
         .iter()
         .filter_map(|kind| match kind {
@@ -1095,14 +1095,56 @@ fn agent_session_control_fixture_holds_input_while_paused_and_settles_a_kill() {
             _ => None,
         })
         .collect::<Vec<_>>();
-    assert_eq!(paused_counts, [0, 1]);
+    assert_eq!(paused_counts, [0, 1, 2]);
+    assert_eq!(
+        kinds
+            .iter()
+            .filter(|kind| matches!(
+                kind,
+                RuntimeEventKind::AgentSessionInputAccepted { session_id, .. }
+                    if session_id == "session_control"
+            ))
+            .count(),
+        2,
+        "every input held while paused is still accepted"
+    );
+
+    // Every held input runs, in order, and the count walks to zero. The second
+    // turn is the one a client cannot infer: it starts with no `CommandAccepted`
+    // of its own, because the drain behind the first turn is what released it.
+    let forwarded = kinds
+        .iter()
+        .filter_map(|kind| match kind {
+            RuntimeEventKind::AgentSessionStarted { session } => session
+                .control
+                .map(|control| (session.task.as_str(), control.held_input_count)),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        forwarded,
+        [
+            ("task.session_control.held_one", 1),
+            ("task.session_control.held_two", 0),
+        ]
+    );
+    let drained = kinds
+        .iter()
+        .position(|kind| {
+            matches!(
+                kind,
+                RuntimeEventKind::AgentSessionStarted { session }
+                    if session.task == "task.session_control.held_two"
+            )
+        })
+        .expect("the drained turn is published");
     assert!(
-        kinds.iter().any(|kind| matches!(
-            kind,
-            RuntimeEventKind::AgentSessionInputAccepted { session_id, .. }
-                if session_id == "session_control"
-        )),
-        "an input held while paused is still accepted"
+        matches!(
+            kinds[drained - 1],
+            RuntimeEventKind::AgentSessionCompleted { .. }
+        ),
+        "the drained turn follows the completion that released it, with no \
+         command of its own in between"
     );
 
     // Wrong-status commands are refused by name, both directions.
@@ -3734,6 +3776,42 @@ fn agent_session_control_fixture() -> FrontendContractFixtureOut {
         control: None,
         ..session.clone()
     };
+    let paused_with = |held_input_count: u32| RuntimeEventKind::AgentSessionUpdated {
+        session: with_control(
+            AgentSessionStatus::Paused,
+            Some("paused by owner; the agent connection is held"),
+            AgentSessionControlView {
+                paused_at: Some(1_700_006_010),
+                resumed_at: None,
+                terminated_by: None,
+                held_input_count,
+            },
+        ),
+    };
+    let accepted_input = |command_id: &str| RuntimeEventKind::CommandAccepted {
+        command_id: command_id.to_string(),
+        command: RuntimeCommand::SendAgentSessionInput {
+            input: AgentSessionInput {
+                session_id: "session_control".to_string(),
+                content: "[REDACTED]".to_string(),
+            },
+        },
+    };
+    let input_accepted = |input_id: &str| RuntimeEventKind::AgentSessionInputAccepted {
+        session_id: "session_control".to_string(),
+        input_id: input_id.to_string(),
+    };
+    let forwarded_turn = |task: &str, held_input_count: u32| AgentSessionView {
+        status: AgentSessionStatus::Starting,
+        task: task.to_string(),
+        control: Some(AgentSessionControlView {
+            paused_at: Some(1_700_006_010),
+            resumed_at: Some(1_700_006_020),
+            terminated_by: None,
+            held_input_count,
+        }),
+        ..session.clone()
+    };
 
     let kinds = vec![
         RuntimeEventKind::AgentSessionStarted {
@@ -3774,60 +3852,45 @@ fn agent_session_control_fixture() -> FrontendContractFixtureOut {
                 },
             ),
         },
-        // Input typed while paused: accepted, counted, not forwarded.
-        RuntimeEventKind::CommandAccepted {
-            command_id: "cmd_session_held_input".to_string(),
-            command: RuntimeCommand::SendAgentSessionInput {
-                input: AgentSessionInput {
-                    session_id: "session_control".to_string(),
-                    content: "[REDACTED]".to_string(),
-                },
-            },
-        },
-        RuntimeEventKind::AgentSessionInputAccepted {
-            session_id: "session_control".to_string(),
-            input_id: "agent-input_session_control_held".to_string(),
-        },
-        RuntimeEventKind::AgentSessionUpdated {
-            session: with_control(
-                AgentSessionStatus::Paused,
-                Some("paused by owner; the agent connection is held"),
-                AgentSessionControlView {
-                    paused_at: Some(1_700_006_010),
-                    resumed_at: None,
-                    terminated_by: None,
-                    held_input_count: 1,
-                },
-            ),
-        },
+        // Two inputs typed while paused: accepted, counted, not forwarded.
+        accepted_input("cmd_session_held_input_one"),
+        input_accepted("agent-input_session_control_held_one"),
+        paused_with(1),
+        accepted_input("cmd_session_held_input_two"),
+        input_accepted("agent-input_session_control_held_two"),
+        paused_with(2),
         // A control command against a status that does not allow it is refused
         // by name, so a client can tell "already paused" from "already gone".
         RuntimeEventKind::CommandRejected {
             command_id: "cmd_session_pause_again".to_string(),
             reason: "session_status_paused".to_string(),
         },
-        // Resume forwards the held input and the session runs it.
+        // Resume forwards the first held input and the session runs it.
         RuntimeEventKind::CommandAccepted {
             command_id: "cmd_session_resume".to_string(),
             command: RuntimeCommand::ResumeAgentSession {
                 session_id: "session_control".to_string(),
             },
         },
-        RuntimeEventKind::AgentSessionUpdated {
-            session: with_control(
-                AgentSessionStatus::Running,
-                None,
-                AgentSessionControlView {
-                    paused_at: Some(1_700_006_010),
-                    resumed_at: Some(1_700_006_020),
-                    terminated_by: None,
-                    held_input_count: 0,
-                },
-            ),
+        RuntimeEventKind::AgentSessionStarted {
+            session: forwarded_turn("task.session_control.held_one", 1),
         },
         RuntimeEventKind::CommandRejected {
             command_id: "cmd_session_resume_running".to_string(),
             reason: "session_status_running".to_string(),
+        },
+        RuntimeEventKind::AgentSessionCompleted {
+            session: AgentSessionView {
+                status: AgentSessionStatus::Completed,
+                output: Some("the first held prompt ran".to_string()),
+                ..forwarded_turn("task.session_control.held_one", 1)
+            },
+        },
+        // The drain: the second held input starts a turn the client never
+        // commanded. No `CommandAccepted` precedes it, and the count reaches
+        // zero — the fact a client cannot infer from its own sent commands.
+        RuntimeEventKind::AgentSessionStarted {
+            session: forwarded_turn("task.session_control.held_two", 0),
         },
         // Kill: immediate, terminal, and distinguishable from a cancel.
         RuntimeEventKind::CommandAccepted {
@@ -3837,16 +3900,17 @@ fn agent_session_control_fixture() -> FrontendContractFixtureOut {
             },
         },
         RuntimeEventKind::AgentSessionKilled {
-            session: with_control(
-                AgentSessionStatus::Killed,
-                Some("killed by owner"),
-                AgentSessionControlView {
+            session: AgentSessionView {
+                status: AgentSessionStatus::Killed,
+                diagnostic: Some("killed by owner".to_string()),
+                control: Some(AgentSessionControlView {
                     paused_at: Some(1_700_006_010),
-                    resumed_at: None,
+                    resumed_at: Some(1_700_006_020),
                     terminated_by: Some(AgentSessionTermination::Killed),
                     held_input_count: 0,
-                },
-            ),
+                }),
+                ..forwarded_turn("task.session_control.held_two", 0)
+            },
         },
         // A killed session is retryable exactly as a failed one is, and the
         // retry runs under the same logical session id.
