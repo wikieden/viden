@@ -218,7 +218,7 @@ Core 事实而非版式：
 | 审批浮层高度 14 → 18（`modal.rs`） | 否则新增的常驻范围行与修订行会把 `Deny` 与 `Edit` 挤出面板底部 |
 | `apps/tui/release-manifest.toml` 的 `catalog_en` / `catalog_zh_cn` | 两份词表新增了计划、会话控制、审批范围与 starter Lane 的英文与简体中文键 |
 
-`scripts/tui-regression.sh` 在完成分支上通过：24 个文本帧、对应的 `.ansi` 渲染与 24 个
+`scripts/tui-regression.sh` 在完成分支上通过：25 个文本帧、对应的 `.ansi` 渲染与 24 个
 `.svg` 产物，外加 22 项认证测试与边界扫描。
 
 ## 离线实机检查，2026-09-13

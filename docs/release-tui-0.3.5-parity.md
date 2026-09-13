@@ -248,9 +248,9 @@ layout:
 | approval overlay height 14 → 18 (`modal.rs`) | without it the new standing-scope and revision rows pushed `Deny` and `Edit` off the bottom of the panel |
 | `apps/tui/release-manifest.toml` `catalog_en` / `catalog_zh_cn` | both catalogs gained the plan, session-control, approval-scope and starter-Lane keys in English and Simplified Chinese |
 
-`scripts/tui-regression.sh` passed on the finished branch: 24 text frames, the
-`.ansi` renderings, and 24 `.svg` artifacts, plus the 22 certification tests and
-the boundary scan.
+`scripts/tui-regression.sh` passed on the finished branch: 25 text frames, the
+matching `.ansi` renderings, and 24 `.svg` artifacts, plus the 22 certification
+tests and the boundary scan.
 
 ## Live Offline Check, 2026-09-13
 
