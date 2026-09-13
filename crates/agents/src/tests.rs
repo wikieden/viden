@@ -1814,7 +1814,15 @@ fn acp_terminal_bridge_supports_long_running_output_polling() {
     let mut terminals = AcpTerminalStore::default();
     let mut approver = |_prompt: viden_types::PermissionPrompt| ApprovalResponse::allow_once(None);
 
-    let started = Instant::now();
+    // The command's lifetime is owned by this file, not by a wall-clock sleep:
+    // it cannot exit until the test releases it, so "terminal/create returned
+    // while the command was still running" is true by construction rather than
+    // by winning a race with a loaded machine.
+    let release = root.join("release-long-running");
+    let command = format!(
+        "printf started; while [ ! -f {} ]; do sleep 0.02; done; printf done",
+        release.display()
+    );
     let create = acp_terminal_create_response(
         &root,
         &mut engine,
@@ -1828,31 +1836,38 @@ fn acp_terminal_bridge_supports_long_running_output_polling() {
             "params": {
                 "sessionId": "session_terminal",
                 "command": "sh",
-                "args": ["-c", "printf started; sleep 1; printf done"]
+                "args": ["-c", command]
             }
         }),
-    );
-    assert!(
-        started.elapsed() < Duration::from_millis(500),
-        "terminal/create should return before the command exits"
     );
     assert!(create.contains(r#""terminalId":"acp-terminal-1""#));
 
-    std::thread::sleep(Duration::from_millis(100));
-    let output = acp_terminal_output_response(
-        &mut terminals,
-        &json!({
-            "jsonrpc": "2.0",
-            "id": 48,
-            "method": "terminal/output",
-            "params": {
-                "sessionId": "session_terminal",
-                "terminalId": "acp-terminal-1"
-            }
-        }),
+    // Event-driven wait with a generous bound, instead of assuming a fixed
+    // 100ms is enough for the child to be scheduled and flushed.
+    let output_request = json!({
+        "jsonrpc": "2.0",
+        "id": 48,
+        "method": "terminal/output",
+        "params": {
+            "sessionId": "session_terminal",
+            "terminalId": "acp-terminal-1"
+        }
+    });
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let mut output = acp_terminal_output_response(&mut terminals, &output_request);
+    while !output.contains("started") && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(20));
+        output = acp_terminal_output_response(&mut terminals, &output_request);
+    }
+    assert!(
+        output.contains("started"),
+        "terminal/output should stream the first chunk while the command runs: {output}"
     );
-    assert!(output.contains("started"));
+    // Still null because the command is blocked on the release file: this is the
+    // assertion that terminal/create did not wait for the command to exit.
     assert!(output.contains(r#""exitCode":null"#));
+
+    fs::write(&release, "go").expect("release the long-running command");
 
     let wait = acp_terminal_wait_for_exit_response(
         &mut terminals,
@@ -1904,13 +1919,32 @@ fn acp_terminal_bridge_can_kill_long_running_processes() {
             "params": {
                 "sessionId": "session_terminal",
                 "command": "sh",
-                "args": ["-c", "printf started; sleep 5; printf never"]
+                "args": ["-c", "printf started; sleep 30; printf never"]
             }
         }),
     );
     assert!(create.contains(r#""terminalId":"acp-terminal-1""#));
 
-    std::thread::sleep(Duration::from_millis(100));
+    // Event-driven: wait for the first chunk before killing, so the "started"
+    // assertion at the end of this test cannot lose a race with a loaded
+    // machine the way a fixed 100ms sleep could. The command itself now sleeps
+    // 30s rather than 5s so the kill, not the command, ends it.
+    let output_request = json!({
+        "jsonrpc": "2.0",
+        "id": 54,
+        "method": "terminal/output",
+        "params": {
+            "sessionId": "session_terminal",
+            "terminalId": "acp-terminal-1"
+        }
+    });
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !acp_terminal_output_response(&mut terminals, &output_request).contains("started")
+        && Instant::now() < deadline
+    {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+
     let kill = acp_terminal_kill_response(
         &mut terminals,
         &json!({
@@ -1939,18 +1973,7 @@ fn acp_terminal_bridge_can_kill_long_running_processes() {
     );
     assert!(wait.contains(r#""signal":"killed""#));
 
-    let output = acp_terminal_output_response(
-        &mut terminals,
-        &json!({
-            "jsonrpc": "2.0",
-            "id": 54,
-            "method": "terminal/output",
-            "params": {
-                "sessionId": "session_terminal",
-                "terminalId": "acp-terminal-1"
-            }
-        }),
-    );
+    let output = acp_terminal_output_response(&mut terminals, &output_request);
     assert!(output.contains("started"));
     assert!(!output.contains("never"));
 }
@@ -2173,6 +2196,11 @@ fn acp_async_job_records_status_and_result() {
     let _guard = subprocess_test_guard();
     let root = temp_root("acp_async_job");
     let script = root.join("mock-acp-async.sh");
+    // The turn stays open until this test releases it, so the "assistant event
+    // is durable while the job is still running" window below is owned by the
+    // test rather than by a 3s sleep the poll loop had to beat.
+    let release = root.join("release-async-turn-end");
+    let hold_turn_open = format!("while [ ! -f {} ]; do sleep 0.05; done", release.display());
     fs::write(
         &script,
         [
@@ -2183,7 +2211,7 @@ fn acp_async_job_records_status_and_result() {
             "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"sessionId\":\"session_async\"}}'",
             "read _prompt",
             "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"session_async\",\"update\":{\"type\":\"AgentMessageChunk\",\"content\":\"async done\"}}}'",
-            "sleep 3",
+            hold_turn_open.as_str(),
             "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"session_async\",\"update\":{\"type\":\"TurnEnd\",\"status\":\"completed\"}}}'",
         ]
         .join("\n"),
@@ -2207,7 +2235,7 @@ fn acp_async_job_records_status_and_result() {
         .to_string();
     let runtime_events_path = acp_job_runtime_events_path(&root, &id);
 
-    let live_deadline = Instant::now() + Duration::from_secs(2);
+    let live_deadline = Instant::now() + Duration::from_secs(30);
     let mut saw_live_event_while_running = false;
     while Instant::now() < live_deadline {
         let running = find_codex_job(&root, &id)
@@ -2247,6 +2275,7 @@ fn acp_async_job_records_status_and_result() {
         RuntimeEventKind::EvidenceRecorded { evidence } if evidence.kind == "acp_turn_end"
     )));
 
+    fs::write(&release, "go").expect("release the async turn");
     wait_until(
         || {
             find_codex_job(&root, &id)
@@ -2254,7 +2283,7 @@ fn acp_async_job_records_status_and_result() {
                 .flatten()
                 .is_some_and(|job| job.status == "finished")
         },
-        Duration::from_secs(10),
+        Duration::from_secs(30),
     );
 
     let status = render_codex_job_status(&root).expect("render job status");
@@ -2646,6 +2675,12 @@ fn acp_async_job_pushes_runtime_events_to_live_sink() {
     let _guard = subprocess_test_guard();
     let root = temp_root("acp_async_live_sink");
     let script = root.join("mock-acp-live-sink.sh");
+    // Same shape as the durable-events test: the job must still be running when
+    // the assertion at the end reads its status, so the turn is held open by a
+    // file this test writes instead of by a 2s sleep the channel wait had to
+    // beat.
+    let release = root.join("release-live-sink-turn-end");
+    let hold_turn_open = format!("while [ ! -f {} ]; do sleep 0.05; done", release.display());
     fs::write(
         &script,
         [
@@ -2656,7 +2691,7 @@ fn acp_async_job_pushes_runtime_events_to_live_sink() {
             "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"sessionId\":\"session_live\"}}'",
             "read _prompt",
             "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"session_live\",\"update\":{\"type\":\"AgentMessageChunk\",\"content\":\"live sink delta\"}}}'",
-            "sleep 2",
+            hold_turn_open.as_str(),
             "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"session_live\",\"update\":{\"type\":\"TurnEnd\",\"status\":\"completed\"}}}'",
         ]
         .join("\n"),
@@ -2685,7 +2720,7 @@ fn acp_async_job_pushes_runtime_events_to_live_sink() {
         .expect("job id in output")
         .to_string();
 
-    let live_events = wait_for_channel_events(&receiver, Duration::from_secs(10), |events| {
+    let live_events = wait_for_channel_events(&receiver, Duration::from_secs(30), |events| {
         let has_proposed_gate = events.iter().any(|event| {
             matches!(
                 &event.kind,
@@ -2714,6 +2749,7 @@ fn acp_async_job_pushes_runtime_events_to_live_sink() {
         .expect("find job")
         .expect("job exists");
     assert_eq!(job.status, "running");
+    fs::write(&release, "go").expect("release the live-sink turn");
 }
 
 #[test]
