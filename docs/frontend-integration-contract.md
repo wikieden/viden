@@ -1437,6 +1437,12 @@ bytes it always did.
   change wearing the reviewed change's approval. A client must render only what
   the request offers; sending either where it was not offered is
   `CommandRejected` with `scope_not_offered`, and the request stays pending.
+- **What an editable request carries** (GUI-CORE-036). An `editable` request
+  also publishes `input`, the exact `ToolInput` the engine decided on — the
+  bytes a revision starts from and the bytes `revision_unchanged` compares
+  against. It is present only when `editable` is true and omitted otherwise, so
+  a client seeds its editor from the typed field rather than re-parsing
+  `input_preview`, which is Core's rendering and not the input.
 - **What a grant means.** `always` installs a rule keyed on the same
   tool-plus-content pair a `session` rule uses, persisted in the
   `[[permissions.standing]]` table of `settings.toml` in the Viden home and

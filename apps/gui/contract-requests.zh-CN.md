@@ -1096,6 +1096,28 @@ GUI 的客户端侧上限保持原样，现在它是纵深防御而不再是唯�
 `Retry ACP check` 控件以及 `GuiCoreAdapter::abandon_pending_probe`，对一个不再阻塞的
 Core 依然正确，并且仍然覆盖握手本身耗时很长的主机。
 
+## GUI-CORE-036：可编辑的审批请求必须发布其类型化输入 —— 已关闭（Core 2026-09-13）
+
+2026-09-13 开立并同时关闭。由批次 T4 在构建 TUI 的改写编辑器时发现。
+
+`ApprovalRequestView` 提供了 `editable`，却没有提供输入。想要填充改写的客户端
+只有 `input_preview`，而那是 Core 对输入的渲染（每行 `  key: value`），不是输入
+本身。随后 Core 会把改写与原输入逐字节比较，对完全相同的改写以
+`revision_unchanged` 拒绝——于是反解渲染的客户端，实际上是在重建它必须通过的
+那次比较所用的确切字节，这正是渲染无法替代值的那个位置。Core 本就持有这些字节：
+`PermissionPrompt.input` 就是 C15 的 `revision_unchanged` 检查所读取的内容。
+
+**由 Core 批次 C16 关闭。** `ApprovalRequestView` 新增
+`input: Option<ToolInput>`（`crates/types/src/runtime.rs:568`），仅在 `editable`
+为真时填充——supervisor 路径（`crates/runtime/src/runtime_supervisor.rs` 的
+`approval_request_view`）与直接契约路径（`crates/runtime/src/runtime_contract.rs`
+的 `approval_request_view`）一致。Lane 审批从不可编辑，因此不携带该字段。该字段
+带 `skip_serializing_if = "Option::is_none"`，因此所有非可编辑请求以及九个冻结
+base fixture 都逐字节不变；`approval-scopes` extension fixture 确实发生了移动，
+因为它的五个可编辑请求现在携带了该字段。测试：
+`crates/runtime/src/tests/approval_scopes_tests.rs:489`。没有 capability、计数或
+事件形状变化。
+
 ## 已退役的前登记编码
 
 `GUI-CORE-001` 到 `GUI-CORE-007` 早于本登记册，本册从 008 开始。它们从来不是这里

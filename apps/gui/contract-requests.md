@@ -1424,6 +1424,33 @@ than the only bound: `AGENT_PROBE_TIMEOUT_MS` (15 s), the
 `GuiCoreAdapter::abandon_pending_probe` remain correct against a Core that no
 longer blocks, and they still cover a host where the handshake itself runs long.
 
+## GUI-CORE-036: An editable approval request must publish its typed input — CLOSED (Core 2026-09-13)
+
+Opened and closed 2026-09-13. Found by batch T4 while building the TUI's
+revision editor.
+
+`ApprovalRequestView` offered `editable` but no input. A client that wanted to
+seed a revision had only `input_preview`, which is Core's own rendering of the
+input (`  key: value` per line), not the input. Core then compares the revision
+byte-for-byte against the original and refuses an identical one as
+`revision_unchanged`, so a client re-parsing the rendering was reconstructing
+the exact bytes of the very comparison it had to survive — the one place a
+rendering cannot stand in for the value. Core already held those bytes:
+`PermissionPrompt.input` is what C15's `revision_unchanged` check reads.
+
+**Closed by Core batch C16.** `ApprovalRequestView` gains
+`input: Option<ToolInput>` (`crates/types/src/runtime.rs:568`), populated only
+when `editable` is true — on the supervisor path
+(`crates/runtime/src/runtime_supervisor.rs`, `approval_request_view`) and on the
+direct contract path (`crates/runtime/src/runtime_contract.rs`,
+`approval_request_view`) alike. A Lane approval is never editable and carries
+none. The field is `skip_serializing_if = "Option::is_none"`, so every
+non-editable request and all nine frozen base fixtures encode byte-identically;
+the `approval-scopes` extension fixture does move, because its five editable
+requests now carry the field. Test:
+`crates/runtime/src/tests/approval_scopes_tests.rs:489`. No capability, count,
+or event-shape change.
+
 ## Retired pre-register codes
 
 `GUI-CORE-001` to `GUI-CORE-007` predate this register, which starts at 008.

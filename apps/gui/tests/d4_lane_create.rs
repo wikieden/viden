@@ -173,6 +173,7 @@ fn approval(owner: RuntimeOwner, lane_id: &str) -> ApprovalRequestView {
         decision_context: None,
         revised_from: None,
         editable: false,
+        input: None,
     }
 }
 

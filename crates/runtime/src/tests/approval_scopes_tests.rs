@@ -477,3 +477,126 @@ fn a_revision_that_still_needs_a_decision_publishes_a_second_linked_request() {
         )
     }));
 }
+
+/// An editable request publishes the bytes an `Edit` has to start from.
+///
+/// A client that could only scrape `input_preview` would be re-parsing Core's
+/// rendering to build the revision Core then compares byte-for-byte against the
+/// original, which is the one comparison a rendering cannot survive
+/// (GUI-CORE-036, found by T4). A request Core will not accept an `Edit` for
+/// publishes no `input` at all, so every existing request encodes unchanged.
+#[test]
+fn an_editable_request_carries_the_typed_input_and_a_non_editable_one_carries_none() {
+    let cwd = temp_dir("approval_scopes_typed_input_cwd");
+    let home = temp_dir("approval_scopes_typed_input_home");
+    let mut write_input = ToolInput::new();
+    write_input.insert("path".to_string(), "typed-input.txt".to_string());
+    write_input.insert("content".to_string(), "written".to_string());
+    let provider = Box::new(SequenceProvider::new(vec![
+        shell_turn("printf typed"),
+        vec![
+            ModelEvent::ToolCall(ToolCall {
+                id: "tool_write_typed".to_string(),
+                name: "write_file".to_string(),
+                input: write_input.clone(),
+            }),
+            ModelEvent::Done,
+        ],
+    ]));
+    let engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    let supervisor = RuntimeSupervisor::start(engine);
+    let owner = owner_for_lane("lane-typed-input");
+
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "cmd_typed_input_shell",
+            RuntimeCommand::SubmitUserInput {
+                content: "run a command".to_string(),
+            },
+        )
+        .unwrap();
+    let events = collect_until(&supervisor, |events| {
+        events
+            .iter()
+            .any(|event| matches!(event.kind, RuntimeEventKind::ApprovalRequested { .. }))
+    });
+    let editable_request = approval(&events);
+    assert!(
+        editable_request.editable,
+        "a shell approval is editable: {editable_request:#?}"
+    );
+    assert_eq!(
+        editable_request.input.as_ref(),
+        Some(&shell_input("printf typed")),
+        "an editable request carries the exact input the engine decided on"
+    );
+    let encoded = serde_json::to_value(&editable_request).expect("encode the editable request");
+    assert!(
+        encoded.get("input").is_some(),
+        "an editable request serializes its input: {encoded}"
+    );
+
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "cmd_typed_input_deny",
+            RuntimeCommand::RespondToApproval {
+                request_id: editable_request.id.clone(),
+                response: ApprovalResponse::deny(None),
+            },
+        )
+        .unwrap();
+    collect_until(&supervisor, |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::ApprovalResolved { request_id, .. }
+                    if request_id == &editable_request.id
+            )
+        })
+    });
+
+    supervisor
+        .send_command_from_owner(
+            owner,
+            "cmd_typed_input_write",
+            RuntimeCommand::SubmitUserInput {
+                content: "write a file".to_string(),
+            },
+        )
+        .unwrap();
+    let events = collect_until(&supervisor, |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::ApprovalRequested { approval }
+                    if approval.tool_name == "write_file"
+            )
+        })
+    });
+    let sealed_request = events
+        .iter()
+        .find_map(|event| match &event.kind {
+            RuntimeEventKind::ApprovalRequested { approval }
+                if approval.tool_name == "write_file" =>
+            {
+                Some(approval.clone())
+            }
+            _ => None,
+        })
+        .expect("a write_file approval");
+    assert!(
+        !sealed_request.editable,
+        "a patch-bearing input is never editable: {sealed_request:#?}"
+    );
+    assert!(
+        sealed_request.input.is_none(),
+        "a request Core will not accept an Edit for publishes no input: {sealed_request:#?}"
+    );
+    let encoded = serde_json::to_value(&sealed_request).expect("encode the sealed request");
+    assert!(
+        encoded.get("input").is_none(),
+        "a non-editable request encodes exactly the bytes it did before this field existed: {encoded}"
+    );
+}

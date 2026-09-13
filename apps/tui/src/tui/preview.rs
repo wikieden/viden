@@ -688,6 +688,9 @@ fn approval_hunks_preview_state(provider: &str, model: &str, theme_name: &str) -
         allowed_scopes: vec![ApprovalScope::Once],
         revised_from: None,
         editable: false,
+        // `edit_file` is not editable, so the preview carries no typed input
+        // either (GUI-CORE-036).
+        input: None,
         policy_reason_key: "permission.requires_approval".to_string(),
         policy_reason_args: Default::default(),
         expires_at: 0,

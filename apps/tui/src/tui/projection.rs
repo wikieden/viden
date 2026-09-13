@@ -877,6 +877,7 @@ mod tests {
             decision_context: None,
             revised_from: None,
             editable: false,
+            input: None,
         });
         runtime.errors.push(RuntimeErrorView {
             message: "structured error".to_string(),

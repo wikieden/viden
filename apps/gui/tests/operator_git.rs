@@ -185,6 +185,7 @@ fn git_approval(sequence: u64) -> RuntimeEventEnvelope {
                 decision_context: None,
                 revised_from: None,
                 editable: false,
+                input: None,
             },
         },
     )

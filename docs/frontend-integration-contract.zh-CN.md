@@ -1182,6 +1182,11 @@ task 标记为 failed，保留已经 terminal 的 task，不改变无关 active 
   `approval.revoke`，发布 `StandingApprovalRevoked`，最后才清理在用引擎。
   文件中不存在的 `rule_id` 以 `CommandRejected` 回答，而不是回以一次什么也没
   移除的撤销。
+- **可编辑请求携带什么**（GUI-CORE-036）。`editable` 为真的请求还会发布
+  `input`，即引擎实际裁决的那份 `ToolInput` —— 改写的起点字节，也是
+  `revision_unchanged` 所比较的字节。它只在 `editable` 为真时出现，否则省略，
+  因此客户端应当用这个类型化字段来填充编辑器，而不是去反解 `input_preview`：
+  后者是 Core 的渲染，不是输入本身。
 - **一次编辑意味着什么。** 改写会被重新裁决，而不是被放行：Core 运行
   `decide(tool, revised_input)`。放行则以改写后的字节执行工具并带上
   `user_modified: true`，原请求以决定 `edit` 结束。仍需裁决则原请求以 `edit`

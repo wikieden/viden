@@ -5574,6 +5574,10 @@ fn approval_request_view(
         decision_context: prompt.decision_context.clone(),
         revised_from,
         editable,
+        // Only an editable request seeds a revision, so only an editable
+        // request publishes the bytes (GUI-CORE-036). Every other request
+        // encodes exactly as it did before this field existed.
+        input: editable.then(|| prompt.input.clone()),
     }
 }
 
