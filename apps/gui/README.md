@@ -686,14 +686,15 @@ destination is reachable from the rail" checkable rather than asserted.
 | # | Slot | Opens | Glyph | Availability |
 | --- | --- | --- | --- | --- |
 | 1 | Conversation | the transcript; focuses the composer | `chat` | a focusable composer |
-| 2 | Lanes | toggles the Lane sidebar (see below) | `lanes` | a bound workspace |
-| 3 | Diff review | centre view `review` | `review` | `runtime.structured_diff` |
-| 4 | Evidence | centre view `evidence` | `evidence` | `runtime.evidence_reads` |
-| 5 | Decisions | centre view `d2` | `decide` | a bound host |
-| 6 | Lane monitor | centre view `d10` | `diagnostics` | a bound host |
-| 7 | Integration gate | centre view `d12` | `worktree` | a bound host |
-| 8 | Fleet | centre view `d13` | `fleet` | a bound host |
-| 9 | Audit | centre view `d14` | `brief` | a bound host |
+| 2 | Plan Studio | centre view `d15` | `plan` | `runtime.plan_documents` |
+| 3 | Lanes | toggles the Lane sidebar (see below) | `lanes` | a bound workspace |
+| 4 | Diff review | centre view `review` | `review` | `runtime.structured_diff` |
+| 5 | Evidence | centre view `evidence` | `evidence` | `runtime.evidence_reads` |
+| 6 | Decisions | centre view `d2` | `decide` | a bound host |
+| 7 | Lane monitor | centre view `d10` | `diagnostics` | a bound host |
+| 8 | Integration gate | centre view `d12` | `worktree` | a bound host |
+| 9 | Fleet | centre view `d13` | `fleet` | a bound host |
+| 10 | Audit | centre view `d14` | `brief` | a bound host |
 | — | Settings | the Settings overlay, below the spacer | `settings` | a bound host |
 
 Every glyph is a registered `GUI/gui-icons.jsx` path; no slot invents art.
@@ -707,14 +708,17 @@ rather than only in a tooltip — `Diff review — unavailable: Core publishes n
 runtime.structured_diff`. Audit is the one destination that is never blocked:
 without `runtime.audit` D14 opens in raw event replay, which is a different
 view of the same question, so the slot says so up front instead of letting the
-operator discover it after the click. The only badge is the Decisions slot's
-pending count, which is `statusbar.pendingDecisionCount` — the one count
-[Decision queue badge](#decision-queue-badge) defines. No other slot carries one, because no other slot has a Core-published
+operator discover it after the click. Two slots carry a badge, and both count a Core fact. The Decisions slot's
+pending count is `statusbar.pendingDecisionCount` — the one count
+[Decision queue badge](#decision-queue-badge) defines. The Plan Studio slot's is
+`1` while a plan is `Proposed` for the selected owner, which is one decision
+awaiting the operator and nothing else (see
+[Plan Studio (G8)](#plan-studio-g8)). No other slot carries one, because no other slot has a Core-published
 count, and a zero would read as "nothing waiting" when the truth is "nobody
 counted".
 
 **Centre views.** `centerView` is `transcript | review | evidence | d2 | d10 |
-d12 | d13 | d14`, and the cockpit publishes it as `data-center-view` on its own
+d12 | d13 | d14 | d15`, and the cockpit publishes it as `data-center-view` on its own
 frame; `root.dataset.route` stays `d1`, because the centre view is a fact about
 the cockpit rather than a route. The five D-screens are mounted through one
 seam, `D1RenderOptions.secondaryViews`: the shell owns *what* goes in (each
@@ -949,6 +953,7 @@ overlay owns focus.
 | `⌘E` | EvidenceView (toggles) | no host is bound, or Core published no `runtime.evidence_reads` |
 | `⌘F` | focuses the evidence search box | EvidenceView does not own the centre pane |
 | `⌘G` | the Decisions queue (toggles) | no router and no secondary host is bound |
+| `⌘⇧P` | the Plan View (toggles) | no host is bound, or Core published no `runtime.plan_documents` — the same condition the rail slot fails closed on. Shifted because bare `⌘P` is the dock's Files panel and bare `⌃P` is the palette's command scope |
 | `⌥⌘E` | the dock's Environment panel | an overlay owns focus |
 | `⌘P` | the dock's Files panel (meta key only; `⌃P` stays the palette's) | an overlay owns focus |
 | `⌘D` | the dock's Diff panel | an overlay owns focus |
@@ -1624,3 +1629,91 @@ shell then answered those chords under the live cockpit and re-rendered its own
 `connecting` projection into the same root — the reported fallback to `Core
 connection pending` with the project chip at `—`. Every mount now goes through
 `claimRoot` in `src/main.ts`, which disposes the previous owner first.
+
+## Plan Studio (G8)
+
+`D-PLANBOARD` registered Plan Studio as a **centre-pane view of the cockpit**,
+hosted exactly the way D2/D10/D12/D13/D14 are: the titlebar, the activity rail,
+the Lane sidebar, the context dock, the composer and the statusbar all stay. It
+is `centerView` `d15`, reached from the rail's new `plan` slot (the registered
+`GUI/gui-icons.jsx` glyph, between `chat` and `lanes`, which is the order
+`D-PLANBOARD` fixed for D15 and D16), from `⌘⇧P`, and from `?screen=d15`.
+
+Every control on it maps to one fact or one command of
+`runtime.plan_documents` (C13). The table says what each sends and — the part
+that matters — what it shows when the fact is absent.
+
+| Control | What it sends | With the fact absent |
+| --- | --- | --- |
+| the rail slot | nothing; it switches the centre view | no `runtime.plan_documents` disables it **and names the capability in the accessible name**, never hides it. A host that cannot answer the read leaves it disabled without claiming Core lacks anything — a host failure is not a Core gap |
+| the rail badge | nothing | `1` while a plan is `Proposed` for the selected owner; no badge for any other status, for an owner with no plan, and for a read nobody has answered yet. Never a zero: "nothing waiting" and "nobody counted" are different facts |
+| **Accept** (`⌘⏎`) | `AcceptPlanDocument { plan_id, revision, content_sha256 }` under a `gui-plan-…` command id | disabled and labelled with Core's own rule: `D15-PLAN-DECIDED` on a settled plan, `D15-NO-PLAN` with no plan, `D15-NO-CAPABILITY` with no capability |
+| **Reject with reason** | `RejectPlanDocument { plan_id, revision, content_sha256, reason }` | the same rules; the reason row itself refuses an over-bound reason rather than truncating one |
+| **Hand off** | `HandOffPlanDocument { plan_id, revision, content_sha256 }` | disabled and labelled: `D15-PLAN-NOT-ACCEPTED` before the accept, `plan_mode` while plan mode is active, `D15-PLAN-HANDED-OFF` afterwards, `D15-PLAN-NO-STEPS` for a plan with nothing to spawn |
+| **Open in Fleet & Workflow** | nothing; it switches the centre view to `d13` | present only once Core published `handoff.dag_id`; with no host bound it states that instead of rendering a link |
+| **Open audit trail** | nothing; it opens `d14` scoped to `plan:<plan_id>` | present only once Core recorded `decision_audit_id` |
+| the composer and the queue line | unchanged — `QueueFollowUp` and `queued_inputs`, the C6 busy predicate | unchanged. The composer stays editable while the planner runs, which is the whole reason a plan can gain a constraint mid-write |
+
+**The decision is pinned to what this render drew.** `revision` and
+`content_sha256` travel from the frame the operator read, through the intent,
+into the command — never re-resolved at send time. That is the single deliberate
+divergence from D12's "re-resolve the gate before sending" pattern, and it is
+the point of the capability: a host that refreshed the pin would turn every
+stale decision into a silent accept of a revision nobody saw. The *actor* is
+still Core's own — the envelope owner is the owner Core published on the plan —
+so the client constructs no runtime identity, and a plan id Core no longer
+publishes is refused by the host rather than sent.
+
+**The three honest states, drawn rather than described:**
+
+- **No plan proposed** is absence. Core publishes the capability and holds no
+  plan for this owner, so the pane says so and states what plan mode blocks; it
+  never draws an empty plan with an enabled Accept.
+- **`plan_revision_stale`** is Core's refusal, rendered in Core's own words in a
+  `role=alert` with the raw code beside it, plus the one remedy the refusal
+  itself prescribes: **Reload the plan**, which re-reads the record Core holds.
+  The view never decides again on what it was already holding.
+- **`plan_mode`** is stated *before* the click. Core refuses
+  `HandOffPlanDocument` while plan mode is active, so the control is disabled
+  and labelled and the reason sits above the decision row. The predicate is
+  fail-closed on both facts Core publishes — `permission_mode == plan`, which is
+  what the producer actually checks, and `work_mode == plan`, which
+  `set_work_mode` couples to it — because a control that looks live and is not
+  costs more than one labelled too eagerly.
+
+**Owner scoping is Core's own rule.** A plan addresses this view when it names
+the selected Lane, or when both it and the view name the session rather than a
+Lane — `plans_share_owner` in `crates/runtime/src/plan_documents.rs`, narrowed
+to what a client can see. Full owner equality is deliberately not used: the turn
+id moves every turn, and a client matching on it would find no plan for an owner
+that has one. Selecting another Lane drops the held plan and re-reads, because a
+plan kept across a selection would badge one Lane with another Lane's decision.
+
+**No history is reconstructed.** The reducer upserts by plan id, so
+`RuntimeViewState` holds the latest revision and nothing else. The record rail
+states `rev N · current` and, when `N > 1`, `rev N-1 · superseded` — the one
+relation the revision number itself carries — with a sentence saying the durable
+log keeps every earlier revision and this view does not rebuild them. A
+superseded revision is never listed as a browsable history, because Core does
+not publish one in the view.
+
+**Absence and ambiguity stay apart.** A Core with no capability, an owner with
+no plan, and an owner Core published more than one *open* plan for are three
+different sentences. The third cannot happen on a Core that enforces "one open
+plan per owner"; if it ever arrives, the client names the ids and decides none
+of them.
+
+**Two deviations from the D15 page, both structural:**
+
+1. The design draws the record rail as the cockpit's own third column. The
+   cockpit's third column is the context dock, so the rail is a column *inside*
+   the centre pane (300 px, collapsing to one column below 1000 px). The fields,
+   their order, and their wording are the design's.
+2. The design's state picker is a prototype affordance for walking the states;
+   production has no picker, because the state is Core's.
+
+The rejection reason is **not** truncated to fit Core's 2 KiB bound: the byte
+counter measures UTF-8 the way Core does, and over the bound the send is
+disabled and states the bound. The bound itself is a mirrored literal, because
+`viden-core` does not re-export `MAX_PLAN_REJECT_REASON_BYTES` — that is
+[GUI-CORE-034](contract-requests.md).

@@ -1299,6 +1299,30 @@ plan — `docs/release-0.3.5-plan.md` Scope Decisions, 2026-09-13. The entry
 stays OPEN and the closing condition above is unchanged; re-dating is not
 closure.
 
+## GUI-CORE-034: `MAX_PLAN_REJECT_REASON_BYTES` is not re-exported by `viden-core`
+
+Opened 2026-09-13 by batch G8 while building the Plan Studio decision row. Not
+scheduled; this is a re-export, not a new fact.
+
+`RejectPlanDocument.reason` is bounded at 2 KiB by
+`viden_types::MAX_PLAN_REJECT_REASON_BYTES`, and the runtime enforces it
+(`crates/runtime/src/plan_documents.rs`, `bounded_plan_reason`). `viden-core`
+re-exports `MAX_PLAN_STEPS`, `MAX_PLAN_TITLE_BYTES`, `MAX_PLAN_GOAL_BYTES` and
+`MAX_PLAN_SECTION_BODY_BYTES`, but not this one — and the GUI may import only
+`viden-core`. So the Plan View cannot name the bound it is enforcing, and
+`apps/gui/src-tauri/src/plan.rs` mirrors the literal `2 * 1024` instead, which
+is exactly the drift the shared-constant rule exists to prevent: a Core that
+raised the bound would leave this client refusing reasons Core would accept.
+
+The client does **not** truncate: over the bound the Reject control is disabled
+and states the bound, and a reason Core refuses for any other cause renders
+Core's own words. That keeps the failure visible rather than silent, but it does
+not make the number right.
+
+What a client needs: `pub use viden_types::MAX_PLAN_REJECT_REASON_BYTES` in
+`crates/core/src/lib.rs`, beside the four plan bounds already there. One line;
+the GUI then deletes its literal.
+
 ## Retired pre-register codes
 
 `GUI-CORE-001` to `GUI-CORE-007` predate this register, which starts at 008.

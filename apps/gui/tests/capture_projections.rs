@@ -36,6 +36,32 @@ fn output_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../evidence/gui-screen-restore/projections")
 }
 
+/// Replays only the first `events` envelopes of a fixture.
+///
+/// The prefix is the point: `plan-documents.json` ends handed off, and every
+/// earlier state of that capability — proposed, accepted-in-plan-mode — is a
+/// real Core state the same ordered stream passed through. A capture built
+/// from a prefix is therefore still Core's own output rather than a literal.
+fn load_prefix(name: &str, events: usize) -> RuntimeViewState {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join(FIXTURE_ROOT)
+        .join(name);
+    let raw = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {path:?}: {e}"));
+    let fixture: serde_json::Value = serde_json::from_str(&raw).unwrap();
+    let snapshot: RuntimeSnapshot =
+        serde_json::from_value(fixture["initial_snapshot"].clone()).unwrap();
+    let mut view = RuntimeViewState::new(snapshot);
+    if let Some(list) = fixture["events"].as_array() {
+        for event in list.iter().take(events) {
+            let envelope: RuntimeEventEnvelope = serde_json::from_value(event.clone()).unwrap();
+            if let RuntimeWireEvent::Known(known) = envelope.event {
+                view.apply_event(&known);
+            }
+        }
+    }
+    view
+}
+
 fn load(name: &str) -> RuntimeViewState {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join(FIXTURE_ROOT)
@@ -349,6 +375,58 @@ fn emit_capture_projections() {
         updated_at: 1_700_000_400,
     });
     write("d13", &connected(d13).d13_fleet_workflow().unwrap());
+
+    // D15: the plan capability, captured from prefixes of its own canonical
+    // stream. `proposed` is the state after the second `update_plan` call,
+    // `accepted-plan-mode` after the accept while the work mode is still Plan,
+    // and `handed-off` after the whole stream. The one delta is the coupled
+    // permission mode: `set_work_mode` forces `PermissionMode::Plan` alongside
+    // `WorkMode::Plan`, which the hand-authored contract fixture does not, and
+    // the capture must show the state a runtime actually produces.
+    let proposed = load_prefix("plan-documents.json", 7);
+    write(
+        "d15-proposed",
+        &connected(proposed).d15_plan_studio(None).unwrap(),
+    );
+
+    let mut accepted = load_prefix("plan-documents.json", 12);
+    accepted.snapshot.permission_mode = viden_core::PermissionMode::Plan;
+    write(
+        "d15-accepted-plan-mode",
+        &connected(accepted).d15_plan_studio(None).unwrap(),
+    );
+
+    write(
+        "d15-handed-off",
+        &connected(load("plan-documents.json"))
+            .d15_plan_studio(None)
+            .unwrap(),
+    );
+
+    // The owner with no plan: a Core that publishes the capability and holds
+    // no plan document, which is absence rather than an empty plan.
+    write(
+        "d15-no-plan",
+        &connected(load("multi-lane.json"))
+            .d15_plan_studio(None)
+            .unwrap(),
+    );
+
+    // The capability gate: the same view state through a handshake that never
+    // published `runtime.plan_documents`.
+    let mut without = TestCoreClient::new(
+        load_prefix("plan-documents.json", 7),
+        Arc::new(Mutex::new(Vec::new())),
+    );
+    without
+        .capabilities
+        .remove(viden_gui::PLAN_DOCUMENTS_CAPABILITY);
+    let mut adapter = GuiCoreAdapter::new(Box::new(without));
+    adapter.connect().unwrap();
+    write(
+        "d15-capability-absent",
+        &adapter.d15_plan_studio(None).unwrap(),
+    );
 
     // D14: the replay contract has no fixture, so the batch is built from
     // typed Core events and served through the same replay path.

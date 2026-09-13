@@ -527,14 +527,15 @@ Activity rail 是驾驶舱的路由器（`D-RAILNAV`），它指名的每一个�
 | # | 槽位 | 打开 | 字形 | 可用条件 |
 | --- | --- | --- | --- | --- |
 | 1 | 对话 | 转录；并把焦点交还 composer | `chat` | composer 可聚焦 |
-| 2 | Lane 列表 | 切换 Lane 侧栏（见下） | `lanes` | 已绑定工作区 |
-| 3 | Diff 评审 | 中央视图 `review` | `review` | `runtime.structured_diff` |
-| 4 | 证据 | 中央视图 `evidence` | `evidence` | `runtime.evidence_reads` |
-| 5 | 决策 | 中央视图 `d2` | `decide` | 已绑定宿主 |
-| 6 | Lane 监视墙 | 中央视图 `d10` | `diagnostics` | 已绑定宿主 |
-| 7 | 集成闸 | 中央视图 `d12` | `worktree` | 已绑定宿主 |
-| 8 | 舰队看板 | 中央视图 `d13` | `fleet` | 已绑定宿主 |
-| 9 | 审计时间线 | 中央视图 `d14` | `brief` | 已绑定宿主 |
+| 2 | 规划工作台 | 中央视图 `d15` | `plan` | `runtime.plan_documents` |
+| 3 | Lane 列表 | 切换 Lane 侧栏（见下） | `lanes` | 已绑定工作区 |
+| 4 | Diff 评审 | 中央视图 `review` | `review` | `runtime.structured_diff` |
+| 5 | 证据 | 中央视图 `evidence` | `evidence` | `runtime.evidence_reads` |
+| 6 | 决策 | 中央视图 `d2` | `decide` | 已绑定宿主 |
+| 7 | Lane 监视墙 | 中央视图 `d10` | `diagnostics` | 已绑定宿主 |
+| 8 | 集成闸 | 中央视图 `d12` | `worktree` | 已绑定宿主 |
+| 9 | 舰队看板 | 中央视图 `d13` | `fleet` | 已绑定宿主 |
+| 10 | 审计时间线 | 中央视图 `d14` | `brief` | 已绑定宿主 |
 | — | 设置 | 设置浮层，位于 spacer 之下 | `settings` | 已绑定宿主 |
 
 每个字形都来自已登记的 `GUI/gui-icons.jsx`，没有任何槽位自行画图。任意时刻恰有一个槽位
@@ -549,7 +550,7 @@ Activity rail 是驾驶舱的路由器（`D-RAILNAV`），它指名的每一个�
 [决策队列计数气泡](#决策队列计数气泡)所定义的那一个计数。其他
 槽位都不带徽标，因为它们没有 Core 发布的计数，而 0 会被读成「没有待办」，真相却是「没人计数」。
 
-**中央视图。** `centerView` 为 `transcript | review | evidence | d2 | d10 | d12 | d13 | d14`，
+**中央视图。** `centerView` 为 `transcript | review | evidence | d2 | d10 | d12 | d13 | d14 | d15`，
 驾驶舱把它写在自己 frame 的 `data-center-view` 上；`root.dataset.route` 仍是 `d1`，因为
 中央视图是关于驾驶舱的事实而不是一条路由。五个 D 屏通过唯一接缝
 `D1RenderOptions.secondaryViews` 挂载：外壳负责**装什么**（每个屏幕都是属于客户端边界的
@@ -600,6 +601,7 @@ Close 控件；再次按下同一个 rail 槽位同样返回转录。`⌘G` / `�
 | `⌘E` | EvidenceView（切换） | 未绑定 host，或 Core 未发布 `runtime.evidence_reads` |
 | `⌘F` | 聚焦证据搜索框 | EvidenceView 未占有中央面板 |
 | `⌘G` | 决策队列（切换） | 未绑定路由与次级宿主 |
+| `⌘⇧P` | 规划视图（切换） | 未绑定宿主，或 Core 未发布 `runtime.plan_documents` —— 与 rail 槽位 fail-closed 的条件相同。加 Shift 是因为裸 `⌘P` 已给上下文坞 Files 面板、裸 `⌃P` 已给命令面板的命令域 |
 | `⌥⌘E` | 坞的环境面板 | 浮层持有焦点 |
 | `⌘P` | 坞的文件面板（只绑 meta 键；`⌃P` 仍属命令面板） | 浮层持有焦点 |
 | `⌘D` | 坞的对比面板 | 浮层持有焦点 |
@@ -1242,3 +1244,71 @@ yet」是页面自身的状态，对 Core 什么都不声称；「Core 握手未
 同一个根节点 —— 这就是报告中项目 chip 退回 `—`、`Core connection pending` 重新出现的
 那次回退。现在每一次挂载都经过 `src/main.ts` 中的 `claimRoot`，它会先 dispose 上一个
 持有者。
+
+## 规划工作台（G8）
+
+`D-PLANBOARD` 把规划工作台定档为**驾驶舱的中央面**，宿主模型与 D2/D10/D12/D13/D14
+完全一致：标题栏、活动 rail、Lane 侧栏、上下文坞、composer 与状态栏全部保留。它是
+`centerView` `d15`，入口有三个：rail 上新增的 `plan` 槽位（已登记的
+`GUI/gui-icons.jsx` 字形，位于 `chat` 与 `lanes` 之间 —— 这正是 `D-PLANBOARD`
+为 D15/D16 定下的顺序）、`⌘⇧P`，以及 `?screen=d15`。
+
+面上每个控件都映射到 `runtime.plan_documents`（C13）的一条事实或一条命令。下表写明
+每个控件发什么，以及 —— 更要紧的那半 —— 事实缺席时它显示什么。
+
+| 控件 | 发出什么 | 事实缺席时 |
+| --- | --- | --- |
+| rail 槽位 | 不发命令；切换中央视图 | 缺 `runtime.plan_documents` 时**禁用并在可访问名称里写出该能力**，绝不隐藏。宿主无法应答这次读取时，槽位保持禁用但不声称 Core 缺什么 —— 宿主故障不是 Core 的缺口 |
+| rail 计数气泡 | 不发命令 | 选中归属名下有 `Proposed` 计划时为 `1`；其它状态、无计划的归属、以及尚无人应答的读取一律不画气泡。永远不画 0：「没有待办」和「没人计数」是两件事 |
+| **接受**（`⌘⏎`） | 以 `gui-plan-…` 命令 id 发 `AcceptPlanDocument { plan_id, revision, content_sha256 }` | 禁用并以 Core 自己的规则标注：已决策的计划为 `D15-PLAN-DECIDED`，无计划为 `D15-NO-PLAN`，无能力为 `D15-NO-CAPABILITY` |
+| **附理由驳回** | `RejectPlanDocument { plan_id, revision, content_sha256, reason }` | 同上；理由行本身对超上界的理由是拒发，而不是截断 |
+| **移交** | `HandOffPlanDocument { plan_id, revision, content_sha256 }` | 禁用并标注：接受之前是 `D15-PLAN-NOT-ACCEPTED`，Plan 模式下是 `plan_mode`，移交之后是 `D15-PLAN-HANDED-OFF`，无步骤可派生的计划是 `D15-PLAN-NO-STEPS` |
+| **在 Fleet 编排里打开** | 不发命令；把中央视图切到 `d13` | 仅在 Core 发布了 `handoff.dag_id` 之后出现；未绑定宿主时写明这一点，而不是画一个打不开的链接 |
+| **打开审计轨迹** | 不发命令；以 `plan:<plan_id>` 为范围打开 `d14` | 仅在 Core 记录了 `decision_audit_id` 之后出现 |
+| composer 与队列行 | 不变 —— `QueueFollowUp` 与 `queued_inputs`，C6 的忙碌判定 | 不变。规划者在写的时候 composer 始终可编辑，这正是一份计划能在书写途中补上一条约束的原因 |
+
+**决策钉住的是这一帧画出来的东西。** `revision` 与 `content_sha256` 从操作者读到的那
+一帧出发，经 intent 进入命令，发送时绝不重新解析。这是与 D12「发送前重新解析闸门」模式
+的唯一一处有意分歧，而它正是这项能力的要点：宿主若刷新了这枚钉子，每一次过期决策都会变成
+对一个没人看过的修订的静默接受。**行为主体**仍然是 Core 自己的 —— 信封 owner 就是 Core
+发布在该计划上的 owner —— 所以客户端不构造任何运行时身份；Core 已不再发布的 plan id
+由宿主本地拒绝，而不是发出去让 Core 拒。
+
+**三个诚实态，是画出来的而不是描述出来的：**
+
+- **尚无计划提议**是缺席。Core 发布了能力、名下却没有该归属的计划，于是面板如实说明，
+  并写出 Plan 模式阻断了什么；它绝不画一份空计划配一个可用的「接受」。
+- **`plan_revision_stale`** 是 Core 的拒绝，以 Core 自己的措辞渲染在 `role=alert` 里，
+  旁边是原始 code，外加拒绝本身开出的唯一补救：**重新载入计划**，即重新读取 Core 持有的
+  记录。视图绝不会拿手里已有的那份再决策一次。
+- **`plan_mode`** 在点击**之前**就被说出来。Plan 模式下 Core 会拒绝
+  `HandOffPlanDocument`，因此控件禁用并标注，理由就摆在决策行上方。判定对 Core 发布的
+  两条事实都 fail-closed —— `permission_mode == plan`（生产者实际检查的那条）与
+  `work_mode == plan`（`set_work_mode` 与之耦合的那条）—— 因为一个看起来能按其实不能的
+  控件，代价大于一个标注得过早的控件。
+
+**归属范围用的是 Core 自己的规则。** 一份计划归入本视图的条件是：它指名选中的那条 Lane，
+或者它与视图都指向会话而非 Lane —— 即 `crates/runtime/src/plan_documents.rs` 的
+`plans_share_owner`，收窄到客户端能看见的部分。有意不用完整 owner 相等：turn id 每轮都变，
+按它匹配的客户端会在明明有计划的归属下找不到计划。切换 Lane 会丢弃手里的计划并重新读取，
+因为跨选择保留的计划会把另一条 Lane 的决策标到这条 Lane 头上。
+
+**不重建任何历史。** reducer 按 plan id upsert，因此 `RuntimeViewState` 只持有最新一版。
+记录栏写 `rev N · 当前`，并在 `N > 1` 时写 `rev N-1 · 已被取代` —— 修订号本身携带的唯一
+关系 —— 再加一句：每一版更早的修订都在持久日志里，本视图不会去重建它们。被取代的修订绝不
+列成可浏览的历史，因为 Core 并未在视图里发布这样一份历史。
+
+**缺席与歧义分开。** 没有能力的 Core、名下没有计划的归属、以及 Core 为其发布了不止一份
+**进行中**计划的归属，是三句不同的话。第三种在执行「每个归属只有一份进行中计划」的 Core
+上不会发生；一旦出现，客户端列出这些 id，并且一个都不决策。
+
+**与 D15 设计稿的两处偏差，都是结构性的：**
+
+1. 设计稿把记录栏画成驾驶舱自己的第三列。驾驶舱的第三列是上下文坞，因此记录栏是中央面
+   **内部**的一列（300 px，1000 px 以下收成单列）。字段、顺序与措辞都沿用设计稿。
+2. 设计稿的状态切换器是用来逐个走查状态的原型件；生产版没有切换器，因为状态属于 Core。
+
+驳回理由**不会**为了塞进 Core 的 2 KiB 上界而被截断：字节计数按 Core 的方式数 UTF-8，
+超界时发送禁用并写出上界。上界本身是一个镜像字面量，因为 `viden-core` 未重导出
+`MAX_PLAN_REJECT_REASON_BYTES` —— 这是
+[GUI-CORE-034](contract-requests.zh-CN.md)。
