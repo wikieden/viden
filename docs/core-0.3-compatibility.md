@@ -1524,6 +1524,28 @@ document's own contract prescribes
 (`crates/types/src/source_control.rs:225`) has no TUI control. See
 `docs/release-tui-0.3.4-source-control-parity.md`, Known Gaps.
 
+Open follow-ups added 2026-09-13 by the C12 review, from C12's own report:
+
+17. **A lane-path audit row can disagree with the published decision when the
+   worker's permission-gate re-check refuses** (Core, rare, found during C12,
+   2026-09-13). The row written on the runtime branch
+   (`crates/runtime/src/runtime_supervisor.rs:1227`) records the lane worker's
+   intake verdict for the operator's answer; the worker's injected
+   permission-gate re-check runs on its own thread afterwards, and a refusal
+   there is published as `ApprovalResolved { Deny }` without a second row,
+   because two rows under one pre-minted id would break the receipt join. The
+   row is therefore "allow" for a decision the client saw as "deny" in that
+   case. Closing it means moving the re-check ahead of the row, or recording
+   the downgrade as a linked row rather than a second one. `0.3.6`.
+18. **Two fake-`git` timeout tests flake under parallel load** (Core test
+   infrastructure, 2026-09-13).
+   `frontend_services_tests::frontend_status_git_totals_cover_all_rows_without_a_row_cap`
+   and `frontend_status_repeated_git_timeouts_leave_no_descendants_or_blocked_pipes`
+   failed together once on a loaded host and passed on every rerun. They are
+   the same class H3 made deterministic in `viden-plugin-host` and
+   `viden-agents` and should follow the rule `crates/AGENTS.md` now states.
+   `0.3.5` hygiene if a slot exists, else `0.3.6`.
+
 
 The `context-budgets` fixture backs the frontend-neutral facade export of
 `ContextScope` and `ContextBudgetRecord`. A budget belongs to a Lane only

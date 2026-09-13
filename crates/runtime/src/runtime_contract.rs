@@ -2410,7 +2410,7 @@ impl SessionEngine {
             workflow_id: self.cost_workflow_id.clone(),
             smoke_run_id: self.cost_smoke_run_id.clone(),
         });
-        let provider_result = match emit_completed.as_deref_mut() {
+        let provider_result = match emit_completed {
             Some(emit_completed) => self
                 .process_runtime_turn_streaming_with_built_context_bundle_and_control(
                     &prompt,

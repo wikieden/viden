@@ -1164,6 +1164,22 @@ E2 的第四项发现属于客户端侧，记录在它该在的地方而不是�
 （`crates/types/src/source_control.rs:225`）在 TUI 中没有控件。见
 `docs/release-tui-0.3.4-source-control-parity.zh-CN.md` 的「已知缺口」。
 
+2026-09-13 由 C12 评审依据 C12 自身报告新增的开放后续项：
+
+17. **当 worker 的权限门复检拒绝时，lane 路径的审计行可能与已发布的决定不一致**（Core，
+   罕见，C12 期间发现，2026-09-13）。在 runtime 分支上写入的行
+   （`crates/runtime/src/runtime_supervisor.rs:1227`）记录的是 lane worker 对操作者回答的
+   intake 裁定；worker 注入的权限门复检之后在自己的线程上运行，其拒绝以
+   `ApprovalResolved { Deny }` 发布而不写第二行，因为同一预铸 id 下的两行会破坏回执关联。
+   因此在这种情况下行是「allow」而客户端看到的决定是「deny」。关闭它意味着把复检移到写行
+   之前，或把降级记录为链接行而非第二行。`0.3.6`。
+18. **两个伪 `git` 超时测试在并行负载下不稳定**（Core 测试基础设施，2026-09-13）。
+   `frontend_services_tests::frontend_status_git_totals_cover_all_rows_without_a_row_cap`
+   与 `frontend_status_repeated_git_timeouts_leave_no_descendants_or_blocked_pipes`
+   在高负载主机上一起失败过一次，每次重跑都通过。它们与 H3 在 `viden-plugin-host` 和
+   `viden-agents` 中改为确定性的测试属同一类，应遵循 `crates/AGENTS.md` 现在陈述的规则。
+   有空位则在 `0.3.5` 卫生批次处理，否则 `0.3.6`。
+
 `context-budgets` fixture 为 `ContextScope` 与 `ContextBudgetRecord` 的 frontend-neutral
 facade 导出提供依据。Budget 只能通过该 Lane 精确绑定的 runtime owner 所指名的 typed task
 scope 归属到 Lane；"取最近一条 budget" 永远不是有效归属，fixture 中两个 scope 刻意互不相交。
