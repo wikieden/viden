@@ -1034,6 +1034,7 @@ fn approval_scopes_preview_state(provider: &str, model: &str, theme_name: &str) 
         ],
         revised_from: Some("approval-preview-wide".to_string()),
         editable: true,
+        input: None,
         policy_reason_key: "permission.requires_approval".to_string(),
         policy_reason_args: Default::default(),
         expires_at: 0,
