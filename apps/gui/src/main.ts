@@ -397,6 +397,7 @@ export async function hydrateShellFromCore(
             loadPaletteCrossLane,
             loadWorkspaceFiles,
             workspaceDiff: workspaceDiffPort,
+            agentProbe: agentProbePort,
             operatorGit: operatorGitPort,
             layout: layoutPort,
             transcriptRows: transcriptRowsPort,
@@ -920,6 +921,20 @@ export async function hydrateShellFromCore(
        * gate on the mapped agent tool spec, the audit record, the effect, and
        * the classification of git's stderr — the shell only names the action.
        */
+      /**
+       * The one command this shell ever stops waiting for (defects 14, 15).
+       *
+       * `ProbeAgentAdapter` is a read: Core answers it on the same single
+       * command worker every other command queues behind, and an ACP handshake
+       * may take it up to 90 s. Abandoning the wait frees the slot without
+       * claiming anything about Core, and Core's late answer still reaches the
+       * adapter list through the next snapshot. The host refuses to abandon
+       * anything that carries an effect.
+       */
+      const agentProbePort = {
+        abandon: async () => await core.d1AbandonProbe(),
+      };
+
       const operatorGitPort = {
         read: async (laneId: string | null) => await core.operatorGit(laneId),
         run: async (laneId: string | null, action: OperatorGitActionRequest) =>

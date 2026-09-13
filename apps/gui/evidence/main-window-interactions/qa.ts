@@ -40,6 +40,7 @@ import "../../src/ui/tokens.css";
 import "../../src/ui/theme.css";
 import "../../src/ui/window_chrome.css";
 
+import { renderAgentMenu } from "../../src/components/agent_menu";
 import type { PaletteWorkspaceFiles } from "../../src/components/command_palette";
 import type { Locale } from "../../src/i18n/catalog";
 import type { ComposerControlIntent } from "../../src/models/composer";
@@ -1060,6 +1061,56 @@ async function d2Queue(): Promise<D2DecisionsProjection> {
   // and the first gate approval selected, which is the state D2 opens in.
   const response = await fetch("../gui-screen-restore/projections/d2.json");
   return (await response.json()) as D2DecisionsProjection;
+}
+
+/* ---- H4 native defects ---- */
+
+/// The zero-Lane cockpit the New Lane popover and the tab strip open over.
+function d1ZeroLanes(): D1CockpitProjection {
+  const base = d1Base();
+  return {
+    ...base,
+    selectedLaneId: null,
+    lanes: [],
+    agentSessions: [],
+    statusbar: { ...base.statusbar, lane: null },
+  };
+}
+
+/// The three registered ACP adapters with their probes still out.
+const H4_PROBING_ADAPTERS = [
+  { agentId: "codex-acp", displayName: "Codex", startability: "probe_required", diagnostics: [], probe: "checking" as const },
+  { agentId: "claude-acp", displayName: "Claude Agent", startability: "probe_required", diagnostics: [], probe: "checking" as const },
+  { agentId: "kiro-cli", displayName: "Kiro CLI", startability: "install_required", diagnostics: ["agent command `kiro-cli` is not installed"], probe: "idle" as const },
+];
+
+/// The same three once the client's bound has passed with no answer.
+const H4_TIMED_OUT_ADAPTERS = H4_PROBING_ADAPTERS.map((adapter) =>
+  adapter.probe === "checking" ? { ...adapter, probe: "timed_out" as const } : adapter,
+);
+
+/// The queue as Core republishes it once the first gate is decided: that card
+/// is gone and the next approval Core raised is the one awaiting the operator.
+async function d2NextApproval(): Promise<D2DecisionsProjection> {
+  const queue = await d2Queue();
+  const gate = queue.groups.find((group) => group.kind === "gate");
+  const decided = gate?.items[0];
+  if (!decided) throw new Error("capture harness: generated d2 projection has no gate item");
+  const next = {
+    ...decided,
+    id: `${decided.id}-next`,
+    title: decided.title.replace("git_add", "git_commit"),
+    risk: "medium",
+  };
+  return {
+    ...queue,
+    pendingTotal: queue.pendingTotal,
+    selectedId: next.id,
+    groups: queue.groups.map((group) =>
+      group.kind === "gate" ? { ...group, items: [next] } : group,
+    ),
+    detail: queue.detail ? { ...queue.detail, id: next.id, title: next.title } : null,
+  };
 }
 
 async function d2Contract(): Promise<D2DecisionsProjection> {
@@ -3235,6 +3286,105 @@ async function renderState(): Promise<void> {
       });
       cockpit.openCenterView("d15");
       await waitFor("[data-secondary-view='d15'] [data-d15-empty='capability']");
+      return;
+    }
+
+    case "h4-lane-create-builtin": {
+      // Defect 14. The New Lane popover while an ACP probe is still out: the
+      // built-in `Viden Agent` selected and `Create lane ↵` **enabled**, the
+      // ACP row `Checking ACP agents…` and unselectable, and the diagnostic
+      // stating the bound this client waits under. The popover is rendered on
+      // the cockpit's own `New Lane` anchor from a fixed model, because a live
+      // probe would be a timer and the capture must not move.
+      mountCockpit({ projection: d1ZeroLanes(), preferencesAvailable: true });
+      const anchor = await waitFor<HTMLButtonElement>("[data-create-lane]");
+      if (!anchor) throw new Error("capture harness: the New Lane anchor is missing");
+      renderAgentMenu(
+        anchor,
+        {
+          locale,
+          canCreateLane: true,
+          usesGitIsolation: true,
+          probing: true,
+          eligibilityDiagnostic: null,
+          discoveryDiagnostic: null,
+          selected: { kind: "native" },
+          taskDraft: "Edit the fixture README heading",
+          adapters: H4_PROBING_ADAPTERS,
+        },
+        () => undefined,
+      );
+      await waitFor("[data-lane-task-submit]");
+      return;
+    }
+
+    case "h4-probe-timed-out": {
+      // Defect 14, the other half: every probe past its bound. Each ACP row
+      // says `Probe did not answer within 15s.` and stays disabled; the
+      // built-in path is untouched and `Create lane ↵` is still enabled.
+      mountCockpit({ projection: d1ZeroLanes(), preferencesAvailable: true });
+      const anchor = await waitFor<HTMLButtonElement>("[data-create-lane]");
+      if (!anchor) throw new Error("capture harness: the New Lane anchor is missing");
+      renderAgentMenu(
+        anchor,
+        {
+          locale,
+          canCreateLane: true,
+          usesGitIsolation: true,
+          probing: false,
+          eligibilityDiagnostic: null,
+          discoveryDiagnostic: null,
+          selected: { kind: "native" },
+          taskDraft: "Edit the fixture README heading",
+          adapters: H4_TIMED_OUT_ADAPTERS,
+        },
+        () => undefined,
+      );
+      await waitFor('[data-agent-probe="timed_out"]');
+      return;
+    }
+
+    case "h4-d2-next-approval": {
+      // Defect 16. The operator decides, leaves for DiffReview, and comes
+      // back: the pane and its mount memo went with the detour, so the second
+      // mount is a fresh Core read and the queue lists the *next* approval
+      // rather than the decided one. The harness answers the two mounts with
+      // the two queues in order.
+      const first = await d2Queue();
+      const next = await d2NextApproval();
+      let mounts = 0;
+      const cockpit = mountCockpit({
+        projection: d1Base(),
+        preferencesAvailable: true,
+        workspaceDiff: REVIEW_PAGE,
+        secondaryViews: (route, container) => {
+          if (route !== "d2") throw new Error(`unexpected route ${route}`);
+          mounts += 1;
+          renderD2Decisions(
+            container,
+            mounts === 1 ? first : next,
+            never<D2IntentResult>,
+            locale,
+          );
+        },
+      });
+      cockpit.openCenterView("d2");
+      await waitFor("[data-secondary-view='d2'] [data-d2-queue]");
+      cockpit.openCenterView("review");
+      await waitFor("[data-review]");
+      cockpit.openCenterView("d2");
+      await waitFor("[data-secondary-view='d2'] [data-d2-queue]");
+      return;
+    }
+
+    case "h4-tabstrip-dock-open": {
+      // Defect 19. The zero-Lane strip at the cockpit's real centre-pane
+      // width, with the context dock open: `No Lanes yet`, the `＋`, the
+      // project path, and the work mode each in their own space, ellipsised
+      // rather than painted over one another.
+      mountCockpit({ projection: d1ZeroLanes(), preferencesAvailable: true });
+      await waitFor("[data-lane-tab-empty]");
+      await waitFor("[data-lane-tab-meta] [data-lane-tab-mode]");
       return;
     }
 

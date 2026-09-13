@@ -944,3 +944,100 @@ Core 在 bootstrap 时铸出了 `.viden/project.toml`
   「因环境原因未被证明」—— 屏幕是解锁的，窗口被驱动了，是客户端停住了。因此目标 4
   **在契约上与 TUI 上已达成，在 GUI 上部分达成并带有一个有名有姓、可复现的阻塞项**，
   这比 `0.3.4` 留下的状态理解得更清楚，也比 `0.3.4` 所期望的更糟。
+
+## 缺陷 14–21 —— H4（2026-09-13，在 `claude/gui-native-defects-h4` 上）
+
+分支 `claude/gui-native-defects-h4`，工作树 `.worktrees/gui-native-defects-h4`，
+基线 `claude/int-0.3.5` 的 `67353a71`（= `main` `75e2a84a` + `0.3.5` 契约设计、
+H3、C12、DS、C13、T3 以及本文档的 E3a 小节）。主机屏幕处于解锁状态，每一批按键与点击
+之前都读取了 `CGSessionCopyCurrentDictionary()`，每一次 `CGSSessionScreenIsLocked`
+都是 `0`。
+
+本节记录**每个缺陷的裁决**，以及对 E3a 被阻塞步骤的一次原生复跑。它不是 `0.3.5` 的
+原生证明 —— 那属于 E3b，在发布候选上进行，而 Lane 半边在创建之后仍然欠着。
+
+### 被测应用
+
+`npm --prefix apps/gui ci --no-audit --no-fund` 用 2 秒新增 97 个包。
+`npm --prefix apps/gui run tauri -- build --bundles app` 通过，产出
+`target/release/bundle/macos/Viden.app`：
+
+| 事实 | 值 |
+| --- | --- |
+| `CFBundleShortVersionString` | `0.1.0-rc.5`（H4 不提升 GUI 版本） |
+| `CFBundleExecutable` | `viden-gui` |
+| 架构 | `Mach-O 64-bit executable arm64` |
+| 可执行文件大小 | 41,496,368 字节 |
+| 包体积 | 40 MB |
+| 签名 | ad-hoc，`TeamIdentifier=not set`，`Sealed Resources=none` |
+
+每次启动都把 `VIDEN_HOME` 指向一个 scratch 目录，因此本仓库自己的 `.viden/` 从未被
+读取或写入。夹具是一个全新的临时 Git 仓库：一次提交 `06a79a3`（"Add the fixture
+README"）、一个六行的 `README.md`、一个覆盖 `.viden/` 与 `.worktrees/` 的
+`.gitignore`，以及一个选择 `provider = "fallback"` / `model = "test-local"` 的
+`.viden/config.toml`。
+
+**一处偏差，写明而不是藏起来。** 工作区是用 `VIDEN_GUI_WORKSPACE` 绑定的，而不是
+经由 `⌘O` 与原生文件夹面板。E3a 已经端到端证明了那条路径（它的步骤 2 与 3）；H4 的
+主题是绑定之后发生的事，而启动绑定是一个有文档的入口
+（`apps/gui/README.md`，「Run the desktop client locally」）。下文没有任何一条依赖
+工作区是如何绑定的。
+
+### 裁决
+
+| # | 缺陷 | 裁决 |
+| --- | --- | --- |
+| 14 | ACP 发现未完成时新建 Lane 永远无法创建 | **已修复**（`ee2ce04f`）。`create.disabled` 不再与发现状态取或；闸门是所选适配器自身的可启动性。下文原生证明：在没有任何 ACP 可执行文件的主机上，用内置 Agent 创建了一个 Lane |
+| 15 | 探测卡死时 D4 的 `Preview with Core` 永不落定 | **客户端侧已修复**（`ee2ce04f`），并**作为 Core 发现上报**（`GUI-CORE-035`）。客户端放弃仍在外的适配器**读取**以释放自己的命令槽位；Core 唯一的命令工作线程仍被它正在执行的探测占用，这只有 Core 能修 |
+| 16 | 决策中心保留已决策的审批且从不呈现下一条 | **已修复**（`ee2ce04f`）。两半：决策现在通过权限管线等待 Core 的 `ApprovalResolved`；离开中心视图去 DiffReview 或 EvidenceView 会丢弃该面板及其挂载备忘，因此返回是一次新的 Core 读取 |
+| 17 | 提交完成后源码管理的进行中状态从不清除 | **已修复**（`ee2ce04f`）。根因：每个排空只调和自己的待决命令，因此被驾驶舱 250 毫秒轮询消费掉的 `OperatorGitActionFinished` 被吞掉了。所有排空现在都经过 `reconcile_ambient_pendings` |
+| 18 | 应用在会话中途自行终止 | 在 H4 的有界努力内**未能复现** —— 见下文 |
+| 19 | 上下文坞打开时 Lane 页签条与自身元信息重叠 | **已修复**（`284c4229`）。下文原生证明 |
+| 20 | 坞的 `Changes` 合计与 `Local` 标志与旁边的文件列表互相矛盾 | **已修复**（`284c4229`）。两者现在读取文件列表所读的同一份采样，并由 `data-changes-sample` 说明是哪一份 |
+| 21 | 提交之后 DiffReview 的变更文件列表未被重新采样 | **已修复**（`ee2ce04f`）。`completed` 结果用一次 `QueryWorkspaceDiff` 重新采样；拒绝或传输失败仍走去抖的陈旧路径，因为它们都没有移动工作树 |
+
+### 原生复跑
+
+每帧都拍两次并保留第二张；每一条断言都以 Accessibility 树为准据；列出的每张 PNG
+在被列出之前都已被查看。
+
+| # | 步骤 | 是否到达 | 结果／原因 | 帧 |
+| --- | --- | --- | --- | --- |
+| 1 | **驾驶舱已绑定，页签条与坞可读** | 是 | 坞 Environment `Provider fallback`、`Model test-local`、`Mode build`、`Permission ask`；Local `Showing Workspace root`、`Branch main`、`Working tree Clean`；状态栏 `MODE build · PERM ask · EVENTS #7 · LANE —`。零 Lane 的页签条在上下文坞打开的情况下把 `No Lanes yet`、`＋`、项目路径与 `Build` 各自画在自己的空间里 —— 缺陷 19，原生 | [`h4-01`](native-0.3.4/h4-01-cockpit-bound.png) |
+| 2 | **在所有 ACP 探测都未应答时 `Create lane ↵` 可用** | 是 | 弹层打开时内置 `Viden Agent` 被选中，三个 ACP 适配器在 `Probe did not answer within 15s.` 下被禁用 —— 这是客户端自己陈述的时限，旁边带 `Retry ACP check` —— 而粘贴任务后 `Create lane ↵` 读到 `enabled=true`。同一次运行较早时，同一个弹层显示 `Checking ACP agents… each probe is given up to 15s.` 而 `Create lane ↵` 已经可用。**缺陷 14，原生。** `Checking ACP agents…` 从未无限期停留 | [`h4-02`](native-0.3.4/h4-02-new-lane-create-enabled.png) |
+| 3 | **一次 Core `lane_create` 审批** | 是 | `Approve lane_create · lane_create`、`Medium risk`、`branch: viden/lane_1789287265044945000 path: …/.worktrees/lane_1789287265044945000`、`Reason: lane mutation policy requires approval`、`Audit: audit_1789287266911108000`，在 `Y · Once` / `Shift+A · Allow repo paths` / `N · Deny` 之上，`Always` 与 `Edit` 被禁用并标注 `GUI-CORE-003`，状态栏为 `1 awaiting you`。**这是本客户端历史上第一次抬起的 `lane_create` 审批** | [`h4-03`](native-0.3.4/h4-03-lane-create-approval.png) |
+| 4 | **在该审批下创建了 Lane** | 是 | `Y · Once` 放行了效果：页签条上出现 `lane_1789287265044945000 · coder start…`，状态栏读 `LANE lane_1789287265044945000 — draft`，标题栏读 `1 worktree`，坞的 Local 小节切换为 `Showing Lane worktree` 并显示该 Lane 自己的分支与工作树。带外核对：`.worktrees/lane_1789287265044945000/` 存在，`git branch` 列出 `viden/lane_1789287265044945000`。`LANE OUTPUT` 承载 Core 自己的 `Preparing worktree (new branch 'viden/lane_1789287265044945000')`。**缺陷 14 与 15 在 GUI 上关闭** | [`h4-04`](native-0.3.4/h4-04-lane-created.png) |
+| 5 | 在该 Lane 中使用编写器 `tool edit_file …` | **否** | 编写器可用并接受文本，但新建的 Lane 带着一个进行中的轮次（屏幕上有 `Cancel active turn`，`composer.busy`），提交没有发出：两次尝试（Send 控件与 `Return`）中 `EVENTS` 始终停在 `#25`。这不是缺陷 14/15 的残留 —— Lane 存在且由 Core 拥有 —— 本批次也未对其诊断。它属于 E3b，由后者在候选上承担完整的 Lane 半边 | — |
+| 6 | D2 两次连续审批、内联工具 diff、检查运行、EvidenceView 补丁、两者的 D14 `approval.allow_once`、排队后续消息 | **否** | 六项都排在步骤 5 之后 | — |
+
+### 缺陷 18 —— 未复现
+
+有界努力，如实陈述。该包在 2026-09-13 的 07:34Z 到 08:22Z 之间以 `RUST_LOG=debug`
+运行了六次，stdout/stderr 均被捕获到文件，其中一次实例被驱动完成绑定、Lane 创建与一次
+审批，随后在五秒一次的进程采样下闲置。没有任何一个实例自行退出：每一次结束的启动都是
+被本批次杀掉的，而最后一个 —— 就是上面创建了 Lane 的那个实例 —— 以五秒一次的频率被采样了 16 分 18 秒
+（92 次采样），到最后仍然存活。捕获到的 stderr 里只有 E3a
+也看到的那行 AppKit TSM/IMK，窗口期内没有为 `viden-gui` 写入任何 macOS 崩溃报告。
+
+**确实**复现的是 E3a 描述过、在它之前 E1b 缺陷 7 也描述过的一种形态：**窗口会短暂地
+离开 Accessibility 树**。三次，都紧接在导致驾驶舱整屏重绘的点击之后（`Create lane ↵`
+与 `Y · Once`），`System Events` 回答
+`Can't get window 1 of process … Invalid index. (-1719)`，而三秒后的读取发现窗口回来
+了，`count of windows` = 1，进程存活。这与「窗口消失且进程不见了」实际上是**两个**观察
+而不是一个相吻合，也是下一次尝试应当顺着拉的线头。它被记为观察，而不是修复。
+
+缺陷 18 未声称任何修复。它保持开放，并附上本批次的阴性结果与重绘／AX 观察。
+
+### 诚实说明
+
+- 上述帧来自**原生应用**，而不是采集 harness。本批次新增的四个 qa 状态 ——
+  `h4-lane-create-builtin`、`h4-probe-timed-out`、`h4-d2-next-approval`、
+  `h4-tabstrip-dock-open` —— 是同一批界面的可复现 harness 条目，它们不是这些裁决的
+  证据；原生帧才是。
+- 原生运行发现了它自己的一个缺陷，已在同一次提交中修复：发现流程可能在屏幕上留着
+  `Checking ACP agents…` 而**没有任何命令在外**地停住，因为 `advanceAgentDiscovery`
+  只由排空重新入队，而安静的 Core 不产生排空。时限现在属于整个发现流程而不是单次探测，
+  并且 `waitForCommandSlot` 也有自己的时限，好让一次创建能够报告而不是无声等待。
+- `startLane` 过去会用 `Core did not publish a creatable Lane preview.` 覆盖宿主自己的
+  拒绝原因，把 Core 从未发出的拒绝算在它头上。原生运行正好撞上这一点并丢掉了原因；现在
+  发送失败自己的那句话会保留下来。

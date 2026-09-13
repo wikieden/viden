@@ -3014,7 +3014,11 @@ impl GuiCoreAdapter {
                 }
             };
             received = true;
-            if self.observe_pending_operator_git(&event) {
+            let operator_git_settled = self.pending_operator_git.as_ref().is_some_and(|pending| {
+                !matches!(pending.observe(&event), AuditObservation::Continue)
+            });
+            self.reconcile_ambient_pendings(&event);
+            if operator_git_settled {
                 settled = true;
             }
         }
@@ -3662,17 +3666,24 @@ impl GuiCoreAdapter {
                 choice,
                 feedback,
             } => {
-                let envelope = self.permission_envelope(
+                // Defect 16 (E3a). The decision used to be sent and forgotten:
+                // D2 then re-rendered the *unrefreshed* projection, so the
+                // decided card stayed `pending`, the queue kept counting it,
+                // and the next approval Core raised was never listed. The
+                // verdict is Core's `ApprovalResolved`, and it is waited for
+                // through the same pipeline the D1 permission dock uses —
+                // there is no second decision model here.
+                self.send_permission_intent_and_wait(
                     command_id,
                     PermissionIntent::Respond {
                         request_id: request_id.clone(),
                         choice,
                         feedback,
                     },
+                    event_timeout,
                 )?;
-                self.client.send(envelope).map_err(|e| e.to_string())?;
                 self.d2_selected = Some(request_id);
-                PermissionOutcomeProjection::pending()
+                self.permission_outcome.clone()
             }
             crate::D2Intent::DecideContract {
                 contract_id,
@@ -4050,9 +4061,13 @@ impl GuiCoreAdapter {
                 None => break,
             };
             received = true;
-            let permission_complete = self.observe_pending_permission(&event);
-            self.observe_pending(&event);
-            self.observe_d4(&event);
+            let permission_complete = self.pending_permission.as_ref().is_some_and(|pending| {
+                matches!(
+                    pending.observe(&event),
+                    PermissionObservation::Confirmed | PermissionObservation::Rejected(_)
+                )
+            });
+            self.reconcile_ambient_pendings(&event);
             if permission_complete {
                 break;
             }
@@ -4425,7 +4440,9 @@ impl GuiCoreAdapter {
                 }
             };
             received = true;
-            self.observe_pending_permission(&event);
+            // Every correlated command, not only the permission dock's: this
+            // drain may be the only one that ever sees this envelope.
+            self.reconcile_ambient_pendings(&event);
             let observation = self
                 .pending_d1
                 .as_mut()
@@ -4478,6 +4495,39 @@ impl GuiCoreAdapter {
                 .map(|pending| pending.command_id.clone()),
             outcome: self.d1_outcome.clone(),
         })
+    }
+
+    /// Stops waiting for an unanswered adapter *read* and frees the slot.
+    ///
+    /// Defects 14 and 15 (E3a). Core answers one command at a time and gives
+    /// an ACP handshake up to 90 s for a registry package it may have to fetch
+    /// first, so a probe for an agent this host does not have can hold the
+    /// only D1 slot for minutes — which closed *both* Lane-creation paths in
+    /// the shipped build, the built-in runtime included.
+    ///
+    /// Abandoning is safe for exactly the two adapter-discovery reads —
+    /// `QueryAgentAdapters` and `ProbeAgentAdapter`. Both mutate nothing, so
+    /// dropping the wait claims nothing about Core and loses nothing: a later
+    /// `AgentAdaptersLoaded` or `AgentAdapterProbed` still reaches the adapter
+    /// list through the snapshot. Any other pending command is refused here,
+    /// because its answer is the only record of whether its effect ran.
+    pub fn abandon_pending_probe(
+        &mut self,
+        event_timeout: Duration,
+    ) -> Result<D1IntentResult, String> {
+        match self.pending_d1.as_ref().map(|pending| &pending.kind) {
+            Some(PendingD1Kind::ProbeAgentAdapter { .. } | PendingD1Kind::QueryAgentAdapters) => {}
+            Some(_) => {
+                return Err(
+                    "only an adapter discovery read may be abandoned; every other command carries an effect"
+                        .to_string(),
+                );
+            }
+            None => return Err("no adapter discovery read is pending".to_string()),
+        }
+        self.pending_d1 = None;
+        self.d1_outcome = D1OutcomeProjection::idle();
+        self.poll_d1(None, event_timeout)
     }
 
     /// Sends one composer control (work mode, permission level, model) as its
@@ -5700,6 +5750,35 @@ impl GuiCoreAdapter {
         }
     }
 
+    /// Reconciles one ordered event against every correlated command this
+    /// adapter holds except the D1 slot, whose owner settles it in place.
+    ///
+    /// Defect 17 (E3a). Several surfaces drain the same stream — the cockpit's
+    /// 250 ms poll, the permission dock, the commit bar, the background pump —
+    /// and only one of them receives any given envelope. A drain that
+    /// reconciled only *its own* pending therefore swallowed everyone else's
+    /// answer: an `OperatorGitActionFinished` consumed by the cockpit poll left
+    /// the commit bar saying "waiting for the permission decision" beside a
+    /// completed commit, unchanged thirty seconds later. Every drain now funnels
+    /// through here, so whoever takes an event reconciles all of them.
+    fn reconcile_ambient_pendings(&mut self, event: &RuntimeEventEnvelope) {
+        self.observe_pending_permission(event);
+        self.observe_pending_preference(event);
+        self.observe_pending_layout_preference(event);
+        self.observe_pending_transcript_rows(event);
+        self.observe_pending_recent_work(event);
+        self.observe_pending_audit(event);
+        self.observe_pending_workspace_files(event);
+        self.observe_pending_workspace_diff(event);
+        self.observe_pending_workspace_file(event);
+        self.observe_pending_evidence(event);
+        self.observe_pending_evidence_content(event);
+        self.observe_pending_operator_git(event);
+        self.observe_pending(event);
+        self.observe_pending_d12(event);
+        self.observe_d4(event);
+    }
+
     /// Drains ordered Core events with one bounded wait and refreshes the
     /// projection when anything arrived.
     ///
@@ -5724,21 +5803,7 @@ impl GuiCoreAdapter {
                 }
             };
             received = true;
-            self.observe_pending_permission(&event);
-            self.observe_pending_preference(&event);
-            self.observe_pending_layout_preference(&event);
-            self.observe_pending_transcript_rows(&event);
-            self.observe_pending_recent_work(&event);
-            self.observe_pending_audit(&event);
-            self.observe_pending_workspace_files(&event);
-            self.observe_pending_workspace_diff(&event);
-            self.observe_pending_workspace_file(&event);
-            self.observe_pending_evidence(&event);
-            self.observe_pending_evidence_content(&event);
-            self.observe_pending_operator_git(&event);
-            self.observe_pending(&event);
-            self.observe_pending_d12(&event);
-            self.observe_d4(&event);
+            self.reconcile_ambient_pendings(&event);
         }
         if received {
             let _ = self.refresh_projection();

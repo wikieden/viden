@@ -1325,3 +1325,56 @@ yet」是页面自身的状态，对 Core 什么都不声称；「Core 握手未
 超界时发送禁用并写出上界。上界本身是一个镜像字面量，因为 `viden-core` 未重导出
 `MAX_PLAN_REJECT_REASON_BYTES` —— 这是
 [GUI-CORE-034](contract-requests.zh-CN.md)。
+
+## 原生缺陷（H4）
+
+H4 批次（2026-09-13）关闭了 E3a 原生运行发现的 GUI 缺陷 14–17 与 19–21。记录、帧与
+逐条裁决在 `docs/release-evidence/gui-trusted-delivery/checkpoints.zh-CN.md` 的
+「缺陷 14–21 —— H4」；下面是发生变化的行为。
+
+**探测是 ACP 的事，不是创建的闸门。** `Create lane ↵` 现在读取**所选**适配器自身的
+可启动性。内置 `Viden Agent` 根本不需要探测，因此一台没有安装 Codex、Claude Agent 或
+Kiro CLI 的主机可以在所有 ACP 探测仍未返回时创建 Lane —— 而这正是缺陷 14 所阻断的。
+探测尚未应答的 ACP 适配器显示带明确时限的 `Checking ACP agents…`，随后显示
+`Probe did not answer within 15s.`，禁用并标注，旁边给出 `Retry ACP check`。该时限
+（`AGENT_PROBE_TIMEOUT_MS`）属于整个发现**流程**而非单次探测，因为流程可能在没有任何
+命令在外时停住：`advanceAgentDiscovery` 只由排空重新入队，而安静的 Core 不产生排空。
+这里被禁止的，是一句没有结尾的话。
+
+**探测的等待可以放弃，带副作用的不行。** Core 一次只回答一条命令，而
+`ProbeAgentAdapter` 就在那一个工作线程上执行真实的 ACP 握手 —— 两个 registry 适配器
+（命令是 `npx -y …`）最多 90 秒。`GuiCoreAdapter::abandon_pending_probe` 只为
+`ProbeAgentAdapter` 与 `QueryAgentAdapters` 释放客户端的命令槽位；两者都是没有副作用
+可丢的读取，迟来的 `AgentAdapterProbed` 仍会经由快照抵达适配器列表。其余每一条待决
+命令都会被拒绝，因为它的回答是其效果是否执行过的唯一记录。Core 自己的工作线程不会被
+这些释放，这就是 `GUI-CORE-035`。
+
+**一次排空调和所有相关命令。** 驾驶舱轮询、权限坞、提交栏与后台泵都在排空同一条有序
+事件流，而任一信封只会被其中一个收到。它们过去各自只调和自己的待决命令，于是被 250
+毫秒驾驶舱轮询消费掉的 `OperatorGitActionFinished` 被吞掉，提交栏在一次已完成的提交
+旁边一直显示 `Waiting for the permission decision.`（缺陷 17）。现在每一次排空都经过
+`reconcile_ambient_pendings`。
+
+**决策等待 Core 的裁决，中心视图是一次读取。** D2 的批准发送 `RespondToApproval` 并
+通过 D1 权限坞使用的同一条管线等待 `ApprovalResolved`，因此被决策的卡片离开队列，队列
+总数随之变化。离开一个已注册的 D 屏去 DiffReview 或 EvidenceView，会丢弃该面板**以及**
+它的挂载备忘，因此返回是一次新的 Core 读取：缺陷 16 的后半正是一个比这趟绕路活得更久
+的备忘，这也是「离开再回来」从未刷新队列的原因。
+
+**落定的动作会重新采样，拒绝不会。** 一次 `completed` 的
+`OperatorGitActionFinished` 用一次 `QueryWorkspaceDiff` 重新采样打开着的评审
+（缺陷 21）。拒绝或传输失败仍走去抖的陈旧路径，因为它们都没有移动工作树。
+
+**坞在每个作用域内只读一份采样。** `Changes` 与 `Local` 优先采用 Core 最近为该作用域
+回答的 diff 页 —— `QueryWorkspaceDiff` 会为那次读取重新采样目标，而旁边的文件列表正是
+由它绘制 —— 在没有页抵达或 Core 已使其失效时回落到 `lane_sources` 或工作区采样。
+`data-changes-sample` 说明屏幕上的是哪一份。同时读两份采样，正是把 `+0 −0` 与
+`Working tree Clean` 印在已列出的 `M README.md +1 −1` 之上的原因（缺陷 20）。
+
+**页签条会裁切，因此其中的一切都必须能裁切。** 每一个可以撑大的槽位现在都能收缩并
+省略，元信息槽位会给页签让位而不是从它们底下穿过；零 Lane 的页签条在坞打开时不再把
+`No Lanes yet`、项目路径与工作模式画在一起（缺陷 19）。
+
+**缺陷 18 仍然开放。** 会话中途的自行终止在本批次的有界努力内未能复现；本次运行确实
+复现的，是整屏重绘之后窗口短暂离开 Accessibility 树。两者都记录在证据文档中，未声称
+任何修复。

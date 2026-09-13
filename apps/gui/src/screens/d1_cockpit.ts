@@ -5,10 +5,12 @@ import {
   type D1RailDestinationState,
 } from "../components/activity_rail";
 import {
+  AGENT_PROBE_TIMEOUT_MS,
   orderedAgentAdapters,
   renderAgentMenu,
   type AgentMenuController,
   type AgentMenuSelection,
+  type AgentProbeState,
 } from "../components/agent_menu";
 import { renderCockpitTopbar } from "../components/cockpit_topbar";
 import {
@@ -365,6 +367,17 @@ export interface D1RenderOptions {
    * Absent while no host is bound, which leaves the registered commit bar
    * visible and inert and the sync chip a `role=status` readout.
    */
+  /**
+   * Releases Core's one command slot from an unanswered `ProbeAgentAdapter`.
+   *
+   * Its own tiny port rather than a flag on the D1 send path, because it is
+   * the one command this client ever stops waiting for, and it may do so only
+   * because a probe is a read with no effect to lose. Absent while no host is
+   * bound, which leaves the client clearing only its own view of the slot.
+   */
+  agentProbe?: {
+    abandon: () => Promise<D1IntentResult>;
+  };
   operatorGit?: {
     read: (laneId: string | null) => Promise<OperatorGitProjection>;
     run: (
@@ -1097,6 +1110,9 @@ export function renderD1Cockpit(
   let pendingAgentTaskDraft = options.newLaneDraft?.task ?? "";
   let creatingLane = false;
   const commandSlotWaiters: Array<() => void> = [];
+  /// How long a creation waits for Core's one command slot before it sends
+  /// anyway and lets Core's own refusal be the answer on screen.
+  const COMMAND_SLOT_WAIT_MS = 5_000;
   let pendingLaneStart:
     | { laneId: string; task: string; agentId: string | null }
     | null = null;
@@ -1110,6 +1126,19 @@ export function renderD1Cockpit(
     | { kind: "probe"; agentId: string }
     | null = null;
   const attemptedAgentProbes = new Set<string>();
+  /**
+   * Adapters whose `ProbeAgentAdapter` this client stopped waiting for.
+   *
+   * Defect 14 (E3a). Core answers a probe on its single command worker and
+   * gives an ACP handshake up to 90 s; the popover may not sit on
+   * "Checking ACP agents…" for that long, and it may never let an ACP concern
+   * close the built-in runtime's creation path. A probe past
+   * `AGENT_PROBE_TIMEOUT_MS` is recorded here, rendered as "probe did not
+   * answer", and abandoned so the one command slot is free again. Core's late
+   * answer is not lost: it reaches the adapter list through the snapshot.
+   */
+  const agentProbeTimedOut = new Set<string>();
+  let agentProbeDeadline: number | null = null;
   const transcript = new BoundedTranscript(240);
   transcript.replace(initial.transcript);
   // Reader scroll position survives the full-surface refresh: renders rebuild
@@ -1736,9 +1765,30 @@ export function renderD1Cockpit(
     commandSlotWaiters.splice(0).forEach((resolve) => resolve());
   };
 
+  /**
+   * Waits for Core's one command slot, under a bound.
+   *
+   * The waiters are released by whichever drain frees the slot, and a quiet
+   * Core produces no drain — so an operator who pressed `Create lane ↵` while
+   * the slot looked busy used to wait forever with no sentence on screen. The
+   * bound hands control back instead: the command is then sent, and a slot
+   * Core really is still holding answers with its own refusal, which the
+   * cockpit renders. A client that waits without a bound cannot report.
+   */
   const waitForCommandSlot = async (): Promise<boolean> => {
     if (!commandSlotAvailable()) {
-      await new Promise<void>((resolve) => commandSlotWaiters.push(resolve));
+      await new Promise<void>((resolve) => {
+        const release = (): void => {
+          window.clearTimeout(timer);
+          resolve();
+        };
+        const timer = window.setTimeout(() => {
+          const index = commandSlotWaiters.indexOf(release);
+          if (index >= 0) commandSlotWaiters.splice(index, 1);
+          resolve();
+        }, COMMAND_SLOT_WAIT_MS);
+        commandSlotWaiters.push(release);
+      });
     }
     return !disposed;
   };
@@ -2037,9 +2087,16 @@ export function renderD1Cockpit(
         operatorGitInFlight = false;
         if (disposed) return;
         advanceCommitPair();
-        // The action's own `WorkspaceSourceUpdated` invalidates the open page,
-        // so the review re-reads through the same debounced staleness path a
-        // Core-side write goes through. Nothing is patched into the rows here.
+        // Defect 21 (E3a). A settled action is not a hint that the tree may
+        // have moved — it is Core saying it did. `OperatorGitActionFinished`
+        // therefore re-samples the page directly, with one `QueryWorkspaceDiff`
+        // for the current target, instead of waiting for the debounced
+        // staleness path to notice. Nothing is patched into the rows here:
+        // every row still comes from Core's answer.
+        if (settledOperatorGitEffect()) readReview();
+        // A refusal or a transport failure leaves the tree where it was, so
+        // those still ride the same debounced staleness path a Core-side write
+        // goes through.
         queueMicrotask(noteReviewStaleness);
         queueMicrotask(noteEvidenceStaleness);
         queueMicrotask(noteOperatorGitPending);
@@ -2050,6 +2107,17 @@ export function renderD1Cockpit(
         render(false);
       });
   };
+
+  /**
+   * Whether the last answer says an effect actually ran.
+   *
+   * `confirmed` alone is not enough: Core confirms the *command*, and a
+   * `Failed` result is confirmed too. Only a `completed` result moved the
+   * tree, which is what a re-sample is for.
+   */
+  const settledOperatorGitEffect = (): boolean =>
+    operatorGitState.outcome.state === "confirmed" &&
+    operatorGitState.result?.kind === "completed";
 
   /**
    * The second half of "commit and push", or the sentence that says it stopped.
@@ -2099,6 +2167,9 @@ export function renderD1Cockpit(
         operatorGitInFlight = false;
         if (disposed) return;
         advanceCommitPair();
+        // An approval-gated action settles here rather than in `run`, so the
+        // same re-sample rule applies to the answer this drain carried.
+        if (settledOperatorGitEffect()) readReview();
         render(false);
       });
   };
@@ -2291,8 +2362,27 @@ export function renderD1Cockpit(
   const evidenceAvailable = (): boolean =>
     !!options.evidence && evidenceCapability === true;
 
+  /**
+   * Drops the secondary pane's host node and its mount memo.
+   *
+   * Defect 16 (E3a). Leaving a registered D-screen for DiffReview or
+   * EvidenceView used to keep both the node and the memo, so coming back
+   * re-showed the *same rendered queue* — the decided approval still listed as
+   * pending and the next one absent, which is exactly what the native run
+   * could not get past. A centre view is a Core read; returning to one must be
+   * a new read, not a remembered pane.
+   */
+  const releaseSecondaryView = (): void => {
+    secondaryArg = null;
+    secondaryMountKey = null;
+    secondaryError = null;
+    secondaryShell = null;
+    secondaryBody = null;
+  };
+
   const openEvidence = (): void => {
     if (!options.evidence) return;
+    releaseSecondaryView();
     centerView = "evidence";
     render(false);
     readEvidence();
@@ -2343,6 +2433,7 @@ export function renderD1Cockpit(
    */
   const openReview = (path?: string): void => {
     if (!options.workspaceDiff) return;
+    releaseSecondaryView();
     if (path !== undefined) reviewSelectedPath = path;
     centerView = "review";
     render(false);
@@ -2600,13 +2691,9 @@ export function renderD1Cockpit(
     }
     if (centerView === "transcript") return;
     centerView = "transcript";
-    secondaryArg = null;
-    secondaryMountKey = null;
-    secondaryError = null;
     // The host node goes with the view: a screen kept alive behind the
     // transcript would keep reading Core for a pane nobody is looking at.
-    secondaryShell = null;
-    secondaryBody = null;
+    releaseSecondaryView();
     render(true);
   };
 
@@ -3131,18 +3218,35 @@ export function renderD1Cockpit(
   };
 
   const startLane = async (task: string, agentId: string | null): Promise<boolean> => {
-    // Native Lane creation remains available while ACP discovery runs, but
-    // both use Core's one-command-at-a-time D1 adapter boundary.
+    // Defect 14/15 (E3a). A read-only adapter probe must never stand between
+    // the operator and the only creation path the cockpit has: Core answers
+    // one command at a time, so an outstanding probe is abandoned here rather
+    // than waited out. Everything below still goes through Core's
+    // one-command-at-a-time D1 adapter boundary.
+    if (discoveryIsProbing()) {
+      if (discoveryInFlight?.kind === "probe") {
+        agentProbeTimedOut.add(discoveryInFlight.agentId);
+        discoveryInFlight = null;
+      }
+      // The host refuses to abandon anything but a probe, so this is safe to
+      // attempt whenever a walk is open: it frees the slot when a probe holds
+      // it and is a no-op otherwise.
+      await abandonAgentProbe("create");
+    }
     if (!(await waitForCommandSlot())) return false;
     const previewResult = await sendAndWait({ type: "preview_default_lane", preset: "coder" });
-    const preview = previewResult?.projection.starterLanePreviews.at(-1);
-    if (
-      !preview ||
-      previewResult?.outcome.state === "rejected" ||
-      preview.diagnostics.length > 0
-    ) {
+    if (!previewResult) {
+      // The send itself failed and `sendAndWait` already put the host's own
+      // sentence on screen. Replacing it with "Core did not publish a
+      // creatable Lane preview." would blame Core for a refusal it never
+      // issued — the native H4 re-run hit exactly that and lost the reason.
+      render(false);
+      return false;
+    }
+    const preview = previewResult.projection.starterLanePreviews.at(-1);
+    if (!preview || previewResult.outcome.state === "rejected" || preview.diagnostics.length > 0) {
       errorMessage =
-        previewResult?.outcome.reason ??
+        previewResult.outcome.reason ??
         preview?.diagnostics[0] ??
         projection.workspaceEligibility?.diagnostic ??
         "Core did not publish a creatable Lane preview.";
@@ -3206,6 +3310,85 @@ export function renderD1Cockpit(
 
   function discoveryIsProbing(): boolean {
     return agentDiscoveryStarted && !agentDiscoveryComplete;
+  }
+
+  /// This adapter's own probe state, which is what the menu gates on.
+  function agentProbeState(agentId: string): AgentProbeState {
+    if (discoveryInFlight?.kind === "probe" && discoveryInFlight.agentId === agentId) {
+      return "checking";
+    }
+    return agentProbeTimedOut.has(agentId) ? "timed_out" : "idle";
+  }
+
+  /**
+   * Starts the bounded wait that covers this discovery walk.
+   *
+   * The bound belongs to the *walk*, not to one probe, because the walk can
+   * stall with nothing in flight at all: `advanceAgentDiscovery` returns when
+   * the command slot is momentarily busy and is re-queued only by a drain, and
+   * a quiet Core produces no drain to re-queue it. The native H4 re-run found
+   * exactly that — `Checking ACP agents…` standing with no probe outstanding
+   * and no wake coming. A bound the client owns is what guarantees the
+   * sentence ends; it says how long this popover waits, never what Core did.
+   */
+  function armAgentDiscoveryDeadline(): void {
+    clearAgentProbeDeadline();
+    agentProbeDeadline = window.setTimeout(() => {
+      agentProbeDeadline = null;
+      if (disposed || !discoveryIsProbing()) return;
+      // Every adapter that still needs a probe is reported as unanswered.
+      // Saying "did not answer" about an adapter this walk never reached is
+      // the honest reading: the operator asked, and no answer arrived.
+      for (const adapter of projection.agentAdapters) {
+        if (adapter.startability === "probe_required") agentProbeTimedOut.add(adapter.agentId);
+      }
+      if (discoveryInFlight?.kind === "probe") agentProbeTimedOut.add(discoveryInFlight.agentId);
+      // Nothing else is relabelled: an adapter Core reported as not installed
+      // or needing authentication keeps that answer, which the menu prefers.
+      discoveryInFlight = null;
+      agentDiscoveryComplete = true;
+      void abandonAgentProbe("timeout");
+    }, AGENT_PROBE_TIMEOUT_MS);
+  }
+
+  function clearAgentProbeDeadline(): void {
+    if (agentProbeDeadline === null) return;
+    window.clearTimeout(agentProbeDeadline);
+    agentProbeDeadline = null;
+  }
+
+  /**
+   * Releases the one process-wide command slot an unanswered probe is holding.
+   *
+   * The command is a read: `ProbeAgentAdapter` mutates nothing, so abandoning
+   * the *wait* claims nothing about Core and loses nothing — a later
+   * `AgentAdapterProbed` still updates the adapter list through the snapshot.
+   * Without a host port to abandon it the client at least stops treating the
+   * slot as occupied, which is what the popover's create path waits on.
+   */
+  async function abandonAgentProbe(reason: "timeout" | "create"): Promise<void> {
+    clearAgentProbeDeadline();
+    if (reason === "create") {
+      // A creation is the operator's answer to the question discovery was
+      // asking. Walking the remaining adapters would re-occupy the slot.
+      agentDiscoveryComplete = true;
+    }
+    const port = options.agentProbe;
+    if (port) {
+      try {
+        const result = await port.abandon();
+        if (!disposed) controller.applyResult(result);
+      } catch {
+        // A host that cannot abandon leaves the slot exactly as Core reports
+        // it; nothing here invents a free slot.
+      }
+    } else {
+      pendingCommandId = null;
+    }
+    if (disposed) return;
+    releaseCommandSlotWaiters();
+    render(false);
+    if (reason === "timeout") queueMicrotask(advanceAgentDiscovery);
   }
 
   /// Rebuilds the Settings overlay against the current model.
@@ -3678,7 +3861,10 @@ export function renderD1Cockpit(
         selected: newLaneSelection,
         taskDraft: pendingAgentTaskDraft,
         submitting: creatingLane,
-        adapters: projection.agentAdapters,
+        adapters: projection.agentAdapters.map((adapter) => ({
+          ...adapter,
+          probe: agentProbeState(adapter.agentId),
+        })),
       },
       (selection) => {
         newLaneSelection = selection;
@@ -3745,6 +3931,7 @@ export function renderD1Cockpit(
     if (!discoveryInFlight || result.pendingCommandId !== null) return false;
     const completed = discoveryInFlight;
     discoveryInFlight = null;
+    clearAgentProbeDeadline();
     if (completed.kind === "query") {
       agentQueryComplete = result.outcome.state !== "rejected";
       if (!agentQueryComplete) {
@@ -3776,6 +3963,9 @@ export function renderD1Cockpit(
     discoveryDispatching = true;
     discoveryInFlight = command;
     if (command.kind === "probe") attemptedAgentProbes.add(command.agentId);
+    // Every dispatch re-arms the walk's bound, so a walk that is making
+    // progress is never cut short and a walk that stops is always cut.
+    armAgentDiscoveryDeadline();
     sending = true;
     try {
       const result = await send(
@@ -3844,7 +4034,10 @@ export function renderD1Cockpit(
     agentQueryComplete = false;
     agentDiscoveryDiagnostic = null;
     discoveryInFlight = null;
+    clearAgentProbeDeadline();
     attemptedAgentProbes.clear();
+    agentProbeTimedOut.clear();
+    armAgentDiscoveryDeadline();
     render(false);
     advanceAgentDiscovery();
   }

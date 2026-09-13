@@ -1127,3 +1127,116 @@ committed change, with audit and evidence recorded":
   TUI, and partly met on the GUI with a named, reproducible blocker**, which is
   a better-understood position than `0.3.4` left it in and a worse one than
   `0.3.4` hoped for.
+
+## Defects 14–21 — H4 (2026-09-13, on `claude/gui-native-defects-h4`)
+
+Branch `claude/gui-native-defects-h4` in `.worktrees/gui-native-defects-h4`,
+base `claude/int-0.3.5` at `67353a71` (= `main` `75e2a84a` + the `0.3.5`
+contract design, H3, C12, DS, C13, T3 and this document's E3a section). The
+host screen was unlocked and `CGSessionCopyCurrentDictionary()` was read before
+every keystroke and click batch; `CGSSessionScreenIsLocked` was `0` at every
+one of them.
+
+This section records the **verdict per defect** and a native re-run of the
+steps E3a was blocked on. It is not the `0.3.5` native proof: that is E3b's,
+on the release candidate, and the Lane half beyond creation is still owed.
+
+### The application under test
+
+`npm --prefix apps/gui ci --no-audit --no-fund` added 97 packages in 2 s.
+`npm --prefix apps/gui run tauri -- build --bundles app` PASSED and produced
+`target/release/bundle/macos/Viden.app`:
+
+| Fact | Value |
+| --- | --- |
+| `CFBundleShortVersionString` | `0.1.0-rc.5` (H4 does not bump the GUI version) |
+| `CFBundleExecutable` | `viden-gui` |
+| Architecture | `Mach-O 64-bit executable arm64` |
+| Executable size | 41,496,368 bytes |
+| Bundle size | 40 MB |
+| Signature | ad-hoc, `TeamIdentifier=not set`, `Sealed Resources=none` |
+
+Every launch ran with `VIDEN_HOME` pointed at a scratch directory, so this
+repository's own `.viden/` was never read or written. The fixture is a fresh
+temporary Git repository with one commit `06a79a3` ("Add the fixture README"),
+a six-line `README.md`, a `.gitignore` covering `.viden/` and `.worktrees/`,
+and a `.viden/config.toml` selecting `provider = "fallback"` /
+`model = "test-local"`.
+
+**One deviation, named rather than hidden.** The workspace was bound with
+`VIDEN_GUI_WORKSPACE` rather than through `⌘O` and the native folder panel.
+E3a already proved that path end to end (its steps 2 and 3); H4's subject is
+what happens *after* a bound cockpit, and the launch binding is a documented
+entry point (`apps/gui/README.md`, "Run the desktop client locally"). Nothing
+below depends on how the workspace was bound.
+
+### Verdicts
+
+| # | Defect | Verdict |
+| --- | --- | --- |
+| 14 | New Lane can never create a Lane while ACP discovery is outstanding | **Fixed** (`ee2ce04f`). `create.disabled` no longer ORs the discovery state; the gate is the selected adapter's own startability. Proven natively below: a Lane created on the built-in agent on a host with no ACP binary |
+| 15 | D4's `Preview with Core` never resolves behind a stuck probe | **Fixed on the client** (`ee2ce04f`) and **reported as a Core finding** (`GUI-CORE-035`). The client abandons an unanswered adapter *read* so its own command slot is free; Core's single command worker is still held by the probe it is running, which only Core can fix |
+| 16 | The Decision Center keeps a decided approval and never surfaces the next | **Fixed** (`ee2ce04f`). Two halves: the decision now waits for Core's `ApprovalResolved` through the permission pipeline, and leaving a centre view for DiffReview or EvidenceView drops the pane and its mount memo so returning is a new Core read |
+| 17 | The source-control in-flight state never clears after a completed commit | **Fixed** (`ee2ce04f`). Root cause: every drain reconciled only its own pending command, so an `OperatorGitActionFinished` consumed by the cockpit's 250 ms poll was swallowed. All drains now funnel through `reconcile_ambient_pendings` |
+| 18 | The application terminates itself mid-session | **Not reproduced** in H4's bounded effort — see below |
+| 19 | The Lane tab strip overlaps its own metadata with the dock open | **Fixed** (`284c4229`). Proven natively below |
+| 20 | The dock's `Changes` total and `Local` flag disagree with the file list | **Fixed** (`284c4229`). Both now read the sample the file list reads, and `data-changes-sample` states which sample that is |
+| 21 | DiffReview's changed-file list is not re-sampled after a commit | **Fixed** (`ee2ce04f`). A `completed` result re-samples with one `QueryWorkspaceDiff`; a refusal or a transport failure still rides the debounced staleness path, because neither moved the tree |
+
+### The native re-run
+
+Every frame was captured twice and the second kept; the Accessibility tree was
+read as the state of record for every assertion; every PNG listed was viewed
+before it was listed.
+
+| # | Step | Reached | Result / reason | Frames |
+| --- | --- | --- | --- | --- |
+| 1 | **Cockpit bound, tab strip and dock legible** | yes | Dock Environment `Provider fallback`, `Model test-local`, `Mode build`, `Permission ask`; Local `Showing Workspace root`, `Branch main`, `Working tree Clean`; statusbar `MODE build · PERM ask · EVENTS #7 · LANE —`. The zero-Lane tab strip draws `No Lanes yet`, `＋`, the project path and `Build` each in its own space with the context dock open — defect 19, natively | [`h4-01`](native-0.3.4/h4-01-cockpit-bound.png) |
+| 2 | **`Create lane ↵` enabled with every ACP probe unanswered** | yes | The popover opened with the built-in `Viden Agent` selected and the three ACP adapters disabled under `Probe did not answer within 15s.` — the client's own stated bound, with a `Retry ACP check` beside it — and `Create lane ↵` read `enabled=true` once the task was pasted. Earlier in the same run the same popover read `Checking ACP agents… each probe is given up to 15s.` while `Create lane ↵` was already enabled. **Defect 14, natively.** `Checking ACP agents…` never stood open-ended | [`h4-02`](native-0.3.4/h4-02-new-lane-create-enabled.png) |
+| 3 | **A Core `lane_create` approval** | yes | `Approve lane_create · lane_create`, `Medium risk`, `branch: viden/lane_1789287265044945000 path: …/.worktrees/lane_1789287265044945000`, `Reason: lane mutation policy requires approval`, `Audit: audit_1789287266911108000`, over `Y · Once` / `Shift+A · Allow repo paths` / `N · Deny`, with `Always` and `Edit` disabled and labelled `GUI-CORE-003`, and `1 awaiting you` on the status bar. **The first `lane_create` approval ever raised through this client** | [`h4-03`](native-0.3.4/h4-03-lane-create-approval.png) |
+| 4 | **Lane created under that approval** | yes | `Y · Once` released the effect: the tab strip carries `lane_1789287265044945000 · coder start…`, the statusbar reads `LANE lane_1789287265044945000 — draft`, the titlebar `1 worktree`, and the dock's Local section switched to `Showing Lane worktree` with the Lane's own branch and worktree. Verified out of band: `.worktrees/lane_1789287265044945000/` exists and `git branch` lists `viden/lane_1789287265044945000`. `LANE OUTPUT` carries Core's own `Preparing worktree (new branch 'viden/lane_1789287265044945000')`. **Defects 14 and 15 are closed on the GUI** | [`h4-04`](native-0.3.4/h4-04-lane-created.png) |
+| 5 | Composer `tool edit_file …` in that Lane | **no** | The composer is enabled and accepts the text, but the created Lane stands with an active turn (`Cancel active turn` on screen, `composer.busy`), and the submit did not leave: `EVENTS` stayed at `#25` across two attempts (the Send control and `Return`). Not a defect 14/15 residue — the Lane exists and Core owns it — and not diagnosed here. It belongs to E3b, which owns the full Lane half on the candidate | — |
+| 6 | D2 two sequential approvals, inline tool diff, check run, EvidenceView patch, D14 `approval.allow_once` for both, queued follow-up | **no** | All six sit behind step 5 | — |
+
+### Defect 18 — not reproduced
+
+Bounded effort, stated exactly. The bundle was run with `RUST_LOG=debug` and
+stdout/stderr captured to a file across six launches on 2026-09-13 between
+07:34Z and 08:22Z, including one instance driven through bind, Lane creation
+and an approval and then left idle under a five-second process sampler. No
+instance exited on its own: every launch that ended did so because this batch
+killed it, and the last one — the instance that created the Lane above — was sampled
+every five seconds for 16 minutes 18 seconds (92 samples) and was still alive
+at the end. The captured stderr held nothing but the AppKit TSM/IMK line E3a also
+saw, and no macOS crash report was written for `viden-gui` in the window.
+
+What *was* reproduced is one shape E3a described and E1b's defect 7 described
+before it: **the window briefly leaves the Accessibility tree**. Three times,
+immediately after a click that caused a full cockpit re-render (`Create lane ↵`
+and `Y · Once`), `System Events` answered
+`Can't get window 1 of process … Invalid index. (-1719)`, and a read three
+seconds later found the window back with `count of windows` = 1 and the process
+alive. That is consistent with "the window disappeared and the process was
+gone" being *two* observations rather than one, and it is the thread the next
+attempt should pull. It is recorded as an observation, not as a fix.
+
+No fix is claimed for defect 18. It stays open, with this batch's negative
+result and the re-render/AX observation attached to it.
+
+### Honesty notes
+
+- The frames above are from the **native app**, not from the capture harness.
+  The four qa states this batch added — `h4-lane-create-builtin`,
+  `h4-probe-timed-out`, `h4-d2-next-approval`, `h4-tabstrip-dock-open` — are
+  reproducible harness entries for the same surfaces and are not the evidence
+  for the verdicts; the native frames are.
+- The native run found one defect of its own, fixed in the same commit: a
+  discovery walk could stall with `Checking ACP agents…` on screen and *nothing
+  outstanding*, because `advanceAgentDiscovery` is re-queued only by a drain
+  and a quiet Core produces none. The bound now belongs to the walk, not to one
+  probe, and `waitForCommandSlot` has a bound of its own so a creation can
+  report instead of waiting silently.
+- `startLane` used to overwrite the host's own refusal with
+  `Core did not publish a creatable Lane preview.`, which blamed Core for a
+  refusal it never issued. The native run hit exactly that and lost the reason;
+  the send failure's own sentence now stands.

@@ -1355,6 +1355,47 @@ What a client needs: `pub use viden_types::MAX_PLAN_REJECT_REASON_BYTES` in
 `crates/core/src/lib.rs`, beside the four plan bounds already there. One line;
 the GUI then deletes its literal.
 
+## GUI-CORE-035: Adapter discovery must not hold Core's command worker
+
+Opened 2026-09-13 by batch H4, from the native re-run of the E3a defects. OPEN.
+
+`RuntimeCommand::ProbeAgentAdapter` is executed inline on the runtime
+supervisor's single command worker
+(`crates/runtime/src/runtime_supervisor.rs:1015`, "The supervisor is one
+worker", and `crates/runtime/src/runtime_contract.rs:631`), and the work it
+does is a real subprocess handshake:
+`probe_typed_agent_adapter_descriptor` -> `run_acp_initialize_probe_for_agent`
+(`crates/agents/src/glue.rs:66`, `crates/agents/src/acp.rs:718`) spawns the
+adapter's command and blocks on `read_line_with_timeout` for
+`acp_agent_handshake_timeout` — `DEFAULT_LOCAL_ACP_HANDSHAKE_TIMEOUT_SECS` 30 s
+for a local command and `DEFAULT_REGISTRY_ACP_HANDSHAKE_TIMEOUT_SECS` 90 s for
+a registry package (`crates/agents/src/acp.rs:32`, `:34`), which the two
+built-in registry adapters use because their command is
+`npx -y <package>@<version>` (`crates/plugin-host/src/lib.rs:1178`).
+
+Every other command — `PreviewDefaultStarterLane`, `SubmitUserInput`,
+`RunOperatorGitAction`, `RespondToApproval` — waits behind that in the
+supervisor's channel. On a host with no ACP binary the wait is up to 90 s per
+adapter, which is what closed *both* Lane-creation paths in `0.1.0-rc.5`: E3a
+watched `Checking ACP agents…` stand for over six minutes and D4's
+`Preview with Core` never resolve behind it (defects 14 and 15).
+
+What a client needs: a probe that does not occupy the command worker. Either
+`ProbeAgentAdapter` runs on its own executor and publishes
+`AgentAdapterProbed` when it finishes, or Core publishes the bound it is
+working under so a frontend can state it rather than invent one. A capability
+flag is not required; the fix is entirely inside Core's scheduling.
+
+What the GUI does meanwhile, which is a mitigation and not a closure: the
+cockpit bounds its own wait at `AGENT_PROBE_TIMEOUT_MS` (15 s,
+`apps/gui/src/components/agent_menu.ts`), renders an unanswered probe as
+`Probe did not answer within 15s.` disabled-and-labelled with a
+`Retry ACP check` control beside it, and abandons the outstanding *read* —
+`ProbeAgentAdapter` or `QueryAgentAdapters`, never anything with an effect —
+through `GuiCoreAdapter::abandon_pending_probe` so its own command slot is
+free. Core's worker is not freed by any of that; a command sent while Core is
+still probing still waits in Core's channel. The client never claims otherwise.
+
 ## Retired pre-register codes
 
 `GUI-CORE-001` to `GUI-CORE-007` predate this register, which starts at 008.

@@ -38,6 +38,10 @@ name = "d1_cockpit"
 path = "../tests/d1_cockpit.rs"
 
 [[test]]
+name = "h4_native_defects"
+path = "../tests/h4_native_defects.rs"
+
+[[test]]
 name = "composer_controls"
 path = "../tests/composer_controls.rs"
 
