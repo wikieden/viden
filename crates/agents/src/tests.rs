@@ -2757,17 +2757,27 @@ fn acp_async_job_can_be_cancelled_by_pid() {
     let _guard = subprocess_test_guard();
     let root = temp_root("acp_async_cancel");
     let script = root.join("mock-acp-cancel.sh");
+    // The mock stamps a marker once it has answered the prompt, and the test
+    // waits for that marker before cancelling. The job's pid is recorded at
+    // spawn, before a single byte of the handshake has been exchanged, so
+    // gating on it let the cancel grace expire while the agent was still
+    // starting up: the child was terminated mid-`initialize`, the run failed
+    // instead of being cancelled, and the cooperative evidence asserted below
+    // was never produced. The marker is a signal this test owns, and it moves
+    // no bound the code under test depends on.
+    let ready = root.join("mock-acp-cancel.prompted");
     fs::write(
         &script,
         [
-            "#!/bin/sh",
-            "trap 'exit 0' TERM",
-            "read _init",
-            "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":0,\"result\":{\"protocolVersion\":1,\"agentCapabilities\":{},\"agentInfo\":{\"name\":\"mock-cancel-acp\",\"version\":\"0.5.0\"}}}'",
-            "read _new_session",
-            "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"sessionId\":\"session_cancel\"}}'",
-            "read _prompt",
-            "sleep 20",
+            "#!/bin/sh".to_string(),
+            "trap 'exit 0' TERM".to_string(),
+            "read _init".to_string(),
+            "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":0,\"result\":{\"protocolVersion\":1,\"agentCapabilities\":{},\"agentInfo\":{\"name\":\"mock-cancel-acp\",\"version\":\"0.5.0\"}}}'".to_string(),
+            "read _new_session".to_string(),
+            "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"sessionId\":\"session_cancel\"}}'".to_string(),
+            "read _prompt".to_string(),
+            format!(": > \"{}\"", ready.display()),
+            "sleep 20".to_string(),
         ]
         .join("\n"),
     )
@@ -2790,12 +2800,17 @@ fn acp_async_job_can_be_cancelled_by_pid() {
         .to_string();
     wait_until(
         || {
-            find_codex_job(&root, &id)
-                .ok()
-                .flatten()
-                .is_some_and(|job| job.pid.is_some() && job.status == "running")
+            ready.exists()
+                && find_codex_job(&root, &id)
+                    .ok()
+                    .flatten()
+                    .is_some_and(|job| job.pid.is_some() && job.status == "running")
         },
-        Duration::from_secs(10),
+        Duration::from_secs(30),
+    );
+    assert!(
+        ready.exists(),
+        "the mock agent must have completed its handshake before cancellation"
     );
 
     let cancelled = cancel_codex_job(&root, Some(&id)).expect("cancel acp job");
