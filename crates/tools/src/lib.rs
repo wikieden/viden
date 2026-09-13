@@ -10,6 +10,7 @@ mod git;
 pub mod lane;
 mod lsp;
 pub mod patch;
+pub mod plan;
 pub mod process;
 mod search;
 mod shell;
@@ -27,6 +28,8 @@ use git::{
     GitStatusTool, GitSwitchTool, GitWorktreeAddTool, GitWorktreeListTool, GitWorktreeRemoveTool,
 };
 use lsp::{LspDiagnosticsTool, LspReferencesTool, LspSymbolsTool};
+use plan::UpdatePlanTool;
+pub use plan::{UPDATE_PLAN_TOOL, UpdatePlanCall, parse_update_plan_input, update_plan_tool_spec};
 use search::{GlobTool, GrepTool};
 use shell::ShellTool;
 pub use shell::{build_shell_invocation, shell_requires_stdin};
@@ -176,6 +179,10 @@ impl ToolRegistry {
         registry.register(LspDiagnosticsTool);
         registry.register(LspSymbolsTool);
         registry.register(LspReferencesTool);
+        // Non-mutating: its effect is a Core plan fact, not a workspace change,
+        // so the permission engine sees it as a safe read and plan mode allows
+        // it (`runtime.plan_documents`, C13).
+        registry.register(UpdatePlanTool);
         registry
     }
 

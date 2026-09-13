@@ -43,12 +43,15 @@ pub use viden_types::{
     LaneRuntimeOwnerBinding, LaneSidebarMode, LaneStatus, LocaleId, MAX_CONFLICT_CONTENT_BYTES,
     MAX_EVIDENCE_CONTENT_BYTES, MAX_EVIDENCE_PAGE_SIZE, MAX_EVIDENCE_QUERY_KINDS,
     MAX_HIDDEN_STATUSBAR_SEGMENT_BYTES, MAX_HIDDEN_STATUSBAR_SEGMENTS,
-    MAX_OPERATOR_COMMIT_MESSAGE_BYTES, MAX_OPERATOR_GIT_OUTPUT_BYTES,
+    MAX_OPERATOR_COMMIT_MESSAGE_BYTES, MAX_OPERATOR_GIT_OUTPUT_BYTES, MAX_PLAN_GOAL_BYTES,
+    MAX_PLAN_SECTION_BODY_BYTES, MAX_PLAN_STEPS, MAX_PLAN_TITLE_BYTES,
     MAX_TRANSCRIPT_ROW_TEXT_BYTES, MAX_TRANSCRIPT_ROWS_PAGE, MAX_TURN_FAILURE_REASON_CHARS,
     MAX_WORKSPACE_DIFF_BYTES, MAX_WORKSPACE_FILE_BYTES, MergeGatePolicySnapshot, MergeGateRecord,
     MergeGateStatus, MergeGateType, MergeGateValidator, MutationPolicy, OperatorGitAction,
     OperatorGitFailureClass, OperatorGitOutcome, OwnedTranscriptRow, PROJECT_ID_PREFIX,
-    PermissionLevel, PermissionMode, ProjectConfigPreview, ProjectConfigState, ProjectIdOrigin,
+    PermissionLevel, PermissionMode, PlanAuthor, PlanDocumentDraft, PlanDocumentId,
+    PlanDocumentRecord, PlanDocumentStatus, PlanHandoff, PlanSection, PlanSectionKind, PlanStep,
+    PlanStepDraft, PlanStepStatus, ProjectConfigPreview, ProjectConfigState, ProjectIdOrigin,
     ProjectProbe, ProviderHealthView, QueuedInputView, RecentProjectSummary, RecentSessionSummary,
     RecentWorkQuery, ReplayBatch, ReplayRequest, ResolvedUiPreferences, RevertRecord,
     ReviewRequestRecord, ReviewRequestStatus, ReviewVerdict, ReviewedEvidenceBinding,
@@ -150,6 +153,19 @@ mod tests {
         assert_eq!(MAX_TRANSCRIPT_ROWS_PAGE, 200);
         assert_eq!(MAX_TRANSCRIPT_ROW_TEXT_BYTES, 8 * 1024);
         assert!(CORE_EXTENSION_CAPABILITIES.contains(&"runtime.transcript_rows"));
+        // C13: the plan a planning turn produces, as a Core fact with an
+        // operator decision. `PlanDocumentDraft` is what a client forwards;
+        // `PlanDocumentRecord` is what it renders, and the revision and digest
+        // on it are what a decision has to name.
+        assert!(std::any::type_name::<PlanDocumentRecord>().contains("PlanDocumentRecord"));
+        assert!(std::any::type_name::<PlanDocumentDraft>().contains("PlanDocumentDraft"));
+        assert!(std::any::type_name::<PlanStep>().contains("PlanStep"));
+        assert!(std::any::type_name::<PlanSection>().contains("PlanSection"));
+        assert_eq!(MAX_PLAN_STEPS, 64);
+        assert_eq!(MAX_PLAN_SECTION_BODY_BYTES, 16 * 1024);
+        assert_eq!(MAX_PLAN_GOAL_BYTES, 4 * 1024);
+        assert_eq!(MAX_PLAN_TITLE_BYTES, 256);
+        assert!(CORE_EXTENSION_CAPABILITIES.contains(&"runtime.plan_documents"));
         // GUI-CORE-012: the typed diff substrate. A frontend must render hunk
         // rows from Core facts instead of parsing unified diff text itself,
         // which would put a second parser and a second definition of "hunk"

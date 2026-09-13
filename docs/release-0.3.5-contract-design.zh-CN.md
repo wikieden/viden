@@ -455,3 +455,62 @@ Agent Board（覆盖 Lane/会话层级的中央面板视图）：
 - 即使会话启动被拒，starter Lane 仍被创建。
 - 上界：64 个计划步骤、每段 16 KiB、4 KiB goal；暂停期间持有的输入受现有输入队列上界
   约束。
+
+## 来自实现的修订（2026-09-13）
+
+由批次 C13 按本文档自身的规则记录：批次只有在报告中写明理由的情况下才可以偏离，若该
+偏离通过评审，则记录于此。上文正文保持原样；本节是第 1 节实际交付的内容。C14 与 C15
+追加各自的条目。
+
+- **`PlanDocumentId` 是 `plan_<纳秒 token>`，不是 ULID。** 没有任何 ULID crate 是依赖，
+  本批次也未被授权添加；`fresh_id` 是既有助手，`project_id` 在 `0.3.4` 做过同样的修订。
+  前缀与形状与设计一致。
+- **`ProposePlanDocument` 承载 `PlanDocumentDraft { owner, title, goal, sections,
+  steps }`，而 `proposed_by` 不在线上。** 设计把 draft 列为「title、goal、sections、
+  steps」，并把 `proposed_by` 放在记录上却未指名生产者。owner 必须随 draft 传递，因为
+  `handle_runtime_command` 从不看到 envelope；作者则**不能**随之传递，因为能设置它的
+  客户端就能把自己的文本归档为模型写下的东西。命令路径永远记录 `Operator`，工具路径
+  永远记录 `Assistant`，因此作者是到达路径的属性。
+- **新增 `PlanStepDraft` 形状。** draft 的 step 不带 `id`：Core 指派
+  `step_<从 1 起的位置>`，让身份只有一个生产者；draft 的 `dependencies` 指名这些 id，
+  并在同一份 draft 内解析。若 draft 自带 id，第二次提案就可能给操作者已经读过的 step
+  重新编号，一条依赖边会悄悄指向别处。
+- **`Superseded` 是被重新发布的记录，不是历史数组。** 设计说较早的修订「在同一记录的
+  历史中」被发布为 `Superseded`。`PlanDocumentRecord` 没有历史字段，新增一个会把每一个
+  过去的修订塞进 `RuntimeViewState` 以及其后每一个快照。取而代之的是：较早的修订在新
+  修订之前，作为它自己的、状态为 `Superseded` 的 `PlanDocumentUpdated` 被重新发布，
+  这是一条持久事实；视图保留最新记录，JSONL 保留每一个修订，与设计要求完全一致。
+- **`content_sha256` 由调用方对 `viden-types` 中构造的规范源做散列。**
+  `plan_content_digest_source` 返回确切的带长度前缀的字节；`viden-runtime` 与 fixture
+  对其散列。摘要不能落在 `viden-types`，因为 `sha2` 在那里只是 dev-dependency，把它变成
+  正式依赖会给工作区里每个 crate 都压上一个加密依赖。手写编码是刻意的：一旦记录新增
+  字段，`serde` 派生会立刻移动一份未改变计划的摘要。
+- **新增三处上界。** `MAX_PLAN_FILE_SCOPE_ENTRY_BYTES = 512` 以及工作区相对性检查，
+  因为设计限定了 `file_scope` 条目的**数量**却未限定每条路径，这让「有界」的列表在字节上
+  仍然无界，也允许某个 step 把作用域指向 `/etc` 或 `../`；`MAX_PLAN_REJECT_REASON_BYTES
+  = 2048`，因为设计给 `RejectPlanDocument` 的 `reason: String` 没有上界，而该理由会进入
+  审计日志。step 标题与计划标题共用 256 字节上界，与设计一致。
+- **`update_plan` 的输入是扁平的 `ToolInput` 映射。** 对每个工具而言 `ToolInput` 都是
+  `BTreeMap<String, String>`，因此 `plan` 与 `sections` 以 JSON 编码字符串的形式落在单个
+  键里，而不是嵌套结构。字段名与语义都是设计给出的。
+- **`update_plan` 拒绝既无 `title` 也无 `explanation` 的调用。** 设计的 Codex 形状让二者
+  都可选，但计划必须可命名，而「Plan」不是作者写下的名字。标题回退到 `explanation`，
+  两者都没有的调用是一个指名这两个键的工具错误。
+- **移交的 `permission_policy` 取会话自身的变更策略。** 设计说「Lane 的变更策略名」；
+  会话作用域的计划没有 Lane，因此取值是 Core 当前所处的权限模式，也就是真正治理所生成
+  工作的那个策略。
+- **计划是在注册表执行完工具之后被折入的。** 设计说工具「创建或修订所有者的计划」；
+  `BuiltinTool` 无法访问引擎。由注册表执行的工具校验输入并渲染给模型的摘要，运行时再用
+  同一个解析器读同一份输入并提出计划，于是闸门、拦截器与转录条目看到的都是一次普通工具
+  调用。Core 无法解析、或无法归属到已发布工作区身份的调用会让该次工具调用失败，而不是
+  报告一份并未被记录的计划。
+- **`viden-tools` 新增 `serde_json`。** 上述那个 JSON 编码的工具输入键需要一个解析器；
+  `viden-tools` 此前只有 `viden-types`。
+- **`plan-documents` fixture 省略了 `start_agent_dag` 同时发布的 `TaskUpdated` 与
+  `MergeGateUpdated` 事实。** 设计的场景指名的是 `AgentDagUpdated` 与
+  `PlanDocumentHandedOff`。该 fixture 冻结的是计划契约；DAG 自身的事实已由
+  `dag-blocker.json` 冻结，在此重复会让一个场景成为两份契约的证据。
+- **一个轮次自己的事件列表可能承载同一条计划记录两次。** 持有的计划随快照前缀发布，
+  而每个轮次的投影都会重新发布该前缀，因此一个同时折入了 `update_plan` 调用的轮次，会在
+  前缀里发布一次记录，又作为有序事实再发布一次。`AgentDagUpdated` 自 `0.3.0` 起就有这个
+  性质；归约器按 plan id 做 upsert，因此客户端两种情况下看到的都是一份计划。

@@ -10,7 +10,8 @@ use crate::{
     CostUsageRecord, CredentialHandle, DecisionContext, DependencyRecord, DependencyState,
     EvidenceCanonicalizationRecord, EvidenceContent, EvidenceId, EvidencePage, EvidenceQuery,
     HandoffAcceptance, HandoffRecord, LaneStatus, MergeGateId, MergeGateRecord, MessageId,
-    OperatorGitAction, OperatorGitOutcome, PermissionLevel, ProjectConfigPreview, ProjectProbe,
+    OperatorGitAction, OperatorGitOutcome, PermissionLevel, PlanDocumentDraft, PlanDocumentId,
+    PlanDocumentRecord, PlanDocumentStatus, ProjectConfigPreview, ProjectProbe,
     ProviderCacheObservationRecord, RecentProjectSummary, RecentSessionSummary, RecentWorkQuery,
     ResolvedUiPreferences, RevertRecord, ReviewRequestRecord, ReviewVerdict,
     ReviewedEvidenceBinding, RuntimeOwner, RuntimeServiceHealthView, RuntimeSnapshot, SessionId,
@@ -271,6 +272,52 @@ pub enum RuntimeCommand {
     CleanupLane {
         lane_id: crate::AgentLaneId,
         force: bool,
+    },
+    /// Operator-authored or client-forwarded plan proposal
+    /// (`runtime.plan_documents`, C13).
+    ///
+    /// The model never sends this: it calls the built-in `update_plan` tool,
+    /// which reaches the same producer with `PlanAuthor::Assistant`. The
+    /// author is therefore a property of the arrival path rather than a field
+    /// on the wire, so a client cannot file its own text as something the
+    /// model wrote.
+    ///
+    /// `draft.owner` is required and must not be `RuntimeOwner::default()`:
+    /// "one open plan per owner" collapses into one global plan the moment a
+    /// plan is allowed to belong to nobody.
+    ProposePlanDocument {
+        draft: PlanDocumentDraft,
+    },
+    /// Settles a proposed plan (`runtime.plan_documents`, C13).
+    ///
+    /// Pinned: `revision` and `content_sha256` are the ones the operator read.
+    /// A mismatch is `CommandRejected` with reason `plan_revision_stale`
+    /// rather than a decision against whatever the plan says now, because the
+    /// model may have proposed a new revision while the operator was reading
+    /// the previous one.
+    AcceptPlanDocument {
+        plan_id: PlanDocumentId,
+        revision: u32,
+        content_sha256: String,
+    },
+    /// The refusing half of `AcceptPlanDocument`, pinned the same way.
+    RejectPlanDocument {
+        plan_id: PlanDocumentId,
+        revision: u32,
+        content_sha256: String,
+        reason: String,
+    },
+    /// Turns an `Accepted` plan into the agent DAG Core already owns
+    /// (`runtime.plan_documents`, C13).
+    ///
+    /// The only mutation in this capability, and the only one plan mode
+    /// refuses: `CommandRejected` with reason `plan_mode`, the same reason
+    /// family the starter-Lane preview uses. Accepting a plan is a decision
+    /// about a document and stays available in Plan; spawning the work is not.
+    HandOffPlanDocument {
+        plan_id: PlanDocumentId,
+        revision: u32,
+        content_sha256: String,
     },
     StartAgentDag {
         goal: String,
@@ -1051,6 +1098,39 @@ pub enum RuntimeEventKind {
     TaskUpdated {
         task: AgentTaskRecord,
     },
+    /// Every revision and every status change of one plan
+    /// (`runtime.plan_documents`, C13).
+    ///
+    /// The record carries the latest revision; the durable log keeps each one,
+    /// including the `Superseded` republication of an earlier revision that a
+    /// new proposal voids. This is the only plan event that reduces into
+    /// `RuntimeViewState`.
+    PlanDocumentUpdated {
+        plan: PlanDocumentRecord,
+    },
+    /// The settled answer to `AcceptPlanDocument` or `RejectPlanDocument`.
+    ///
+    /// Published after the `PlanDocumentUpdated` that carries the decided
+    /// record and after the audit row is durable, so a reader never sees a
+    /// decision whose authorization was not written first.
+    PlanDocumentDecided {
+        plan_id: PlanDocumentId,
+        revision: u32,
+        status: PlanDocumentStatus,
+        audit_id: String,
+        owner: RuntimeOwner,
+    },
+    /// The settled answer to `HandOffPlanDocument`.
+    ///
+    /// Ordered after the `AgentDagUpdated` that publishes the DAG, so a client
+    /// never learns a plan became work before the work itself exists.
+    PlanDocumentHandedOff {
+        plan_id: PlanDocumentId,
+        revision: u32,
+        dag_id: crate::AgentDagId,
+        audit_id: String,
+        owner: RuntimeOwner,
+    },
     AgentDagUpdated {
         dag: AgentDagRecord,
     },
@@ -1229,6 +1309,15 @@ pub struct RuntimeViewState {
     pub queued_inputs: Vec<QueuedInputView>,
     pub active_tool_calls: Vec<ToolCallView>,
     pub tasks: Vec<AgentTaskRecord>,
+    /// Plans Core holds for every owner (`runtime.plan_documents`, C13).
+    ///
+    /// Empty is a real answer meaning no plan was ever proposed, and a client
+    /// renders that absence rather than an empty plan. Skipped when empty, so
+    /// a view carrying no plan encodes to exactly the bytes it did before this
+    /// field existed — which is what keeps the nine frozen base fixtures
+    /// byte-identical.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub plan_documents: Vec<PlanDocumentRecord>,
     pub agent_dags: Vec<AgentDagRecord>,
     pub lanes: Vec<AgentLaneRecord>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -1319,6 +1408,7 @@ impl RuntimeViewState {
             queued_inputs: Vec::new(),
             active_tool_calls: Vec::new(),
             tasks: Vec::new(),
+            plan_documents: Vec::new(),
             agent_dags: Vec::new(),
             lanes: Vec::new(),
             lane_runtime_owners: Vec::new(),
@@ -1793,6 +1883,23 @@ impl RuntimeViewState {
                     existing.id == task.id
                 });
             }
+            RuntimeEventKind::PlanDocumentUpdated { plan } => {
+                upsert_by_id(&mut self.plan_documents, plan.clone(), |existing| {
+                    existing.plan_id == plan.plan_id
+                });
+                cap_vec(&mut self.plan_documents);
+            }
+            // The decided record arrived in the `PlanDocumentUpdated` directly
+            // above this fact; reducing the settlement as well would give one
+            // truth two producers and let an out-of-order decision overwrite a
+            // record that has already moved on. This event exists so a client
+            // can correlate its own accept or reject command to Core's answer
+            // and find the audit row that authorized it.
+            RuntimeEventKind::PlanDocumentDecided { .. } => {}
+            // Same rule for the handoff: the `handoff` field is already on the
+            // record published before this fact, and the DAG it names is
+            // already in `agent_dags`.
+            RuntimeEventKind::PlanDocumentHandedOff { .. } => {}
             RuntimeEventKind::AgentDagUpdated { dag } => {
                 upsert_by_id(&mut self.agent_dags, dag.clone(), |existing| {
                     existing.dag_id == dag.dag_id

@@ -324,6 +324,9 @@ flowchart LR
 | 读取单条证据背后的字节 | `ReadEvidenceContent { command_id, evidence_id }` | canonical ContextStore 查找、在提供任何内容之前先做 `source_hash` 校验、类型化的内容或不可用原因，以及 256 KiB 边界 |
 | 打开某个工作区文件 | `ReadWorkspaceFile { command_id, query }` | 由 Core 自有 Lane 记录解析目标、拒绝而非修补的路径校验、读取任何字节之前的真实 `read_file` 权限闸门、相对已解析根的符号链接包含性检查、binary/text 判定、按字符边界的切分，以及覆盖整个文件的 `size` 与 `sha256` |
 | 分页某个所有者的转录行 | `QueryTranscriptRows { command_id, query }` | 行所派生自的持久会话转录与审计时间线、为其归属的 `turn_owner` 括号、在切分分页之前应用的前缀所有者作用域、追加下稳定的排序、不透明的向后游标、8 KiB 正文上界，以及行可以指名的证据 id |
+| 记录或修订一份计划 | `ProposePlanDocument { draft }`；或者什么都不发 —— 模型调用内建的 `update_plan`，到达的是同一个生产者 | 计划身份、从 1 起算的 `revision`、覆盖标题/目标/section/step 的 `content_sha256`、由 Core 指派的 `step_<n>` id、每个所有者一份打开计划的规则、把新提案所作废的那个修订重新发布为 `Superseded`、拒绝而非截断的上界，以及由到达路径设定、绝不从线上读取的 `proposed_by` |
+| 决定一份计划 | `AcceptPlanDocument { plan_id, revision, content_sha256 }`、`RejectPlanDocument { .., reason }` | 以 `plan_revision_stale` 拒绝过期 revision 或摘要且不落定任何东西的钉住检查、在 `PlanDocumentDecided` 之前持久写下的 `plan.accepted`/`plan.rejected` 审计行，以及带 `decided_at` 与 `decision_audit_id` 的已决定记录 |
+| 把已接受的计划变成工作 | `HandOffPlanDocument { plan_id, revision, content_sha256 }` | 在任何东西被授权之前抛出的 plan 模式拒绝、`plan.handed_off` 审计行、按映射依赖与会话自身变更策略为每个 step 构造的一个 `AgentDagTaskSpec`、既有的 `start_agent_dag` 路径，以及让 `AgentDagUpdated` 先于 `PlanDocumentHandedOff` 发布的顺序 |
 | 创建 starter Lane | `PreviewStarterLane`，审阅结果后携带未变化 request/id/hash 发送 `CreateStarterLane` | preset 解析、workspace/isolation 校验、permission gate、执行前复检、补偿和 typed receipt |
 | 安排驾驶舱布局 | `SetUiLayoutPreferences { patch }`、`ResetUiLayoutPreferences` | 用户配置中的 `[ui.layout]` 持久化、隐藏段列表的边界、带 `persisted` 与诊断的已发布记录，以及快照前缀的副本 |
 
@@ -1004,6 +1007,43 @@ command_id, page }` 是被冻结的 `LoadTranscriptPage` 的类型化、所有�
 - **答复不是视图状态。** 它从不被折入 `RuntimeViewState`，因此发布一份不移动任何
   快照摘要。重连时重新询问，而不是重放缓存的分页；并把分页以 `command_id` 为键
   保存 —— 该字段是必填的，因此同时分页两个所有者的客户端绝不会按到达顺序归属答复。
+
+### 计划文档（`runtime.plan_documents`）
+
+需要 `runtime.plan_documents` 扩展。没有它的客户端渲染规划轮次的文本，并说明可决定的
+计划不可用；它不得从 assistant 散文里解析出一份计划、不得把计划保存在客户端状态里，也
+不得提供一个它无法在 Core 中落定的「接受」控件。
+
+`RuntimeViewState.plan_documents` 承载 `PlanDocumentRecord`。
+`PlanDocumentUpdated { plan }` 承载每一个修订与每一次状态变化；
+`PlanDocumentDecided` 与 `PlanDocumentHandedOff` 是落定事实，宣告的是它们之前那条更新
+已经发布过的记录。
+
+前端必须遵守的规则：
+
+- **缺席就是「未提出计划」。** 空的 `plan_documents` 是一个真实答案。把它渲染为缺席；
+  绝不渲染一份空计划，也绝不从转录里合成一份。
+- **每一次决定都要钉住。** 把你所渲染记录上的那个 `revision` 与 `content_sha256` 原样
+  送回。理由以 `plan_revision_stale` 开头的 `CommandRejected` 意味着计划在操作者阅读
+  期间发生了移动：重新读取 `plan_documents`，展示 Core 现在持有的修订，让他们再决定
+  一次。不要替他们用当前修订重试 —— 那会接受他们从未看到的字节。
+- **移交上的 `plan_mode` 不是可以重试的失败。** 接受在 Plan 下仍然可用；移交不可以。
+  提供切换到 Build，然后再发同一次移交。原样重试移交只会再次被拒绝。
+- **只有 `proposed` 的计划可以被决定，只有 `accepted` 的可以被移交。** 拒绝理由会说明
+  是哪个状态挡住了它。已决定的计划通过提出新修订来替换，而不是被决定第二次。
+- **读取作者，不要假定它。** `PlanAuthor::Assistant` 意味着本修订由模型通过
+  `update_plan` 写下；`PlanAuthor::Operator` 意味着由某个客户端转发。客户端不得发送
+  声称作者是 assistant 的 draft —— 命令路径永远记录 `Operator`。
+- **`Superseded` 的记录是历史，不是活的计划。** 它到达是为了让你停止渲染一次已作废的
+  接受；在它之后发布的那个修订才是要展示的那个。
+- **Step id 属于 Core。** `step_<n>` 按位置指派，并被同级 `dependencies` 引用。不要在
+  客户端侧重新编号、发明或重排它们：移交把这些确切 id 映射为任务依赖。
+- **`PlanDocumentStatus` 与 `PlanAuthor` 是 `#[non_exhaustive]`。** 本客户端不认识的
+  状态就地渲染为未知状态，绝不当作 `Proposed`，也绝不当作已决定。
+- **跟随移交，不要与它赛跑。** `handoff.dag_id` 指名的 DAG 已经在 `agent_dags` 里，
+  因为 `AgentDagUpdated` 先于 `PlanDocumentHandedOff`。链接进去，而不是轮询它。
+- **落定事实用于关联，不是状态。** 用 `PlanDocumentDecided` 与 `PlanDocumentHandedOff`
+  落定你自己的命令，并通过 `audit_id` 抵达审计行；计划的状态取自记录。
 
 ## Approval 和 Permission UI 契约
 

@@ -649,7 +649,7 @@ impl SessionEngine {
                 task.decision = Some("allow".to_string());
                 task.updated_at = Some(now_millis());
                 self.upsert_agent_task(task.clone());
-                let result = match self.tools.execute(
+                let mut result = match self.tools.execute(
                     &call,
                     &ToolExecutionContext::local(self.cwd.clone()).with_semantic(Arc::new(
                         LspToolAdapter {
@@ -667,12 +667,49 @@ impl SessionEngine {
                         exit_code: None,
                     },
                 };
+                // `update_plan` is the one built-in whose effect is a Core fact
+                // rather than a workspace change, so the registry run above
+                // validated and summarized the call and the record is folded in
+                // here (`runtime.plan_documents`, C13). It runs after the gate
+                // and the registry on purpose: nothing about this tool skips the
+                // path every other tool takes. A fold the engine cannot perform
+                // — an unparseable call, an owner Core never published — turns
+                // the result into a failure the model sees, because a summary
+                // claiming the plan was recorded over a plan that was not is
+                // the one outcome worse than the refusal.
+                let mut plan_facts = Vec::new();
+                if result.success && call.name == viden_tools::UPDATE_PLAN_TOOL {
+                    match self.fold_update_plan_call(&call.input) {
+                        Ok(events) => plan_facts = events,
+                        Err(error) => {
+                            result.success = false;
+                            result.output = format!("Tool `{}` failed: {error}", call.name);
+                        }
+                    }
+                }
+                let result = result;
                 let post_edit_diagnostics = if result.success {
                     self.post_edit_diagnostics_message(&call)
                 } else {
                     None
                 };
                 record_completed_tool(self, progress, &call, &result);
+                if !plan_facts.is_empty() {
+                    // Ordered after the tool result the model just read, so a
+                    // client renders the plan record beside the call that
+                    // produced it rather than before it.
+                    let after_engine_event_index = progress.engine_events.len() - 1;
+                    progress
+                        .ordered_runtime_facts
+                        .extend(
+                            plan_facts
+                                .into_iter()
+                                .map(|event| crate::OrderedRuntimeFact {
+                                    after_engine_event_index,
+                                    event,
+                                }),
+                        );
+                }
                 progress.carry(self.persist_tool_result(&result))?;
                 task.status = if result.success {
                     AgentTaskStatus::Done

@@ -7,3 +7,6 @@ authors.workspace = true
 
 [dependencies]
 viden-types = { path = "../types" }
+# The `update_plan` built-in takes a Codex-shaped JSON plan list in one tool
+# input key; parsing it is what this dependency is for.
+serde_json = "1"

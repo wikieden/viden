@@ -1,0 +1,941 @@
+{
+  "fixture_id": "plan-documents",
+  "schema_version": 1,
+  "required_capabilities": [
+    "runtime.agent_dag",
+    "runtime.commands",
+    "runtime.events",
+    "runtime.plan_documents",
+    "runtime.snapshot"
+  ],
+  "initial_snapshot": {
+    "cwd": "workspace/viden",
+    "provider_family": "deepseek",
+    "model_label": "deepseek-v4-flash",
+    "work_mode": "plan",
+    "permission_mode": "default",
+    "permission_level": "ask",
+    "config_summary": "{\"design_entry\":{\"d11\":\"onboarding subordinate\",\"gui\":\"GUI index -> component library -> D1 desktop cockpit\",\"hierarchy\":[\"docs/viden-design/Viden/index.html\",\"client design index\",\"component library\",\"TUI unified prototype or GUI D1 desktop cockpit\"],\"tui\":\"TUI index -> component library -> unified prototype\"},\"ui\":{\"density\":[\"compact\",\"regular\",\"comfy\"],\"effective\":{\"density\":\"regular\",\"locale\":\"zh-CN\",\"mode\":\"dark\",\"motion\":\"reduced\",\"skin\":\"aurora\"},\"locales\":[\"en\",\"zh-CN\"],\"motion\":[\"system\",\"reduced\",\"full\"],\"skin_mode_pairs\":[[\"aurora\",\"dark\"],[\"aurora\",\"light\"],[\"ice\",\"dark\"],[\"ice\",\"light\"],[\"mono\",\"dark\"],[\"mono\",\"light\"],[\"amber\",\"dark\"],[\"phosphor\",\"dark\"]]}}",
+    "loaded_config_files": [
+      "config/viden.toml"
+    ],
+    "startup_overrides": [
+      "--provider=deepseek"
+    ],
+    "ui_preferences": {
+      "locale": "zh-CN",
+      "skin": "aurora",
+      "mode": "dark",
+      "density": "regular",
+      "motion": "reduced",
+      "diagnostics": []
+    }
+  },
+  "events": [
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_plan_documents",
+        "task_id": null,
+        "turn_id": "turn_plan_documents"
+      },
+      "cursor": {
+        "stream_id": "fixture:plan-documents",
+        "sequence": 1
+      },
+      "event": {
+        "sequence": 1,
+        "timestamp": 1700007001,
+        "kind": {
+          "type": "tool_call_started",
+          "payload": {
+            "tool_call_id": "call_plan_1",
+            "name": "update_plan",
+            "input_preview": "title=Model the plan document",
+            "owner": {
+              "workspace_id": "workspace_contract_v1",
+              "project_id": "project_viden",
+              "lane_id": null,
+              "session_id": "session_plan_documents",
+              "task_id": null,
+              "turn_id": "turn_plan_documents"
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_plan_documents",
+        "task_id": null,
+        "turn_id": "turn_plan_documents"
+      },
+      "cursor": {
+        "stream_id": "fixture:plan-documents",
+        "sequence": 2
+      },
+      "event": {
+        "sequence": 2,
+        "timestamp": 1700007002,
+        "kind": {
+          "type": "tool_call_finished",
+          "payload": {
+            "tool_call_id": "call_plan_1",
+            "name": "update_plan",
+            "success": true,
+            "exit_code": null,
+            "evidence": null
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_plan_documents",
+        "task_id": null,
+        "turn_id": "turn_plan_documents"
+      },
+      "cursor": {
+        "stream_id": "fixture:plan-documents",
+        "sequence": 3
+      },
+      "event": {
+        "sequence": 3,
+        "timestamp": 1700007003,
+        "kind": {
+          "type": "plan_document_updated",
+          "payload": {
+            "plan": {
+              "plan_id": "plan_contract_v1",
+              "owner": {
+                "workspace_id": "workspace_contract_v1",
+                "project_id": "project_viden",
+                "lane_id": null,
+                "session_id": "session_plan_documents",
+                "task_id": null,
+                "turn_id": "turn_plan_documents"
+              },
+              "title": "Model the plan document",
+              "goal": "the operator can accept the plan and hand it to agents",
+              "status": "proposed",
+              "revision": 1,
+              "content_sha256": "062e22ca553ff5f82976fc2a85b7e065809fd1badacc4512594db1614b2ad316",
+              "sections": [
+                {
+                  "kind": "requirements",
+                  "body": "a plan is a Core fact with a decision, not transcript prose"
+                },
+                {
+                  "kind": "acceptance_criteria",
+                  "body": "the handoff names the DAG the steps became"
+                }
+              ],
+              "steps": [
+                {
+                  "id": "step_1",
+                  "title": "model the record",
+                  "status": "pending",
+                  "role": "coder",
+                  "file_scope": [
+                    "crates/types/src/plan.rs"
+                  ]
+                }
+              ],
+              "proposed_by": {
+                "kind": "assistant",
+                "session_id": "session_plan_documents",
+                "turn_id": "turn_plan_1"
+              },
+              "created_at": 1700007000,
+              "updated_at": 1700007000
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_plan_documents",
+        "task_id": null,
+        "turn_id": "turn_plan_documents"
+      },
+      "cursor": {
+        "stream_id": "fixture:plan-documents",
+        "sequence": 4
+      },
+      "event": {
+        "sequence": 4,
+        "timestamp": 1700007004,
+        "kind": {
+          "type": "tool_call_started",
+          "payload": {
+            "tool_call_id": "call_plan_2",
+            "name": "update_plan",
+            "input_preview": "title=Model the plan document and its decision",
+            "owner": {
+              "workspace_id": "workspace_contract_v1",
+              "project_id": "project_viden",
+              "lane_id": null,
+              "session_id": "session_plan_documents",
+              "task_id": null,
+              "turn_id": "turn_plan_documents"
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_plan_documents",
+        "task_id": null,
+        "turn_id": "turn_plan_documents"
+      },
+      "cursor": {
+        "stream_id": "fixture:plan-documents",
+        "sequence": 5
+      },
+      "event": {
+        "sequence": 5,
+        "timestamp": 1700007005,
+        "kind": {
+          "type": "tool_call_finished",
+          "payload": {
+            "tool_call_id": "call_plan_2",
+            "name": "update_plan",
+            "success": true,
+            "exit_code": null,
+            "evidence": null
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_plan_documents",
+        "task_id": null,
+        "turn_id": "turn_plan_documents"
+      },
+      "cursor": {
+        "stream_id": "fixture:plan-documents",
+        "sequence": 6
+      },
+      "event": {
+        "sequence": 6,
+        "timestamp": 1700007006,
+        "kind": {
+          "type": "plan_document_updated",
+          "payload": {
+            "plan": {
+              "plan_id": "plan_contract_v1",
+              "owner": {
+                "workspace_id": "workspace_contract_v1",
+                "project_id": "project_viden",
+                "lane_id": null,
+                "session_id": "session_plan_documents",
+                "task_id": null,
+                "turn_id": "turn_plan_documents"
+              },
+              "title": "Model the plan document",
+              "goal": "the operator can accept the plan and hand it to agents",
+              "status": "superseded",
+              "revision": 1,
+              "content_sha256": "062e22ca553ff5f82976fc2a85b7e065809fd1badacc4512594db1614b2ad316",
+              "sections": [
+                {
+                  "kind": "requirements",
+                  "body": "a plan is a Core fact with a decision, not transcript prose"
+                },
+                {
+                  "kind": "acceptance_criteria",
+                  "body": "the handoff names the DAG the steps became"
+                }
+              ],
+              "steps": [
+                {
+                  "id": "step_1",
+                  "title": "model the record",
+                  "status": "pending",
+                  "role": "coder",
+                  "file_scope": [
+                    "crates/types/src/plan.rs"
+                  ]
+                }
+              ],
+              "proposed_by": {
+                "kind": "assistant",
+                "session_id": "session_plan_documents",
+                "turn_id": "turn_plan_1"
+              },
+              "created_at": 1700007000,
+              "updated_at": 1700007010
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_plan_documents",
+        "task_id": null,
+        "turn_id": "turn_plan_documents"
+      },
+      "cursor": {
+        "stream_id": "fixture:plan-documents",
+        "sequence": 7
+      },
+      "event": {
+        "sequence": 7,
+        "timestamp": 1700007007,
+        "kind": {
+          "type": "plan_document_updated",
+          "payload": {
+            "plan": {
+              "plan_id": "plan_contract_v1",
+              "owner": {
+                "workspace_id": "workspace_contract_v1",
+                "project_id": "project_viden",
+                "lane_id": null,
+                "session_id": "session_plan_documents",
+                "task_id": null,
+                "turn_id": "turn_plan_documents"
+              },
+              "title": "Model the plan document and its decision",
+              "goal": "the operator can accept the plan and hand it to agents",
+              "status": "proposed",
+              "revision": 2,
+              "content_sha256": "bcdf81ea4a40a16a5c639734cd6e4fa064fef61d558b062d7abbd1b57b076a79",
+              "sections": [
+                {
+                  "kind": "requirements",
+                  "body": "a plan is a Core fact with a decision, not transcript prose"
+                },
+                {
+                  "kind": "acceptance_criteria",
+                  "body": "the handoff names the DAG the steps became"
+                }
+              ],
+              "steps": [
+                {
+                  "id": "step_1",
+                  "title": "model the record",
+                  "status": "pending",
+                  "role": "coder",
+                  "file_scope": [
+                    "crates/types/src/plan.rs"
+                  ]
+                },
+                {
+                  "id": "step_2",
+                  "title": "review the contract",
+                  "status": "pending",
+                  "role": "reviewer",
+                  "file_scope": [
+                    "crates/types/src/plan.rs"
+                  ],
+                  "dependencies": [
+                    "step_1"
+                  ]
+                }
+              ],
+              "proposed_by": {
+                "kind": "assistant",
+                "session_id": "session_plan_documents",
+                "turn_id": "turn_plan_2"
+              },
+              "created_at": 1700007000,
+              "updated_at": 1700007010
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_plan_documents",
+        "task_id": null,
+        "turn_id": "turn_plan_documents"
+      },
+      "cursor": {
+        "stream_id": "fixture:plan-documents",
+        "sequence": 8
+      },
+      "event": {
+        "sequence": 8,
+        "timestamp": 1700007008,
+        "kind": {
+          "type": "command_accepted",
+          "payload": {
+            "command_id": "plan_accept_stale",
+            "command": {
+              "type": "accept_plan_document",
+              "plan_id": "plan_contract_v1",
+              "revision": 1,
+              "content_sha256": "062e22ca553ff5f82976fc2a85b7e065809fd1badacc4512594db1614b2ad316"
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_plan_documents",
+        "task_id": null,
+        "turn_id": "turn_plan_documents"
+      },
+      "cursor": {
+        "stream_id": "fixture:plan-documents",
+        "sequence": 9
+      },
+      "event": {
+        "sequence": 9,
+        "timestamp": 1700007009,
+        "kind": {
+          "type": "command_rejected",
+          "payload": {
+            "command_id": "plan_accept_stale",
+            "reason": "plan_revision_stale: plan `plan_contract_v1` is at revision 2 and the decision named revision 1\nhint: re-read the plan from `plan_documents` and decide the revision it now carries"
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_plan_documents",
+        "task_id": null,
+        "turn_id": "turn_plan_documents"
+      },
+      "cursor": {
+        "stream_id": "fixture:plan-documents",
+        "sequence": 10
+      },
+      "event": {
+        "sequence": 10,
+        "timestamp": 1700007010,
+        "kind": {
+          "type": "command_accepted",
+          "payload": {
+            "command_id": "plan_accept",
+            "command": {
+              "type": "accept_plan_document",
+              "plan_id": "plan_contract_v1",
+              "revision": 2,
+              "content_sha256": "bcdf81ea4a40a16a5c639734cd6e4fa064fef61d558b062d7abbd1b57b076a79"
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_plan_documents",
+        "task_id": null,
+        "turn_id": "turn_plan_documents"
+      },
+      "cursor": {
+        "stream_id": "fixture:plan-documents",
+        "sequence": 11
+      },
+      "event": {
+        "sequence": 11,
+        "timestamp": 1700007011,
+        "kind": {
+          "type": "plan_document_updated",
+          "payload": {
+            "plan": {
+              "plan_id": "plan_contract_v1",
+              "owner": {
+                "workspace_id": "workspace_contract_v1",
+                "project_id": "project_viden",
+                "lane_id": null,
+                "session_id": "session_plan_documents",
+                "task_id": null,
+                "turn_id": "turn_plan_documents"
+              },
+              "title": "Model the plan document and its decision",
+              "goal": "the operator can accept the plan and hand it to agents",
+              "status": "accepted",
+              "revision": 2,
+              "content_sha256": "bcdf81ea4a40a16a5c639734cd6e4fa064fef61d558b062d7abbd1b57b076a79",
+              "sections": [
+                {
+                  "kind": "requirements",
+                  "body": "a plan is a Core fact with a decision, not transcript prose"
+                },
+                {
+                  "kind": "acceptance_criteria",
+                  "body": "the handoff names the DAG the steps became"
+                }
+              ],
+              "steps": [
+                {
+                  "id": "step_1",
+                  "title": "model the record",
+                  "status": "pending",
+                  "role": "coder",
+                  "file_scope": [
+                    "crates/types/src/plan.rs"
+                  ]
+                },
+                {
+                  "id": "step_2",
+                  "title": "review the contract",
+                  "status": "pending",
+                  "role": "reviewer",
+                  "file_scope": [
+                    "crates/types/src/plan.rs"
+                  ],
+                  "dependencies": [
+                    "step_1"
+                  ]
+                }
+              ],
+              "proposed_by": {
+                "kind": "assistant",
+                "session_id": "session_plan_documents",
+                "turn_id": "turn_plan_2"
+              },
+              "created_at": 1700007000,
+              "updated_at": 1700007020,
+              "decided_at": 1700007020,
+              "decision_audit_id": "audit_plan_accepted"
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_plan_documents",
+        "task_id": null,
+        "turn_id": "turn_plan_documents"
+      },
+      "cursor": {
+        "stream_id": "fixture:plan-documents",
+        "sequence": 12
+      },
+      "event": {
+        "sequence": 12,
+        "timestamp": 1700007012,
+        "kind": {
+          "type": "plan_document_decided",
+          "payload": {
+            "plan_id": "plan_contract_v1",
+            "revision": 2,
+            "status": "accepted",
+            "audit_id": "audit_plan_accepted",
+            "owner": {
+              "workspace_id": "workspace_contract_v1",
+              "project_id": "project_viden",
+              "lane_id": null,
+              "session_id": "session_plan_documents",
+              "task_id": null,
+              "turn_id": "turn_plan_documents"
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_plan_documents",
+        "task_id": null,
+        "turn_id": "turn_plan_documents"
+      },
+      "cursor": {
+        "stream_id": "fixture:plan-documents",
+        "sequence": 13
+      },
+      "event": {
+        "sequence": 13,
+        "timestamp": 1700007013,
+        "kind": {
+          "type": "command_accepted",
+          "payload": {
+            "command_id": "plan_handoff_plan_mode",
+            "command": {
+              "type": "hand_off_plan_document",
+              "plan_id": "plan_contract_v1",
+              "revision": 2,
+              "content_sha256": "bcdf81ea4a40a16a5c639734cd6e4fa064fef61d558b062d7abbd1b57b076a79"
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_plan_documents",
+        "task_id": null,
+        "turn_id": "turn_plan_documents"
+      },
+      "cursor": {
+        "stream_id": "fixture:plan-documents",
+        "sequence": 14
+      },
+      "event": {
+        "sequence": 14,
+        "timestamp": 1700007014,
+        "kind": {
+          "type": "command_rejected",
+          "payload": {
+            "command_id": "plan_handoff_plan_mode",
+            "reason": "plan_mode: handing a plan off starts agent work and is blocked while plan mode is active\nhint: accept the plan in Plan, then switch to Build and hand it off"
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_plan_documents",
+        "task_id": null,
+        "turn_id": "turn_plan_documents"
+      },
+      "cursor": {
+        "stream_id": "fixture:plan-documents",
+        "sequence": 15
+      },
+      "event": {
+        "sequence": 15,
+        "timestamp": 1700007015,
+        "kind": {
+          "type": "command_accepted",
+          "payload": {
+            "command_id": "plan_build",
+            "command": {
+              "type": "set_work_mode",
+              "mode": "build"
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_plan_documents",
+        "task_id": null,
+        "turn_id": "turn_plan_documents"
+      },
+      "cursor": {
+        "stream_id": "fixture:plan-documents",
+        "sequence": 16
+      },
+      "event": {
+        "sequence": 16,
+        "timestamp": 1700007016,
+        "kind": {
+          "type": "snapshot_updated",
+          "payload": {
+            "snapshot": {
+              "cwd": "workspace/viden",
+              "provider_family": "deepseek",
+              "model_label": "deepseek-v4-flash",
+              "work_mode": "build",
+              "permission_mode": "default",
+              "permission_level": "ask",
+              "config_summary": "{\"design_entry\":{\"d11\":\"onboarding subordinate\",\"gui\":\"GUI index -> component library -> D1 desktop cockpit\",\"hierarchy\":[\"docs/viden-design/Viden/index.html\",\"client design index\",\"component library\",\"TUI unified prototype or GUI D1 desktop cockpit\"],\"tui\":\"TUI index -> component library -> unified prototype\"},\"ui\":{\"density\":[\"compact\",\"regular\",\"comfy\"],\"effective\":{\"density\":\"regular\",\"locale\":\"zh-CN\",\"mode\":\"dark\",\"motion\":\"reduced\",\"skin\":\"aurora\"},\"locales\":[\"en\",\"zh-CN\"],\"motion\":[\"system\",\"reduced\",\"full\"],\"skin_mode_pairs\":[[\"aurora\",\"dark\"],[\"aurora\",\"light\"],[\"ice\",\"dark\"],[\"ice\",\"light\"],[\"mono\",\"dark\"],[\"mono\",\"light\"],[\"amber\",\"dark\"],[\"phosphor\",\"dark\"]]}}",
+              "loaded_config_files": [
+                "config/viden.toml"
+              ],
+              "startup_overrides": [
+                "--provider=deepseek"
+              ],
+              "ui_preferences": {
+                "locale": "zh-CN",
+                "skin": "aurora",
+                "mode": "dark",
+                "density": "regular",
+                "motion": "reduced",
+                "diagnostics": []
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_plan_documents",
+        "task_id": null,
+        "turn_id": "turn_plan_documents"
+      },
+      "cursor": {
+        "stream_id": "fixture:plan-documents",
+        "sequence": 17
+      },
+      "event": {
+        "sequence": 17,
+        "timestamp": 1700007017,
+        "kind": {
+          "type": "command_accepted",
+          "payload": {
+            "command_id": "plan_handoff",
+            "command": {
+              "type": "hand_off_plan_document",
+              "plan_id": "plan_contract_v1",
+              "revision": 2,
+              "content_sha256": "bcdf81ea4a40a16a5c639734cd6e4fa064fef61d558b062d7abbd1b57b076a79"
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_plan_documents",
+        "task_id": null,
+        "turn_id": "turn_plan_documents"
+      },
+      "cursor": {
+        "stream_id": "fixture:plan-documents",
+        "sequence": 18
+      },
+      "event": {
+        "sequence": 18,
+        "timestamp": 1700007018,
+        "kind": {
+          "type": "agent_dag_updated",
+          "payload": {
+            "dag": {
+              "dag_id": "dag_plan_contract_v1",
+              "goal": "Model the plan document and its decision",
+              "status": "active",
+              "tasks": [
+                {
+                  "task_id": "plan_contract_v1-step_1",
+                  "role": "coder",
+                  "title": "model the record",
+                  "objective": "model the record",
+                  "dependencies": [],
+                  "workspace": null,
+                  "file_scope": [
+                    "crates/types/src/plan.rs"
+                  ],
+                  "context_bundle_id": null,
+                  "required_evidence": [],
+                  "permission_policy": "default"
+                },
+                {
+                  "task_id": "plan_contract_v1-step_2",
+                  "role": "reviewer",
+                  "title": "review the contract",
+                  "objective": "review the contract",
+                  "dependencies": [
+                    "plan_contract_v1-step_1"
+                  ],
+                  "workspace": null,
+                  "file_scope": [
+                    "crates/types/src/plan.rs"
+                  ],
+                  "context_bundle_id": null,
+                  "required_evidence": [],
+                  "permission_policy": "default"
+                }
+              ],
+              "created_at": 1700007030,
+              "updated_at": 1700007030
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_plan_documents",
+        "task_id": null,
+        "turn_id": "turn_plan_documents"
+      },
+      "cursor": {
+        "stream_id": "fixture:plan-documents",
+        "sequence": 19
+      },
+      "event": {
+        "sequence": 19,
+        "timestamp": 1700007019,
+        "kind": {
+          "type": "plan_document_updated",
+          "payload": {
+            "plan": {
+              "plan_id": "plan_contract_v1",
+              "owner": {
+                "workspace_id": "workspace_contract_v1",
+                "project_id": "project_viden",
+                "lane_id": null,
+                "session_id": "session_plan_documents",
+                "task_id": null,
+                "turn_id": "turn_plan_documents"
+              },
+              "title": "Model the plan document and its decision",
+              "goal": "the operator can accept the plan and hand it to agents",
+              "status": "handed_off",
+              "revision": 2,
+              "content_sha256": "bcdf81ea4a40a16a5c639734cd6e4fa064fef61d558b062d7abbd1b57b076a79",
+              "sections": [
+                {
+                  "kind": "requirements",
+                  "body": "a plan is a Core fact with a decision, not transcript prose"
+                },
+                {
+                  "kind": "acceptance_criteria",
+                  "body": "the handoff names the DAG the steps became"
+                }
+              ],
+              "steps": [
+                {
+                  "id": "step_1",
+                  "title": "model the record",
+                  "status": "pending",
+                  "role": "coder",
+                  "file_scope": [
+                    "crates/types/src/plan.rs"
+                  ]
+                },
+                {
+                  "id": "step_2",
+                  "title": "review the contract",
+                  "status": "pending",
+                  "role": "reviewer",
+                  "file_scope": [
+                    "crates/types/src/plan.rs"
+                  ],
+                  "dependencies": [
+                    "step_1"
+                  ]
+                }
+              ],
+              "proposed_by": {
+                "kind": "assistant",
+                "session_id": "session_plan_documents",
+                "turn_id": "turn_plan_2"
+              },
+              "created_at": 1700007000,
+              "updated_at": 1700007030,
+              "decided_at": 1700007020,
+              "decision_audit_id": "audit_plan_accepted",
+              "handoff": {
+                "dag_id": "dag_plan_contract_v1",
+                "handed_off_at": 1700007030,
+                "audit_id": "audit_plan_handed_off"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": null,
+        "session_id": "session_plan_documents",
+        "task_id": null,
+        "turn_id": "turn_plan_documents"
+      },
+      "cursor": {
+        "stream_id": "fixture:plan-documents",
+        "sequence": 20
+      },
+      "event": {
+        "sequence": 20,
+        "timestamp": 1700007020,
+        "kind": {
+          "type": "plan_document_handed_off",
+          "payload": {
+            "plan_id": "plan_contract_v1",
+            "revision": 2,
+            "dag_id": "dag_plan_contract_v1",
+            "audit_id": "audit_plan_handed_off",
+            "owner": {
+              "workspace_id": "workspace_contract_v1",
+              "project_id": "project_viden",
+              "lane_id": null,
+              "session_id": "session_plan_documents",
+              "task_id": null,
+              "turn_id": "turn_plan_documents"
+            }
+          }
+        }
+      }
+    }
+  ],
+  "expected_final_cursor": {
+    "stream_id": "fixture:plan-documents",
+    "sequence": 20
+  },
+  "expected_view_sha256": "4bb38df5fb986239ff02422f0aaa518327eec9bfb903fcfae0bbf93f1bc5a13b"
+}

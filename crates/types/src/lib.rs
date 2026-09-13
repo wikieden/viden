@@ -12,6 +12,7 @@ mod diff;
 mod evidence_reads;
 mod frontend_services;
 mod lsp;
+mod plan;
 mod project;
 mod protocol;
 mod runtime;
@@ -65,6 +66,13 @@ pub use frontend_services::{
     WorkspaceChangeView, WorkspaceSourceStatus, WorkspaceSourceView,
 };
 pub use lsp::{LspDiagnostic, LspLocation, LspPosition, LspRange, LspSymbol};
+pub use plan::{
+    MAX_PLAN_FILE_SCOPE_ENTRY_BYTES, MAX_PLAN_GOAL_BYTES, MAX_PLAN_REJECT_REASON_BYTES,
+    MAX_PLAN_SECTION_BODY_BYTES, MAX_PLAN_STEP_FILE_SCOPE, MAX_PLAN_STEPS, MAX_PLAN_TITLE_BYTES,
+    PlanAuthor, PlanDocumentDraft, PlanDocumentId, PlanDocumentRecord, PlanDocumentStatus,
+    PlanHandoff, PlanSection, PlanSectionKind, PlanStep, PlanStepDraft, PlanStepStatus,
+    plan_content_digest_source,
+};
 pub use project::{
     CredentialHandle, CredentialRequestId, CredentialStatus, ProjectConfigPreview,
     ProjectConfigState, ProjectProbe, WorkspaceEligibility,

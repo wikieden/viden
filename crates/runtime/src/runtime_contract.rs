@@ -49,7 +49,7 @@ use viden_types::{
     MergeGateDecision, MergeGateDecisionOutcome, MergeGatePolicySnapshot, MergeGateRecord,
     MergeGateStatus, MergeGateType, OperatorGitAction, PermissionBehavior, PermissionDecision,
     PermissionDecisionReason, PermissionLevel, PermissionMode, PermissionPrompt, PermissionRule,
-    PermissionRuleSource, PermissionRuleValue, ProviderHealthView, QueuedInputView,
+    PermissionRuleSource, PermissionRuleValue, PlanAuthor, ProviderHealthView, QueuedInputView,
     ReviewRequestStatus, RuntimeCommand, RuntimeErrorView, RuntimeEvent, RuntimeEventKind,
     RuntimeOwner, RuntimeSnapshot, RuntimeViewState, TokenCostView, TokenUsage, ToolCallId,
     ToolInput, TranscriptPageRequest, TurnOutcome, TurnSource, TurnView, WorkMode,
@@ -136,6 +136,7 @@ struct RuntimeDomainSnapshot {
     last_test: Option<crate::TestEvidence>,
     tasks: Vec<AgentTaskRecord>,
     agent_dags: Vec<AgentDagRecord>,
+    plan_documents: Vec<viden_types::PlanDocumentRecord>,
     merge_gates: Vec<MergeGateRecord>,
     evidence: Vec<EvidenceView>,
     handoffs: Vec<viden_types::HandoffRecord>,
@@ -920,6 +921,81 @@ impl SessionEngine {
                     Err(err) => return Ok(vec![command_rejected(command_id, err)]),
                 }
             }
+            // A proposal is a document write, not a workspace mutation: it
+            // stays answerable in plan mode, exactly like the `update_plan`
+            // tool the model reaches the same producer through.
+            RuntimeCommand::ProposePlanDocument { draft } => {
+                match self.propose_plan_document(draft, PlanAuthor::Operator) {
+                    Ok(plan_events) => append_resequenced(&mut events, plan_events),
+                    Err(err) => {
+                        return self.command_rejected_after_transaction_rollback(
+                            &transaction_snapshot,
+                            command_id,
+                            err,
+                        );
+                    }
+                }
+            }
+            // Both decisions are pinned to the revision and digest the operator
+            // read; a mismatch is `plan_revision_stale` and settles nothing.
+            RuntimeCommand::AcceptPlanDocument {
+                plan_id,
+                revision,
+                content_sha256,
+            } => match self.decide_plan_document(
+                &plan_id,
+                revision,
+                &content_sha256,
+                crate::plan_documents::PlanDecision::Accept,
+                None,
+            ) {
+                Ok(plan_events) => append_resequenced(&mut events, plan_events),
+                Err(err) => {
+                    return self.command_rejected_after_transaction_rollback(
+                        &transaction_snapshot,
+                        command_id,
+                        err,
+                    );
+                }
+            },
+            RuntimeCommand::RejectPlanDocument {
+                plan_id,
+                revision,
+                content_sha256,
+                reason,
+            } => match self.decide_plan_document(
+                &plan_id,
+                revision,
+                &content_sha256,
+                crate::plan_documents::PlanDecision::Reject,
+                Some(&reason),
+            ) {
+                Ok(plan_events) => append_resequenced(&mut events, plan_events),
+                Err(err) => {
+                    return self.command_rejected_after_transaction_rollback(
+                        &transaction_snapshot,
+                        command_id,
+                        err,
+                    );
+                }
+            },
+            // The one mutation of this capability. Plan mode refuses it inside
+            // the producer, before the audit row, because nothing was
+            // authorized.
+            RuntimeCommand::HandOffPlanDocument {
+                plan_id,
+                revision,
+                content_sha256,
+            } => match self.hand_off_plan_document(&plan_id, revision, &content_sha256) {
+                Ok(plan_events) => append_resequenced(&mut events, plan_events),
+                Err(err) => {
+                    return self.command_rejected_after_transaction_rollback(
+                        &transaction_snapshot,
+                        command_id,
+                        err,
+                    );
+                }
+            },
             RuntimeCommand::StartAgentDag { goal, tasks } => {
                 match self.start_agent_dag(goal, tasks) {
                     Ok(dag_events) => append_resequenced(&mut events, dag_events),
@@ -1337,6 +1413,7 @@ impl SessionEngine {
             last_test: self.last_test.clone(),
             tasks: self.runtime_tasks.clone(),
             agent_dags: self.runtime_agent_dags.clone(),
+            plan_documents: self.runtime_plan_documents.clone(),
             merge_gates: self.runtime_merge_gates.clone(),
             evidence: self.runtime_evidence.clone(),
             handoffs: self.runtime_handoffs.clone(),
@@ -1366,6 +1443,7 @@ impl SessionEngine {
         self.last_test = snapshot.last_test;
         self.runtime_tasks = snapshot.tasks;
         self.runtime_agent_dags = snapshot.agent_dags;
+        self.runtime_plan_documents = snapshot.plan_documents;
         self.runtime_merge_gates = snapshot.merge_gates;
         self.runtime_evidence = snapshot.evidence;
         self.runtime_handoffs = snapshot.handoffs;
@@ -1995,6 +2073,15 @@ impl SessionEngine {
                 RuntimeEventKind::InputQueued { input },
             ));
         }
+        // Plans ride the snapshot prefix before the DAGs they became, so a
+        // reconnecting client learns the plan and its handoff in the order a
+        // live client saw them.
+        for plan in &self.runtime_plan_documents {
+            events.push(RuntimeEvent::new(
+                next_sequence(&events),
+                RuntimeEventKind::PlanDocumentUpdated { plan: plan.clone() },
+            ));
+        }
         for dag in &self.runtime_agent_dags {
             events.push(RuntimeEvent::new(
                 next_sequence(&events),
@@ -2147,7 +2234,7 @@ impl SessionEngine {
         }
     }
 
-    fn start_agent_dag(
+    pub(crate) fn start_agent_dag(
         &mut self,
         goal: String,
         tasks: Vec<AgentDagTaskSpec>,
@@ -4887,6 +4974,10 @@ fn transactional_runtime_command(command: &RuntimeCommand) -> bool {
         command,
         RuntimeCommand::ConfirmProjectConfig { .. }
             | RuntimeCommand::StoreCredentialHandle { .. }
+            | RuntimeCommand::ProposePlanDocument { .. }
+            | RuntimeCommand::AcceptPlanDocument { .. }
+            | RuntimeCommand::RejectPlanDocument { .. }
+            | RuntimeCommand::HandOffPlanDocument { .. }
             | RuntimeCommand::StartAgentDag { .. }
             | RuntimeCommand::StartAgentTask { .. }
             | RuntimeCommand::CancelAgentTask { .. }
@@ -6307,6 +6398,68 @@ pub(crate) fn redacted_runtime_command_for_event(command: &RuntimeCommand) -> Ru
         },
         RuntimeCommand::QueueFollowUp { content } => RuntimeCommand::QueueFollowUp {
             content: redact_command_text(content),
+        },
+        // A draft is model or operator prose plus workspace paths, so the
+        // accepted-command echo carries neither: a client already holds what it
+        // sent, and the published record arrives as `PlanDocumentUpdated`.
+        RuntimeCommand::ProposePlanDocument { draft } => RuntimeCommand::ProposePlanDocument {
+            draft: viden_types::PlanDocumentDraft {
+                owner: redacted_runtime_owner(&draft.owner),
+                title: redact_command_text(&draft.title),
+                goal: redact_command_text(&draft.goal),
+                sections: draft
+                    .sections
+                    .iter()
+                    .map(|section| viden_types::PlanSection {
+                        kind: section.kind,
+                        body: "[REDACTED]".to_string(),
+                    })
+                    .collect(),
+                steps: draft
+                    .steps
+                    .iter()
+                    .map(|step| viden_types::PlanStepDraft {
+                        title: redact_command_text(&step.title),
+                        status: step.status,
+                        role: step.role,
+                        file_scope: step
+                            .file_scope
+                            .iter()
+                            .map(|_| "[REDACTED]".to_string())
+                            .collect(),
+                        dependencies: step.dependencies.clone(),
+                    })
+                    .collect(),
+            },
+        },
+        RuntimeCommand::AcceptPlanDocument {
+            plan_id,
+            revision,
+            content_sha256,
+        } => RuntimeCommand::AcceptPlanDocument {
+            plan_id: viden_types::PlanDocumentId(redact_identifier_for_event(plan_id.as_str())),
+            revision: *revision,
+            content_sha256: redact_identifier_for_event(content_sha256),
+        },
+        RuntimeCommand::RejectPlanDocument {
+            plan_id,
+            revision,
+            content_sha256,
+            reason,
+        } => RuntimeCommand::RejectPlanDocument {
+            plan_id: viden_types::PlanDocumentId(redact_identifier_for_event(plan_id.as_str())),
+            revision: *revision,
+            content_sha256: redact_identifier_for_event(content_sha256),
+            reason: redact_command_text(reason),
+        },
+        RuntimeCommand::HandOffPlanDocument {
+            plan_id,
+            revision,
+            content_sha256,
+        } => RuntimeCommand::HandOffPlanDocument {
+            plan_id: viden_types::PlanDocumentId(redact_identifier_for_event(plan_id.as_str())),
+            revision: *revision,
+            content_sha256: redact_identifier_for_event(content_sha256),
         },
         RuntimeCommand::StartAgentDag { goal, tasks } => RuntimeCommand::StartAgentDag {
             goal: redact_command_text(goal),

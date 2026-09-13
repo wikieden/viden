@@ -44,6 +44,7 @@ pub const FRONTEND_V1_EXTENSION_CAPABILITIES: &[&str] = &[
     "runtime.lane_lifecycle",
     "runtime.lane_owner_projection",
     "runtime.operator_git",
+    "runtime.plan_documents",
     "runtime.project_onboarding",
     "runtime.recent_work",
     "runtime.starter_lane_preview",
@@ -414,6 +415,16 @@ fn is_known_runtime_event_type(event_type: &str) -> bool {
             | "input_queued"
             | "input_dequeued"
             | "task_updated"
+            // The three plan facts (`runtime.plan_documents`, C13).
+            // Quarantining `plan_document_updated` leaves a client showing
+            // "no plan proposed" about a plan Core holds, which is the exact
+            // fabricated absence this capability exists to end; quarantining
+            // either settlement leaves an operator's own accept, reject, or
+            // hand-off unanswered, and an unanswered decision reads as a
+            // decision that did not take.
+            | "plan_document_updated"
+            | "plan_document_decided"
+            | "plan_document_handed_off"
             | "agent_dag_updated"
             | "lane_updated"
             | "lane_runtime_owner_bound"

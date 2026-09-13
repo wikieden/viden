@@ -531,3 +531,90 @@ is dispatched.
 - A starter Lane is created even when its session start is refused.
 - Bounds: 64 plan steps, 16 KiB per section, 4 KiB goal; held inputs while
   paused are bounded by the existing input queue bound.
+
+## Amendments From Implementation (2026-09-13)
+
+Recorded by batch C13 as this document's own rules require: a batch may
+deviate only with the reason in its report and, if the deviation survives
+review, here. The body above is left as written; this section is what
+shipped for section 1. C14 and C15 append their own entries.
+
+- **`PlanDocumentId` is `plan_<nanosecond token>`, not a ULID.** No ULID
+  crate is a dependency and the batch was not authorized to add one;
+  `fresh_id` is the existing helper and `project_id` took the same
+  amendment in `0.3.4`. Prefix and shape match the design.
+- **`ProposePlanDocument` carries `PlanDocumentDraft { owner, title, goal,
+  sections, steps }`, and `proposed_by` is not on the wire.** The design
+  lists the draft as "title, goal, sections, steps" and puts `proposed_by`
+  on the record with no producer named. The owner has to travel with the
+  draft, because `handle_runtime_command` never sees the envelope; the
+  author must *not*, because a client that could set it could file its own
+  text as something the model wrote. The command path always records
+  `Operator` and the tool path always records `Assistant`, so the author is
+  a property of the arrival path.
+- **A new `PlanStepDraft` shape.** A draft step carries no `id`: Core
+  assigns `step_<1-based position>` so identity has exactly one producer,
+  and a draft's `dependencies` name those ids and are resolved against the
+  same draft. If the draft carried ids, a second proposal could renumber a
+  step an operator had already read and a dependency edge would silently
+  point somewhere else.
+- **`Superseded` is a republished record, not a history array.** The design
+  says the earlier revision is published as `Superseded` "inside the same
+  record's history". `PlanDocumentRecord` has no history field and gaining
+  one would put every past revision into `RuntimeViewState` and into every
+  snapshot after it. Instead the earlier revision is republished as its own
+  `PlanDocumentUpdated` with status `Superseded` immediately before the new
+  revision, which is a durable fact; the view keeps the latest record, and
+  the JSONL keeps every revision exactly as the design requires.
+- **`content_sha256` is hashed by the caller over a canonical source built
+  in `viden-types`.** `plan_content_digest_source` returns the exact
+  length-prefixed bytes; `viden-runtime` and the fixture hash them. The
+  digest cannot live in `viden-types` because `sha2` is only a
+  dev-dependency there, and making it a real one would put a crypto
+  dependency under every crate in the workspace. The hand-written encoding
+  is deliberate: a `serde` derivation would move the digest of an unchanged
+  plan the moment a field is added to the record.
+- **Three bounds were added.** `MAX_PLAN_FILE_SCOPE_ENTRY_BYTES = 512` and
+  a workspace-relative check, because the design bounds the number of
+  `file_scope` entries but not each path, which leaves a "bounded" list
+  unbounded in bytes and lets a step scope `/etc` or `../`;
+  `MAX_PLAN_REJECT_REASON_BYTES = 2048`, because the design gives
+  `RejectPlanDocument` a `reason: String` with no bound and that reason
+  reaches the audit log. A step title is bounded by the same 256 bytes as
+  the plan title, as the design says.
+- **The `update_plan` input is a flat `ToolInput` map.** `ToolInput` is
+  `BTreeMap<String, String>` for every tool, so `plan` and `sections`
+  arrive as JSON-encoded strings in single keys rather than as nested
+  structures. The field names and semantics are the design's.
+- **`update_plan` refuses a call with neither `title` nor `explanation`.**
+  The design's Codex shape makes both optional, but a plan has to be
+  nameable and "Plan" is not a name the author wrote. The title falls back
+  to `explanation`, and a call with neither is a tool error naming both
+  keys.
+- **Handoff's `permission_policy` is the session's own mutation policy.**
+  The design says "the Lane's mutation policy name"; a session-scoped plan
+  has no Lane, so the value is the permission mode Core is in, which is the
+  policy that actually governs the work being spawned.
+- **The plan is folded in after the registry executed the tool.** The
+  design says the tool "creates or revises the owner's plan"; a
+  `BuiltinTool` has no access to the engine. The registry-executed tool
+  validates the input and renders the model's summary, and the runtime
+  reads the same input through the same parser and proposes the plan, so
+  the gate, the interceptors, and the transcript entry all see an ordinary
+  tool call. A call Core cannot parse, or cannot attribute to a published
+  workspace identity, fails the tool call rather than reporting a plan that
+  was not recorded.
+- **`serde_json` was added to `viden-tools`.** The one JSON-encoded tool
+  input key above needs a parser; `viden-tools` had only `viden-types`.
+- **The `plan-documents` fixture omits the `TaskUpdated` and
+  `MergeGateUpdated` facts `start_agent_dag` also publishes.** The design's
+  scenario names `AgentDagUpdated` and `PlanDocumentHandedOff`. This
+  fixture freezes the plan contract; the DAG's own facts are already frozen
+  by `dag-blocker.json`, and repeating them here would make one scenario
+  the evidence for two contracts.
+- **A turn's own event list can carry one plan record twice.** Held plans
+  ride the snapshot prefix, which every turn's projection republishes, so a
+  turn that also folded an `update_plan` call publishes the record in the
+  prefix and again as the ordered fact. `AgentDagUpdated` has had this
+  property since `0.3.0`; the reducer upserts by plan id, so a client sees
+  one plan either way.

@@ -90,6 +90,7 @@ runtime.evidence_reads
 runtime.lane_lifecycle
 runtime.lane_owner_projection
 runtime.operator_git
+runtime.plan_documents
 runtime.project_onboarding
 runtime.recent_work
 runtime.starter_lane_preview
@@ -555,6 +556,7 @@ registered schema-1 extension fixtures are:
 | `workspace-file-reads` | Seven single-file reads over one session-scoped owner: two outstanding at once and answered out of order, one whole text, one cut on a character boundary with the whole file's length and digest beside it, one binary with no payload under a Lane target, one path that is not there, one directory, plus a path that leaves the target and a `read_file` deny rule answered by `CommandRejected` with no body at all | `1b5ffcffebfeabecf9c79967ca7d84b912d510e7c9f2003012a1e48d0184304e` | `98bd938eb1f2fe6cffe106b1e5d5bbeaa1106663592b1aa5e0dfbd069654255f` |
 | `durable-work-evidence` | An approved `edit_file` whose decision becomes a durable audit row under the exact id the request published, the applied mutation's archived `patch` row carrying canonical bytes beside the live workspace change it describes, the archive page and the content read that both answer it with the hash the row published, and an agent adapter's patch fact completed by the runtime's ingestion because the adapter owns no store | `b2719e73785bc9e3a71b459e3eb83ae3a551ac62aa61f8a7c3807e2f883c6f45` | `457c0879ad5e7475b3d79c29dd47af4feaa84d8f95f3317c4335cb04d38a27b5` |
 | `transcript-rows` | Three owner-scoped transcript reads over one durable transcript, outstanding at once and answered out of order: two Lanes and the session composer each get their own page with no row on more than one of them, one Lane's page is cut by its limit and resumed through the exact opaque `older` cursor it published so the boundary row lands on one side only, every row variant appears once, an assistant body carries the real 8 KiB cut and names the canonical evidence that still holds it whole, a tool result names the archived `patch` row for its own tool call, a scoped allow's permission row admits it does not know the decision the audit row never stored, and a cursor this build did not issue is answered by `CommandRejected` with no page at all | `2fa91b16aff8c0d896ae2b6cd7843acea86be1cf04ddf2c69394b86d5fa2ad13` | `f17c3e7fad2baf3d5670cf320ec172f50a9048baa3aedbe09c8cd38456ff4ea8` |
+| `plan-documents` | One plan over its whole life, in plan mode where it is written: `update_plan` proposes revision 1, a second call revises and republishes revision 1 as `Superseded` before publishing revision 2, an accept naming the revision the operator *was* reading is refused with `plan_revision_stale` and settles nothing, the pinned accept publishes the decided record and a `PlanDocumentDecided` that shares its `audit_id`, a handoff is refused with `plan_mode` while planning, and after `SetWorkMode Build` the same handoff publishes the two-task DAG with the step dependency mapped *before* the plan says it became work | `4bb38df5fb986239ff02422f0aaa518327eec9bfb903fcfae0bbf93f1bc5a13b` | `c476eba39b579b9ff41231b55dba9d918104cdeac0003e8a3cb32c270e512112` |
 
 Semantics fix 2026-09-07 (review finding 4): `RuntimeViewState.assistant_stream`
 had no lifecycle — it was append-only for the life of the view, so startup
@@ -1070,6 +1072,108 @@ the corpus table, with the nine frozen base fixtures byte-unchanged and the
 capability count gate in `scripts/tui-regression.sh` moved 28 -> 29. Neither
 client has adopted it yet: the GUI's ordered transcript rows are G7 and the
 TUI's transcript lens is T2.
+
+`runtime.plan_documents` (C13) gives Core the fact plan mode never had. Plan
+mode already denies every mutating tool — `crates/permissions/src/lib.rs` and
+the frozen `plan-denial` fixture — but the planner's output was transcript
+prose, so nothing said what the plan *was*, whether the operator had accepted
+it, or what work it became, and a second client looking at the same session saw
+no plan at all. Both reference architectures keep the plan in the conversation:
+Codex's `update_plan` and DeepSeek-TUI's read-only plan mode. Viden diverges
+here, as it already chose to in `0.3.0`: the plan is a Core-owned durable fact
+with an operator decision, never client state, because a plan that lives in one
+client's memory cannot be decided, audited, or handed off.
+
+`PlanDocumentRecord` carries the owner, the title and goal, the status, a
+1-based `revision`, a `content_sha256`, the sections, the steps, the author, and
+— once settled — `decided_at`, `decision_audit_id`, and `handoff`. It reaches
+clients through `RuntimeViewState.plan_documents`, which is omitted when empty,
+so a view carrying no plan encodes to exactly the bytes it did before the field
+existed and the nine frozen base fixtures are unchanged.
+
+One plan is open per owner, where open is `Drafting`, `Proposed`, or
+`Accepted`. Owner equality here is the workspace, the project, and the Lane — or
+the session when there is no Lane — and deliberately *not* the turn: a turn id
+changes every turn, so turn-level equality would open a new plan per turn and
+"one open plan per owner" would mean nothing. A proposal against an open plan
+increments `revision` and republishes the revision it replaces as `Superseded`
+**before** publishing the new one. That republication is the point: without it a
+client keeps rendering an acceptance Core no longer honours, and an acceptance
+Core no longer honours is worse than no acceptance at all. The record carries
+the latest revision; the durable log keeps every one, superseded revisions
+included.
+
+Decisions are pinned. `AcceptPlanDocument`, `RejectPlanDocument`, and
+`HandOffPlanDocument` all name the `revision` and the `content_sha256` the
+operator read, and a mismatch is `CommandRejected` with a reason leading
+`plan_revision_stale`, settling nothing. A decision against "whatever the plan
+says now" would let a revision the model proposed while the operator was reading
+be accepted by their click. `content_sha256` covers the title, the goal, the
+sections, and the steps through one length-prefixed canonical source shared by
+the producer, the reader, and the fixture, so a field added to the record later
+cannot silently move the digest of a plan whose decided content is unchanged.
+A plan id this build never minted is refused as missing rather than as stale:
+"the plan changed" and "there is no such plan" are different facts and a client
+offers a different recovery for each.
+
+`proposed_by` is a property of the arrival path and never a field on the wire.
+`ProposePlanDocument` always records `Operator`; the `update_plan` tool always
+records `Assistant` with the session and turn it ran in. A client therefore
+cannot file its own text as something the model wrote.
+
+The built-in `update_plan` keeps Codex's shape verbatim — `explanation` plus a
+`plan` list of `{ step, status }` — and extends it with `title`, `goal`,
+`sections`, and per-step `role`, `file_scope`, and `dependencies`. It is
+`ToolSpec { is_mutating: false }`, so the permission engine's existing safe-read
+arm allows it and it stays callable in plan mode. It is the one tool whose
+effect plan mode allows, because its effect is a Core fact about a plan rather
+than a workspace, memory, or task mutation; nothing about it widens the gate for
+any other tool, and no permission code changed. The call runs through the
+ordinary registry path — the gate, the interceptors, the transcript entry — and
+the plan is folded in after it. A call Core cannot parse, or cannot attribute to
+a published workspace identity (`runtime.workspace_owner`), fails the tool call
+the model reads rather than reporting a plan that was not recorded. Over-bound
+input is a tool error the model can correct: 64 steps, at most one section per
+kind at 16 KiB each, 256-byte plan and step titles, a 4 KiB goal, and 64
+workspace-relative `file_scope` entries per step, each refused rather than
+clamped, because a truncated plan is a plan the operator decides on and the
+author never wrote.
+
+Handoff is the only mutation, and plan mode refuses it: `CommandRejected` with a
+reason leading `plan_mode`, the same reason family the starter-Lane preview
+uses, raised before the audit row, because nothing was authorized. Accepting a
+document is a decision about a document and stays available in Plan; spawning
+the work is not. On success Core builds one `AgentDagTaskSpec` per step — role
+defaulting to `Coder`, objective the step title, dependencies mapped through the
+plan's own step ids, `file_scope` copied, `permission_policy` the session's own
+mutation policy — and reuses the existing `start_agent_dag` path, so a plan's
+work and a hand-written DAG's work are the same work. `AgentDagUpdated` is
+published *before* `PlanDocumentHandedOff`, so a client following the plan's
+`handoff.dag_id` never reaches a DAG Core has not published yet.
+
+Audit ordering matches `runtime.operator_git`: `plan.accepted`, `plan.rejected`,
+and `plan.handed_off` are appended durably against audit object kind `plan`,
+carrying the revision and the digest that was decided, *before* the fact that
+announces the decision, and a failed append aborts the decision. A plan handoff
+nobody can audit is worse than a handoff that did not occur.
+
+`PlanDocumentUpdated` is the only plan event that reduces into
+`RuntimeViewState`. The two settlements announce the record the update before
+them already published; reducing them as well would give one truth two producers
+and let an out-of-order decision overwrite a record that has moved on. Every
+`PlanDocumentUpdated`, the `Superseded` republication included, is a durable
+workflow projection and rides the snapshot prefix, so a restart answers with the
+plan the operator already accepted instead of asking them to accept it again.
+
+0.3.5 contract increment, batch C13, landed on
+`claude/core-plan-documents-c13`. `runtime.plan_documents` moves the advertised
+extension set from 29 to 30 and adds the `plan-documents` fixture listed in the
+corpus table, with the nine frozen base fixtures and every `0.3.4` extension
+fixture byte-unchanged and the capability count gate in
+`scripts/tui-regression.sh` moved 29 -> 30. Neither client has adopted it yet:
+the GUI's Plan View is G8 and the TUI's plan lens is T4. Until each lands, the
+corresponding client renders "no plan proposed" as absence rather than
+inferring a plan from transcript text.
 
 ### Core 0.3.7 Contract Checkpoint
 
