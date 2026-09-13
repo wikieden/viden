@@ -1238,6 +1238,13 @@ impl RuntimeProjection {
                         agent_id: session.agent_id.clone(),
                         model: session.model.clone(),
                         status: agent_session_status(session.status).to_string(),
+                        terminal: session.status.is_terminal(),
+                        pausable: matches!(
+                            session.status,
+                            AgentSessionStatus::Starting
+                                | AgentSessionStatus::Running
+                                | AgentSessionStatus::WaitingApproval
+                        ),
                     })
                     .collect();
                 let evidence = lane
@@ -1281,6 +1288,12 @@ impl RuntimeProjection {
         projects.dedup();
 
         Some(D10LaneMonitorProjection {
+            session_control_available: self.confirmed.as_ref().is_some_and(|confirmed| {
+                confirmed
+                    .capabilities
+                    .iter()
+                    .any(|capability| capability.0 == crate::AGENT_SESSION_CONTROL_CAPABILITY)
+            }),
             total_lanes: lanes.len(),
             total_projects: projects.len(),
             awaiting_total: lanes.iter().filter(|lane| lane.awaits_human).count(),

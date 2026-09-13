@@ -10,14 +10,15 @@ import {
 } from "../src/screens/d10_lane_monitor";
 
 /**
- * D10's card action row (`G6`).
+ * D10's card action row (`G6`, extended by `G9`).
  *
- * The design draws Attach / Pause / Kill on every Lane card. This contract has
- * a Lane selection (not a Core command at all) and `CancelAgentSession`; it has
- * no pause and no kill. The tests below pin the three properties that keeps
- * honest: the two real controls do exactly what they say, the two missing ones
- * stay visible and disabled with the gap named, and a Stop outcome is Core's
- * own answer rather than an assumed success.
+ * The design draws Attach / Pause / Kill on every Lane card. Attach is a Lane
+ * selection and not a Core command at all; Stop is `CancelAgentSession`; and
+ * since `runtime.agent_session_control` (C14) Pause and Kill are Core commands
+ * too, routed through the same host handler the Agent Board uses. The tests
+ * below pin what that keeps honest: each control does exactly what it says, a
+ * control Core would refuse is disabled with Core's own reason rather than
+ * offered, and an outcome is Core's answer rather than an assumed success.
  */
 
 function lane(overrides: Partial<D10Lane> = {}): D10Lane {
@@ -35,7 +36,7 @@ function lane(overrides: Partial<D10Lane> = {}): D10Lane {
     worktree: ".worktrees/lane-1",
     progress: 64,
     agents: [
-      { sessionId: "session-1", agentId: "codex", model: "gpt-5-codex", status: "running" },
+      { sessionId: "session-1", agentId: "codex", model: "gpt-5-codex", status: "running", terminal: false, pausable: true },
     ],
     evidence: [],
     tokenLimit: null,
@@ -48,6 +49,7 @@ function lane(overrides: Partial<D10Lane> = {}): D10Lane {
 
 function projectionOf(lanes: D10Lane[]): D10LaneMonitorProjection {
   return {
+    sessionControlAvailable: true,
     totalLanes: lanes.length,
     totalProjects: 1,
     awaitingTotal: 0,
@@ -131,8 +133,8 @@ describe("D10 lane card actions", () => {
       [
         lane({
           agents: [
-            { sessionId: "session-1", agentId: "codex", model: null, status: "running" },
-            { sessionId: "session-2", agentId: "claude", model: null, status: "running" },
+            { sessionId: "session-1", agentId: "codex", model: null, status: "running", terminal: false, pausable: true },
+            { sessionId: "session-2", agentId: "claude", model: null, status: "running", terminal: false, pausable: true },
           ],
         }),
       ],
@@ -144,15 +146,75 @@ describe("D10 lane card actions", () => {
     expect(button.getAttribute("aria-label")).toContain("more than one Agent session");
   });
 
-  test("Pause and Kill stay visible, disabled, and name the missing Core command", () => {
-    const root = setup([lane()], { attach: vi.fn(), stop: vi.fn() });
+  test("Pause and Kill send Core's own commands for the Lane's session", async () => {
+    const pause = vi.fn(async () => ({ state: "confirmed", reason: null }));
+    const kill = vi.fn(async () => ({ state: "confirmed", reason: null }));
+    const root = setup([lane()], { attach: vi.fn(), stop: vi.fn(), pause, kill });
 
-    const pause = root.querySelector<HTMLButtonElement>("[data-d10-action='pause']")!;
-    const kill = root.querySelector<HTMLButtonElement>("[data-d10-action='kill']")!;
-    expect(pause.disabled).toBe(true);
-    expect(kill.disabled).toBe(true);
-    expect(pause.getAttribute("aria-label")).toContain("no pause command");
-    expect(kill.getAttribute("aria-label")).toContain("no kill command");
+    const pauseButton = root.querySelector<HTMLButtonElement>("[data-d10-action='pause']")!;
+    expect(pauseButton.disabled).toBe(false);
+    expect(pauseButton.dataset.d10ControlSession).toBe("session-1");
+    pauseButton.click();
+    await flush();
+    expect(pause).toHaveBeenCalledWith("lane-1", "session-1");
+
+    root.querySelector<HTMLButtonElement>("[data-d10-action='kill']")!.click();
+    await flush();
+    expect(kill).toHaveBeenCalledWith("lane-1", "session-1");
+  });
+
+  test("names the capability when Core publishes no session control", () => {
+    document.body.innerHTML = '<div id="host"></div>';
+    const root = document.querySelector<HTMLElement>("#host")!;
+    renderD10LaneMonitor(
+      root,
+      { ...projectionOf([lane()]), sessionControlAvailable: false },
+      "en",
+      undefined,
+      null,
+      { attach: vi.fn(), stop: vi.fn(), pause: vi.fn(), kill: vi.fn() },
+    );
+
+    for (const kind of ["pause", "kill"]) {
+      const button = root.querySelector<HTMLButtonElement>(`[data-d10-action='${kind}']`)!;
+      expect(button.disabled, kind).toBe(true);
+      expect(button.getAttribute("aria-label"), kind).toContain(
+        "runtime.agent_session_control",
+      );
+    }
+    // Stop predates the capability and must not be retired by its absence.
+    expect(
+      root.querySelector<HTMLButtonElement>("[data-d10-action='stop']")!.disabled,
+    ).toBe(false);
+  });
+
+  test("refuses a control the session's status does not allow, in Core's words", () => {
+    const paused = lane({
+      agents: [
+        {
+          sessionId: "session-1",
+          agentId: "codex",
+          model: "gpt-5-codex",
+          status: "paused",
+          terminal: false,
+          pausable: false,
+        },
+      ],
+    });
+    const root = setup([paused], {
+      attach: vi.fn(),
+      stop: vi.fn(),
+      pause: vi.fn(),
+      kill: vi.fn(),
+    });
+
+    const pauseButton = root.querySelector<HTMLButtonElement>("[data-d10-action='pause']")!;
+    expect(pauseButton.disabled).toBe(true);
+    expect(pauseButton.getAttribute("aria-label")).toContain("the session is paused");
+    // Kill accepts a paused session, so it stays live.
+    expect(
+      root.querySelector<HTMLButtonElement>("[data-d10-action='kill']")!.disabled,
+    ).toBe(false);
   });
 
   test("without a host every action is disabled rather than enabled and inert", () => {

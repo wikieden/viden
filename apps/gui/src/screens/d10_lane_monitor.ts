@@ -18,6 +18,10 @@ export interface D10Agent {
   agentId: string;
   model: string | null;
   status: string;
+  /** Core's own terminal answer for this status (C14). */
+  terminal: boolean;
+  /** True for the three statuses `PauseAgentSession` accepts. */
+  pausable: boolean;
 }
 
 export interface D10Evidence {
@@ -61,6 +65,8 @@ export interface D10Lane {
 }
 
 export interface D10LaneMonitorProjection {
+  /** Whether Core published `runtime.agent_session_control` (C14). */
+  sessionControlAvailable: boolean;
   totalLanes: number;
   totalProjects: number;
   awaitingTotal: number;
@@ -101,8 +107,8 @@ export interface D10ActionOutcome {
 /**
  * The card's supervision actions (`D10` design, "Attach / Pause / Kill").
  *
- * Only two of the design's four controls exist on this contract, and the split
- * is deliberate rather than cosmetic:
+ * All four of the design's controls now exist, and each is a different
+ * promise rather than one verb answering for three:
  *
  * - **Attach** is not a Core command at all. It is the cockpit's own Lane
  *   selection — the same path the Lane rail and the tab strip take — followed
@@ -110,10 +116,12 @@ export interface D10ActionOutcome {
  *   that Lane" and nothing is sent to Core.
  * - **Stop** is `RuntimeCommand::CancelAgentSession` for the Lane's own Agent
  *   session, correlated by command id and reported from the answering event.
- * - **Pause** and **Kill** have no Core command. They render disabled and say
- *   so; hiding them would erase a designed control, and wiring either to
- *   `CancelAgentSession` would make one verb answer for three different
- *   promises.
+ * - **Pause** is `PauseAgentSession` and **Kill** is `KillAgentSession`
+ *   (`runtime.agent_session_control`, C14, G9). They go through the same host
+ *   handler the Agent Board uses, so the two surfaces cannot disagree about
+ *   what a pause means or about which status allows it. Without the
+ *   capability they render disabled and name it, exactly as they did while
+ *   the commands did not exist.
  *
  * Absent while no host is bound, which disables the whole row rather than
  * offering controls that cannot reach Core.
@@ -123,6 +131,10 @@ export interface D10LaneActions {
   attach: (laneId: string) => void;
   /** Sends one `CancelAgentSession` for that Lane's Agent session. */
   stop: (laneId: string, sessionId: string) => Promise<D10ActionOutcome>;
+  /** Sends one `PauseAgentSession`; absent leaves the control disabled. */
+  pause?: (laneId: string, sessionId: string) => Promise<D10ActionOutcome>;
+  /** Sends one `KillAgentSession`; absent leaves the control disabled. */
+  kill?: (laneId: string, sessionId: string) => Promise<D10ActionOutcome>;
 }
 
 type Copy = Record<string, string>;
@@ -173,9 +185,13 @@ const COPY: Record<Locale, Copy> = {
     stopHint: "Sends Core's CancelAgentSession for this Lane's Agent session.",
     pause: "Pause",
     kill: "Kill",
-    pauseUnavailable: "Core publishes no pause command for an Agent session.",
+    pauseUnavailable:
+      "Core publishes no runtime.agent_session_control, so no pause command can be sent.",
     killUnavailable:
-      "Core publishes no kill command for an Agent session; Stop cancels it through CancelAgentSession.",
+      "Core publishes no runtime.agent_session_control, so no kill command can be sent; Stop still cancels through CancelAgentSession.",
+    pausePending: "Waiting for Core to answer the pause command\u2026",
+    killPending: "Waiting for Core to answer the kill command\u2026",
+    statusBlocked: "Core would refuse this: the session is {status}.",
     actionsUnavailable: "No host is bound, so no Lane command can be sent.",
     stopNoSession: "Core published no Agent session for this Lane, so there is nothing to stop.",
     stopAmbiguous:
@@ -216,8 +232,12 @@ const COPY: Record<Locale, Copy> = {
     stopHint: "为该 Lane 的 Agent 会话发送 Core 的 CancelAgentSession。",
     pause: "暂停",
     kill: "终止",
-    pauseUnavailable: "Core 未发布针对 Agent 会话的暂停命令。",
-    killUnavailable: "Core 未发布针对 Agent 会话的终止命令；“停止”通过 CancelAgentSession 取消会话。",
+    pauseUnavailable: "Core 未发布 runtime.agent_session_control，无法发送暂停命令。",
+    killUnavailable:
+      "Core 未发布 runtime.agent_session_control，无法发送终止命令；“停止”仍通过 CancelAgentSession 取消会话。",
+    pausePending: "等待 Core 回应暂停命令…",
+    killPending: "等待 Core 回应终止命令…",
+    statusBlocked: "Core 会拒绝：会话当前为 {status}。",
     actionsUnavailable: "未绑定宿主，无法发送任何 Lane 命令。",
     stopNoSession: "Core 未为该 Lane 发布 Agent 会话，没有可停止的对象。",
     stopAmbiguous: "Core 为该 Lane 发布了多个 Agent 会话；客户端不会替你选择其中之一。",
@@ -247,6 +267,12 @@ export function renderD10LaneMonitor(
    * the durable fact is Core's own event, which the next projection carries.
    */
   const stopState = new Map<string, { state: string; reason: string | null }>();
+  /**
+   * What Core answered the Lane's last pause or kill with, keyed by
+   * `<lane>:<kind>` so a pause and a kill on the same Lane cannot overwrite
+   * each other's receipt.
+   */
+  const controlState = new Map<string, { state: string; reason: string | null }>();
   const copy = COPY[locale];
 
   /**
@@ -295,8 +321,67 @@ export function renderD10LaneMonitor(
   };
 
   /**
-   * The design's card action row, with the two controls this contract has and
-   * the two it does not.
+   * One session-control button (`runtime.agent_session_control`, C14, G9).
+   *
+   * Every refusal the operator could hit is precomputed here in Core's own
+   * vocabulary: a missing capability names the capability, a Lane with no
+   * session or with several reuses the same cardinality rule Stop uses, and a
+   * status the command does not accept carries the `session_status_<current>`
+   * sentence Core would have answered with. Nothing is offered that Core would
+   * reject.
+   */
+  const controlButton = (lane: D10Lane, kind: "pause" | "kill", text: string): HTMLButtonElement => {
+    const send = kind === "pause" ? actions?.pause : actions?.kill;
+    const unavailable = kind === "pause" ? copy.pauseUnavailable : copy.killUnavailable;
+    if (!projection.sessionControlAvailable || !send) {
+      return actionButton(kind, text, unavailable);
+    }
+    const target = stopTarget(lane);
+    if (target.sessionId === null) {
+      return actionButton(kind, text, label(copy, target.reasonKey));
+    }
+    const agent = lane.agents.find((entry) => entry.sessionId === target.sessionId);
+    const allowed = kind === "pause" ? agent?.pausable === true : agent?.terminal === false;
+    if (!allowed) {
+      return actionButton(
+        kind,
+        text,
+        copy.statusBlocked.replace("{status}", agent?.status ?? "unknown"),
+      );
+    }
+    const sessionId = target.sessionId;
+    const key = `${lane.id}:${kind}`;
+    const pending = controlState.get(key)?.state === "pending";
+    const button = actionButton(
+      kind,
+      text,
+      pending ? (kind === "pause" ? copy.pausePending : copy.killPending) : null,
+      pending
+        ? undefined
+        : () => {
+            controlState.set(key, { state: "pending", reason: null });
+            render();
+            void send(lane.id, sessionId)
+              .then((outcome) => {
+                controlState.set(key, { state: outcome.state, reason: outcome.reason });
+              })
+              .catch((error: unknown) => {
+                // A host failure is reported as a refusal in its own words,
+                // never as a silent success.
+                controlState.set(key, {
+                  state: "rejected",
+                  reason: error instanceof Error ? error.message : String(error),
+                });
+              })
+              .finally(render);
+          },
+    );
+    if (!pending) button.dataset.d10ControlSession = sessionId;
+    return button;
+  };
+
+  /**
+   * The design's card action row, with all four controls.
    */
   const actionRow = (lane: D10Lane): HTMLElement => {
     const row = document.createElement("div");
@@ -353,9 +438,10 @@ export function renderD10LaneMonitor(
       row.append(stop);
     }
 
-    // Both are registered design controls with no Core command behind them.
-    row.append(actionButton("pause", copy.pause, copy.pauseUnavailable));
-    row.append(actionButton("kill", copy.kill, copy.killUnavailable));
+    // Pause and Kill share the Agent Board's handler and its rules, so the two
+    // surfaces cannot disagree about which status allows which control.
+    row.append(controlButton(lane, "pause", copy.pause));
+    row.append(controlButton(lane, "kill", copy.kill));
 
     const outcome = stopState.get(lane.id);
     if (outcome) {

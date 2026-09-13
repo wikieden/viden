@@ -604,6 +604,12 @@ export async function hydrateShellFromCore(
               }
               return result.outcome;
             },
+            // Pause and Kill go through the Agent Board's own host command
+            // (`runtime.agent_session_control`, C14), so the monitor card and
+            // the Board cannot disagree about what either verb does or about
+            // which status Core accepts it from.
+            pause: (_laneId, sessionId) => sendBoardControl("pause", sessionId),
+            kill: (_laneId, sessionId) => sendBoardControl("kill", sessionId),
           },
         );
         // The event ticker is a Core audit read, so it resolves after the
@@ -768,6 +774,28 @@ export async function hydrateShellFromCore(
           onOpenDag: () => activeD1?.openCenterView("d13"),
           onOpenAuditTrail: openAuditTrail,
         });
+      };
+
+      /**
+       * One session control from a card action row, answered by Core.
+       *
+       * The D10 monitor and the Agent Board share it deliberately: two copies
+       * of "which status may be paused" is how the two surfaces start
+       * disagreeing, and the refusal the operator reads has to be the one Core
+       * actually sent whichever card they pressed.
+       */
+      const sendBoardControl = async (
+        kind: "pause" | "kill",
+        sessionId: string,
+      ): Promise<{ state: string; reason: string | null }> => {
+        let result = await core.d16SendIntent(`gui-board-${kind}-${crypto.randomUUID()}`, {
+          type: kind,
+          sessionId,
+        });
+        for (let attempt = 0; attempt < 4 && result.outcome.state === "pending"; attempt += 1) {
+          result = await core.d16Poll(result.projection.selectedSessionId);
+        }
+        return result.outcome;
       };
 
       /**

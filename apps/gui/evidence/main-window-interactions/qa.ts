@@ -1228,6 +1228,8 @@ async function d10Actionable(): Promise<D10LaneMonitorProjection> {
                 agentId: "codex-acp",
                 model: "gpt-5.3-codex",
                 status: "running",
+                terminal: false,
+                pausable: true,
               },
             ],
           }

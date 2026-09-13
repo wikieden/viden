@@ -36,6 +36,7 @@ const TWO_LANES = {
 };
 
 const D10_PROJECTION: D10LaneMonitorProjection = {
+  sessionControlAvailable: true,
   totalLanes: 1,
   totalProjects: 1,
   awaitingTotal: 0,
@@ -54,7 +55,7 @@ const D10_PROJECTION: D10LaneMonitorProjection = {
       worktree: ".worktrees/lane-review",
       progress: 40,
       agents: [
-        { sessionId: "session-review", agentId: "codex", model: null, status: "running" },
+        { sessionId: "session-review", agentId: "codex", model: null, status: "running", terminal: false, pausable: true },
       ],
       evidence: [],
       tokenLimit: null,
