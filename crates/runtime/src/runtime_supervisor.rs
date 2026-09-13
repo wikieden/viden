@@ -12,19 +12,20 @@ use std::time::Duration;
 
 use viden_lanes::{
     LaneApprovalResolver, LaneCommandRedactor, LaneEffectExecutor, LanePersistence, LaneSupervisor,
-    LocalLaneEffectExecutor, WorkflowLanePersistence,
+    LocalLaneEffectExecutor, StarterLaneAgentPolicy, WorkflowLanePersistence,
 };
 use viden_provider::ModelRequestControl;
 use viden_types::{
-    AgentSessionControlView, AgentSessionRequest, AgentSessionStatus, AgentSessionTermination,
-    AgentSessionView, ApprovalDecision, ApprovalDefaultAction, ApprovalRequestView,
-    ApprovalResponse, ApprovalRisk, ApprovalScope, ApprovalTarget, AuditActor, AuditObjectRef,
-    AuditOutcome, AuditRecord, CapabilityId, EventCursor, FRONTEND_SCHEMA_V1,
+    AgentLaneRecord, AgentSessionControlView, AgentSessionRequest, AgentSessionStatus,
+    AgentSessionTermination, AgentSessionView, ApprovalDecision, ApprovalDefaultAction,
+    ApprovalRequestView, ApprovalResponse, ApprovalRisk, ApprovalScope, ApprovalTarget, AuditActor,
+    AuditObjectRef, AuditOutcome, AuditRecord, CapabilityId, EventCursor, FRONTEND_SCHEMA_V1,
     FRONTEND_V1_CAPABILITIES, FRONTEND_V1_EXTENSION_CAPABILITIES, GapRecovery,
     LaneRuntimeOwnerBinding, OperatorGitAction, PermissionLevel, PermissionPrompt, ReplayBatch,
     ReplayRequest, RuntimeCommand, RuntimeCommandEnvelope, RuntimeErrorView, RuntimeEvent,
     RuntimeEventEnvelope, RuntimeEventKind, RuntimeOwner, RuntimeSnapshotEnvelope,
-    RuntimeViewState, RuntimeWireEvent, TranscriptPage, TranscriptPageRequest, TurnOutcome,
+    RuntimeViewState, RuntimeWireEvent, StandingApprovalView, StarterLaneAgentBinding,
+    StarterLaneSessionOutcome, ToolInput, TranscriptPage, TranscriptPageRequest, TurnOutcome,
     TurnSource, TurnView, WorkMode, fresh_id, now_timestamp,
 };
 use viden_workflows::stores::WorkflowStore;
@@ -33,8 +34,8 @@ use viden_agents::{
     AgentSessionApprover, cancel_typed_agent_session, cancelled_session_control,
     kill_typed_agent_session, mark_typed_agent_session_status, pause_typed_agent_session,
     resume_typed_agent_session, retry_typed_agent_session, shutdown_resident_acp_sessions,
-    start_typed_agent_session, typed_agent_session_request_from_compat_input,
-    validate_typed_agent_session_request,
+    start_typed_agent_session, typed_agent_adapter_views,
+    typed_agent_session_request_from_compat_input, validate_typed_agent_session_request,
 };
 
 use crate::{
@@ -59,6 +60,15 @@ struct PendingApproval {
     // An ordinary approval cannot survive any permission-control reservation.
     permission_epoch: u64,
     allowed_scopes: Vec<ApprovalScope>,
+    /// Whether this request offered `ApprovalDecision::Edit`
+    /// (`runtime.approval_scopes`, GUI-CORE-019). An `Edit` answering a
+    /// request that did not offer one is rejected, exactly like a scope that
+    /// was not offered.
+    editable: bool,
+    /// The exact input the operator was shown. The standing rule an `Always`
+    /// grant persists is keyed on it, and a revision equal to it is rejected
+    /// `revision_unchanged` rather than re-prompted.
+    tool_input: ToolInput,
     target: PendingApprovalTarget,
 }
 
@@ -456,6 +466,29 @@ enum SupervisorMessage {
         request: TranscriptPageRequest,
         response: Sender<Result<TranscriptPage, String>>,
     },
+    /// Starts the session a starter Lane's Agent binding asked for
+    /// (`runtime.starter_lane_agent`, GUI-CORE-030).
+    ///
+    /// Distinct from a plain `StartAgentSession` because the session id was
+    /// minted and its Lane binding reserved on the creation path, so the
+    /// receipt could name it: the worker must adopt that id rather than mint
+    /// a second one the receipt would not match.
+    StartStarterLaneSession {
+        owner: RuntimeOwner,
+        command_id: String,
+        request: AgentSessionRequest,
+        session_id: String,
+    },
+    /// Removes a revoked standing rule from the live permission engine
+    /// (`runtime.approval_scopes`, GUI-CORE-019).
+    ///
+    /// The durable removal, the audit row, and the fact are all done by the
+    /// time this is sent; the worker owns the engine and nothing else does.
+    RevokeStandingRule {
+        owner: RuntimeOwner,
+        tool_name: String,
+        rule_content: String,
+    },
     Shutdown {
         response: Option<Sender<()>>,
     },
@@ -533,6 +566,16 @@ impl ApprovalAuditLog {
             "scope".to_string(),
             approval_scope_key(decision).to_string(),
         );
+        // An `approval.edit` row that named only the tool would not say what
+        // the operator changed it to, which is the whole content of the
+        // decision (`runtime.approval_scopes`, GUI-CORE-019). The preview is
+        // bounded for the same reason every other audit arg is.
+        if let ApprovalDecision::Edit { revised_input } = decision {
+            args.insert(
+                "revised_input".to_string(),
+                bounded_audit_preview(&viden_types::encode_tool_input(revised_input)),
+            );
+        }
         let record = AuditRecord::sanitized(
             audit_id.to_string(),
             now_timestamp(),
@@ -590,6 +633,49 @@ impl ApprovalAuditLog {
 /// of, and a client renders the count from the view it is capped by.
 const MAX_HELD_SESSION_INPUTS: usize = 50;
 
+impl ApprovalAuditLog {
+    /// Appends the durable row for one standing-approval revocation
+    /// (`approval.revoke`).
+    ///
+    /// The objects are the rule and the tool it governed, so the row answers
+    /// "what stopped being allowed" rather than only "a revocation happened".
+    fn record_revocation(
+        &self,
+        audit_id: &str,
+        owner: &RuntimeOwner,
+        rule_id: &str,
+        tool_name: &str,
+    ) -> Result<(), String> {
+        let record = AuditRecord::sanitized(
+            audit_id.to_string(),
+            now_timestamp(),
+            owner.clone(),
+            AuditActor::Operator,
+            "approval.revoke".to_string(),
+            vec![
+                AuditObjectRef::new(AuditObjectRef::KIND_PERMISSION, rule_id),
+                AuditObjectRef::new("tool", tool_name),
+            ],
+            AuditOutcome::Success,
+            BTreeMap::from([("scope".to_string(), "always".to_string())]),
+        )?;
+        self.workflows.append_audit_record(&record)
+    }
+}
+
+/// Upper bound on an audit argument's rendered value.
+const MAX_AUDIT_ARG_CHARS: usize = 256;
+
+/// Bounds one audit argument. Truncation is marked so a reader can tell a
+/// short value from a shortened one.
+fn bounded_audit_preview(value: &str) -> String {
+    if value.chars().count() <= MAX_AUDIT_ARG_CHARS {
+        return value.to_string();
+    }
+    let kept: String = value.chars().take(MAX_AUDIT_ARG_CHARS).collect();
+    format!("{kept}...")
+}
+
 /// Stable action/scope key for one approval decision.
 fn approval_scope_key(decision: &ApprovalDecision) -> &'static str {
     match decision {
@@ -602,12 +688,23 @@ fn approval_scope_key(decision: &ApprovalDecision) -> &'static str {
         ApprovalDecision::Allow {
             scope: ApprovalScope::RepoAllowlist { .. },
         } => "allow_repo",
+        // The two scopes `runtime.approval_scopes` adds. `always` is the
+        // standing grant; `edit` is a decision in its own right, because the
+        // revision it carries is re-decided and may still be refused.
+        ApprovalDecision::Allow {
+            scope: ApprovalScope::Always,
+        } => "always",
+        ApprovalDecision::Edit { .. } => "edit",
         ApprovalDecision::Deny => "deny",
     }
 }
 
 pub struct RuntimeSupervisor {
     workspace_root: PathBuf,
+    /// The Viden home the standing-approval settings file lives under
+    /// (`runtime.approval_scopes`, GUI-CORE-019). Taken from the engine so a
+    /// runtime started against a scratch home never writes the operator's.
+    viden_home: PathBuf,
     commands: Sender<SupervisorMessage>,
     events: Receiver<RuntimeEventEnvelope>,
     event_bus: RuntimeEventBus,
@@ -623,6 +720,120 @@ pub struct RuntimeSupervisor {
     session_queue: crate::runtime_contract::SessionInputQueue,
     worker_alive: Arc<AtomicBool>,
     worker: Option<JoinHandle<()>>,
+}
+
+/// The runtime half of the starter-Lane Agent binding
+/// (`runtime.starter_lane_agent`, GUI-CORE-030).
+///
+/// Injected into `LaneSupervisor`, which owns Lane creation and knows nothing
+/// about adapters or Agent sessions. Everything policy-shaped stays here: the
+/// adapter registry, the mutation gate, the Lane-binding reservation, and the
+/// dispatch onto the worker that owns the engine.
+struct SupervisorStarterLaneAgentPolicy {
+    commands: Sender<SupervisorMessage>,
+    event_bus: RuntimeEventBus,
+    active_control: ActiveControlRegistry,
+    permission_control: Arc<Mutex<PermissionControlState>>,
+}
+
+impl SupervisorStarterLaneAgentPolicy {
+    /// The refusal path, written once so every reason reaches the receipt in
+    /// the same shape a client can render.
+    fn refuse(reason: impl Into<String>) -> StarterLaneSessionOutcome {
+        StarterLaneSessionOutcome::Refused {
+            reason: reason.into(),
+        }
+    }
+}
+
+impl StarterLaneAgentPolicy for SupervisorStarterLaneAgentPolicy {
+    fn adapter_is_known(&self, agent_id: &str) -> bool {
+        typed_agent_adapter_views()
+            .iter()
+            .any(|adapter| adapter.agent_id == agent_id)
+    }
+
+    fn start_session(
+        &self,
+        owner: &RuntimeOwner,
+        lane: &AgentLaneRecord,
+        binding: &StarterLaneAgentBinding,
+    ) -> StarterLaneSessionOutcome {
+        // The same checks `StartAgentSession` runs, in the same order, so the
+        // two entry points cannot disagree about whether a session may start.
+        // They run *after* the Lane exists, and every failure is a receipt
+        // field rather than an unwind: a Lane that was created stays created.
+        if !self.adapter_is_known(&binding.agent_id) {
+            return Self::refuse(format!("agent adapter `{}` is not known", binding.agent_id));
+        }
+        if self
+            .permission_control
+            .lock()
+            .map(|control| control.applied.blocks_mutation())
+            .unwrap_or(true)
+        {
+            return Self::refuse(
+                "agent session execution requires Build mode with Ask or Autonomous permission",
+            );
+        }
+        let lane_owner = RuntimeOwner {
+            lane_id: Some(lane.id.clone()),
+            session_id: None,
+            ..owner.clone()
+        };
+        match lane_agent_session_binding(&self.event_bus, &lane_owner) {
+            Ok(Some(existing)) => {
+                return Self::refuse(lane_agent_session_binding_rejection(&existing));
+            }
+            Ok(None) => {}
+            Err(error) => return Self::refuse(error),
+        }
+        if let Some(owner_id) = active_agent_lane_owner_id(&self.active_control, &lane_owner) {
+            return Self::refuse(format!(
+                "active agent session `{owner_id}` is already running for this lane"
+            ));
+        }
+        let request = AgentSessionRequest {
+            lane_id: lane.id.clone(),
+            agent_id: binding.agent_id.clone(),
+            model: binding.model.clone(),
+            load_session_id: None,
+            // The preset's summary is the honest default objective for a
+            // wizard that offered no task field.
+            task: binding
+                .task
+                .clone()
+                .filter(|task| !task.trim().is_empty())
+                .unwrap_or_else(|| lane.summary.clone()),
+        };
+        if let Err(reason) = validate_typed_agent_session_request(&request) {
+            return Self::refuse(reason);
+        }
+        // Minted here so the receipt can name the session it started. The
+        // binding is reserved in the same step, which is also what makes the
+        // reservation the one place two concurrent starts collide.
+        let session_id = fresh_id("agent-session");
+        if let Err(reason) = reserve_lane_agent_session_binding(
+            &self.event_bus,
+            &request.lane_id,
+            &request.agent_id,
+            &session_id,
+        ) {
+            return Self::refuse(reason);
+        }
+        if let Err(error) = self
+            .commands
+            .send(SupervisorMessage::StartStarterLaneSession {
+                owner: lane_owner,
+                command_id: fresh_id("command"),
+                request,
+                session_id: session_id.clone(),
+            })
+        {
+            return Self::refuse(format!("runtime supervisor stopped: {error}"));
+        }
+        StarterLaneSessionOutcome::Started { session_id }
+    }
 }
 
 impl RuntimeSupervisor {
@@ -648,6 +859,137 @@ impl RuntimeSupervisor {
         Self::start_with_effects_and_persistence(engine, approval_ttl_secs, lane_effects, None)
     }
 
+    /// Writes the standing rule an `Allow { Always }` grants, or degrades the
+    /// answer when it cannot be written.
+    ///
+    /// Returns the response to carry on with and the rule to announce. A
+    /// non-`Always` answer passes through untouched, which is what keeps
+    /// every other decision byte-identical to the pre-capability path.
+    fn persist_standing_grant(
+        &self,
+        response: ApprovalResponse,
+        owner: &RuntimeOwner,
+        audit_id: &str,
+        tool_name: &str,
+        tool_input: &ToolInput,
+    ) -> (ApprovalResponse, Option<StandingApprovalView>) {
+        if !matches!(
+            response.decision,
+            ApprovalDecision::Allow {
+                scope: ApprovalScope::Always
+            }
+        ) {
+            return (response, None);
+        }
+        let rule = StandingApprovalView {
+            rule_id: fresh_id("rule"),
+            tool_name: tool_name.to_string(),
+            // The same encoding a `Session` rule uses, so the standing list
+            // and the session rules describe one vocabulary.
+            rule_content: viden_types::encode_tool_input(tool_input),
+            granted_at: now_timestamp(),
+            granted_in_workspace: owner.workspace_id.clone(),
+            audit_id: audit_id.to_string(),
+        };
+        let path = viden_config::user_settings_path_in_home(&self.viden_home);
+        match viden_config::grant_user_standing_approval_at(&path, &rule) {
+            Ok(()) => (response, Some(rule)),
+            Err(error) => {
+                emit_error(
+                    &self.event_bus,
+                    owner.clone(),
+                    format!("standing approval was not persisted, granting once instead: {error}"),
+                );
+                (ApprovalResponse::allow_once(response.feedback), None)
+            }
+        }
+    }
+
+    /// Answers `RevokeStandingApproval`.
+    ///
+    /// The file is the authority: a rule id the file does not hold is
+    /// rejected rather than answered with a revocation that removed nothing.
+    /// The durable removal happens first, then the audit row, then the fact,
+    /// and only then is the live engine told — so a crash between steps leaves
+    /// a rule that is gone from disk and will be gone from the engine at the
+    /// next bootstrap, never the reverse.
+    fn revoke_standing_approval(
+        &self,
+        owner: RuntimeOwner,
+        command_id: String,
+        rule_id: String,
+    ) -> Result<(), String> {
+        let path = viden_config::user_settings_path_in_home(&self.viden_home);
+        let removed = match viden_config::revoke_user_standing_approval_at(&path, &rule_id) {
+            Ok(Some(rule)) => rule,
+            Ok(None) => {
+                emit_event(
+                    &self.event_bus,
+                    owner,
+                    RuntimeEventKind::CommandRejected {
+                        command_id,
+                        reason: format!("standing approval `{rule_id}` is not in force"),
+                    },
+                );
+                return Ok(());
+            }
+            Err(error) => {
+                emit_event(
+                    &self.event_bus,
+                    owner,
+                    RuntimeEventKind::CommandRejected {
+                        command_id,
+                        reason: error,
+                    },
+                );
+                return Ok(());
+            }
+        };
+        let audit_id = fresh_id("audit");
+        emit_event(
+            &self.event_bus,
+            owner.clone(),
+            RuntimeEventKind::CommandAccepted {
+                command_id,
+                command: redacted_runtime_command_for_event(
+                    &RuntimeCommand::RevokeStandingApproval {
+                        rule_id: rule_id.clone(),
+                    },
+                ),
+            },
+        );
+        // Audit before the fact that announces it, the same order the grant
+        // uses. Fail-open on the decision, not on the audit: the rule is
+        // already off disk, and refusing to say so would be the worse lie.
+        if let Err(error) =
+            self.approval_audit
+                .record_revocation(&audit_id, &owner, &rule_id, &removed.tool_name)
+        {
+            emit_error(
+                &self.event_bus,
+                owner.clone(),
+                format!("standing approval was revoked but not audited: {error}"),
+            );
+        }
+        emit_event(
+            &self.event_bus,
+            owner.clone(),
+            RuntimeEventKind::StandingApprovalRevoked {
+                rule_id,
+                audit_id,
+                owner: owner.clone(),
+            },
+        );
+        // The live engine last, on the worker thread that owns it.
+        self.commands
+            .send(SupervisorMessage::RevokeStandingRule {
+                owner,
+                tool_name: removed.tool_name,
+                rule_content: removed.rule_content,
+            })
+            .map_err(|err| format!("runtime supervisor stopped: {err}"))
+    }
+
     fn start_with_effects_and_persistence(
         mut engine: SessionEngine,
         approval_ttl_secs: u64,
@@ -665,7 +1007,35 @@ impl RuntimeSupervisor {
         let pending_approvals = Arc::new(Mutex::new(BTreeMap::new()));
         let approval_timers = Arc::new(ApprovalTimerRegistry::default());
         let worker_alive = Arc::new(AtomicBool::new(true));
-        let live_view = engine.runtime_view_state();
+        // Standing `Always` approvals are the one permission fact that
+        // survives a restart (`runtime.approval_scopes`, GUI-CORE-019). They
+        // are loaded here, before the engine moves onto the worker thread, so
+        // the first `decide` of the process already answers `RuleAllow` for a
+        // rule the operator granted in an earlier session — in *any*
+        // workspace, which is what separates this scope from every other one.
+        //
+        // A rule the file cannot describe is reported and skipped rather than
+        // taking the table down: a single malformed row must not silently
+        // re-open prompts an operator believes they silenced.
+        let mut standing_approvals = Vec::new();
+        let mut standing_diagnostics = Vec::new();
+        let viden_home = engine.home_dir().to_path_buf();
+        match viden_config::load_user_standing_approvals_at(
+            &viden_config::user_settings_path_in_home(&viden_home),
+        ) {
+            Ok((rules, diagnostics)) => {
+                for rule in &rules {
+                    engine.install_standing_approval(&rule.tool_name, &rule.rule_content);
+                }
+                standing_approvals = rules;
+                standing_diagnostics = diagnostics;
+            }
+            Err(error) => {
+                standing_diagnostics.push(format!("standing approvals were not loaded: {error}"));
+            }
+        }
+        let mut live_view = engine.runtime_view_state();
+        live_view.standing_approvals = standing_approvals;
         let lane_agent_store = engine.workflow_store();
         // Cloned before the engine moves onto the worker thread: the handle the
         // approval decision's durable row is written through.
@@ -736,6 +1106,9 @@ impl RuntimeSupervisor {
         if let Some(error) = lane_agent_hydration_error {
             emit_error(&event_bus, RuntimeOwner::default(), error);
         }
+        for diagnostic in standing_diagnostics {
+            emit_error(&event_bus, RuntimeOwner::default(), diagnostic);
+        }
 
         let lane_repo = engine.cwd().to_path_buf();
         let lane_persistence = lane_persistence.unwrap_or_else(|| {
@@ -786,17 +1159,27 @@ impl RuntimeSupervisor {
                 )
             });
         let lane_redact_command: LaneCommandRedactor = Arc::new(redacted_runtime_command_for_event);
-        let lane_supervisor = Arc::new(LaneSupervisor::new(
-            lane_repo,
-            lane_persistence,
-            lane_permissions,
-            lane_effects,
-            lane_events,
-            lane_approvals,
-            lane_redact_command,
-            lane_mode,
-            approval_ttl_secs,
-        ));
+        let lane_supervisor = Arc::new(
+            LaneSupervisor::new(
+                lane_repo,
+                lane_persistence,
+                lane_permissions,
+                lane_effects,
+                lane_events,
+                lane_approvals,
+                lane_redact_command,
+                lane_mode,
+                approval_ttl_secs,
+            )
+            .with_starter_lane_agent_policy(Arc::new(
+                SupervisorStarterLaneAgentPolicy {
+                    commands: command_sender.clone(),
+                    event_bus: event_bus.clone(),
+                    active_control: Arc::clone(&active_control),
+                    permission_control: Arc::clone(&permission_control),
+                },
+            )),
+        );
         for lane in lane_supervisor.hydration_recoveries() {
             let owner = RuntimeOwner {
                 lane_id: Some(lane.id.clone()),
@@ -848,6 +1231,7 @@ impl RuntimeSupervisor {
 
         Self {
             workspace_root,
+            viden_home,
             commands: command_sender,
             events: event_receiver,
             event_bus,
@@ -1267,6 +1651,9 @@ impl RuntimeSupervisor {
                 );
                 Ok(())
             }
+            RuntimeCommand::RevokeStandingApproval { rule_id } => {
+                return self.revoke_standing_approval(owner, command_id, rule_id);
+            }
             RuntimeCommand::RespondToApproval {
                 request_id,
                 response,
@@ -1377,8 +1764,32 @@ impl RuntimeSupervisor {
                             owner.clone(),
                             RuntimeEventKind::CommandRejected {
                                 command_id,
+                                // The stable reason `runtime.approval_scopes`
+                                // names for an `Always` a request did not
+                                // offer, and for an `Edit` on a tool whose
+                                // input Core will not let an operator revise.
                                 reason: format!(
-                                    "approval request `{request_id}` scope is not allowed"
+                                    "approval request `{request_id}` scope_not_offered"
+                                ),
+                            },
+                        );
+                        return Ok(());
+                    }
+                    // A revision that changes nothing is not a decision: it
+                    // would re-run `decide` over the same bytes and produce
+                    // the same `Ask`, leaving the operator in a loop with a
+                    // prompt they already answered. The request stays pending
+                    // so the real answer can still arrive.
+                    if let ApprovalDecision::Edit { revised_input } = &response.decision
+                        && *revised_input == pending.tool_input
+                    {
+                        emit_event(
+                            &self.event_bus,
+                            owner.clone(),
+                            RuntimeEventKind::CommandRejected {
+                                command_id,
+                                reason: format!(
+                                    "approval request `{request_id}` revision_unchanged"
                                 ),
                             },
                         );
@@ -1391,7 +1802,14 @@ impl RuntimeSupervisor {
                     .lock()
                     .map_err(|_| "permission control state poisoned".to_string())?;
                 let stale_permission_epoch = pending.permission_epoch != permission_control.epoch();
-                let response = if response.is_allowed()
+                // A revision is treated like an allow here on purpose: it asks
+                // Core to run bytes, so it must clear the same two gates an
+                // allow clears. Plan mode refusing a revision is the
+                // `Deny plan_mode` the design names, and it is enforced on the
+                // request rather than left to the re-decision, so the original
+                // resolves as the refusal the operator has to read.
+                let revises = matches!(response.decision, ApprovalDecision::Edit { .. });
+                let response = if (response.is_allowed() || revises)
                     && (stale_permission_epoch
                         || (matches!(
                             &pending.target,
@@ -1402,6 +1820,8 @@ impl RuntimeSupervisor {
                     ApprovalResponse::deny(Some(
                         if stale_permission_epoch {
                             "permission or work mode changed after approval was requested"
+                        } else if revises {
+                            "plan_mode"
                         } else {
                             "permission or work mode changed before approval resumed"
                         }
@@ -1425,6 +1845,20 @@ impl RuntimeSupervisor {
                 );
                 let pending_owner = pending.owner.clone();
                 let pending_audit_id = pending.audit_id.clone();
+                // Durable first. The rule reaches the user-level settings file
+                // before `StandingApprovalGranted` announces it, so a client
+                // never renders a standing rule this machine would not load at
+                // its next bootstrap. A file that cannot be written degrades
+                // the answer to `Allow Once` rather than publishing a grant
+                // nothing holds — the operator sees the error and the call
+                // still runs.
+                let (response, granted_rule) = self.persist_standing_grant(
+                    response,
+                    &pending_owner,
+                    &pending_audit_id,
+                    &pending.tool_name,
+                    &pending.tool_input,
+                );
                 // Audit before the fact that announces it, the same order every
                 // other mutation in the trust loop uses: `ApprovalResolved`
                 // carries this `audit_id`, and publishing it before the row
@@ -1447,6 +1881,17 @@ impl RuntimeSupervisor {
                         &self.event_bus,
                         pending_owner.clone(),
                         format!("approval decision was applied but not audited: {error}"),
+                    );
+                }
+                // After the audit row, before `ApprovalResolved`: the grant is
+                // the reason the decision was `always`, so a client reading
+                // the stream sees the rule exist before the decision that
+                // installed it settles.
+                if let Some(rule) = granted_rule {
+                    emit_event(
+                        &self.event_bus,
+                        pending_owner.clone(),
+                        RuntimeEventKind::StandingApprovalGranted { rule },
                     );
                 }
                 match pending.target {
@@ -1824,6 +2269,47 @@ fn run_supervisor_worker(
     };
     while let Ok(message) = command_receiver.recv() {
         match message {
+            SupervisorMessage::StartStarterLaneSession {
+                owner,
+                command_id,
+                request,
+                session_id,
+            } => {
+                install_runtime_event_sink(&mut engine, event_bus.clone(), owner.clone());
+                run_supervised_agent_session(
+                    &engine,
+                    owner,
+                    command_id,
+                    request,
+                    &event_bus,
+                    &active_control,
+                    &pending_approvals,
+                    &approval_timers,
+                    &permission_control,
+                    approval_ttl_secs,
+                    &worker_commands,
+                    Some(session_id),
+                );
+            }
+            SupervisorMessage::RevokeStandingRule {
+                owner,
+                tool_name,
+                rule_content,
+            } => {
+                // Idempotent by construction: the file already lost the rule,
+                // so an engine that no longer holds it is the state the caller
+                // asked for, not a failure to report.
+                if !engine.revoke_standing_approval(&tool_name, &rule_content) {
+                    emit_error(
+                        &event_bus,
+                        owner,
+                        format!(
+                            "standing approval for `{tool_name}` was revoked from settings but \
+                             was not in force in this session"
+                        ),
+                    );
+                }
+            }
             SupervisorMessage::Shutdown { response } => {
                 worker_alive.store(false, Ordering::Release);
                 if let Some(response) = response {
@@ -1907,6 +2393,7 @@ fn run_supervisor_worker(
                             &permission_control,
                             approval_ttl_secs,
                             &worker_commands,
+                            None,
                         );
                     }
                     RuntimeCommand::SendAgentSessionInput { input } => {
@@ -2330,9 +2817,18 @@ fn run_supervised_project_mutation(
         }
         Ok(SupervisorProjectMutationPreparation::Pending(prompt)) => {
             let request_id = fresh_id("approval");
-            let mut approval =
-                approval_request_view(&request_id, &prompt, owner.clone(), approval_ttl_secs);
+            let mut approval = approval_request_view(
+                &request_id,
+                &prompt,
+                owner.clone(),
+                approval_ttl_secs,
+                false,
+                None,
+            );
             apply_operator_git_approval_shape(&mut approval, &command);
+            // The git shape decides the risk, so the standing offer is
+            // withdrawn after it rather than predicted before it.
+            withdraw_standing_scope_for_high_risk(&mut approval);
             let control = ModelRequestControl::new();
             if let Err(error) = acquire_active_job(
                 shared.active_control,
@@ -2376,6 +2872,8 @@ fn run_supervised_project_mutation(
                     expires_at: approval.expires_at,
                     permission_epoch,
                     allowed_scopes: approval.allowed_scopes.clone(),
+                    editable: approval.editable,
+                    tool_input: prompt.input.clone(),
                     target: PendingApprovalTarget::ProjectMutation {
                         owner_id: command_id,
                         command: Box::new(command),
@@ -2519,7 +3017,7 @@ fn run_supervised_context_retrieval(
             approval.owner = owner.clone();
             approval.audit_id = fresh_id("audit");
             approval.expires_at = now_timestamp().saturating_add(approval_ttl_secs);
-            approval.allowed_scopes = allowed_approval_scopes(&approval.owner, &[]);
+            approval.allowed_scopes = allowed_approval_scopes(&approval.owner, &[], false);
             let control = ModelRequestControl::new();
             if let Err(err) = acquire_active_job(
                 shared.active_control,
@@ -2561,6 +3059,8 @@ fn run_supervised_context_retrieval(
                     expires_at: approval.expires_at,
                     permission_epoch,
                     allowed_scopes: approval.allowed_scopes.clone(),
+                    editable: approval.editable,
+                    tool_input: approval_input_for_pending(&approval),
                     target: PendingApprovalTarget::ContextRetrieval {
                         owner_id: command_id,
                         job: Box::new(job),
@@ -2891,6 +3391,10 @@ fn approval_decision_is_allowed_by_request(
 ) -> bool {
     match decision {
         ApprovalDecision::Deny => true,
+        // An `Edit` is answerable only where the request said so, which is
+        // the same rule the scopes follow: a client must not invent a
+        // decision the prompt never offered.
+        ApprovalDecision::Edit { .. } => pending.editable,
         ApprovalDecision::Allow { scope } => pending
             .allowed_scopes
             .iter()
@@ -3103,23 +3607,31 @@ fn run_supervised_agent_session(
     permission_control: &Arc<Mutex<PermissionControlState>>,
     approval_ttl_secs: u64,
     worker_commands: &Sender<SupervisorMessage>,
+
+    // `Some` only on the starter-Lane path, which already ran the checks
+    // below, minted this id, and reserved its Lane binding so the receipt
+    // could name it. Re-running them here would find that reservation and
+    // refuse the session it describes.
+    reserved_session_id: Option<String>,
 ) {
-    match lane_agent_session_binding(event_bus, &owner) {
-        Ok(Some(binding)) => {
-            emit_event(
-                event_bus,
-                owner,
-                RuntimeEventKind::CommandRejected {
-                    command_id,
-                    reason: lane_agent_session_binding_rejection(&binding),
-                },
-            );
-            return;
-        }
-        Ok(None) => {}
-        Err(error) => {
-            emit_error(event_bus, owner, error);
-            return;
+    if reserved_session_id.is_none() {
+        match lane_agent_session_binding(event_bus, &owner) {
+            Ok(Some(binding)) => {
+                emit_event(
+                    event_bus,
+                    owner,
+                    RuntimeEventKind::CommandRejected {
+                        command_id,
+                        reason: lane_agent_session_binding_rejection(&binding),
+                    },
+                );
+                return;
+            }
+            Ok(None) => {}
+            Err(error) => {
+                emit_error(event_bus, owner, error);
+                return;
+            }
         }
     }
     if permission_control
@@ -3147,18 +3659,21 @@ fn run_supervised_agent_session(
         );
         return;
     }
-    let session_id = fresh_id("agent-session");
+    let already_reserved = reserved_session_id.is_some();
+    let session_id = reserved_session_id.unwrap_or_else(|| fresh_id("agent-session"));
     let session_owner = RuntimeOwner {
         lane_id: Some(request.lane_id.clone()),
         session_id: Some(session_id.clone()),
         ..owner
     };
-    if let Err(reason) = reserve_lane_agent_session_binding(
-        event_bus,
-        &request.lane_id,
-        &request.agent_id,
-        &session_id,
-    ) {
+    if !already_reserved
+        && let Err(reason) = reserve_lane_agent_session_binding(
+            event_bus,
+            &request.lane_id,
+            &request.agent_id,
+            &session_id,
+        )
+    {
         emit_event(
             event_bus,
             session_owner,
@@ -3268,6 +3783,7 @@ fn supervised_agent_session_approver(
     let approval_pending = Arc::clone(pending_approvals);
     let approval_timers = Arc::clone(approval_timers);
     let approval_permission = Arc::clone(permission_control);
+    let mut previous_request_id: Option<String> = None;
     Box::new(move |prompt: PermissionPrompt| {
         let permission_epoch = approval_permission
             .lock()
@@ -3275,8 +3791,23 @@ fn supervised_agent_session_approver(
             .unwrap_or(u64::MAX);
         let request_id = fresh_id("approval");
         let (approval_sender, approval_receiver) = mpsc::channel();
-        let approval =
-            approval_request_view(&request_id, &prompt, owner.clone(), approval_ttl_secs);
+        // The request a revision replaces is always the one this approver
+        // published immediately before it: `resolve_permission` re-prompts in
+        // place, so the previous id is the correct predecessor rather than an
+        // unrelated earlier prompt.
+        let revised_from = prompt
+            .is_revision
+            .then(|| previous_request_id.clone())
+            .flatten();
+        previous_request_id = Some(request_id.clone());
+        let approval = approval_request_view(
+            &request_id,
+            &prompt,
+            owner.clone(),
+            approval_ttl_secs,
+            true,
+            revised_from,
+        );
         let _ = mark_active_pending(&approval_active, &session_id, request_id.clone());
         let _ = mark_typed_agent_session_status(&approval_cwd, &session_id, "waiting_approval");
         insert_pending_approval(
@@ -3289,6 +3820,8 @@ fn supervised_agent_session_approver(
                 expires_at: approval.expires_at,
                 permission_epoch,
                 allowed_scopes: approval.allowed_scopes.clone(),
+                editable: approval.editable,
+                tool_input: prompt.input.clone(),
                 target: PendingApprovalTarget::Channel {
                     owner_id: session_id.clone(),
                     sender: approval_sender,
@@ -4337,6 +4870,7 @@ fn run_supervised_agent_task(
         },
     );
 
+    let mut previous_request_id: Option<String> = None;
     let mut approver = |prompt: PermissionPrompt| {
         let permission_epoch = permission_control
             .lock()
@@ -4344,8 +4878,23 @@ fn run_supervised_agent_task(
             .unwrap_or(u64::MAX);
         let request_id = fresh_id("approval");
         let (approval_sender, approval_receiver) = mpsc::channel();
-        let approval =
-            approval_request_view(&request_id, &prompt, owner.clone(), approval_ttl_secs);
+        // The request a revision replaces is always the one this approver
+        // published immediately before it: `resolve_permission` re-prompts in
+        // place, so the previous id is the correct predecessor rather than an
+        // unrelated earlier prompt.
+        let revised_from = prompt
+            .is_revision
+            .then(|| previous_request_id.clone())
+            .flatten();
+        previous_request_id = Some(request_id.clone());
+        let approval = approval_request_view(
+            &request_id,
+            &prompt,
+            owner.clone(),
+            approval_ttl_secs,
+            true,
+            revised_from,
+        );
         let _ = mark_active_pending(active_control, &command_id, request_id.clone());
         insert_pending_approval(
             pending_approvals,
@@ -4357,6 +4906,8 @@ fn run_supervised_agent_task(
                 expires_at: approval.expires_at,
                 permission_epoch,
                 allowed_scopes: approval.allowed_scopes.clone(),
+                editable: approval.editable,
+                tool_input: prompt.input.clone(),
                 target: PendingApprovalTarget::Channel {
                     owner_id: command_id.clone(),
                     sender: approval_sender,
@@ -4617,6 +5168,7 @@ fn run_one_supervised_native_turn(
     // emission order: the bus has already delivered these.
     let turn_batch: std::cell::RefCell<Vec<RuntimeEvent>> = std::cell::RefCell::new(Vec::new());
 
+    let mut previous_request_id: Option<String> = None;
     let mut approver = |prompt: PermissionPrompt| {
         let permission_epoch = permission_control
             .lock()
@@ -4624,8 +5176,23 @@ fn run_one_supervised_native_turn(
             .unwrap_or(u64::MAX);
         let request_id = fresh_id("approval");
         let (approval_sender, approval_receiver) = mpsc::channel();
-        let approval =
-            approval_request_view(&request_id, &prompt, owner.clone(), approval_ttl_secs);
+        // The request a revision replaces is always the one this approver
+        // published immediately before it: `resolve_permission` re-prompts in
+        // place, so the previous id is the correct predecessor rather than an
+        // unrelated earlier prompt.
+        let revised_from = prompt
+            .is_revision
+            .then(|| previous_request_id.clone())
+            .flatten();
+        previous_request_id = Some(request_id.clone());
+        let approval = approval_request_view(
+            &request_id,
+            &prompt,
+            owner.clone(),
+            approval_ttl_secs,
+            true,
+            revised_from,
+        );
         let _ = mark_active_pending(active_control, &command_id, request_id.clone());
         insert_pending_approval(
             pending_approvals,
@@ -4637,6 +5204,8 @@ fn run_one_supervised_native_turn(
                 expires_at: approval.expires_at,
                 permission_epoch,
                 allowed_scopes: approval.allowed_scopes.clone(),
+                editable: approval.editable,
+                tool_input: prompt.input.clone(),
                 target: PendingApprovalTarget::Channel {
                     owner_id: command_id.clone(),
                     sender: approval_sender,
@@ -4740,13 +5309,30 @@ fn run_one_supervised_native_turn(
     outcome
 }
 
+/// Builds the request a client sees.
+///
+/// `interactive` is true for the approvals that reach
+/// `PermissionEngine::apply_approval` — the native turn, the agent task, and
+/// the agent session gates. Only those can install the live rule an `Always`
+/// grant needs or re-decide an `Edit`, so only those offer the two decisions
+/// `runtime.approval_scopes` adds; a project-mutation or context-retrieval
+/// approval that advertised them would publish an answer Core cannot honor.
+///
+/// `revised_from` names the request this one replaces when the operator's
+/// revision still needs a decision.
 fn approval_request_view(
     request_id: &str,
     prompt: &PermissionPrompt,
     owner: RuntimeOwner,
     approval_ttl_secs: u64,
+    interactive: bool,
+    revised_from: Option<String>,
 ) -> ApprovalRequestView {
-    let allowed_scopes = allowed_approval_scopes(&owner, &prompt.candidate_paths);
+    // The standing scope is never offered for a high-risk request: a rule
+    // that silences the most consequential prompts across every workspace is
+    // not a convenience an operator should be able to grant in one keystroke.
+    let editable = interactive && viden_permissions::tool_input_is_editable(&prompt.tool_name);
+    let allowed_scopes = allowed_approval_scopes(&owner, &prompt.candidate_paths, interactive);
     ApprovalRequestView {
         id: request_id.to_string(),
         tool_name: prompt.tool_name.clone(),
@@ -4769,6 +5355,21 @@ fn approval_request_view(
         default_action: ApprovalDefaultAction::Deny,
         audit_id: fresh_id("audit"),
         decision_context: prompt.decision_context.clone(),
+        revised_from,
+        editable,
+    }
+}
+
+/// Drops `ApprovalScope::Always` from a request whose risk turned out to be
+/// `High`.
+///
+/// The risk of a git action is decided after the generic view is built, so the
+/// standing offer is withdrawn here rather than predicted there.
+fn withdraw_standing_scope_for_high_risk(approval: &mut ApprovalRequestView) {
+    if approval.risk == ApprovalRisk::High || approval.risk == ApprovalRisk::Critical {
+        approval
+            .allowed_scopes
+            .retain(|scope| !matches!(scope, ApprovalScope::Always));
     }
 }
 
@@ -4814,7 +5415,11 @@ fn source_target_display(target: &viden_types::SourceTarget) -> String {
     }
 }
 
-fn allowed_approval_scopes(owner: &RuntimeOwner, candidate_paths: &[String]) -> Vec<ApprovalScope> {
+fn allowed_approval_scopes(
+    owner: &RuntimeOwner,
+    candidate_paths: &[String],
+    standing_offered: bool,
+) -> Vec<ApprovalScope> {
     let mut scopes = vec![ApprovalScope::Once];
     if let Some(session_id) = owner.session_id.clone()
         && !session_id.is_empty()
@@ -4826,7 +5431,21 @@ fn allowed_approval_scopes(owner: &RuntimeOwner, candidate_paths: &[String]) -> 
             paths: candidate_paths.to_vec(),
         });
     }
+    // Last, so the list reads from narrowest to widest. A client sending
+    // `Always` when it is absent is rejected `scope_not_offered`.
+    if standing_offered {
+        scopes.push(ApprovalScope::Always);
+    }
     scopes
+}
+
+/// The tool input a context-retrieval approval is about.
+///
+/// That path builds its request from a prepared view rather than a
+/// `PermissionPrompt`, and it never offers `Always` or `Edit`, so the empty
+/// map is the honest answer rather than a reconstruction of the preview text.
+fn approval_input_for_pending(_approval: &ApprovalRequestView) -> ToolInput {
+    ToolInput::new()
 }
 
 fn approval_resolved_event(
@@ -5110,6 +5729,7 @@ mod contract_freeze_tests {
             worktree_path: "workspace/.worktrees/lane-host-fixture".to_string(),
             base_revision: "cd".repeat(20),
             diagnostics: Vec::new(),
+            agent: None,
         };
         let resolved = ResolvedUiPreferences {
             locale: viden_types::LocaleId::ZhCn,
@@ -5161,6 +5781,7 @@ mod contract_freeze_tests {
                     worktree_path: preview.worktree_path.clone(),
                     base_revision: preview.base_revision.clone(),
                     owner: owner.clone(),
+                    session: None,
                 },
             },
             RuntimeEventKind::StarterLanePreviewInvalidated {

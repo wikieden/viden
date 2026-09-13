@@ -631,13 +631,47 @@ impl SessionEngine {
 
         match decision {
             PermissionDecision::Allow(allow) => {
+                // The operator revised the input and the gate decided the
+                // revision (`runtime.approval_scopes`, GUI-CORE-019). What
+                // runs, what is archived, and what the tool-call view shows
+                // are all the revised bytes: running the original after
+                // approving a narrower one would execute a call no one
+                // approved.
+                let (call, encoded_input) = match allow
+                    .updated_input
+                    .as_ref()
+                    .filter(|revised| **revised != call.input)
+                {
+                    Some(revised) => {
+                        let revised_call = ToolCall {
+                            id: call.id.clone(),
+                            name: call.name.clone(),
+                            input: revised.clone(),
+                        };
+                        let encoded = viden_types::encode_tool_input(revised);
+                        (revised_call, encoded)
+                    }
+                    None => (call, encoded_input),
+                };
                 progress.carry(self.store_entry(TranscriptEntry::Permission {
                     entry: PermissionLogEntry {
                         timestamp: now_timestamp(),
                         tool_name: call.name.clone(),
                         decision: "allow".to_string(),
                         reason: format!("{:?}", allow.decision_reason),
-                        message: allow.accept_feedback.clone(),
+                        message: if allow.user_modified {
+                            Some(
+                                allow
+                                    .accept_feedback
+                                    .clone()
+                                    .map(|feedback| {
+                                        format!("{feedback} (input revised by operator)")
+                                    })
+                                    .unwrap_or_else(|| "input revised by operator".to_string()),
+                            )
+                        } else {
+                            allow.accept_feedback.clone()
+                        },
                     },
                 }))?;
                 // Frontend-active lifetime starts only after the permission

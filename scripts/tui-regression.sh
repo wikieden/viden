@@ -162,13 +162,15 @@ if release["supported_schema_versions"] != [1]:
 # runtime.turn_lifecycle (section 3); 28 adds C7's
 # runtime.durable_work_evidence (section 4) and C9's
 # runtime.workspace_file_reads (section 6), reconciled at integration; 29 adds
-# C8's runtime.transcript_rows (section 5), which completed the 0.3.4
-# increment. The 0.3.5 increment moves it again
-# (docs/release-0.3.5-contract-design.md): 30 adds C13's runtime.plan_documents,
-# 31 adds C14's runtime.agent_session_control, and C15's runtime.approval_scopes
-# and runtime.starter_lane_agent take it to 33.
-if len(base_capabilities) != 15 or len(extension_capabilities) != 31:
-    raise SystemExit("TUI certification capability counts are not base 15 + extension 31")
+# C8's runtime.transcript_rows (section 5), the last Core batch of the 0.3.4
+# increment. 33 is the 0.3.5 increment (docs/release-0.3.5-contract-design.md):
+# C13's runtime.plan_documents (section 1) is 30 and C14's
+# runtime.agent_session_control (section 2) is 31 — both land beside C15 on the
+# integration branch — and C15 adds runtime.approval_scopes (section 3) and
+# runtime.starter_lane_agent (section 4) as 32 and 33, which is the milestone's
+# final count. The dispatcher reconciles the two increments in between.
+if len(base_capabilities) != 15 or len(extension_capabilities) != 33:
+    raise SystemExit("TUI certification capability counts are not base 15 + extension 33")
 if set(base_capabilities) & set(extension_capabilities):
     raise SystemExit("TUI certification base and extension capabilities overlap")
 

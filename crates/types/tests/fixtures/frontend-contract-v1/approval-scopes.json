@@ -1,0 +1,1016 @@
+{
+  "fixture_id": "approval-scopes",
+  "schema_version": 1,
+  "required_capabilities": [
+    "runtime.approval_scopes",
+    "runtime.approvals",
+    "runtime.commands",
+    "runtime.events",
+    "runtime.snapshot"
+  ],
+  "initial_snapshot": {
+    "cwd": "workspace/viden",
+    "provider_family": "deepseek",
+    "model_label": "deepseek-v4-flash",
+    "work_mode": "build",
+    "permission_mode": "default",
+    "permission_level": "ask",
+    "config_summary": "{\"design_entry\":{\"d11\":\"onboarding subordinate\",\"gui\":\"GUI index -> component library -> D1 desktop cockpit\",\"hierarchy\":[\"docs/viden-design/Viden/index.html\",\"client design index\",\"component library\",\"TUI unified prototype or GUI D1 desktop cockpit\"],\"tui\":\"TUI index -> component library -> unified prototype\"},\"ui\":{\"density\":[\"compact\",\"regular\",\"comfy\"],\"effective\":{\"density\":\"regular\",\"locale\":\"zh-CN\",\"mode\":\"dark\",\"motion\":\"reduced\",\"skin\":\"aurora\"},\"locales\":[\"en\",\"zh-CN\"],\"motion\":[\"system\",\"reduced\",\"full\"],\"skin_mode_pairs\":[[\"aurora\",\"dark\"],[\"aurora\",\"light\"],[\"ice\",\"dark\"],[\"ice\",\"light\"],[\"mono\",\"dark\"],[\"mono\",\"light\"],[\"amber\",\"dark\"],[\"phosphor\",\"dark\"]]}}",
+    "loaded_config_files": [
+      "config/viden.toml"
+    ],
+    "startup_overrides": [
+      "--provider=deepseek"
+    ],
+    "ui_preferences": {
+      "locale": "zh-CN",
+      "skin": "aurora",
+      "mode": "dark",
+      "density": "regular",
+      "motion": "reduced",
+      "diagnostics": []
+    }
+  },
+  "events": [
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_approval_scopes",
+        "session_id": "session_approval_scopes",
+        "task_id": "task_approval_scopes",
+        "turn_id": "turn_approval_scopes"
+      },
+      "cursor": {
+        "stream_id": "fixture:approval-scopes",
+        "sequence": 1
+      },
+      "event": {
+        "sequence": 1,
+        "timestamp": 1700004001,
+        "kind": {
+          "type": "approval_requested",
+          "payload": {
+            "approval": {
+              "id": "approval_scopes_grant",
+              "tool_name": "shell",
+              "title": "Approve shell",
+              "message": "Approve shell?",
+              "input_preview": "  command: cargo fmt --all -- --check",
+              "is_mutating": true,
+              "reason": "Approve shell?",
+              "owner": {
+                "workspace_id": "workspace_contract_v1",
+                "project_id": "project_viden",
+                "lane_id": "lane_approval_scopes",
+                "session_id": "session_approval_scopes",
+                "task_id": "task_approval_scopes",
+                "turn_id": "turn_approval_scopes"
+              },
+              "risk": "medium",
+              "target": {
+                "kind": "shell",
+                "display": "  command: cargo fmt --all -- --check"
+              },
+              "allowed_scopes": [
+                "once",
+                {
+                  "session": {
+                    "session_id": "session_approval_scopes"
+                  }
+                },
+                "always"
+              ],
+              "policy_reason_key": "permission.requires_approval",
+              "policy_reason_args": {},
+              "expires_at": 1700004300,
+              "default_action": "deny",
+              "audit_id": "audit_approval_scopes_always",
+              "editable": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_approval_scopes",
+        "session_id": "session_approval_scopes",
+        "task_id": "task_approval_scopes",
+        "turn_id": "turn_approval_scopes"
+      },
+      "cursor": {
+        "stream_id": "fixture:approval-scopes",
+        "sequence": 2
+      },
+      "event": {
+        "sequence": 2,
+        "timestamp": 1700004002,
+        "kind": {
+          "type": "command_accepted",
+          "payload": {
+            "command_id": "cmd_approval_scopes_always",
+            "command": {
+              "type": "respond_to_approval",
+              "request_id": "approval_scopes_grant",
+              "response": {
+                "decision": {
+                  "allow": {
+                    "scope": "always"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_approval_scopes",
+        "session_id": "session_approval_scopes",
+        "task_id": "task_approval_scopes",
+        "turn_id": "turn_approval_scopes"
+      },
+      "cursor": {
+        "stream_id": "fixture:approval-scopes",
+        "sequence": 3
+      },
+      "event": {
+        "sequence": 3,
+        "timestamp": 1700004003,
+        "kind": {
+          "type": "standing_approval_granted",
+          "payload": {
+            "rule": {
+              "rule_id": "rule_approval_scopes",
+              "tool_name": "shell",
+              "rule_content": "command=cargo fmt --all -- --check",
+              "granted_at": 1700004002,
+              "granted_in_workspace": "workspace_contract_v1",
+              "audit_id": "audit_approval_scopes_always"
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_approval_scopes",
+        "session_id": "session_approval_scopes",
+        "task_id": "task_approval_scopes",
+        "turn_id": "turn_approval_scopes"
+      },
+      "cursor": {
+        "stream_id": "fixture:approval-scopes",
+        "sequence": 4
+      },
+      "event": {
+        "sequence": 4,
+        "timestamp": 1700004004,
+        "kind": {
+          "type": "approval_resolved",
+          "payload": {
+            "request_id": "approval_scopes_grant",
+            "decision": {
+              "allow": {
+                "scope": "always"
+              }
+            },
+            "owner": {
+              "workspace_id": "workspace_contract_v1",
+              "project_id": "project_viden",
+              "lane_id": "lane_approval_scopes",
+              "session_id": "session_approval_scopes",
+              "task_id": "task_approval_scopes",
+              "turn_id": "turn_approval_scopes"
+            },
+            "audit_id": "audit_approval_scopes_always"
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_approval_scopes",
+        "session_id": "session_approval_scopes",
+        "task_id": "task_approval_scopes",
+        "turn_id": "turn_approval_scopes"
+      },
+      "cursor": {
+        "stream_id": "fixture:approval-scopes",
+        "sequence": 5
+      },
+      "event": {
+        "sequence": 5,
+        "timestamp": 1700004005,
+        "kind": {
+          "type": "tool_call_started",
+          "payload": {
+            "tool_call_id": "tool_scopes_first",
+            "name": "shell",
+            "input_preview": "command=cargo fmt --all -- --check",
+            "owner": {
+              "workspace_id": "workspace_contract_v1",
+              "project_id": "project_viden",
+              "lane_id": "lane_approval_scopes",
+              "session_id": "session_approval_scopes",
+              "task_id": "task_approval_scopes",
+              "turn_id": "turn_approval_scopes"
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_approval_scopes",
+        "session_id": "session_approval_scopes",
+        "task_id": "task_approval_scopes",
+        "turn_id": "turn_approval_scopes"
+      },
+      "cursor": {
+        "stream_id": "fixture:approval-scopes",
+        "sequence": 6
+      },
+      "event": {
+        "sequence": 6,
+        "timestamp": 1700004006,
+        "kind": {
+          "type": "tool_call_finished",
+          "payload": {
+            "tool_call_id": "tool_scopes_first",
+            "name": "shell",
+            "success": true,
+            "exit_code": 0,
+            "evidence": null
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_approval_scopes",
+        "session_id": "session_approval_scopes",
+        "task_id": "task_approval_scopes",
+        "turn_id": "turn_approval_scopes"
+      },
+      "cursor": {
+        "stream_id": "fixture:approval-scopes",
+        "sequence": 7
+      },
+      "event": {
+        "sequence": 7,
+        "timestamp": 1700004007,
+        "kind": {
+          "type": "tool_call_started",
+          "payload": {
+            "tool_call_id": "tool_scopes_second_session",
+            "name": "shell",
+            "input_preview": "command=cargo fmt --all -- --check",
+            "owner": {
+              "workspace_id": "workspace_contract_v1",
+              "project_id": "project_viden",
+              "lane_id": "lane_approval_scopes",
+              "session_id": "session_approval_scopes_two",
+              "task_id": "task_approval_scopes",
+              "turn_id": "turn_approval_scopes_two"
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_approval_scopes",
+        "session_id": "session_approval_scopes",
+        "task_id": "task_approval_scopes",
+        "turn_id": "turn_approval_scopes"
+      },
+      "cursor": {
+        "stream_id": "fixture:approval-scopes",
+        "sequence": 8
+      },
+      "event": {
+        "sequence": 8,
+        "timestamp": 1700004008,
+        "kind": {
+          "type": "tool_call_finished",
+          "payload": {
+            "tool_call_id": "tool_scopes_second_session",
+            "name": "shell",
+            "success": true,
+            "exit_code": 0,
+            "evidence": null
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_approval_scopes",
+        "session_id": "session_approval_scopes",
+        "task_id": "task_approval_scopes",
+        "turn_id": "turn_approval_scopes"
+      },
+      "cursor": {
+        "stream_id": "fixture:approval-scopes",
+        "sequence": 9
+      },
+      "event": {
+        "sequence": 9,
+        "timestamp": 1700004009,
+        "kind": {
+          "type": "command_accepted",
+          "payload": {
+            "command_id": "cmd_approval_scopes_revoke",
+            "command": {
+              "type": "revoke_standing_approval",
+              "rule_id": "rule_approval_scopes"
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_approval_scopes",
+        "session_id": "session_approval_scopes",
+        "task_id": "task_approval_scopes",
+        "turn_id": "turn_approval_scopes"
+      },
+      "cursor": {
+        "stream_id": "fixture:approval-scopes",
+        "sequence": 10
+      },
+      "event": {
+        "sequence": 10,
+        "timestamp": 1700004010,
+        "kind": {
+          "type": "standing_approval_revoked",
+          "payload": {
+            "rule_id": "rule_approval_scopes",
+            "audit_id": "audit_approval_scopes_revoke",
+            "owner": {
+              "workspace_id": "workspace_contract_v1",
+              "project_id": "project_viden",
+              "lane_id": "lane_approval_scopes",
+              "session_id": "session_approval_scopes_two",
+              "task_id": "task_approval_scopes",
+              "turn_id": "turn_approval_scopes_two"
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_approval_scopes",
+        "session_id": "session_approval_scopes",
+        "task_id": "task_approval_scopes",
+        "turn_id": "turn_approval_scopes"
+      },
+      "cursor": {
+        "stream_id": "fixture:approval-scopes",
+        "sequence": 11
+      },
+      "event": {
+        "sequence": 11,
+        "timestamp": 1700004011,
+        "kind": {
+          "type": "approval_requested",
+          "payload": {
+            "approval": {
+              "id": "approval_scopes_after_revoke",
+              "tool_name": "shell",
+              "title": "Approve shell",
+              "message": "Approve shell?",
+              "input_preview": "  command: cargo fmt --all -- --check",
+              "is_mutating": true,
+              "reason": "Approve shell?",
+              "owner": {
+                "workspace_id": "workspace_contract_v1",
+                "project_id": "project_viden",
+                "lane_id": "lane_approval_scopes",
+                "session_id": "session_approval_scopes",
+                "task_id": "task_approval_scopes",
+                "turn_id": "turn_approval_scopes"
+              },
+              "risk": "medium",
+              "target": {
+                "kind": "shell",
+                "display": "  command: cargo fmt --all -- --check"
+              },
+              "allowed_scopes": [
+                "once",
+                {
+                  "session": {
+                    "session_id": "session_approval_scopes"
+                  }
+                },
+                "always"
+              ],
+              "policy_reason_key": "permission.requires_approval",
+              "policy_reason_args": {},
+              "expires_at": 1700004300,
+              "default_action": "deny",
+              "audit_id": "audit_approval_scopes_after_revoke",
+              "editable": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_approval_scopes",
+        "session_id": "session_approval_scopes",
+        "task_id": "task_approval_scopes",
+        "turn_id": "turn_approval_scopes"
+      },
+      "cursor": {
+        "stream_id": "fixture:approval-scopes",
+        "sequence": 12
+      },
+      "event": {
+        "sequence": 12,
+        "timestamp": 1700004012,
+        "kind": {
+          "type": "approval_resolved",
+          "payload": {
+            "request_id": "approval_scopes_after_revoke",
+            "decision": "deny",
+            "owner": {
+              "workspace_id": "workspace_contract_v1",
+              "project_id": "project_viden",
+              "lane_id": "lane_approval_scopes",
+              "session_id": "session_approval_scopes",
+              "task_id": "task_approval_scopes",
+              "turn_id": "turn_approval_scopes"
+            },
+            "audit_id": "audit_approval_scopes_after_revoke"
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_approval_scopes",
+        "session_id": "session_approval_scopes",
+        "task_id": "task_approval_scopes",
+        "turn_id": "turn_approval_scopes"
+      },
+      "cursor": {
+        "stream_id": "fixture:approval-scopes",
+        "sequence": 13
+      },
+      "event": {
+        "sequence": 13,
+        "timestamp": 1700004013,
+        "kind": {
+          "type": "approval_requested",
+          "payload": {
+            "approval": {
+              "id": "approval_scopes_wide",
+              "tool_name": "shell",
+              "title": "Approve shell",
+              "message": "Approve shell?",
+              "input_preview": "  command: rm -rf target",
+              "is_mutating": true,
+              "reason": "Approve shell?",
+              "owner": {
+                "workspace_id": "workspace_contract_v1",
+                "project_id": "project_viden",
+                "lane_id": "lane_approval_scopes",
+                "session_id": "session_approval_scopes",
+                "task_id": "task_approval_scopes",
+                "turn_id": "turn_approval_scopes"
+              },
+              "risk": "medium",
+              "target": {
+                "kind": "shell",
+                "display": "  command: rm -rf target"
+              },
+              "allowed_scopes": [
+                "once",
+                {
+                  "session": {
+                    "session_id": "session_approval_scopes"
+                  }
+                },
+                "always"
+              ],
+              "policy_reason_key": "permission.requires_approval",
+              "policy_reason_args": {},
+              "expires_at": 1700004300,
+              "default_action": "deny",
+              "audit_id": "audit_approval_scopes_wide",
+              "editable": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_approval_scopes",
+        "session_id": "session_approval_scopes",
+        "task_id": "task_approval_scopes",
+        "turn_id": "turn_approval_scopes"
+      },
+      "cursor": {
+        "stream_id": "fixture:approval-scopes",
+        "sequence": 14
+      },
+      "event": {
+        "sequence": 14,
+        "timestamp": 1700004014,
+        "kind": {
+          "type": "approval_resolved",
+          "payload": {
+            "request_id": "approval_scopes_wide",
+            "decision": {
+              "edit": {
+                "revised_input": {
+                  "command": "rm -rf target/debug"
+                }
+              }
+            },
+            "owner": {
+              "workspace_id": "workspace_contract_v1",
+              "project_id": "project_viden",
+              "lane_id": "lane_approval_scopes",
+              "session_id": "session_approval_scopes",
+              "task_id": "task_approval_scopes",
+              "turn_id": "turn_approval_scopes"
+            },
+            "audit_id": "audit_approval_scopes_wide"
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_approval_scopes",
+        "session_id": "session_approval_scopes",
+        "task_id": "task_approval_scopes",
+        "turn_id": "turn_approval_scopes"
+      },
+      "cursor": {
+        "stream_id": "fixture:approval-scopes",
+        "sequence": 15
+      },
+      "event": {
+        "sequence": 15,
+        "timestamp": 1700004015,
+        "kind": {
+          "type": "approval_requested",
+          "payload": {
+            "approval": {
+              "id": "approval_scopes_revised",
+              "tool_name": "shell",
+              "title": "Approve shell",
+              "message": "Approve shell?",
+              "input_preview": "  command: rm -rf target/debug",
+              "is_mutating": true,
+              "reason": "Approve shell?",
+              "owner": {
+                "workspace_id": "workspace_contract_v1",
+                "project_id": "project_viden",
+                "lane_id": "lane_approval_scopes",
+                "session_id": "session_approval_scopes",
+                "task_id": "task_approval_scopes",
+                "turn_id": "turn_approval_scopes"
+              },
+              "risk": "medium",
+              "target": {
+                "kind": "shell",
+                "display": "  command: rm -rf target/debug"
+              },
+              "allowed_scopes": [
+                "once",
+                {
+                  "session": {
+                    "session_id": "session_approval_scopes"
+                  }
+                },
+                "always"
+              ],
+              "policy_reason_key": "permission.requires_approval",
+              "policy_reason_args": {},
+              "expires_at": 1700004300,
+              "default_action": "deny",
+              "audit_id": "audit_approval_scopes_revised",
+              "revised_from": "approval_scopes_wide",
+              "editable": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_approval_scopes",
+        "session_id": "session_approval_scopes",
+        "task_id": "task_approval_scopes",
+        "turn_id": "turn_approval_scopes"
+      },
+      "cursor": {
+        "stream_id": "fixture:approval-scopes",
+        "sequence": 16
+      },
+      "event": {
+        "sequence": 16,
+        "timestamp": 1700004016,
+        "kind": {
+          "type": "approval_resolved",
+          "payload": {
+            "request_id": "approval_scopes_revised",
+            "decision": {
+              "allow": {
+                "scope": "once"
+              }
+            },
+            "owner": {
+              "workspace_id": "workspace_contract_v1",
+              "project_id": "project_viden",
+              "lane_id": "lane_approval_scopes",
+              "session_id": "session_approval_scopes",
+              "task_id": "task_approval_scopes",
+              "turn_id": "turn_approval_scopes"
+            },
+            "audit_id": "audit_approval_scopes_revised"
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_approval_scopes",
+        "session_id": "session_approval_scopes",
+        "task_id": "task_approval_scopes",
+        "turn_id": "turn_approval_scopes"
+      },
+      "cursor": {
+        "stream_id": "fixture:approval-scopes",
+        "sequence": 17
+      },
+      "event": {
+        "sequence": 17,
+        "timestamp": 1700004017,
+        "kind": {
+          "type": "tool_call_started",
+          "payload": {
+            "tool_call_id": "tool_scopes_revised",
+            "name": "shell",
+            "input_preview": "command=rm -rf target/debug",
+            "owner": {
+              "workspace_id": "workspace_contract_v1",
+              "project_id": "project_viden",
+              "lane_id": "lane_approval_scopes",
+              "session_id": "session_approval_scopes",
+              "task_id": "task_approval_scopes",
+              "turn_id": "turn_approval_scopes"
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_approval_scopes",
+        "session_id": "session_approval_scopes",
+        "task_id": "task_approval_scopes",
+        "turn_id": "turn_approval_scopes"
+      },
+      "cursor": {
+        "stream_id": "fixture:approval-scopes",
+        "sequence": 18
+      },
+      "event": {
+        "sequence": 18,
+        "timestamp": 1700004018,
+        "kind": {
+          "type": "tool_call_finished",
+          "payload": {
+            "tool_call_id": "tool_scopes_revised",
+            "name": "shell",
+            "success": true,
+            "exit_code": 0,
+            "evidence": null
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_approval_scopes",
+        "session_id": "session_approval_scopes",
+        "task_id": "task_approval_scopes",
+        "turn_id": "turn_approval_scopes"
+      },
+      "cursor": {
+        "stream_id": "fixture:approval-scopes",
+        "sequence": 19
+      },
+      "event": {
+        "sequence": 19,
+        "timestamp": 1700004019,
+        "kind": {
+          "type": "approval_requested",
+          "payload": {
+            "approval": {
+              "id": "approval_scopes_high",
+              "tool_name": "git_push",
+              "title": "Approve git_push",
+              "message": "git_push requires approval",
+              "input_preview": "  remote: origin",
+              "is_mutating": true,
+              "reason": "git_push requires approval",
+              "owner": {
+                "workspace_id": "workspace_contract_v1",
+                "project_id": "project_viden",
+                "lane_id": "lane_approval_scopes",
+                "session_id": "session_approval_scopes",
+                "task_id": "task_approval_scopes",
+                "turn_id": "turn_approval_scopes"
+              },
+              "risk": "high",
+              "target": {
+                "kind": "git",
+                "display": "git_push (workspace)",
+                "canonical_ref": "workspace"
+              },
+              "allowed_scopes": [
+                "once"
+              ],
+              "policy_reason_key": "permission.requires_approval",
+              "policy_reason_args": {},
+              "expires_at": 1700004300,
+              "default_action": "deny",
+              "audit_id": "audit_approval_scopes_high"
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_approval_scopes",
+        "session_id": "session_approval_scopes",
+        "task_id": "task_approval_scopes",
+        "turn_id": "turn_approval_scopes"
+      },
+      "cursor": {
+        "stream_id": "fixture:approval-scopes",
+        "sequence": 20
+      },
+      "event": {
+        "sequence": 20,
+        "timestamp": 1700004020,
+        "kind": {
+          "type": "command_rejected",
+          "payload": {
+            "command_id": "cmd_approval_scopes_high_always",
+            "reason": "approval request `approval_scopes_high` scope_not_offered"
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_approval_scopes",
+        "session_id": "session_approval_scopes",
+        "task_id": "task_approval_scopes",
+        "turn_id": "turn_approval_scopes"
+      },
+      "cursor": {
+        "stream_id": "fixture:approval-scopes",
+        "sequence": 21
+      },
+      "event": {
+        "sequence": 21,
+        "timestamp": 1700004021,
+        "kind": {
+          "type": "approval_resolved",
+          "payload": {
+            "request_id": "approval_scopes_high",
+            "decision": "deny",
+            "owner": {
+              "workspace_id": "workspace_contract_v1",
+              "project_id": "project_viden",
+              "lane_id": "lane_approval_scopes",
+              "session_id": "session_approval_scopes",
+              "task_id": "task_approval_scopes",
+              "turn_id": "turn_approval_scopes"
+            },
+            "audit_id": "audit_approval_scopes_high"
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_approval_scopes",
+        "session_id": "session_approval_scopes",
+        "task_id": "task_approval_scopes",
+        "turn_id": "turn_approval_scopes"
+      },
+      "cursor": {
+        "stream_id": "fixture:approval-scopes",
+        "sequence": 22
+      },
+      "event": {
+        "sequence": 22,
+        "timestamp": 1700004022,
+        "kind": {
+          "type": "snapshot_updated",
+          "payload": {
+            "snapshot": {
+              "cwd": "workspace/viden",
+              "provider_family": "deepseek",
+              "model_label": "deepseek-v4-flash",
+              "work_mode": "plan",
+              "permission_mode": "default",
+              "permission_level": "ask",
+              "config_summary": "{\"design_entry\":{\"d11\":\"onboarding subordinate\",\"gui\":\"GUI index -> component library -> D1 desktop cockpit\",\"hierarchy\":[\"docs/viden-design/Viden/index.html\",\"client design index\",\"component library\",\"TUI unified prototype or GUI D1 desktop cockpit\"],\"tui\":\"TUI index -> component library -> unified prototype\"},\"ui\":{\"density\":[\"compact\",\"regular\",\"comfy\"],\"effective\":{\"density\":\"regular\",\"locale\":\"zh-CN\",\"mode\":\"dark\",\"motion\":\"reduced\",\"skin\":\"aurora\"},\"locales\":[\"en\",\"zh-CN\"],\"motion\":[\"system\",\"reduced\",\"full\"],\"skin_mode_pairs\":[[\"aurora\",\"dark\"],[\"aurora\",\"light\"],[\"ice\",\"dark\"],[\"ice\",\"light\"],[\"mono\",\"dark\"],[\"mono\",\"light\"],[\"amber\",\"dark\"],[\"phosphor\",\"dark\"]]}}",
+              "loaded_config_files": [
+                "config/viden.toml"
+              ],
+              "startup_overrides": [
+                "--provider=deepseek"
+              ],
+              "ui_preferences": {
+                "locale": "zh-CN",
+                "skin": "aurora",
+                "mode": "dark",
+                "density": "regular",
+                "motion": "reduced",
+                "diagnostics": []
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_approval_scopes",
+        "session_id": "session_approval_scopes",
+        "task_id": "task_approval_scopes",
+        "turn_id": "turn_approval_scopes"
+      },
+      "cursor": {
+        "stream_id": "fixture:approval-scopes",
+        "sequence": 23
+      },
+      "event": {
+        "sequence": 23,
+        "timestamp": 1700004023,
+        "kind": {
+          "type": "approval_requested",
+          "payload": {
+            "approval": {
+              "id": "approval_scopes_plan",
+              "tool_name": "shell",
+              "title": "Approve shell",
+              "message": "Approve shell?",
+              "input_preview": "  command: cargo build",
+              "is_mutating": true,
+              "reason": "Approve shell?",
+              "owner": {
+                "workspace_id": "workspace_contract_v1",
+                "project_id": "project_viden",
+                "lane_id": "lane_approval_scopes",
+                "session_id": "session_approval_scopes",
+                "task_id": "task_approval_scopes",
+                "turn_id": "turn_approval_scopes"
+              },
+              "risk": "medium",
+              "target": {
+                "kind": "shell",
+                "display": "  command: cargo build"
+              },
+              "allowed_scopes": [
+                "once"
+              ],
+              "policy_reason_key": "permission.requires_approval",
+              "policy_reason_args": {},
+              "expires_at": 1700004300,
+              "default_action": "deny",
+              "audit_id": "audit_approval_scopes_plan",
+              "editable": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_approval_scopes",
+        "session_id": "session_approval_scopes",
+        "task_id": "task_approval_scopes",
+        "turn_id": "turn_approval_scopes"
+      },
+      "cursor": {
+        "stream_id": "fixture:approval-scopes",
+        "sequence": 24
+      },
+      "event": {
+        "sequence": 24,
+        "timestamp": 1700004024,
+        "kind": {
+          "type": "approval_resolved",
+          "payload": {
+            "request_id": "approval_scopes_plan",
+            "decision": "deny",
+            "owner": {
+              "workspace_id": "workspace_contract_v1",
+              "project_id": "project_viden",
+              "lane_id": "lane_approval_scopes",
+              "session_id": "session_approval_scopes",
+              "task_id": "task_approval_scopes",
+              "turn_id": "turn_approval_scopes"
+            },
+            "audit_id": "audit_approval_scopes_plan"
+          }
+        }
+      }
+    }
+  ],
+  "expected_final_cursor": {
+    "stream_id": "fixture:approval-scopes",
+    "sequence": 24
+  },
+  "expected_view_sha256": "ff20cf15a8a8b857a4d3de9a677eff6bc6ad1bf2c57490709803917d770f453d"
+}

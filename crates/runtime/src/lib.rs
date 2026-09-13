@@ -793,6 +793,15 @@ impl SessionEngine {
         self.store.session_id()
     }
 
+    /// The Viden home this engine's durable state lives under.
+    ///
+    /// User-level rather than workspace-level: it is where standing approvals
+    /// and other facts that outlive one repository are kept
+    /// (`runtime.approval_scopes`, GUI-CORE-019).
+    pub fn home_dir(&self) -> &Path {
+        self.store.home_dir()
+    }
+
     pub fn cwd(&self) -> &Path {
         &self.cwd
     }
@@ -905,6 +914,25 @@ impl SessionEngine {
 
     pub fn permission_level(&self) -> PermissionLevel {
         self.runtime_snapshot.permission_level
+    }
+
+    /// Installs a standing `Always` approval in the live permission engine
+    /// (`runtime.approval_scopes`, GUI-CORE-019).
+    ///
+    /// Called at bootstrap for every rule the user-level settings file holds,
+    /// and by the revoke path's sibling below. The durable half of the grant
+    /// belongs to `viden-config`; this is only the engine that answers
+    /// `decide` without a prompt.
+    pub fn install_standing_approval(&self, tool_name: &str, rule_content: &str) {
+        self.permissions
+            .install_standing_allow_rule(tool_name, rule_content);
+    }
+
+    /// Removes a standing `Always` approval from the live permission engine.
+    /// Returns whether one was in force.
+    pub fn revoke_standing_approval(&self, tool_name: &str, rule_content: &str) -> bool {
+        self.permissions
+            .remove_standing_allow_rule(tool_name, rule_content)
     }
 
     pub fn set_work_mode(&mut self, mode: WorkMode) -> Result<(), String> {

@@ -567,7 +567,7 @@ plan — `docs/release-0.3.5-plan.md` Scope Decisions, 2026-09-13. The entry
 stays OPEN and the closing condition above is unchanged; re-dating is not
 closure.
 
-## GUI-CORE-019: Always approval scope and Edit decision
+## GUI-CORE-019: Always approval scope and Edit decision — CLOSED (Core 2026-09-13)
 
 `ApprovalScope` models `Once`, `Session`, and `RepoAllowlist`. The permission
 dock's design also offers "Always" and "Edit": Always is a standing decision
@@ -589,8 +589,25 @@ canonical fixture covers both. The GUI will then restore the design's
 
 Adjudicated 2026-09-13 (H3): scheduled for `0.3.5` batch C15
 (`runtime.approval_scopes`) — `docs/release-0.3.5-plan.md`, Batches and Goal 4,
-2026-09-13. It closes only when Core publishes both decisions with their
-fixture and both clients adopt them.
+2026-09-13.
+
+Core side closed 2026-09-13 by batch C15, capability `runtime.approval_scopes`.
+`ApprovalScope::Always` installs a `PermissionRuleSource::UserSettings` rule
+persisted in the `[[permissions.standing]]` table of `settings.toml` in the
+Viden home and loaded at bootstrap, so it holds across sessions and
+repositories; `RevokeStandingApproval { rule_id }` ships in the same increment
+and is what makes the grant safe to make. `ApprovalDecision::Edit`
+re-evaluates the revision through the same gate, runs it with `user_modified`,
+or publishes a second request carrying `revised_from`. `allowed_scopes` and the
+new `editable` flag say what each request actually offers, and sending either
+where it was not offered is `CommandRejected` with `scope_not_offered`. Fixture
+`approval-scopes.json`; contract in
+`docs/frontend-integration-contract.md`, "Approval Scopes".
+
+Client side stays open. The GUI's permission dock still renders Always and Edit
+as `GUI-CORE-003` placeholders and `Shift+A` still sits on `repo_allowlist`;
+both go live in GUI batch G9, and the TUI decision modal gains `a` and `e` in
+batch T4. This entry is closed on the Core side only.
 
 ## GUI-CORE-020: Operator-initiated git actions — CLOSED
 
@@ -1200,7 +1217,7 @@ Adjudicated 2026-09-13 (H3): re-dated to `0.3.6`. Reason: not in the `0.3.5`
 plan — `docs/release-0.3.5-plan.md` Scope Decisions, 2026-09-13. The gap the D5
 gallery review finds will be written here when that review runs.
 
-## GUI-CORE-030: Agent binding on the starter-Lane request
+## GUI-CORE-030: Agent binding on the starter-Lane request — CLOSED (Core 2026-09-13)
 
 Opened 2026-09-12 by batch G7, which numbered a request batch G4 wrote as prose
 in the D4 wizard's own copy rather than as a register entry (the register was
@@ -1223,8 +1240,23 @@ no new event either way: `AgentSessionUpdated` already reports what started.
 
 Adjudicated 2026-09-13 (H3): scheduled for `0.3.5` batch C15
 (`runtime.starter_lane_agent`) — `docs/release-0.3.5-plan.md`, Batches and
-Goal 4, 2026-09-13. It closes only when Core echoes the binding on preview and
-creation with its fixture and both clients adopt it.
+Goal 4, 2026-09-13.
+
+Core side closed 2026-09-13 by batch C15, capability
+`runtime.starter_lane_agent`. `StarterLaneRequest` and `StarterLanePreview`
+carry an optional `agent { agent_id, model, task }`, the preview hash covers it,
+an unknown adapter is echoed with a `starter_lane.agent_unknown` diagnostic
+rather than dropped, and `CreateStarterLane` starts the session after the Lane
+exists through the same checks `StartAgentSession` runs, stamping
+`session: started { session_id }` or `refused { reason }` on the receipt. The
+Lane is never unwound because a session did not start, and a request without the
+binding is byte-identical to the two-step flow that already existed. Fixture
+`starter-lane-agent.json`; contract in
+`docs/frontend-integration-contract.md`, "Starter-Lane Agent Binding".
+
+Client side stays open: D4 step 2 sends the binding and step 4 renders the
+receipt's outcome in GUI batch G9, and `/lanes` creation takes an optional agent
+in TUI batch T4. This entry is closed on the Core side only.
 
 ## GUI-CORE-031: Skill packs and context injection
 

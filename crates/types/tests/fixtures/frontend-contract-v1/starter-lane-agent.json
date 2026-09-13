@@ -1,0 +1,510 @@
+{
+  "fixture_id": "starter-lane-agent",
+  "schema_version": 1,
+  "required_capabilities": [
+    "runtime.agent_sessions",
+    "runtime.commands",
+    "runtime.events",
+    "runtime.lane_lifecycle",
+    "runtime.snapshot",
+    "runtime.starter_lane_agent",
+    "runtime.starter_lane_preview",
+    "runtime.typed_lanes"
+  ],
+  "initial_snapshot": {
+    "cwd": "workspace/viden",
+    "provider_family": "deepseek",
+    "model_label": "deepseek-v4-flash",
+    "work_mode": "build",
+    "permission_mode": "default",
+    "permission_level": "ask",
+    "config_summary": "{\"design_entry\":{\"d11\":\"onboarding subordinate\",\"gui\":\"GUI index -> component library -> D1 desktop cockpit\",\"hierarchy\":[\"docs/viden-design/Viden/index.html\",\"client design index\",\"component library\",\"TUI unified prototype or GUI D1 desktop cockpit\"],\"tui\":\"TUI index -> component library -> unified prototype\"},\"ui\":{\"density\":[\"compact\",\"regular\",\"comfy\"],\"effective\":{\"density\":\"regular\",\"locale\":\"zh-CN\",\"mode\":\"dark\",\"motion\":\"reduced\",\"skin\":\"aurora\"},\"locales\":[\"en\",\"zh-CN\"],\"motion\":[\"system\",\"reduced\",\"full\"],\"skin_mode_pairs\":[[\"aurora\",\"dark\"],[\"aurora\",\"light\"],[\"ice\",\"dark\"],[\"ice\",\"light\"],[\"mono\",\"dark\"],[\"mono\",\"light\"],[\"amber\",\"dark\"],[\"phosphor\",\"dark\"]]}}",
+    "loaded_config_files": [
+      "config/viden.toml"
+    ],
+    "startup_overrides": [
+      "--provider=deepseek"
+    ],
+    "ui_preferences": {
+      "locale": "zh-CN",
+      "skin": "aurora",
+      "mode": "dark",
+      "density": "regular",
+      "motion": "reduced",
+      "diagnostics": []
+    }
+  },
+  "events": [
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane-starter-agent",
+        "session_id": null,
+        "task_id": null,
+        "turn_id": null
+      },
+      "cursor": {
+        "stream_id": "fixture:starter-lane-agent",
+        "sequence": 1
+      },
+      "event": {
+        "sequence": 1,
+        "timestamp": 1700005001,
+        "kind": {
+          "type": "command_accepted",
+          "payload": {
+            "command_id": "cmd_starter_agent_preview",
+            "command": {
+              "type": "preview_starter_lane",
+              "request": {
+                "lane_id": "lane-starter-agent",
+                "preset": "coder",
+                "branch": "codex/lane-starter-agent",
+                "worktree_path": "workspace/.worktrees/lane-starter-agent",
+                "agent": {
+                  "agent_id": "claude-code",
+                  "model": "claude-sonnet",
+                  "task": "wire the starter Lane binding"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane-starter-agent",
+        "session_id": null,
+        "task_id": null,
+        "turn_id": null
+      },
+      "cursor": {
+        "stream_id": "fixture:starter-lane-agent",
+        "sequence": 2
+      },
+      "event": {
+        "sequence": 2,
+        "timestamp": 1700005002,
+        "kind": {
+          "type": "starter_lane_previewed",
+          "payload": {
+            "preview": {
+              "preview_id": "preview-starter-agent",
+              "content_sha256": "1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a",
+              "owner": {
+                "workspace_id": "workspace_contract_v1",
+                "project_id": "project_viden",
+                "lane_id": "lane-starter-agent",
+                "session_id": null,
+                "task_id": null,
+                "turn_id": null
+              },
+              "lane": {
+                "id": "lane-starter-agent",
+                "task_id": null,
+                "role": "coder",
+                "route": "built_in",
+                "gate_strength": "full",
+                "mutation_policy": "propose_only",
+                "worktree": "workspace/.worktrees/lane-starter-agent",
+                "branch": "codex/lane-starter-agent",
+                "target": "local",
+                "data_egress": "deny",
+                "status": "draft",
+                "budget": {
+                  "token_limit": null,
+                  "cost_limit_micro_usd": null,
+                  "wall_time_limit_secs": null
+                },
+                "active_session_ids": [],
+                "summary": "coder starter lane",
+                "evidence": []
+              },
+              "branch": "codex/lane-starter-agent",
+              "worktree_path": "workspace/.worktrees/lane-starter-agent",
+              "base_revision": "2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b",
+              "diagnostics": [],
+              "agent": {
+                "agent_id": "claude-code",
+                "model": "claude-sonnet",
+                "task": "wire the starter Lane binding"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane-starter-agent",
+        "session_id": null,
+        "task_id": null,
+        "turn_id": null
+      },
+      "cursor": {
+        "stream_id": "fixture:starter-lane-agent",
+        "sequence": 3
+      },
+      "event": {
+        "sequence": 3,
+        "timestamp": 1700005003,
+        "kind": {
+          "type": "lane_updated",
+          "payload": {
+            "lane": {
+              "id": "lane-starter-agent",
+              "task_id": null,
+              "role": "coder",
+              "route": "built_in",
+              "gate_strength": "full",
+              "mutation_policy": "propose_only",
+              "worktree": "workspace/.worktrees/lane-starter-agent",
+              "branch": "codex/lane-starter-agent",
+              "target": "local",
+              "data_egress": "deny",
+              "status": "running",
+              "budget": {
+                "token_limit": null,
+                "cost_limit_micro_usd": null,
+                "wall_time_limit_secs": null
+              },
+              "active_session_ids": [],
+              "summary": "coder starter lane",
+              "evidence": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane-starter-agent",
+        "session_id": null,
+        "task_id": null,
+        "turn_id": null
+      },
+      "cursor": {
+        "stream_id": "fixture:starter-lane-agent",
+        "sequence": 4
+      },
+      "event": {
+        "sequence": 4,
+        "timestamp": 1700005004,
+        "kind": {
+          "type": "starter_lane_created",
+          "payload": {
+            "receipt": {
+              "preview_id": "preview-starter-agent",
+              "content_sha256": "1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a",
+              "lane": {
+                "id": "lane-starter-agent",
+                "task_id": null,
+                "role": "coder",
+                "route": "built_in",
+                "gate_strength": "full",
+                "mutation_policy": "propose_only",
+                "worktree": "workspace/.worktrees/lane-starter-agent",
+                "branch": "codex/lane-starter-agent",
+                "target": "local",
+                "data_egress": "deny",
+                "status": "running",
+                "budget": {
+                  "token_limit": null,
+                  "cost_limit_micro_usd": null,
+                  "wall_time_limit_secs": null
+                },
+                "active_session_ids": [],
+                "summary": "coder starter lane",
+                "evidence": []
+              },
+              "branch": "codex/lane-starter-agent",
+              "worktree_path": "workspace/.worktrees/lane-starter-agent",
+              "base_revision": "2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b",
+              "owner": {
+                "workspace_id": "workspace_contract_v1",
+                "project_id": "project_viden",
+                "lane_id": "lane-starter-agent",
+                "session_id": null,
+                "task_id": null,
+                "turn_id": null
+              },
+              "session": {
+                "started": {
+                  "session_id": "agent-session-starter"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane-starter-agent",
+        "session_id": "agent-session-starter",
+        "task_id": null,
+        "turn_id": null
+      },
+      "cursor": {
+        "stream_id": "fixture:starter-lane-agent",
+        "sequence": 5
+      },
+      "event": {
+        "sequence": 5,
+        "timestamp": 1700005005,
+        "kind": {
+          "type": "agent_session_updated",
+          "payload": {
+            "session": {
+              "session_id": "agent-session-starter",
+              "lane_id": "lane-starter-agent",
+              "agent_id": "claude-code",
+              "model": "claude-sonnet",
+              "status": "starting",
+              "owner": {
+                "workspace_id": "workspace_contract_v1",
+                "project_id": "project_viden",
+                "lane_id": "lane-starter-agent",
+                "session_id": "agent-session-starter",
+                "task_id": null,
+                "turn_id": null
+              },
+              "task": "wire the starter Lane binding",
+              "diagnostic": null
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane-starter-unknown",
+        "session_id": null,
+        "task_id": null,
+        "turn_id": null
+      },
+      "cursor": {
+        "stream_id": "fixture:starter-lane-agent",
+        "sequence": 6
+      },
+      "event": {
+        "sequence": 6,
+        "timestamp": 1700005006,
+        "kind": {
+          "type": "starter_lane_previewed",
+          "payload": {
+            "preview": {
+              "preview_id": "preview-starter-agent-unknown",
+              "content_sha256": "3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c",
+              "owner": {
+                "workspace_id": "workspace_contract_v1",
+                "project_id": "project_viden",
+                "lane_id": "lane-starter-unknown",
+                "session_id": null,
+                "task_id": null,
+                "turn_id": null
+              },
+              "lane": {
+                "id": "lane-starter-unknown",
+                "task_id": null,
+                "role": "coder",
+                "route": "built_in",
+                "gate_strength": "full",
+                "mutation_policy": "propose_only",
+                "worktree": "workspace/.worktrees/lane-starter-unknown",
+                "branch": "codex/lane-starter-unknown",
+                "target": "local",
+                "data_egress": "deny",
+                "status": "draft",
+                "budget": {
+                  "token_limit": null,
+                  "cost_limit_micro_usd": null,
+                  "wall_time_limit_secs": null
+                },
+                "active_session_ids": [],
+                "summary": "coder starter lane",
+                "evidence": []
+              },
+              "branch": "codex/lane-starter-unknown",
+              "worktree_path": "workspace/.worktrees/lane-starter-unknown",
+              "base_revision": "2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b",
+              "diagnostics": [
+                "starter_lane.agent_unknown:agent-that-is-not-installed"
+              ],
+              "agent": {
+                "agent_id": "agent-that-is-not-installed"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane-starter-unknown",
+        "session_id": null,
+        "task_id": null,
+        "turn_id": null
+      },
+      "cursor": {
+        "stream_id": "fixture:starter-lane-agent",
+        "sequence": 7
+      },
+      "event": {
+        "sequence": 7,
+        "timestamp": 1700005007,
+        "kind": {
+          "type": "lane_updated",
+          "payload": {
+            "lane": {
+              "id": "lane-starter-unknown",
+              "task_id": null,
+              "role": "coder",
+              "route": "built_in",
+              "gate_strength": "full",
+              "mutation_policy": "propose_only",
+              "worktree": "workspace/.worktrees/lane-starter-unknown",
+              "branch": "codex/lane-starter-unknown",
+              "target": "local",
+              "data_egress": "deny",
+              "status": "running",
+              "budget": {
+                "token_limit": null,
+                "cost_limit_micro_usd": null,
+                "wall_time_limit_secs": null
+              },
+              "active_session_ids": [],
+              "summary": "coder starter lane",
+              "evidence": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane-starter-unknown",
+        "session_id": null,
+        "task_id": null,
+        "turn_id": null
+      },
+      "cursor": {
+        "stream_id": "fixture:starter-lane-agent",
+        "sequence": 8
+      },
+      "event": {
+        "sequence": 8,
+        "timestamp": 1700005008,
+        "kind": {
+          "type": "starter_lane_created",
+          "payload": {
+            "receipt": {
+              "preview_id": "preview-starter-agent-unknown",
+              "content_sha256": "3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c",
+              "lane": {
+                "id": "lane-starter-unknown",
+                "task_id": null,
+                "role": "coder",
+                "route": "built_in",
+                "gate_strength": "full",
+                "mutation_policy": "propose_only",
+                "worktree": "workspace/.worktrees/lane-starter-unknown",
+                "branch": "codex/lane-starter-unknown",
+                "target": "local",
+                "data_egress": "deny",
+                "status": "running",
+                "budget": {
+                  "token_limit": null,
+                  "cost_limit_micro_usd": null,
+                  "wall_time_limit_secs": null
+                },
+                "active_session_ids": [],
+                "summary": "coder starter lane",
+                "evidence": []
+              },
+              "branch": "codex/lane-starter-unknown",
+              "worktree_path": "workspace/.worktrees/lane-starter-unknown",
+              "base_revision": "2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b",
+              "owner": {
+                "workspace_id": "workspace_contract_v1",
+                "project_id": "project_viden",
+                "lane_id": "lane-starter-unknown",
+                "session_id": null,
+                "task_id": null,
+                "turn_id": null
+              },
+              "session": {
+                "refused": {
+                  "reason": "agent adapter `agent-that-is-not-installed` is not known"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane-starter-agent",
+        "session_id": null,
+        "task_id": null,
+        "turn_id": null
+      },
+      "cursor": {
+        "stream_id": "fixture:starter-lane-agent",
+        "sequence": 9
+      },
+      "event": {
+        "sequence": 9,
+        "timestamp": 1700005009,
+        "kind": {
+          "type": "command_accepted",
+          "payload": {
+            "command_id": "cmd_starter_agent_none",
+            "command": {
+              "type": "preview_starter_lane",
+              "request": {
+                "lane_id": "lane-starter-agent",
+                "preset": "coder",
+                "branch": "codex/lane-starter-agent",
+                "worktree_path": "workspace/.worktrees/lane-starter-agent"
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "expected_final_cursor": {
+    "stream_id": "fixture:starter-lane-agent",
+    "sequence": 9
+  },
+  "expected_view_sha256": "e5ca0bbf8698731316f37def929f35370102296e320a2f35ebba8763ec424267"
+}

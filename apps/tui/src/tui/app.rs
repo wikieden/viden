@@ -2532,6 +2532,12 @@ fn observe_driver_events<C: CoreClient>(
                     preview.owner.clone(),
                     RuntimeCommand::CreateStarterLane {
                         request: viden_core::StarterLaneRequest {
+                            // `runtime.starter_lane_agent` (GUI-CORE-030).
+                            // The TUI's `/lanes` creation takes an optional
+                            // agent in batch T4; until then it sends the
+                            // two-step flow, which is byte-identical to what
+                            // it sent before the field existed.
+                            agent: None,
                             lane_id: preview.lane.id.clone(),
                             preset: StarterLanePreset::Coder,
                             branch: preview.lane.branch.clone(),

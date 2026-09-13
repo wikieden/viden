@@ -1658,6 +1658,10 @@ impl PendingD11 {
             } if self.approval_request_id.as_deref() == Some(request_id.as_str()) => match decision
             {
                 ApprovalDecision::Allow { .. } => PendingObservation::Continue,
+                // A revision is not a settlement: Core re-decides it and
+                // publishes the answer, so the pending observation keeps
+                // waiting rather than treating the round as finished.
+                ApprovalDecision::Edit { .. } => PendingObservation::Continue,
                 ApprovalDecision::Deny => PendingObservation::ClearedContinue,
             },
             kind if self.accepted && self.target.matches_fact(kind) => {
@@ -3937,6 +3941,11 @@ impl GuiCoreAdapter {
                     preview.owner.clone(),
                     RuntimeCommand::CreateStarterLane {
                         request: StarterLaneRequest {
+                            // `runtime.starter_lane_agent` (GUI-CORE-030).
+                            // D4 sends the operator's pick in GUI batch G9;
+                            // until then this is the two-step flow, byte-
+                            // identical to what it sent before the field.
+                            agent: None,
                             lane_id,
                             preset,
                             branch,

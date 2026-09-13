@@ -2051,6 +2051,15 @@ pub(super) fn acp_permission_prompt(request: &Value) -> viden_types::PermissionP
         // prospective result for it, so it publishes none rather than a
         // guess dressed as a diff.
         decision_context: None,
+        // An ACP tool call's arguments are the adapter's own JSON, not a
+        // Viden `ToolInput`: there is nothing to key a standing rule on and
+        // nothing Core could safely revise, which is why `acp:*` tools are
+        // absent from the editable list.
+        input: viden_types::ToolInput::new(),
+        // An ACP request is the adapter's own prompt, not a re-evaluation of
+        // a revision Core made: the `Edit` scope is offered for built-in
+        // tools whose input Core owns.
+        is_revision: false,
     }
 }
 

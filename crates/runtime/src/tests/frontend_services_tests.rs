@@ -1965,6 +1965,13 @@ impl LaneEffectExecutor for StarterLaneEffects {
     }
 }
 
+impl StarterLaneEffects {
+    /// The Lane ids whose create effect actually ran.
+    fn created_lane_ids(&self) -> Vec<String> {
+        self.calls.lock().unwrap().clone()
+    }
+}
+
 fn starter_lane_repo(name: &str) -> PathBuf {
     let repo = temp_dir(name);
     run_git(&repo, &["init", "-b", "main"]);
@@ -1996,6 +2003,7 @@ fn starter_request(lane_id: &str, preset: StarterLanePreset) -> StarterLaneReque
         preset,
         branch: None,
         worktree_path: None,
+        agent: None,
     }
 }
 
@@ -2249,6 +2257,7 @@ fn default_starter_lane_creates_in_non_git_workspace_without_worktree() {
         preset: StarterLanePreset::Coder,
         branch: None,
         worktree_path: None,
+        agent: None,
     };
     supervisor
         .send_command_from_owner(
@@ -4500,4 +4509,272 @@ fn ui_temp_files(root: &Path) -> Vec<PathBuf> {
                 .is_some_and(|name| name.contains(".ui-") && name.ends_with(".tmp"))
         })
         .collect()
+}
+
+// --- `runtime.starter_lane_agent` (GUI-CORE-030) -----------------------------
+
+/// The operator's Agent pick travels with the request, changes the preview
+/// hash, and lands on the receipt — and a pick this Core cannot honor leaves
+/// the Lane standing.
+///
+/// The two halves are deliberately one test: "the binding reached Core" and
+/// "the Lane survived a refused session" are the same guarantee seen from
+/// either side, and splitting them would let one pass while the other
+/// regressed.
+#[test]
+fn a_starter_lane_binding_reaches_the_receipt_and_never_unwinds_the_lane() {
+    let repo = starter_lane_repo("starter_lane_agent_repo");
+    let home = temp_dir("starter_lane_agent_home");
+    let effects = Arc::new(StarterLaneEffects::default());
+    let supervisor = starter_supervisor(&repo, home, Arc::clone(&effects));
+
+    let binding = viden_types::StarterLaneAgentBinding {
+        // No adapter of this name is registered in the test process, so the
+        // session start is refused and the receipt says so.
+        agent_id: "agent-that-is-not-installed".to_string(),
+        model: Some("some-model".to_string()),
+        task: Some("wire the binding".to_string()),
+    };
+    let lane_id = "lane-agent-binding";
+    let owner = starter_owner(lane_id);
+    let bound_request = StarterLaneRequest {
+        agent: Some(binding.clone()),
+        ..starter_request(lane_id, StarterLanePreset::Coder)
+    };
+
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "agent-binding-preview",
+            RuntimeCommand::PreviewStarterLane {
+                request: bound_request.clone(),
+            },
+        )
+        .unwrap();
+    let events = collect_starter_envelopes_until(&supervisor, |events| {
+        events.iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::StarterLanePreviewed { .. },
+                    ..
+                })
+            )
+        })
+    });
+    let preview = events
+        .iter()
+        .find_map(|envelope| match &envelope.event {
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::StarterLanePreviewed { preview },
+                ..
+            }) => Some(preview.clone()),
+            _ => None,
+        })
+        .unwrap();
+
+    // Echoed, not dropped, and named in a diagnostic rather than refused.
+    assert_eq!(preview.agent.as_ref(), Some(&binding));
+    assert!(
+        preview.diagnostics.iter().any(
+            |diagnostic| diagnostic == "starter_lane.agent_unknown:agent-that-is-not-installed"
+        ),
+        "an unknown adapter is a diagnostic, not a rejection: {:?}",
+        preview.diagnostics
+    );
+
+    // Create against the bound preview. The Lane is created and the receipt
+    // carries the refusal rather than the create failing.
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "agent-binding-create",
+            RuntimeCommand::CreateStarterLane {
+                request: bound_request,
+                preview_id: preview.preview_id.clone(),
+                content_sha256: preview.content_sha256.clone(),
+            },
+        )
+        .unwrap();
+    // The Lane effect itself is gated like every other Lane mutation; the
+    // binding changes nothing about that.
+    let approval_events = collect_starter_envelopes_until(&supervisor, |events| {
+        events.iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::ApprovalRequested { approval },
+                    ..
+                }) if approval.tool_name == "lane_create"
+            )
+        })
+    });
+    let approval_id = approval_events
+        .iter()
+        .find_map(|envelope| match &envelope.event {
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::ApprovalRequested { approval },
+                ..
+            }) => Some(approval.id.clone()),
+            _ => None,
+        })
+        .unwrap();
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "agent-binding-approve",
+            RuntimeCommand::RespondToApproval {
+                request_id: approval_id,
+                response: ApprovalResponse::allow_once(None),
+            },
+        )
+        .unwrap();
+    let created = collect_starter_envelopes_until(&supervisor, |events| {
+        events.iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::StarterLaneCreated { .. },
+                    ..
+                })
+            )
+        })
+    });
+    let receipt = created
+        .iter()
+        .find_map(|envelope| match &envelope.event {
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::StarterLaneCreated { receipt },
+                ..
+            }) => Some(receipt.clone()),
+            _ => None,
+        })
+        .unwrap();
+
+    assert_eq!(receipt.preview_id, preview.preview_id);
+    match receipt.session.as_ref() {
+        Some(viden_types::StarterLaneSessionOutcome::Refused { reason }) => {
+            assert!(
+                reason.contains("agent-that-is-not-installed"),
+                "the refusal names the adapter: {reason}"
+            );
+        }
+        other => panic!("an unknown adapter must be refused, got {other:?}"),
+    }
+    assert_eq!(receipt.lane.id, lane_id, "the Lane exists anyway");
+    assert!(
+        effects.created_lane_ids().contains(&lane_id.to_string()),
+        "the Lane effect ran despite the refused session"
+    );
+}
+
+/// A request with no binding is the flow that already existed, byte for byte.
+#[test]
+fn a_starter_lane_request_without_a_binding_encodes_exactly_as_before() {
+    let request = starter_request("lane-no-agent", StarterLanePreset::Coder);
+
+    let encoded = serde_json::to_string(&request).unwrap();
+
+    assert!(request.agent.is_none());
+    assert!(
+        !encoded.contains("\"agent\""),
+        "the field must be omitted entirely: {encoded}"
+    );
+    assert_eq!(
+        encoded,
+        "{\"lane_id\":\"lane-no-agent\",\"preset\":\"coder\",\"branch\":null,\"worktree_path\":null}"
+    );
+}
+
+/// The preview hash covers the binding, so changing the pick after review
+/// invalidates the preview exactly as changing the branch does.
+///
+/// Without this, an operator could review a Lane bound to one Agent and create
+/// it bound to another — or to none — and the receipt would claim the reviewed
+/// preview produced it.
+#[test]
+fn changing_the_agent_pick_after_review_invalidates_the_starter_lane_preview() {
+    let repo = starter_lane_repo("starter_lane_agent_changed_repo");
+    let home = temp_dir("starter_lane_agent_changed_home");
+    let effects = Arc::new(StarterLaneEffects::default());
+    let supervisor = starter_supervisor(&repo, home, Arc::clone(&effects));
+
+    let lane_id = "lane-agent-changed";
+    let owner = starter_owner(lane_id);
+    let reviewed = StarterLaneRequest {
+        agent: Some(viden_types::StarterLaneAgentBinding {
+            agent_id: "claude-code".to_string(),
+            model: None,
+            task: None,
+        }),
+        ..starter_request(lane_id, StarterLanePreset::Coder)
+    };
+
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "agent-changed-preview",
+            RuntimeCommand::PreviewStarterLane {
+                request: reviewed.clone(),
+            },
+        )
+        .unwrap();
+    let events = collect_starter_envelopes_until(&supervisor, |events| {
+        events.iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::StarterLanePreviewed { .. },
+                    ..
+                })
+            )
+        })
+    });
+    let preview = events
+        .iter()
+        .find_map(|envelope| match &envelope.event {
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::StarterLanePreviewed { preview },
+                ..
+            }) => Some(preview.clone()),
+            _ => None,
+        })
+        .unwrap();
+
+    // Same lane, same branch, same worktree — only the pick is gone.
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "agent-changed-create",
+            RuntimeCommand::CreateStarterLane {
+                request: starter_request(lane_id, StarterLanePreset::Coder),
+                preview_id: preview.preview_id.clone(),
+                content_sha256: preview.content_sha256.clone(),
+            },
+        )
+        .unwrap();
+    let settled = collect_starter_envelopes_until(&supervisor, |events| {
+        events.iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::StarterLanePreviewInvalidated { .. },
+                    ..
+                })
+            )
+        })
+    });
+
+    assert!(settled.iter().any(|envelope| matches!(
+        &envelope.event,
+        RuntimeWireEvent::Known(RuntimeEvent {
+            kind: RuntimeEventKind::StarterLanePreviewInvalidated { reason, preview_id, .. },
+            ..
+        }) if *reason == StarterLanePreviewInvalidationReason::RequestChanged
+            && preview_id == &preview.preview_id
+    )));
+    assert!(
+        effects.created_lane_ids().is_empty(),
+        "an invalidated preview must not create a Lane"
+    );
 }

@@ -32,8 +32,9 @@ use viden_types::{
     ProjectProbe, QueuedInputView, RecentProjectSummary, RecentSessionSummary,
     ResolvedUiPreferences, ReviewRequestStatus, RuntimeCommand, RuntimeErrorView, RuntimeEvent,
     RuntimeEventEnvelope, RuntimeEventKind, RuntimeOwner, RuntimeSnapshot, RuntimeViewState,
-    RuntimeWireEvent, SchemaVersion, SourceTarget, StarterLanePreview,
-    StarterLanePreviewInvalidationReason, StarterLaneReceipt, TokenCostView, TokenUsage,
+    RuntimeWireEvent, SchemaVersion, SourceTarget, StandingApprovalView, StarterLaneAgentBinding,
+    StarterLanePreset, StarterLanePreview, StarterLanePreviewInvalidationReason,
+    StarterLaneReceipt, StarterLaneRequest, StarterLaneSessionOutcome, TokenCostView, TokenUsage,
     TurnOutcome, TurnSource, TurnView, UiColorMode, UiDensity, UiLayoutPreferencePatch,
     UiLayoutPreferences, UiMotion, UiPreferenceDiagnostic, UiPreferences, UiSkin, WorkMode,
     WorkspaceChangeKind, WorkspaceDiffEntry, WorkspaceDiffPage, WorkspaceDiffQuery,
@@ -191,6 +192,11 @@ fn frontend_host_capabilities_are_schema_one_core_0_3_6_and_additive() {
         "runtime.agent_session_control",
         "runtime.agent_session_input",
         "runtime.agent_sessions",
+        // GUI-CORE-019, the first capability of the 0.3.5 contract increment
+        // that C15 lands. The standing `Always` scope and the `Edit` decision.
+        // Additive like the rows around it; the frozen base list is untouched,
+        // which is what keeps the nine base fixtures byte-identical.
+        "runtime.approval_scopes",
         "runtime.audit",
         "runtime.cockpit_context_v1",
         // GUI-CORE-015. Additive like the rows around it; the frozen base list
@@ -224,6 +230,13 @@ fn frontend_host_capabilities_are_schema_one_core_0_3_6_and_additive() {
         "runtime.plan_documents",
         "runtime.project_onboarding",
         "runtime.recent_work",
+        // GUI-CORE-030, the last capability of the 0.3.5 contract increment:
+        // 33 extensions is the milestone's final count. C13
+        // (`runtime.plan_documents`, 30) and C14
+        // (`runtime.agent_session_control`, 31) are the two increments between
+        // 29 and this batch's 32 and 33, and land on the integration branch
+        // beside it.
+        "runtime.starter_lane_agent",
         "runtime.starter_lane_preview",
         // GUI-CORE-012. Additive like the row below it: the frozen base list
         // is untouched, which is what keeps the nine base fixtures
@@ -2263,6 +2276,382 @@ fn refresh_conflict_content_extension_fixture() {
     .unwrap();
 }
 
+/// GUI-CORE-019: canonical proof that a standing grant, its revocation, and a
+/// revision are contract facts.
+///
+/// The load-bearing assertion is the *absence* between the grant and the
+/// revocation: a second session runs the same tool and input with no
+/// `ApprovalRequested` at all. A client that could not tell that apart from a
+/// rule it failed to load would show the operator a prompt they silenced.
+#[test]
+fn approval_scopes_fixture_grants_reloads_revokes_and_revises() {
+    let name = "approval-scopes.json";
+    let root = fixture_root();
+    let fixture_bytes = fs::read(root.join(name)).expect("read approval scopes fixture bytes");
+    let fixture_sha256 = format!("{:x}", Sha256::digest(&fixture_bytes));
+    let extension_manifest = include_str!("../frontend-contract-extensions.toml");
+    assert!(
+        extension_manifest.contains(&format!(
+            "approval_scopes_fixture_sha256 = \"{fixture_sha256}\""
+        )),
+        "the extension manifest must register the exact approval scopes fixture bytes"
+    );
+    assert!(extension_manifest.contains("approval_scopes_fixture = \"approval-scopes.json\""));
+
+    let fixture = read_fixture(&root, name);
+    assert_fixture_identity(name, &fixture);
+    assert_capabilities_are_sorted_unique_and_advertised(name, &fixture);
+    assert_cursors_are_contiguous(name, &fixture);
+
+    let (view, first_cursor, first_digest) = replay_fixture(&fixture);
+    let (_, second_cursor, second_digest) = replay_fixture(&fixture);
+    assert_eq!(first_cursor, second_cursor);
+    assert_eq!(first_digest, second_digest);
+    assert_eq!(first_cursor, fixture.expected_final_cursor);
+    assert_eq!(first_digest, fixture.expected_view_sha256);
+    assert!(
+        extension_manifest.contains(&format!("approval_scopes_view_sha256 = \"{first_digest}\"")),
+        "the extension manifest must register the replayed view digest"
+    );
+
+    let kinds = fixture
+        .events
+        .iter()
+        .filter_map(|envelope| match &envelope.event {
+            RuntimeWireEvent::Known(event) => Some(event.kind.clone()),
+            RuntimeWireEvent::Unknown { .. } => None,
+        })
+        .collect::<Vec<_>>();
+
+    // The grant is offered last, after the narrower scopes, and the request
+    // that carries it says it is editable.
+    let granted_request = kinds
+        .iter()
+        .find_map(|kind| match kind {
+            RuntimeEventKind::ApprovalRequested { approval }
+                if approval.id == "approval_scopes_grant" =>
+            {
+                Some(approval.clone())
+            }
+            _ => None,
+        })
+        .expect("the granting request");
+    assert_eq!(
+        granted_request.allowed_scopes.last(),
+        Some(&ApprovalScope::Always)
+    );
+    assert!(granted_request.editable);
+
+    // Durable before announced: the grant fact precedes the resolution, and it
+    // names the decision's own audit row.
+    let granted_at = kinds
+        .iter()
+        .position(|kind| matches!(kind, RuntimeEventKind::StandingApprovalGranted { .. }))
+        .expect("a grant fact");
+    let resolved_at = kinds
+        .iter()
+        .position(|kind| {
+            matches!(
+                kind,
+                RuntimeEventKind::ApprovalResolved { request_id, .. }
+                    if request_id == "approval_scopes_grant"
+            )
+        })
+        .expect("the grant resolution");
+    assert!(
+        granted_at < resolved_at,
+        "the rule exists before the decision settles"
+    );
+    let rule = kinds
+        .iter()
+        .find_map(|kind| match kind {
+            RuntimeEventKind::StandingApprovalGranted { rule } => Some(rule.clone()),
+            _ => None,
+        })
+        .expect("the granted rule");
+    assert_eq!(rule.audit_id, granted_request.audit_id);
+    assert_eq!(rule.rule_content, "command=cargo fmt --all -- --check");
+
+    // While the rule is in force, the same tool and input run with no request
+    // between them at all.
+    let revoked_at = kinds
+        .iter()
+        .position(|kind| matches!(kind, RuntimeEventKind::StandingApprovalRevoked { .. }))
+        .expect("a revocation fact");
+    assert!(
+        !kinds[granted_at..revoked_at]
+            .iter()
+            .any(|kind| matches!(kind, RuntimeEventKind::ApprovalRequested { .. })),
+        "a standing rule answers without a prompt"
+    );
+    assert!(
+        kinds[granted_at..revoked_at].iter().any(|kind| matches!(
+            kind,
+            RuntimeEventKind::ToolCallFinished { tool_call_id, success: true, .. }
+                if tool_call_id == "tool_scopes_second_session"
+        )),
+        "the later session's call ran on the rule"
+    );
+    // And the prompt is back afterwards.
+    assert!(
+        kinds[revoked_at..].iter().any(|kind| matches!(
+            kind,
+            RuntimeEventKind::ApprovalRequested { approval }
+                if approval.id == "approval_scopes_after_revoke"
+        )),
+        "revoking brings the prompt back"
+    );
+    // The revocation is its own audit row, never the grant's.
+    assert!(kinds.iter().any(|kind| matches!(
+        kind,
+        RuntimeEventKind::StandingApprovalRevoked { audit_id, .. } if audit_id != &rule.audit_id
+    )));
+    // The view is the authority on what is in force, and it is empty again.
+    assert!(view.standing_approvals.is_empty());
+
+    // The revision round: the original resolves `Edit`, and the second request
+    // names it and carries its own audit id.
+    assert!(kinds.iter().any(|kind| matches!(
+        kind,
+        RuntimeEventKind::ApprovalResolved {
+            request_id,
+            decision: ApprovalDecision::Edit { revised_input },
+            ..
+        } if request_id == "approval_scopes_wide"
+            && revised_input.get("command").map(String::as_str) == Some("rm -rf target/debug")
+    )));
+    let revised = kinds
+        .iter()
+        .find_map(|kind| match kind {
+            RuntimeEventKind::ApprovalRequested { approval }
+                if approval.id == "approval_scopes_revised" =>
+            {
+                Some(approval.clone())
+            }
+            _ => None,
+        })
+        .expect("the revised request");
+    assert_eq!(
+        revised.revised_from.as_deref(),
+        Some("approval_scopes_wide")
+    );
+    assert_ne!(revised.audit_id, "audit_approval_scopes_wide");
+    assert!(kinds.iter().any(|kind| matches!(
+        kind,
+        RuntimeEventKind::ToolCallStarted { input_preview, .. }
+            if input_preview == "command=rm -rf target/debug"
+    )));
+
+    // A high-risk request never offers the standing scope, and sending it is
+    // refused by the name the contract gives the refusal.
+    let high = kinds
+        .iter()
+        .find_map(|kind| match kind {
+            RuntimeEventKind::ApprovalRequested { approval }
+                if approval.id == "approval_scopes_high" =>
+            {
+                Some(approval.clone())
+            }
+            _ => None,
+        })
+        .expect("the high-risk request");
+    assert_eq!(high.risk, ApprovalRisk::High);
+    assert!(!high.allowed_scopes.contains(&ApprovalScope::Always));
+    assert!(!high.editable);
+    assert!(kinds.iter().any(|kind| matches!(
+        kind,
+        RuntimeEventKind::CommandRejected { reason, .. } if reason.contains("scope_not_offered")
+    )));
+
+    // Plan mode refuses a revision on the request, so the original settles as
+    // the refusal rather than waiting for a second prompt that never comes.
+    assert!(kinds.iter().any(|kind| matches!(
+        kind,
+        RuntimeEventKind::ApprovalResolved {
+            request_id,
+            decision: ApprovalDecision::Deny,
+            ..
+        } if request_id == "approval_scopes_plan"
+    )));
+}
+
+/// GUI-CORE-030: canonical proof that a starter Lane's Agent pick reaches Core
+/// and that the Lane exists whether or not its session started.
+#[test]
+fn starter_lane_agent_fixture_binds_an_agent_and_keeps_the_lane_either_way() {
+    let name = "starter-lane-agent.json";
+    let root = fixture_root();
+    let fixture_bytes = fs::read(root.join(name)).expect("read starter lane agent fixture bytes");
+    let fixture_sha256 = format!("{:x}", Sha256::digest(&fixture_bytes));
+    let extension_manifest = include_str!("../frontend-contract-extensions.toml");
+    assert!(
+        extension_manifest.contains(&format!(
+            "starter_lane_agent_fixture_sha256 = \"{fixture_sha256}\""
+        )),
+        "the extension manifest must register the exact starter lane agent fixture bytes"
+    );
+    assert!(
+        extension_manifest.contains("starter_lane_agent_fixture = \"starter-lane-agent.json\"")
+    );
+
+    let fixture = read_fixture(&root, name);
+    assert_fixture_identity(name, &fixture);
+    assert_capabilities_are_sorted_unique_and_advertised(name, &fixture);
+    assert_cursors_are_contiguous(name, &fixture);
+
+    let (view, first_cursor, first_digest) = replay_fixture(&fixture);
+    let (_, second_cursor, second_digest) = replay_fixture(&fixture);
+    assert_eq!(first_cursor, second_cursor);
+    assert_eq!(first_digest, second_digest);
+    assert_eq!(first_cursor, fixture.expected_final_cursor);
+    assert_eq!(first_digest, fixture.expected_view_sha256);
+    assert!(
+        extension_manifest.contains(&format!(
+            "starter_lane_agent_view_sha256 = \"{first_digest}\""
+        )),
+        "the extension manifest must register the replayed view digest"
+    );
+
+    // Previews are read from the stream, not from the view: a consumed
+    // preview leaves `starter_lane_previews` the moment its receipt lands,
+    // which is the reducer rule this capability does not change.
+    let previews = fixture
+        .events
+        .iter()
+        .filter_map(|envelope| match &envelope.event {
+            RuntimeWireEvent::Known(event) => match &event.kind {
+                RuntimeEventKind::StarterLanePreviewed { preview } => Some(preview.clone()),
+                _ => None,
+            },
+            RuntimeWireEvent::Unknown { .. } => None,
+        })
+        .collect::<Vec<_>>();
+    let receipts = &view.starter_lane_receipts;
+    assert_eq!(previews.len(), 2);
+    assert_eq!(receipts.len(), 2);
+    assert!(
+        view.starter_lane_previews.is_empty(),
+        "both previews were consumed by their receipts"
+    );
+
+    let bound = previews
+        .iter()
+        .find(|preview| preview.preview_id == "preview-starter-agent")
+        .expect("the bound preview");
+    assert_eq!(
+        bound.agent.as_ref().map(|agent| agent.agent_id.as_str()),
+        Some("claude-code")
+    );
+    assert!(
+        bound.diagnostics.is_empty(),
+        "a known adapter produces no diagnostic"
+    );
+
+    let unknown = previews
+        .iter()
+        .find(|preview| preview.preview_id == "preview-starter-agent-unknown")
+        .expect("the unknown-adapter preview");
+    // Echoed, not dropped: the operator's pick stays visible and the preview
+    // stays creatable.
+    assert_eq!(
+        unknown.agent.as_ref().map(|agent| agent.agent_id.as_str()),
+        Some("agent-that-is-not-installed")
+    );
+    assert!(
+        unknown
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.starts_with("starter_lane.agent_unknown:")),
+        "an unknown adapter is named in a diagnostic"
+    );
+
+    let started = receipts
+        .iter()
+        .find(|receipt| receipt.preview_id == "preview-starter-agent")
+        .expect("the bound receipt");
+    assert!(matches!(
+        started.session.as_ref(),
+        Some(StarterLaneSessionOutcome::Started { session_id })
+            if session_id == "agent-session-starter"
+    ));
+    let refused = receipts
+        .iter()
+        .find(|receipt| receipt.preview_id == "preview-starter-agent-unknown")
+        .expect("the refused receipt");
+    assert!(matches!(
+        refused.session.as_ref(),
+        Some(StarterLaneSessionOutcome::Refused { .. })
+    ));
+    // The Lane exists anyway. A wizard that unwound it would lose the
+    // worktree and branch over a pick the operator can still change.
+    assert!(
+        view.lanes
+            .iter()
+            .any(|lane| lane.id == "lane-starter-unknown" && lane.status == LaneStatus::Running),
+        "a refused session never unwinds the Lane"
+    );
+
+    // The session Core started is bound to the Lane and carries the binding's
+    // model and task rather than a default.
+    let session = view
+        .agent_sessions
+        .iter()
+        .find(|session| session.session_id == "agent-session-starter")
+        .expect("the started session");
+    assert_eq!(session.lane_id, "lane-starter-agent");
+    assert_eq!(session.model.as_deref(), Some("claude-sonnet"));
+    assert_eq!(session.task, "wire the starter Lane binding");
+    assert_eq!(session.status, AgentSessionStatus::Starting);
+
+    // The two-step flow is unchanged: a request with no binding serializes
+    // without the field at all.
+    let none_command = fixture
+        .events
+        .iter()
+        .find_map(|envelope| match &envelope.event {
+            RuntimeWireEvent::Known(event) => match &event.kind {
+                RuntimeEventKind::CommandAccepted {
+                    command_id,
+                    command,
+                } if command_id == "cmd_starter_agent_none" => Some(command.clone()),
+                _ => None,
+            },
+            RuntimeWireEvent::Unknown { .. } => None,
+        })
+        .expect("the unbound preview command");
+    let encoded = serde_json::to_string(&none_command).expect("encode the unbound command");
+    assert!(
+        !encoded.contains("\"agent\""),
+        "a request without a binding encodes to the bytes it did before the field existed"
+    );
+}
+
+#[test]
+#[ignore = "manual approval scopes fixture refresh; normal tests validate committed JSON only"]
+fn refresh_approval_scopes_extension_fixture() {
+    let root = fixture_root();
+    fs::create_dir_all(&root).unwrap();
+    let fixture = approval_scopes_fixture();
+    fs::write(
+        root.join("approval-scopes.json"),
+        serde_json::to_string_pretty(&fixture).unwrap() + "\n",
+    )
+    .unwrap();
+}
+
+#[test]
+#[ignore = "manual starter lane agent fixture refresh; normal tests validate committed JSON only"]
+fn refresh_starter_lane_agent_extension_fixture() {
+    let root = fixture_root();
+    fs::create_dir_all(&root).unwrap();
+    let fixture = starter_lane_agent_fixture();
+    fs::write(
+        root.join("starter-lane-agent.json"),
+        serde_json::to_string_pretty(&fixture).unwrap() + "\n",
+    )
+    .unwrap();
+}
+
 #[test]
 #[ignore = "manual operator git fixture refresh; normal tests validate committed JSON only"]
 fn refresh_operator_git_extension_fixture() {
@@ -3739,6 +4128,8 @@ fn agent_session_control_fixture() -> FrontendContractFixtureOut {
             canonical_ref: Some("repo://crates/runtime/src/lib.rs".to_string()),
         },
         allowed_scopes: vec![ApprovalScope::Once],
+        revised_from: None,
+        editable: false,
         policy_reason_key: "permission.requires_approval".to_string(),
         policy_reason_args: BTreeMap::new(),
         expires_at: 1_700_006_000,
@@ -4368,6 +4759,8 @@ fn structured_diff_fixture() -> FrontendContractFixtureOut {
                 default_action: ApprovalDefaultAction::Deny,
                 audit_id: format!("audit_{id}"),
                 decision_context: Some(decision_context),
+                revised_from: None,
+                editable: false,
             }
         };
 
@@ -4926,6 +5319,8 @@ fn operator_git_fixture() -> FrontendContractFixtureOut {
                     diff: Some(staged),
                     base_sha256: None,
                 }),
+                revised_from: None,
+                editable: false,
             },
         },
         RuntimeEventKind::ApprovalResolved {
@@ -5651,6 +6046,7 @@ fn frontend_host_services_fixture() -> FrontendContractFixtureOut {
         worktree_path: "workspace/.worktrees/lane-host-fixture".to_string(),
         base_revision: "cd".repeat(20),
         diagnostics: Vec::new(),
+        agent: None,
     };
     let kinds = vec![
         RuntimeEventKind::UiPreferencesUpdated {
@@ -5701,6 +6097,7 @@ fn frontend_host_services_fixture() -> FrontendContractFixtureOut {
                 worktree_path: preview.worktree_path.clone(),
                 base_revision: preview.base_revision.clone(),
                 owner: owner.clone(),
+                session: None,
             },
         },
         RuntimeEventKind::StarterLanePreviewInvalidated {
@@ -5811,6 +6208,7 @@ fn interaction_closed_loop_fixture() -> FrontendContractFixtureOut {
         worktree_path: "workspace/.worktrees/lane-loop-coder".to_string(),
         base_revision: "34".repeat(20),
         diagnostics: Vec::new(),
+        agent: None,
     };
     let adapters = vec![
         AgentAdapterView {
@@ -5973,6 +6371,7 @@ fn interaction_closed_loop_fixture() -> FrontendContractFixtureOut {
                     worktree_path: preview.worktree_path.clone(),
                     base_revision: preview.base_revision.clone(),
                     owner: acp_owner.clone(),
+                    session: None,
                 },
             },
         ),
@@ -6565,6 +6964,8 @@ fn approval(id: &str, title: &str, is_mutating: bool) -> ApprovalRequestView {
         default_action: ApprovalDefaultAction::Deny,
         audit_id: format!("audit_{id}"),
         decision_context: None,
+        revised_from: None,
+        editable: false,
     }
 }
 
@@ -7240,6 +7641,552 @@ fn ui_layout_preferences_fixture() -> FrontendContractFixtureOut {
         ],
         snapshot(WorkMode::Build),
         owned_envelopes(fixture_id, owner, kinds, 1_700_004_200),
+    )
+}
+
+/// GUI-CORE-019: canonical proof that a standing `Always` grant, its
+/// revocation, and an `Edit` decision are readable as facts rather than as
+/// client state.
+///
+/// The grant is offered on a medium-risk request, installed, and the *same*
+/// tool and input in a later session runs with no `ApprovalRequested` at all —
+/// the one thing a standing rule has to prove, because a client that saw a
+/// prompt anyway would have no way to tell a rule that failed to load from a
+/// rule that was never granted. The revocation brings the prompt back.
+///
+/// The second half is the revision round: an editable request answered with
+/// `Edit` resolves as `Edit` — not as an allow, because nothing had been
+/// decided yet — and is followed by a second request that names the one it
+/// replaces and carries its own pre-minted audit id. A high-risk request's
+/// `allowed_scopes` lacks `Always`, and answering one under plan mode with a
+/// revision resolves `Deny`.
+///
+/// Every value is fixed and no machine path appears, so the bytes are
+/// identical on every machine that regenerates this fixture.
+fn approval_scopes_fixture() -> FrontendContractFixtureOut {
+    let fixture_id = "approval-scopes";
+    let owner = RuntimeOwner {
+        workspace_id: "workspace_contract_v1".to_string(),
+        project_id: "project_viden".to_string(),
+        lane_id: Some("lane_approval_scopes".to_string()),
+        session_id: Some("session_approval_scopes".to_string()),
+        task_id: Some("task_approval_scopes".to_string()),
+        turn_id: Some("turn_approval_scopes".to_string()),
+    };
+    // The second session: a different session id, the same workspace and the
+    // same standing rule. `Session` scope could not span this boundary, which
+    // is exactly what the `Always` row below is for.
+    let second_session = RuntimeOwner {
+        session_id: Some("session_approval_scopes_two".to_string()),
+        turn_id: Some("turn_approval_scopes_two".to_string()),
+        ..owner.clone()
+    };
+    let standing = StandingApprovalView {
+        rule_id: "rule_approval_scopes".to_string(),
+        tool_name: "shell".to_string(),
+        // The same encoding a `Session` rule uses.
+        rule_content: "command=cargo fmt --all -- --check".to_string(),
+        granted_at: 1_700_004_002,
+        granted_in_workspace: "workspace_contract_v1".to_string(),
+        audit_id: "audit_approval_scopes_always".to_string(),
+    };
+
+    let shell_request = |id: &str,
+                         audit_id: &str,
+                         command: &str,
+                         risk: ApprovalRisk,
+                         scopes: Vec<ApprovalScope>,
+                         editable: bool,
+                         revised_from: Option<&str>| {
+        ApprovalRequestView {
+            id: id.to_string(),
+            tool_name: "shell".to_string(),
+            title: "Approve shell".to_string(),
+            message: "Approve shell?".to_string(),
+            input_preview: format!("  command: {command}"),
+            is_mutating: true,
+            reason: Some("Approve shell?".to_string()),
+            owner: owner.clone(),
+            risk,
+            target: ApprovalTarget {
+                kind: "shell".to_string(),
+                display: format!("  command: {command}"),
+                canonical_ref: None,
+            },
+            allowed_scopes: scopes,
+            policy_reason_key: "permission.requires_approval".to_string(),
+            policy_reason_args: BTreeMap::new(),
+            expires_at: 1_700_004_300,
+            default_action: ApprovalDefaultAction::Deny,
+            audit_id: audit_id.to_string(),
+            decision_context: None,
+            revised_from: revised_from.map(str::to_string),
+            editable,
+        }
+    };
+
+    let kinds = vec![
+        // 1. The grant. `Always` is offered last, after the narrower scopes.
+        RuntimeEventKind::ApprovalRequested {
+            approval: shell_request(
+                "approval_scopes_grant",
+                "audit_approval_scopes_always",
+                "cargo fmt --all -- --check",
+                ApprovalRisk::Medium,
+                vec![
+                    ApprovalScope::Once,
+                    ApprovalScope::Session {
+                        session_id: "session_approval_scopes".to_string(),
+                    },
+                    ApprovalScope::Always,
+                ],
+                true,
+                None,
+            ),
+        },
+        RuntimeEventKind::CommandAccepted {
+            command_id: "cmd_approval_scopes_always".to_string(),
+            command: RuntimeCommand::RespondToApproval {
+                request_id: "approval_scopes_grant".to_string(),
+                response: ApprovalResponse::allow_always(None),
+            },
+        },
+        // The rule is durable before it is announced, and the fact names the
+        // decision's own audit row.
+        RuntimeEventKind::StandingApprovalGranted {
+            rule: standing.clone(),
+        },
+        RuntimeEventKind::ApprovalResolved {
+            request_id: "approval_scopes_grant".to_string(),
+            decision: ApprovalDecision::Allow {
+                scope: ApprovalScope::Always,
+            },
+            owner: owner.clone(),
+            audit_id: "audit_approval_scopes_always".to_string(),
+        },
+        RuntimeEventKind::ToolCallStarted {
+            tool_call_id: "tool_scopes_first".to_string(),
+            name: "shell".to_string(),
+            input_preview: "command=cargo fmt --all -- --check".to_string(),
+            owner: Some(owner.clone()),
+        },
+        RuntimeEventKind::ToolCallFinished {
+            tool_call_id: "tool_scopes_first".to_string(),
+            name: "shell".to_string(),
+            success: true,
+            exit_code: Some(0),
+            evidence: None,
+        },
+        // 2. A later session, same tool and input: the rule answers and there
+        // is no `ApprovalRequested` between these two facts at all.
+        RuntimeEventKind::ToolCallStarted {
+            tool_call_id: "tool_scopes_second_session".to_string(),
+            name: "shell".to_string(),
+            input_preview: "command=cargo fmt --all -- --check".to_string(),
+            owner: Some(second_session.clone()),
+        },
+        RuntimeEventKind::ToolCallFinished {
+            tool_call_id: "tool_scopes_second_session".to_string(),
+            name: "shell".to_string(),
+            success: true,
+            exit_code: Some(0),
+            evidence: None,
+        },
+        // 3. The revocation, with its own audit row.
+        RuntimeEventKind::CommandAccepted {
+            command_id: "cmd_approval_scopes_revoke".to_string(),
+            command: RuntimeCommand::RevokeStandingApproval {
+                rule_id: "rule_approval_scopes".to_string(),
+            },
+        },
+        RuntimeEventKind::StandingApprovalRevoked {
+            rule_id: "rule_approval_scopes".to_string(),
+            audit_id: "audit_approval_scopes_revoke".to_string(),
+            owner: second_session.clone(),
+        },
+        // 4. The prompt is back on the third try.
+        RuntimeEventKind::ApprovalRequested {
+            approval: shell_request(
+                "approval_scopes_after_revoke",
+                "audit_approval_scopes_after_revoke",
+                "cargo fmt --all -- --check",
+                ApprovalRisk::Medium,
+                vec![
+                    ApprovalScope::Once,
+                    ApprovalScope::Session {
+                        session_id: "session_approval_scopes".to_string(),
+                    },
+                    ApprovalScope::Always,
+                ],
+                true,
+                None,
+            ),
+        },
+        RuntimeEventKind::ApprovalResolved {
+            request_id: "approval_scopes_after_revoke".to_string(),
+            decision: ApprovalDecision::Deny,
+            owner: owner.clone(),
+            audit_id: "audit_approval_scopes_after_revoke".to_string(),
+        },
+        // 5. The revision round. The original resolves `Edit`, never `Allow`.
+        RuntimeEventKind::ApprovalRequested {
+            approval: shell_request(
+                "approval_scopes_wide",
+                "audit_approval_scopes_wide",
+                "rm -rf target",
+                ApprovalRisk::Medium,
+                vec![
+                    ApprovalScope::Once,
+                    ApprovalScope::Session {
+                        session_id: "session_approval_scopes".to_string(),
+                    },
+                    ApprovalScope::Always,
+                ],
+                true,
+                None,
+            ),
+        },
+        RuntimeEventKind::ApprovalResolved {
+            request_id: "approval_scopes_wide".to_string(),
+            decision: ApprovalDecision::Edit {
+                revised_input: BTreeMap::from([(
+                    "command".to_string(),
+                    "rm -rf target/debug".to_string(),
+                )]),
+            },
+            owner: owner.clone(),
+            audit_id: "audit_approval_scopes_wide".to_string(),
+        },
+        RuntimeEventKind::ApprovalRequested {
+            approval: shell_request(
+                "approval_scopes_revised",
+                "audit_approval_scopes_revised",
+                "rm -rf target/debug",
+                ApprovalRisk::Medium,
+                vec![
+                    ApprovalScope::Once,
+                    ApprovalScope::Session {
+                        session_id: "session_approval_scopes".to_string(),
+                    },
+                    ApprovalScope::Always,
+                ],
+                true,
+                Some("approval_scopes_wide"),
+            ),
+        },
+        RuntimeEventKind::ApprovalResolved {
+            request_id: "approval_scopes_revised".to_string(),
+            decision: ApprovalDecision::Allow {
+                scope: ApprovalScope::Once,
+            },
+            owner: owner.clone(),
+            audit_id: "audit_approval_scopes_revised".to_string(),
+        },
+        // The revised bytes are what ran.
+        RuntimeEventKind::ToolCallStarted {
+            tool_call_id: "tool_scopes_revised".to_string(),
+            name: "shell".to_string(),
+            input_preview: "command=rm -rf target/debug".to_string(),
+            owner: Some(owner.clone()),
+        },
+        RuntimeEventKind::ToolCallFinished {
+            tool_call_id: "tool_scopes_revised".to_string(),
+            name: "shell".to_string(),
+            success: true,
+            exit_code: Some(0),
+            evidence: None,
+        },
+        // 6. A high-risk request does not offer the standing scope, and a
+        // client that sends it anyway is refused by name.
+        RuntimeEventKind::ApprovalRequested {
+            approval: ApprovalRequestView {
+                risk: ApprovalRisk::High,
+                target: ApprovalTarget {
+                    kind: "git".to_string(),
+                    display: "git_push (workspace)".to_string(),
+                    canonical_ref: Some("workspace".to_string()),
+                },
+                tool_name: "git_push".to_string(),
+                title: "Approve git_push".to_string(),
+                message: "git_push requires approval".to_string(),
+                input_preview: "  remote: origin".to_string(),
+                reason: Some("git_push requires approval".to_string()),
+                // Not editable: a push's target is not a path an operator
+                // narrows from the prompt.
+                editable: false,
+                allowed_scopes: vec![ApprovalScope::Once],
+                ..shell_request(
+                    "approval_scopes_high",
+                    "audit_approval_scopes_high",
+                    "unused",
+                    ApprovalRisk::High,
+                    vec![ApprovalScope::Once],
+                    false,
+                    None,
+                )
+            },
+        },
+        RuntimeEventKind::CommandRejected {
+            command_id: "cmd_approval_scopes_high_always".to_string(),
+            reason: "approval request `approval_scopes_high` scope_not_offered".to_string(),
+        },
+        RuntimeEventKind::ApprovalResolved {
+            request_id: "approval_scopes_high".to_string(),
+            decision: ApprovalDecision::Deny,
+            owner: owner.clone(),
+            audit_id: "audit_approval_scopes_high".to_string(),
+        },
+        // 7. Plan mode refuses a revision on the request itself, so the
+        // original settles as the refusal the operator has to read.
+        RuntimeEventKind::SnapshotUpdated {
+            snapshot: snapshot(WorkMode::Plan),
+        },
+        RuntimeEventKind::ApprovalRequested {
+            approval: shell_request(
+                "approval_scopes_plan",
+                "audit_approval_scopes_plan",
+                "cargo build",
+                ApprovalRisk::Medium,
+                vec![ApprovalScope::Once],
+                true,
+                None,
+            ),
+        },
+        RuntimeEventKind::ApprovalResolved {
+            request_id: "approval_scopes_plan".to_string(),
+            decision: ApprovalDecision::Deny,
+            owner: owner.clone(),
+            audit_id: "audit_approval_scopes_plan".to_string(),
+        },
+    ];
+
+    fixture(
+        fixture_id,
+        &[
+            "runtime.approval_scopes",
+            "runtime.approvals",
+            "runtime.commands",
+            "runtime.events",
+            "runtime.snapshot",
+        ],
+        snapshot(WorkMode::Build),
+        owned_envelopes(fixture_id, owner, kinds, 1_700_004_000),
+    )
+}
+
+/// GUI-CORE-030: canonical proof that the Agent an operator picked in the
+/// starter-Lane wizard reaches Core, and that the Lane exists either way.
+///
+/// A preview echoes the binding and the create's receipt says the session
+/// started, under the Lane owner. A second preview names an adapter this Core
+/// does not have: the binding is echoed with a diagnostic rather than dropped,
+/// the preview stays creatable, and its receipt says the session was refused
+/// beside a Lane that was created — which is the whole point, because a wizard
+/// that unwound the Lane would lose work over a pick the operator can still
+/// change.
+///
+/// Every value is fixed and no machine path appears, so the bytes are
+/// identical on every machine that regenerates this fixture.
+fn starter_lane_agent_fixture() -> FrontendContractFixtureOut {
+    let fixture_id = "starter-lane-agent";
+    let owner = RuntimeOwner {
+        workspace_id: "workspace_contract_v1".to_string(),
+        project_id: "project_viden".to_string(),
+        lane_id: Some("lane-starter-agent".to_string()),
+        session_id: None,
+        task_id: None,
+        turn_id: None,
+    };
+    let session_owner = RuntimeOwner {
+        session_id: Some("agent-session-starter".to_string()),
+        ..owner.clone()
+    };
+    let unknown_owner = RuntimeOwner {
+        lane_id: Some("lane-starter-unknown".to_string()),
+        ..owner.clone()
+    };
+
+    let lane = |lane_id: &str, status: LaneStatus| AgentLaneRecord {
+        id: lane_id.to_string(),
+        task_id: None,
+        role: AgentRole::Coder,
+        route: AgentRoute::BuiltIn,
+        gate_strength: GateStrength::Full,
+        mutation_policy: MutationPolicy::ProposeOnly,
+        worktree: Some(format!("workspace/.worktrees/{lane_id}")),
+        branch: Some(format!("codex/{lane_id}")),
+        target: ExecutionTarget::Local,
+        data_egress: viden_types::DataEgressPolicy::Deny,
+        status,
+        budget: LaneBudget::default(),
+        active_session_ids: Vec::new(),
+        summary: "coder starter lane".to_string(),
+        evidence: Vec::new(),
+        run_stats: None,
+    };
+
+    let binding = StarterLaneAgentBinding {
+        agent_id: "claude-code".to_string(),
+        model: Some("claude-sonnet".to_string()),
+        task: Some("wire the starter Lane binding".to_string()),
+    };
+    let unknown_binding = StarterLaneAgentBinding {
+        agent_id: "agent-that-is-not-installed".to_string(),
+        model: None,
+        // No task: the preset's summary is the honest default objective.
+        task: None,
+    };
+
+    let preview = StarterLanePreview {
+        preview_id: "preview-starter-agent".to_string(),
+        // Covers the binding, so changing the pick invalidates the preview.
+        content_sha256: "1a".repeat(32),
+        owner: owner.clone(),
+        lane: lane("lane-starter-agent", LaneStatus::Draft),
+        branch: "codex/lane-starter-agent".to_string(),
+        worktree_path: "workspace/.worktrees/lane-starter-agent".to_string(),
+        base_revision: "2b".repeat(20),
+        diagnostics: Vec::new(),
+        agent: Some(binding.clone()),
+    };
+    let unknown_preview = StarterLanePreview {
+        preview_id: "preview-starter-agent-unknown".to_string(),
+        content_sha256: "3c".repeat(32),
+        owner: unknown_owner.clone(),
+        lane: lane("lane-starter-unknown", LaneStatus::Draft),
+        branch: "codex/lane-starter-unknown".to_string(),
+        worktree_path: "workspace/.worktrees/lane-starter-unknown".to_string(),
+        base_revision: "2b".repeat(20),
+        diagnostics: vec!["starter_lane.agent_unknown:agent-that-is-not-installed".to_string()],
+        agent: Some(unknown_binding.clone()),
+    };
+
+    let events = vec![
+        (
+            RuntimeEventKind::CommandAccepted {
+                command_id: "cmd_starter_agent_preview".to_string(),
+                command: RuntimeCommand::PreviewStarterLane {
+                    request: StarterLaneRequest {
+                        lane_id: "lane-starter-agent".to_string(),
+                        preset: StarterLanePreset::Coder,
+                        branch: Some("codex/lane-starter-agent".to_string()),
+                        worktree_path: Some("workspace/.worktrees/lane-starter-agent".to_string()),
+                        agent: Some(binding.clone()),
+                    },
+                },
+            },
+            owner.clone(),
+        ),
+        (
+            RuntimeEventKind::StarterLanePreviewed {
+                preview: preview.clone(),
+            },
+            owner.clone(),
+        ),
+        (
+            RuntimeEventKind::LaneUpdated {
+                lane: lane("lane-starter-agent", LaneStatus::Running),
+            },
+            owner.clone(),
+        ),
+        (
+            RuntimeEventKind::StarterLaneCreated {
+                receipt: StarterLaneReceipt {
+                    preview_id: preview.preview_id.clone(),
+                    content_sha256: preview.content_sha256.clone(),
+                    lane: lane("lane-starter-agent", LaneStatus::Running),
+                    branch: preview.branch.clone(),
+                    worktree_path: preview.worktree_path.clone(),
+                    base_revision: preview.base_revision.clone(),
+                    owner: owner.clone(),
+                    session: Some(StarterLaneSessionOutcome::Started {
+                        session_id: "agent-session-starter".to_string(),
+                    }),
+                },
+            },
+            owner.clone(),
+        ),
+        (
+            RuntimeEventKind::AgentSessionUpdated {
+                session: AgentSessionView {
+                    session_id: "agent-session-starter".to_string(),
+                    lane_id: "lane-starter-agent".to_string(),
+                    agent_id: "claude-code".to_string(),
+                    model: Some("claude-sonnet".to_string()),
+                    status: AgentSessionStatus::Starting,
+                    owner: session_owner.clone(),
+                    task: "wire the starter Lane binding".to_string(),
+                    diagnostic: None,
+                    output: None,
+                    control: None,
+                },
+            },
+            session_owner.clone(),
+        ),
+        // The second wizard run: an adapter this Core does not have.
+        (
+            RuntimeEventKind::StarterLanePreviewed {
+                preview: unknown_preview.clone(),
+            },
+            unknown_owner.clone(),
+        ),
+        (
+            RuntimeEventKind::LaneUpdated {
+                lane: lane("lane-starter-unknown", LaneStatus::Running),
+            },
+            unknown_owner.clone(),
+        ),
+        (
+            RuntimeEventKind::StarterLaneCreated {
+                receipt: StarterLaneReceipt {
+                    preview_id: unknown_preview.preview_id.clone(),
+                    content_sha256: unknown_preview.content_sha256.clone(),
+                    lane: lane("lane-starter-unknown", LaneStatus::Running),
+                    branch: unknown_preview.branch.clone(),
+                    worktree_path: unknown_preview.worktree_path.clone(),
+                    base_revision: unknown_preview.base_revision.clone(),
+                    owner: unknown_owner.clone(),
+                    session: Some(StarterLaneSessionOutcome::Refused {
+                        reason: "agent adapter `agent-that-is-not-installed` is not known"
+                            .to_string(),
+                    }),
+                },
+            },
+            unknown_owner.clone(),
+        ),
+        // The two-step flow is untouched: a request with no binding is the
+        // same bytes it always was, and its receipt carries no outcome.
+        (
+            RuntimeEventKind::CommandAccepted {
+                command_id: "cmd_starter_agent_none".to_string(),
+                command: RuntimeCommand::PreviewStarterLane {
+                    request: StarterLaneRequest {
+                        lane_id: "lane-starter-agent".to_string(),
+                        preset: StarterLanePreset::Coder,
+                        branch: Some("codex/lane-starter-agent".to_string()),
+                        worktree_path: Some("workspace/.worktrees/lane-starter-agent".to_string()),
+                        agent: None,
+                    },
+                },
+            },
+            owner.clone(),
+        ),
+    ];
+
+    fixture(
+        fixture_id,
+        &[
+            "runtime.agent_sessions",
+            "runtime.commands",
+            "runtime.events",
+            "runtime.lane_lifecycle",
+            "runtime.snapshot",
+            "runtime.starter_lane_agent",
+            "runtime.starter_lane_preview",
+            "runtime.typed_lanes",
+        ],
+        snapshot(WorkMode::Build),
+        owned_envelopes_per_event(fixture_id, events, 1_700_005_000),
     )
 }
 
@@ -8406,6 +9353,8 @@ fn durable_work_evidence_fixture() -> FrontendContractFixtureOut {
                     default_action: ApprovalDefaultAction::Deny,
                     audit_id: approval_audit_id.to_string(),
                     decision_context: None,
+                    revised_from: None,
+                    editable: false,
                 },
             },
             owner.clone(),

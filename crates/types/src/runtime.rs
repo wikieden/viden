@@ -15,13 +15,14 @@ use crate::{
     ProviderCacheObservationRecord, RecentProjectSummary, RecentSessionSummary, RecentWorkQuery,
     ResolvedUiPreferences, RevertRecord, ReviewRequestRecord, ReviewVerdict,
     ReviewedEvidenceBinding, RuntimeOwner, RuntimeServiceHealthView, RuntimeSnapshot, SessionId,
-    SourceTarget, StarterLanePreset, StarterLanePreview, StarterLanePreviewInvalidationReason,
-    StarterLaneReceipt, StarterLaneRequest, ToolCallId, TranscriptPage, TranscriptPageRequest,
-    TranscriptRowsPage, TranscriptRowsQuery, TurnOutcome, TurnView, UiLayoutPreferencePatch,
-    UiLayoutPreferences, UiPreferenceDiagnostic, UiPreferencePatch, UiPreferences, WorkMode,
-    WorkspaceChangeView, WorkspaceDiffPage, WorkspaceDiffQuery, WorkspaceEligibility,
-    WorkspaceFileContent, WorkspaceFilePage, WorkspaceFileReadQuery, WorkspaceFilesQuery,
-    WorkspaceRuntimeOwnerBinding, WorkspaceSourceView, now_timestamp,
+    SourceTarget, StandingApprovalView, StarterLanePreset, StarterLanePreview,
+    StarterLanePreviewInvalidationReason, StarterLaneReceipt, StarterLaneRequest, ToolCallId,
+    TranscriptPage, TranscriptPageRequest, TranscriptRowsPage, TranscriptRowsQuery, TurnOutcome,
+    TurnView, UiLayoutPreferencePatch, UiLayoutPreferences, UiPreferenceDiagnostic,
+    UiPreferencePatch, UiPreferences, WorkMode, WorkspaceChangeView, WorkspaceDiffPage,
+    WorkspaceDiffQuery, WorkspaceEligibility, WorkspaceFileContent, WorkspaceFilePage,
+    WorkspaceFileReadQuery, WorkspaceFilesQuery, WorkspaceRuntimeOwnerBinding, WorkspaceSourceView,
+    now_timestamp,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -224,6 +225,13 @@ pub enum RuntimeCommand {
     RespondToApproval {
         request_id: String,
         response: ApprovalResponse,
+    },
+    /// Removes one standing `Always` approval (`runtime.approval_scopes`,
+    /// GUI-CORE-019). The rule leaves the user-level settings file and the
+    /// live engine in the same command, so a revoked rule cannot come back at
+    /// the next bootstrap.
+    RevokeStandingApproval {
+        rule_id: String,
     },
     ConfigureProvider {
         provider_id: String,
@@ -522,6 +530,27 @@ pub struct ApprovalRequestView {
     /// preview for this tool — never "this tool changes nothing".
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub decision_context: Option<DecisionContext>,
+    /// The request this one revises (`runtime.approval_scopes`,
+    /// GUI-CORE-019).
+    ///
+    /// Present only on the second request an `Edit` produces when the revised
+    /// input still needs a decision. A client uses it to replace the row the
+    /// operator was looking at instead of stacking a second unrelated prompt.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revised_from: Option<String>,
+    /// Whether Core will accept an `ApprovalDecision::Edit` for this request.
+    ///
+    /// Core marks editable only the built-in tools whose input is a flat text
+    /// map an operator can safely revise; a patch-bearing input is never
+    /// editable, because a revised patch body is a different change, not a
+    /// narrower one.
+    ///
+    /// Serialized only when true. The design brief specified a bare
+    /// `#[serde(default)]`, but an unconditionally serialized field would add
+    /// a key to every `ApprovalRequestView` and move the nine frozen base
+    /// fixtures, which the extension procedure forbids.
+    #[serde(default, skip_serializing_if = "core::ops::Not::not")]
+    pub editable: bool,
 }
 
 fn default_approval_risk() -> ApprovalRisk {
@@ -1104,6 +1133,19 @@ pub enum RuntimeEventKind {
         owner: RuntimeOwner,
         audit_id: String,
     },
+    /// A standing `Always` approval was installed
+    /// (`runtime.approval_scopes`, GUI-CORE-019).
+    StandingApprovalGranted {
+        rule: StandingApprovalView,
+    },
+    /// A standing `Always` approval was removed from the settings file and the
+    /// live engine. Carries the audit row the revocation was written under, so
+    /// the receipt a client shows resolves to a durable fact.
+    StandingApprovalRevoked {
+        rule_id: String,
+        audit_id: String,
+        owner: RuntimeOwner,
+    },
     CommandAccepted {
         command_id: String,
         command: RuntimeCommand,
@@ -1321,6 +1363,10 @@ pub struct RuntimeViewState {
     pub workspace_changes: Vec<WorkspaceChangeView>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub check_runs: Vec<CheckRunView>,
+    /// The standing `Always` approvals in force (`runtime.approval_scopes`,
+    /// GUI-CORE-019). Empty is a real answer meaning none are installed.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub standing_approvals: Vec<StandingApprovalView>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub starter_lane_previews: Vec<StarterLanePreview>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -1427,6 +1473,7 @@ impl RuntimeViewState {
             runtime_services: Vec::new(),
             workspace_changes: Vec::new(),
             check_runs: Vec::new(),
+            standing_approvals: Vec::new(),
             starter_lane_previews: Vec::new(),
             starter_lane_receipts: Vec::new(),
             project_probe: None,
@@ -1871,6 +1918,17 @@ impl RuntimeViewState {
             RuntimeEventKind::ApprovalResolved { request_id, .. } => {
                 self.pending_approvals
                     .retain(|approval| approval.id != *request_id);
+            }
+            // Last write wins on the rule id, so a replayed grant is
+            // idempotent rather than duplicated.
+            RuntimeEventKind::StandingApprovalGranted { rule } => {
+                self.standing_approvals
+                    .retain(|existing| existing.rule_id != rule.rule_id);
+                self.standing_approvals.push(rule.clone());
+            }
+            RuntimeEventKind::StandingApprovalRevoked { rule_id, .. } => {
+                self.standing_approvals
+                    .retain(|existing| existing.rule_id != *rule_id);
             }
             RuntimeEventKind::CommandAccepted {
                 command_id,

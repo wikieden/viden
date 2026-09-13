@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use viden_provider::ModelProvider;
 use viden_types::{ModelEvent, ModelRequest, fresh_id};
 
+mod approval_scopes_tests;
 mod audit_runtime_tests;
 mod decide_review_tests;
 mod durable_work_evidence_tests;

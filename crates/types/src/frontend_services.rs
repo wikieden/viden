@@ -1,6 +1,7 @@
 use crate::{
     AgentLaneRecord, LaneSidebarMode, LocaleId, MAX_HIDDEN_STATUSBAR_SEGMENT_BYTES,
-    MAX_HIDDEN_STATUSBAR_SEGMENTS, RuntimeOwner, UiColorMode, UiDensity, UiMotion, UiSkin,
+    MAX_HIDDEN_STATUSBAR_SEGMENTS, RuntimeOwner, SessionId, UiColorMode, UiDensity, UiMotion,
+    UiSkin,
 };
 
 /// Partial personal UI preference update sent by a frontend.
@@ -216,6 +217,22 @@ pub enum StarterLanePreset {
     Tester,
 }
 
+/// The Agent a starter Lane should begin its first session with
+/// (`runtime.starter_lane_agent`, GUI-CORE-030).
+///
+/// The binding is the operator's pick travelling with the request instead of
+/// being dropped at the client boundary. `task` defaults to the preset's
+/// summary, so a wizard that offers no task field still produces an honest
+/// session objective.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct StarterLaneAgentBinding {
+    pub agent_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task: Option<String>,
+}
+
 /// User-controlled inputs whose resolved result must be reviewed before creation.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct StarterLaneRequest {
@@ -223,6 +240,11 @@ pub struct StarterLaneRequest {
     pub preset: StarterLanePreset,
     pub branch: Option<String>,
     pub worktree_path: Option<String>,
+    /// Absent means the two-step flow: the Lane is created and the client
+    /// sends `StartAgentSession` itself. A request without it serializes to
+    /// exactly the bytes it did before this field existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<StarterLaneAgentBinding>,
 }
 
 /// Read-only resolution of a starter Lane request against one repository revision.
@@ -236,6 +258,12 @@ pub struct StarterLanePreview {
     pub worktree_path: String,
     pub base_revision: String,
     pub diagnostics: Vec<String>,
+    /// The binding echoed back. An `agent_id` absent from `agent_adapters`
+    /// is echoed anyway with a `starter_lane.agent_unknown` diagnostic: the
+    /// preview stays creatable and the receipt will say the session was
+    /// refused, rather than the pick disappearing silently.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<StarterLaneAgentBinding>,
 }
 
 /// Owner-bound proof that the reviewed Lane was durably created.
@@ -248,6 +276,21 @@ pub struct StarterLaneReceipt {
     pub worktree_path: String,
     pub base_revision: String,
     pub owner: RuntimeOwner,
+    /// What became of the bound Agent's session. Absent when the request
+    /// carried no binding. Lane creation never fails because a session did
+    /// not start, so `Refused` here is the honest answer beside a Lane that
+    /// exists.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session: Option<StarterLaneSessionOutcome>,
+}
+
+/// What `CreateStarterLane` made of a `StarterLaneAgentBinding`
+/// (`runtime.starter_lane_agent`, GUI-CORE-030).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StarterLaneSessionOutcome {
+    Started { session_id: SessionId },
+    Refused { reason: String },
 }
 
 /// Stable reasons why a reviewed preview stopped being creatable.

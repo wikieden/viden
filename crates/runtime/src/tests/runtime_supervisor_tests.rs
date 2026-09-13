@@ -4435,7 +4435,11 @@ fn runtime_supervisor_approval_rejects_unadvertised_or_wrong_scopes_without_reso
                     matches!(
                         &event.kind,
                         RuntimeEventKind::CommandRejected { command_id: rejected, reason }
-                            if rejected == command_id && reason.contains("scope is not allowed")
+                            // `runtime.approval_scopes` renamed this refusal
+                            // to the stable reason the contract publishes; the
+                            // behavior — refuse and leave the request pending
+                            // — is unchanged.
+                            if rejected == command_id && reason.contains("scope_not_offered")
                     )
                 })
             },

@@ -34,8 +34,8 @@ pub use lane_runtime::{
     resolve_lane_output_log,
 };
 pub use lane_supervisor::{
-    LaneCommandRedactor, LanePersistence, LaneSupervisor, WorkflowLanePersistence,
-    workspace_eligibility,
+    LaneCommandRedactor, LanePersistence, LaneSupervisor, StarterLaneAgentPolicy,
+    UnboundStarterLaneAgentPolicy, WorkflowLanePersistence, workspace_eligibility,
 };
 pub use lane_worker::{
     LaneApprovalIntake, LaneApprovalResolver, LaneEventSink, LanePendingApproval,

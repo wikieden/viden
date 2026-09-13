@@ -377,6 +377,9 @@ a contract change, not a refactor.
 | Turn an accepted plan into work | `HandOffPlanDocument { plan_id, revision, content_sha256 }` | the plan-mode refusal raised before anything is authorized, the `plan.handed_off` audit row, one `AgentDagTaskSpec` per step built with the mapped dependencies and the session's own mutation policy, the existing `start_agent_dag` path, and the ordering that publishes `AgentDagUpdated` before `PlanDocumentHandedOff` |
 | Create a starter Lane | `PreviewStarterLane`, review the result, then `CreateStarterLane` with the unchanged request/id/hash | preset resolution, workspace/isolation checks, permission gate, execution-time recheck, compensation, typed receipt |
 | Pause, resume, or kill an Agent session | `PauseAgentSession`, `ResumeAgentSession`, `KillAgentSession`, each from the session's exact bound owner | the adapter cancel and its grace, the resident connection a pause keeps and a kill retires, the denial of the pending approval whose turn is gone, the held inputs and their count, the `agent_session.*` audit row before the fact that announces it, and the status the next control command is judged against |
+| Create a starter Lane | `PreviewStarterLane`, review the result, then `CreateStarterLane` with the unchanged request/id/hash, optionally carrying `agent` | preset resolution, workspace/isolation checks, permission gate, execution-time recheck, compensation, typed receipt, and — since Core `0.3.8` — the bound Agent's session started after the Lane exists with its outcome stamped on the receipt (`runtime.starter_lane_agent`) |
+| Stop being asked about one tool and input | `RespondToApproval` with `Allow { Always }`, and `RevokeStandingApproval { rule_id }` to take it back | the `UserSettings` rule, its `[[permissions.standing]]` row in the user-level settings file, the bootstrap load into the engine, the `approval.always` and `approval.revoke` audit rows, and the `StandingApprovalGranted`/`StandingApprovalRevoked` facts (`runtime.approval_scopes`) |
+| Narrow a request instead of denying it | `RespondToApproval` with `Edit { revised_input }` | the re-decision of the revision through the same gate, the `updated_input`/`user_modified` execution, the second request carrying `revised_from`, and the `scope_not_offered`/`revision_unchanged` refusals (`runtime.approval_scopes`) |
 | Arrange the cockpit layout | `SetUiLayoutPreferences { patch }`, `ResetUiLayoutPreferences` | `[ui.layout]` persistence in the user config, bounds on the hidden-segment list, the published record with `persisted` and its diagnostics, and the snapshot-prefix copy |
 
 Starter Lane isolation is selected by Core, not by the frontend. A workspace
@@ -1382,6 +1385,77 @@ call. The same turn-scoped finalization applies to every later provider/tool
 failure: Core marks only still-active tasks registered by that turn as failed,
 preserves tasks that are already terminal, leaves unrelated active tasks
 unchanged, and publishes the terminal task facts before `Error`.
+
+### Approval Scopes (`runtime.approval_scopes`, GUI-CORE-019)
+
+`ApprovalScope` gains `always` and `ApprovalDecision` gains
+`edit { revised_input }`. Both are optional: a client that renders neither
+behaves exactly as before, and a request that offers neither serializes to the
+bytes it always did.
+
+- **What is offered.** `allowed_scopes` carries `always` last, after the
+  narrower scopes, and only when the request's `risk` is below `high` and the
+  mode is not plan. `editable` says whether `edit` is accepted; Core marks
+  editable only the built-in tools whose input is a flat map of a command line
+  or workspace paths (`git_add`, `git_restore`, `glob`, `grep`, `read_file`,
+  `shell`) and never a patch-bearing one, because a revised body is a different
+  change wearing the reviewed change's approval. A client must render only what
+  the request offers; sending either where it was not offered is
+  `CommandRejected` with `scope_not_offered`, and the request stays pending.
+- **What a grant means.** `always` installs a rule keyed on the same
+  tool-plus-content pair a `session` rule uses, persisted in the
+  `[[permissions.standing]]` table of `settings.toml` in the Viden home and
+  loaded at bootstrap, so it applies in every workspace and across restarts —
+  the only approval scope that does. The rule reaches the file before
+  `StandingApprovalGranted` announces it; a file that cannot be written
+  degrades the answer to `allow { once }` with a published `Error` rather than
+  announcing a grant nothing holds.
+- **What is in force.** `RuntimeViewState.standing_approvals` is the authority,
+  skipped when empty. A client lists and revokes from it and never from its own
+  memory of grants it has seen.
+- **Revocation.** `RevokeStandingApproval { rule_id }` removes the rule from
+  the file, writes `approval.revoke`, publishes `StandingApprovalRevoked`, and
+  only then clears the live engine. A `rule_id` the file does not hold is
+  `CommandRejected` rather than answered with a revocation that removed nothing.
+- **What an edit means.** A revision is re-decided, not allowed: Core runs
+  `decide(tool, revised_input)`. An allow runs the tool with the revised bytes
+  and `user_modified: true`, and the original resolves with decision `edit`. An
+  ask resolves the original `edit` and publishes a second `ApprovalRequested`
+  whose `revised_from` names the request it replaces and whose `audit_id` is
+  freshly pre-minted; a client replaces the row it was showing rather than
+  stacking a second unrelated prompt. A deny — a rule, or plan mode, which is
+  enforced on the request itself — resolves the original `deny` with the
+  engine's reason. A revision byte-identical to the original is
+  `CommandRejected` with `revision_unchanged` and leaves the request
+  answerable. At most eight revisions per approval; past that Core fails closed.
+- **Audit.** `approval.always` and `approval.edit` are decision rows under the
+  pre-minted `audit_id`, on both the runtime-owned and the lane-owned approval
+  branches; an `approval.edit` row carries a bounded `revised_input` argument.
+  `approval.revoke` is its own row naming the rule and the tool it governed.
+
+### Starter-Lane Agent Binding (`runtime.starter_lane_agent`, GUI-CORE-030)
+
+`StarterLaneRequest` and `StarterLanePreview` gain an optional
+`agent { agent_id, model, task }`, and `StarterLaneReceipt` gains an optional
+`session`. A request without the binding behaves exactly as before, byte for
+byte, and the two-step flow stays valid.
+
+- The preview's `content_sha256` covers the binding, so changing the pick after
+  review invalidates the preview as `RequestChanged` exactly as changing the
+  branch does.
+- An `agent_id` absent from `agent_adapters` is echoed with a
+  `starter_lane.agent_unknown:<id>` diagnostic rather than dropped or refused.
+  The preview stays creatable, because the honest answer belongs on the receipt
+  and a pick that vanished silently would leave the operator believing a session
+  was starting.
+- `CreateStarterLane` creates the Lane and writes its receipt exactly as before,
+  then starts the session through the same owner and lane-binding checks
+  `StartAgentSession` runs, and stamps `session: started { session_id }` or
+  `refused { reason }` on the receipt. `task` defaults to the preset's Lane
+  summary.
+- Lane creation never fails because a session did not start. A client reads
+  `refused` as "the Lane is yours, the session is not" and may send
+  `StartAgentSession` itself.
 
 ## UI Preference And Design Entry Contract
 
