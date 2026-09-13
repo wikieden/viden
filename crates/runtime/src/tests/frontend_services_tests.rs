@@ -2379,7 +2379,10 @@ fn default_starter_lane_in_real_git_workspace_settles_its_creation_receipt() {
             _ => None,
         })
         .unwrap();
-    assert!(preview.lane.branch.is_some(), "real Git workspace previews a branch");
+    assert!(
+        preview.lane.branch.is_some(),
+        "real Git workspace previews a branch"
+    );
 
     // Byte-identical to what `GuiCoreAdapter` rebuilds from the published
     // projection before it sends `CreateStarterLane` (adapter.rs:4726).
