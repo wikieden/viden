@@ -105,6 +105,8 @@ brief 位于派发者的 scratchpad；每个批次返回带逐字检查尾部的
 | G9 Agent Board | GUI | 基于 Lane/会话层级的驾驶舱内 Agent Board，含基于 C14 事实的暂停/恢复/终止/切换模型控件；D4 第 2 步发送 agent 绑定（C15）；权限坞中的 Always/Edit（C15） | DS、C14、C15、G8 |
 | T4 TUI 对等 | TUI | 计划文档透镜、会话控制按键、Always/Edit 决定、`/lanes` 上的 agent 绑定；带原因的回归基线 | C13 至 C15 |
 | G10 设计保真门 | GUI | 每个驾驶舱表面对设计包的截图与组件对等、CJK IME、纯键盘遍历、机器可读无障碍、有界性能记录、双主题；保真报告 | G8、G9 |
+| H4 GUI 原生缺陷 | GUI | 以红先测试关闭 E3a 原生运行发现的缺陷 14–21：内置 agent 的 Lane 创建不再被 ACP 发现门控、探测有界并标注、starter-Lane 预览不再排在探测之后、决策中心在决定后呈现下一个审批、源码控制在途状态在完成后清除、静默自行退出被诊断并修复、三处布局/状态小问题；对被阻塞步骤做一次原生复跑作为证明 | E3a |
+| E3b 候选上的原生证明 | 证据 | H4、G8、G9 之后在发布候选上用原生 GUI 跑完整真实任务（含 Lane 半段）；追加到证据文档；供 R1 使用 | H4、G10 |
 | H3 卫生 | Core、GUI | 注册表裁定（018、021、023、026、029、031、032、033 重标为 `0.3.6` 或带理由关闭）；把 `viden-plugin-host` 与 `viden-agents` 的计时测试改为确定性以退役串行重跑规则；清掉 clippy 既有告警集 | 无 |
 | P1 打包 | 发布 | 通过以 `upload_to_release=false` 派发的 `release.yml` 产出 macOS（arm64、x86_64）、Windows、Linux 的可复现 bundle；校验和；仅在用户提供凭据处签名与公证；记录 bundle 矩阵 | G10 |
 | R1 生产发布门 | 发布 | 带真实 provider 段（用户提供密钥）、迁移与全工作区段的 `scripts/release-gate.sh --phase prepublish`，同版本的 GitHub Release 与 Homebrew tap 验证，`--phase postpublish`；Core `0.3.8` 检查点与三条版本提升；`0.3.5` 完成报告 | 以上全部，且每个对外步骤各需一次「go」 |
@@ -130,7 +132,7 @@ brief 位于派发者的 scratchpad；每个批次返回带逐字检查尾部的
 
 | # | 准则 |
 | --- | --- |
-| 1 | `0.3.4` 真实任务已通过 GUI 驾驶舱原生证明，或报告写明屏幕持续锁定并指名改为在哪个候选 SHA 上取证 |
+| 1 | `0.3.4` 真实任务已通过 GUI 驾驶舱原生证明，或报告写明屏幕持续锁定并指名改为在哪个候选 SHA 上取证。2026-09-13 E3a 后修订：运行到达了工作区半段（绑定、暂存、提交、推送、审计、文件读取），Lane 半段被 GUI 缺陷 14–16 阻塞；H4 关闭它们，E3b 在候选上取得完整证明 |
 | 2 | 兼容性后续项 10、13、14、15、16 带日期与 file:line 关闭；Lane 路径审批在宣告事实之前写入审计行 |
 | 3 | Plan Studio 与 Agent Board 在设计包中是登记的 D 屏，在驾驶舱中是保留 chrome 的中央面板视图，基于 Core 事实，每个无后端控件置灰并标注 |
 | 4 | Core `0.3.8` 声明 33 项能力并附 fixture；九个冻结基线 fixture 与每个 `0.3.4` fixture 与 `edcc7b3d` 字节一致 |
