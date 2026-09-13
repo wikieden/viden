@@ -4929,24 +4929,11 @@ impl GuiCoreAdapter {
             };
             received = true;
             // Every correlated command, not only the permission dock's: this
-            // drain may be the only one that ever sees this envelope.
-            self.reconcile_ambient_pendings(&event);
-            let observation = self
-                .pending_d1
-                .as_mut()
-                .map_or(D1Observation::Continue, |pending| pending.observe(&event));
-            match observation {
-                D1Observation::Continue => {}
-                D1Observation::Confirmed => {
-                    self.pending_d1 = None;
-                    self.d1_outcome = D1OutcomeProjection::confirmed();
-                    break;
-                }
-                D1Observation::Rejected(reason) => {
-                    self.pending_d1 = None;
-                    self.d1_outcome = D1OutcomeProjection::rejected(reason);
-                    break;
-                }
+            // drain may be the only one that ever sees this envelope. The
+            // funnel settles the D1 pending too, so this loop only has to
+            // stop once it did.
+            if self.reconcile_ambient_pendings(&event) {
+                break;
             }
         }
         if received && !receive_failed {
@@ -6249,7 +6236,18 @@ impl GuiCoreAdapter {
     /// the commit bar saying "waiting for the permission decision" beside a
     /// completed commit, unchanged thirty seconds later. Every drain now funnels
     /// through here, so whoever takes an event reconciles all of them.
-    fn reconcile_ambient_pendings(&mut self, event: &RuntimeEventEnvelope) {
+    /// Offers one drained event to every correlated pending this adapter
+    /// holds. Returns whether it settled the in-flight D1 command.
+    ///
+    /// Every ordered Core event reaches exactly one drain, and in the shipped
+    /// desktop shell that drain is almost never the screen's own `poll_d1`:
+    /// `spawn_core_event_pump` holds the bounded receive on a background
+    /// thread and the webview only reads *after* the wake the pump emits. A
+    /// pending whose receipt is not offered here therefore never settles —
+    /// which is E3b defect 22, where a `StarterLaneCreated` consumed by the
+    /// pump held the client's single D1 command slot for the life of the
+    /// process and silently dropped every later submit and cancel.
+    fn reconcile_ambient_pendings(&mut self, event: &RuntimeEventEnvelope) -> bool {
         self.observe_pending_permission(event);
         self.observe_pending_preference(event);
         self.observe_pending_layout_preference(event);
@@ -6265,6 +6263,33 @@ impl GuiCoreAdapter {
         self.observe_pending(event);
         self.observe_pending_d12(event);
         self.observe_d4(event);
+        self.observe_pending_d1(event)
+    }
+
+    /// Settles the in-flight D1 command against one ordered event.
+    ///
+    /// The outcome is recorded on the adapter rather than returned, because
+    /// the screen that sent the command may not be the caller that drains its
+    /// receipt: the next `poll_d1` reads both the freed slot and the recorded
+    /// outcome from here.
+    fn observe_pending_d1(&mut self, event: &RuntimeEventEnvelope) -> bool {
+        let observation = self
+            .pending_d1
+            .as_mut()
+            .map_or(D1Observation::Continue, |pending| pending.observe(event));
+        match observation {
+            D1Observation::Continue => false,
+            D1Observation::Confirmed => {
+                self.pending_d1 = None;
+                self.d1_outcome = D1OutcomeProjection::confirmed();
+                true
+            }
+            D1Observation::Rejected(reason) => {
+                self.pending_d1 = None;
+                self.d1_outcome = D1OutcomeProjection::rejected(reason);
+                true
+            }
+        }
     }
 
     /// Drains ordered Core events with one bounded wait and refreshes the
@@ -6291,7 +6316,10 @@ impl GuiCoreAdapter {
                 }
             };
             received = true;
-            self.reconcile_ambient_pendings(&event);
+            // A settled D1 command is not a reason to stop draining here: the
+            // pump has no screen to answer, and the webview reads the freed
+            // slot off the adapter on the wake this drain triggers.
+            let _ = self.reconcile_ambient_pendings(&event);
         }
         if received {
             let _ = self.refresh_projection();
