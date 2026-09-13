@@ -456,5 +456,15 @@
   "approval.standing.unavailable": "常驻批准不可用 · {capability}",
   "approval.standing.empty": "没有常驻批准。Core 未持有任何跨会话留存的规则。",
   "approval.standing.row": "{marker} {tool}  {content} · 授予于 {workspace} · 审计 {audit}",
-  "interaction.standing_approvals": "常驻批准 · Enter 撤销 · Esc 关闭"
+  "interaction.standing_approvals": "常驻批准 · Enter 撤销 · Esc 关闭",
+  "starter_lane.agent.prompt": "为该 Lane 绑定一个 Agent · ↑↓ 移动 · Enter 创建 · Esc 返回",
+  "starter_lane.agent.unavailable": "Agent 绑定不可用 · {capability} · Lane 仍会创建，会话需自行启动",
+  "starter_lane.agent.none": "{marker} 不绑定 Agent · 先创建 Lane，之后再启动会话",
+  "starter_lane.agent.row": "{marker} {agent} · {model} · {status}",
+  "starter_lane.agent.default_model": "适配器默认模型",
+  "starter_lane.preview.agent": "Core 回显了 Agent 绑定 · {agent} · {model}",
+  "starter_lane.preview.diagnostic": "Core 诊断 · {diagnostic}",
+  "starter_lane.session.started": "Core 已在 lane {lane} 上启动绑定的 Agent 会话 {session}。",
+  "starter_lane.session.refused": "Lane {lane} 已存在；Core 拒绝了它的 Agent 会话 · {reason}",
+  "interaction.native_lane.agent": "新建 LANE · AGENT"
 }

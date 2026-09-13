@@ -456,5 +456,15 @@
   "approval.standing.unavailable": "Standing approvals unavailable · {capability}",
   "approval.standing.empty": "No standing approvals. Core holds no rule that outlives this session.",
   "approval.standing.row": "{marker} {tool}  {content} · granted in {workspace} · audit {audit}",
-  "interaction.standing_approvals": "STANDING APPROVALS · Enter revokes · Esc closes"
+  "interaction.standing_approvals": "STANDING APPROVALS · Enter revokes · Esc closes",
+  "starter_lane.agent.prompt": "Bind an Agent to this Lane · ↑↓ move · Enter creates · Esc back",
+  "starter_lane.agent.unavailable": "Agent binding unavailable · {capability} · the Lane is created and you start a session yourself",
+  "starter_lane.agent.none": "{marker} No Agent · create the Lane, start a session later",
+  "starter_lane.agent.row": "{marker} {agent} · {model} · {status}",
+  "starter_lane.agent.default_model": "adapter default model",
+  "starter_lane.preview.agent": "Core echoed the Agent binding · {agent} · {model}",
+  "starter_lane.preview.diagnostic": "Core diagnostic · {diagnostic}",
+  "starter_lane.session.started": "Core started the bound Agent session {session} on lane {lane}.",
+  "starter_lane.session.refused": "The Lane {lane} exists; Core refused its Agent session · {reason}",
+  "interaction.native_lane.agent": "NEW LANE · AGENT"
 }

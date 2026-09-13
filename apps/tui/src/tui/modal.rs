@@ -28,9 +28,10 @@ use super::{
     },
     projection::CockpitProjection,
     session_control::{SESSION_CONTROL_CAPABILITY, SessionControl, control_suffix, status_glyph},
+    starter_lane_agent::{starter_lane_agent_picks, starter_lane_agent_rows},
     state::{
-        AcpPickerPhase, ConflictDetailTarget, GitPickerPhase, InteractionPanel, TuiState,
-        has_active_work,
+        AcpPickerPhase, ConflictDetailTarget, GitPickerPhase, InteractionPanel, NewLanePhase,
+        TuiState, has_active_work,
     },
     text::{truncate, truncate_tail},
 };
@@ -211,6 +212,10 @@ pub(super) fn render_overlays(frame: &mut Frame, state: &TuiState, _right_rail_w
                 GitPickerPhase::Browse => "interaction.git",
                 GitPickerPhase::CommitMessage { .. } => "interaction.git.commit",
             },
+            Some(InteractionPanel::NewLaneTask {
+                phase: NewLanePhase::AgentPick { .. },
+                ..
+            }) => "interaction.native_lane.agent",
             Some(InteractionPanel::NewLaneTask { .. }) => "interaction.native_lane.task",
             Some(InteractionPanel::StandingApprovals { .. }) => "interaction.standing_approvals",
             None => unreachable!("panel presence checked above"),
@@ -1042,7 +1047,15 @@ pub(super) fn interaction_rows(state: &TuiState) -> Vec<String> {
                 format!("> {draft}"),
             ],
         },
-        Some(InteractionPanel::NewLaneTask { task }) => {
+        // The Agent step replaces the task rows entirely rather than sitting
+        // under them: the task is already typed and the operator is choosing,
+        // and a panel that showed both would invite editing text that the next
+        // Enter no longer submits.
+        Some(InteractionPanel::NewLaneTask {
+            phase: NewLanePhase::AgentPick { selected },
+            ..
+        }) => starter_lane_agent_rows(state, *selected),
+        Some(InteractionPanel::NewLaneTask { task, .. }) => {
             let eligibility = state.runtime.workspace_eligibility.as_ref();
             let status = match eligibility {
                 Some(value)
@@ -1875,6 +1888,10 @@ pub(super) fn interaction_panel_choice_count(state: &TuiState) -> usize {
             AcpPickerPhase::Browse => acp_picker_rows(state).len(),
             AcpPickerPhase::TaskEntry { .. } => 1,
         },
+        Some(InteractionPanel::NewLaneTask {
+            phase: NewLanePhase::AgentPick { .. },
+            ..
+        }) => starter_lane_agent_picks(state).len(),
         Some(InteractionPanel::NewLaneTask { .. }) => 1,
         Some(InteractionPanel::StandingApprovals { .. }) => state.runtime.standing_approvals.len(),
         _ => interaction_rows(state).len(),

@@ -46,10 +46,11 @@ use super::projection::{CancelOwnerProjection, CockpitProjection};
 use super::session_control::{
     SESSION_CONTROL_CAPABILITY, SessionControl, SessionControlSettlement,
 };
+use super::starter_lane_agent::{StarterLaneAgentPick, starter_lane_agent_picks};
 use super::state::{
     AcpPickerPhase, ConflictDetailTarget, FocusedConversation, GitPickerPhase, InteractionPanel,
-    Lens, OverlayState, PendingAcpStart, PendingNativeLane, SupervisionInput, SupervisionPanel,
-    TuiEntry, TuiState, composer_target_busy, has_active_work,
+    Lens, NewLanePhase, OverlayState, PendingAcpStart, PendingNativeLane, SupervisionInput,
+    SupervisionPanel, TuiEntry, TuiState, composer_target_busy, has_active_work,
 };
 use super::terminal::TerminalGuard;
 use super::text::truncate_tail;
@@ -698,6 +699,7 @@ fn apply_input_intent<C: CoreClient>(
             state.ui.overlay = None;
             state.ui.interaction_panel = Some(InteractionPanel::NewLaneTask {
                 task: String::new(),
+                phase: NewLanePhase::Task,
             });
         }
         InputIntent::Exit => return Ok(UiEventOutcome::Exit),
@@ -2414,6 +2416,10 @@ fn interaction_selected(state: &TuiState) -> usize {
         | Some(InteractionPanel::ModelPicker { selected, .. })
         | Some(InteractionPanel::AcpPicker { selected, .. })
         | Some(InteractionPanel::GitPicker { selected, .. }) => *selected,
+        Some(InteractionPanel::NewLaneTask {
+            phase: NewLanePhase::AgentPick { selected },
+            ..
+        }) => *selected,
         Some(InteractionPanel::NewLaneTask { .. }) => 0,
         _ => 0,
     }
@@ -2449,6 +2455,10 @@ fn set_interaction_panel_selected(state: &mut TuiState, index: usize) {
         | Some(InteractionPanel::ModelPicker { selected, .. })
         | Some(InteractionPanel::AcpPicker { selected, .. })
         | Some(InteractionPanel::GitPicker { selected, .. }) => *selected = index,
+        Some(InteractionPanel::NewLaneTask {
+            phase: NewLanePhase::AgentPick { selected },
+            ..
+        }) => *selected = index,
         Some(InteractionPanel::NewLaneTask { .. }) => {}
         _ => {}
     }
@@ -2495,12 +2505,18 @@ fn edit_interaction_panel_text(state: &mut TuiState, value: Option<char>) {
                 }
             }
         }
-        Some(InteractionPanel::NewLaneTask { task }) => match value {
+        // Only the task step has a text field; the Agent step is a selector
+        // and its keys are the selector's.
+        Some(InteractionPanel::NewLaneTask {
+            task,
+            phase: NewLanePhase::Task,
+        }) => match value {
             Some(value) => task.push(value),
             None => {
                 task.pop();
             }
         },
+        Some(InteractionPanel::NewLaneTask { .. }) => {}
         // Neither panel has a text field: the standing list is a selector and
         // the provider-config panel routes through the composer.
         Some(InteractionPanel::StandingApprovals { .. })
@@ -2651,7 +2667,8 @@ fn apply_interaction_panel_selection<C: CoreClient>(
         apply_git_picker_selection(driver, state, selected, &phase)?;
         return Ok(false);
     }
-    if let Some(InteractionPanel::NewLaneTask { task }) = state.ui.interaction_panel.clone() {
+    if let Some(InteractionPanel::NewLaneTask { task, phase }) = state.ui.interaction_panel.clone()
+    {
         if task.trim().is_empty()
             || !driver.has_capability(WORKSPACE_ELIGIBILITY_CAPABILITY)
             || !state
@@ -2662,11 +2679,29 @@ fn apply_interaction_panel_selection<C: CoreClient>(
         {
             return Ok(false);
         }
+        // The task step never creates anything: it hands over to the Agent
+        // pick, whose default row is the two-step flow this client had before
+        // `runtime.starter_lane_agent`. Nothing has been sent yet, so backing
+        // out of the pick costs nothing.
+        if phase == NewLanePhase::Task {
+            state.ui.interaction_panel = Some(InteractionPanel::NewLaneTask {
+                task,
+                phase: NewLanePhase::AgentPick { selected: 0 },
+            });
+            return Ok(false);
+        }
+        let NewLanePhase::AgentPick { selected } = phase else {
+            return Ok(false);
+        };
+        let agent = starter_lane_agent_picks(state)
+            .get(selected)
+            .and_then(StarterLaneAgentPick::binding);
         driver.send(RuntimeCommand::PreviewDefaultStarterLane {
             preset: StarterLanePreset::Coder,
         })?;
         state.ui.pending_native_lane = Some(PendingNativeLane::AwaitingPreview {
             task: task.trim().to_string(),
+            agent,
         });
         state.ui.interaction_panel = None;
         return Ok(false);
@@ -2773,7 +2808,31 @@ fn settings_choice_is_selected(
     }
 }
 
+/// `Esc` in Lane creation unwinds the Agent pick back to the task the operator
+/// typed before it closes the panel, so a mis-picked Agent does not cost the
+/// text. Nothing has been sent at either rung.
+fn close_new_lane_agent_pick(key: KeyEvent, state: &mut TuiState) -> bool {
+    if key.code != KeyCode::Esc {
+        return false;
+    }
+    let Some(InteractionPanel::NewLaneTask {
+        task,
+        phase: NewLanePhase::AgentPick { .. },
+    }) = state.ui.interaction_panel.clone()
+    else {
+        return false;
+    };
+    state.ui.interaction_panel = Some(InteractionPanel::NewLaneTask {
+        task,
+        phase: NewLanePhase::Task,
+    });
+    true
+}
+
 fn close_interaction_panel_or_palette(key: KeyEvent, state: &mut TuiState) {
+    if close_new_lane_agent_pick(key, state) {
+        return;
+    }
     if let Some(InteractionPanel::Settings(panel)) = state.ui.interaction_panel.as_mut()
         && let Some(field) = panel.field.take()
     {
@@ -2902,18 +2961,18 @@ fn observe_driver_events<C: CoreClient>(
         match (&event.kind, state.ui.pending_native_lane.clone()) {
             (
                 viden_core::RuntimeEventKind::StarterLanePreviewed { preview },
-                Some(PendingNativeLane::AwaitingPreview { task }),
+                Some(PendingNativeLane::AwaitingPreview { task, agent }),
             ) => {
                 driver.send_for_owner(
                     preview.owner.clone(),
                     RuntimeCommand::CreateStarterLane {
                         request: viden_core::StarterLaneRequest {
-                            // `runtime.starter_lane_agent` (GUI-CORE-030).
-                            // The TUI's `/lanes` creation takes an optional
-                            // agent in batch T4; until then it sends the
-                            // two-step flow, which is byte-identical to what
-                            // it sent before the field existed.
-                            agent: None,
+                            // The operator's pick, travelling with the request
+                            // (`runtime.starter_lane_agent`, GUI-CORE-030).
+                            // `None` is the two-step flow and is byte-identical
+                            // to what this client sent before the field
+                            // existed.
+                            agent,
                             lane_id: preview.lane.id.clone(),
                             preset: StarterLanePreset::Coder,
                             branch: preview.lane.branch.clone(),
@@ -2923,6 +2982,40 @@ fn observe_driver_events<C: CoreClient>(
                         content_sha256: preview.content_sha256.clone(),
                     },
                 )?;
+                // Core's echo of the binding, not this client's memory of the
+                // pick: an `agent_id` Core does not know is echoed with a
+                // `starter_lane.agent_unknown` diagnostic and the Lane is
+                // still created, so the operator has to see what Core actually
+                // resolved before the receipt arrives.
+                if let Some(echoed) = preview.agent.as_ref() {
+                    state.ui.entries.push(TuiEntry {
+                        label: "system".to_string(),
+                        body: super::i18n::translate(
+                            state,
+                            "starter_lane.preview.agent",
+                            &[
+                                ("agent", echoed.agent_id.as_str()),
+                                (
+                                    "model",
+                                    echoed.model.as_deref().unwrap_or(&super::i18n::text(
+                                        state,
+                                        "starter_lane.agent.default_model",
+                                    )),
+                                ),
+                            ],
+                        ),
+                    });
+                }
+                for diagnostic in &preview.diagnostics {
+                    state.ui.entries.push(TuiEntry {
+                        label: "system".to_string(),
+                        body: super::i18n::translate(
+                            state,
+                            "starter_lane.preview.diagnostic",
+                            &[("diagnostic", diagnostic.as_str())],
+                        ),
+                    });
+                }
                 state.ui.pending_native_lane = Some(PendingNativeLane::AwaitingReceipt {
                     task,
                     preview_id: preview.preview_id.clone(),
@@ -2943,6 +3036,38 @@ fn observe_driver_events<C: CoreClient>(
                         content: task.clone(),
                     },
                 )?;
+                // The receipt's own answer about the bound session. Lane
+                // creation never fails because a session did not start, so
+                // `Refused` is stated beside a Lane that exists rather than
+                // read as a failed creation.
+                if let Some(outcome) = receipt.session.as_ref() {
+                    let body = match outcome {
+                        viden_types::StarterLaneSessionOutcome::Started { session_id } => {
+                            super::i18n::translate(
+                                state,
+                                "starter_lane.session.started",
+                                &[
+                                    ("session", session_id.as_str()),
+                                    ("lane", receipt.lane.id.as_str()),
+                                ],
+                            )
+                        }
+                        viden_types::StarterLaneSessionOutcome::Refused { reason } => {
+                            super::i18n::translate(
+                                state,
+                                "starter_lane.session.refused",
+                                &[
+                                    ("lane", receipt.lane.id.as_str()),
+                                    ("reason", reason.as_str()),
+                                ],
+                            )
+                        }
+                    };
+                    state.ui.entries.push(TuiEntry {
+                        label: "system".to_string(),
+                        body,
+                    });
+                }
                 state.ui.focus_lane(receipt.lane.id.clone());
                 state.ui.focused_conversation =
                     Some(FocusedConversation::NativeLane(receipt.lane.id.clone()));
@@ -4476,9 +4601,15 @@ mod tests {
         }
         project_driver_view(&mut state, &driver);
         observe_driver_events(&mut state, &mut driver).expect("observe eligibility");
+        // Lane creation is two steps since `runtime.starter_lane_agent`: the
+        // task hands over to the Agent pick, whose first row is the two-step
+        // flow this test's subject predates. Nothing is sent until the pick.
         state.ui.interaction_panel = Some(InteractionPanel::NewLaneTask {
             task: "fix the parser".to_string(),
+            phase: NewLanePhase::Task,
         });
+        apply_interaction_panel_selection(&mut driver, &mut state).expect("open the agent pick");
+        assert!(sent.lock().expect("sent commands").is_empty());
         apply_interaction_panel_selection(&mut driver, &mut state).expect("request preview");
         assert!(matches!(
             sent.lock().expect("sent commands")[0].command,
@@ -4565,9 +4696,15 @@ mod tests {
         }
         project_driver_view(&mut state, &driver);
         observe_driver_events(&mut state, &mut driver).expect("observe eligibility");
+        // Lane creation is two steps since `runtime.starter_lane_agent`: the
+        // task hands over to the Agent pick, whose first row is the two-step
+        // flow this test's subject predates. Nothing is sent until the pick.
         state.ui.interaction_panel = Some(InteractionPanel::NewLaneTask {
             task: "inspect this folder".to_string(),
+            phase: NewLanePhase::Task,
         });
+        apply_interaction_panel_selection(&mut driver, &mut state).expect("open the agent pick");
+        assert!(sent.lock().expect("sent commands").is_empty());
         apply_interaction_panel_selection(&mut driver, &mut state).expect("request preview");
         driver.pump().expect("direct workspace preview");
         project_driver_view(&mut state, &driver);
@@ -10388,5 +10525,157 @@ mod tests {
                 ..
             }] if rule_id == "rule_approval_scopes"
         ));
+    }
+
+    /// Lane creation with the operator's Agent pick travelling on the request
+    /// (`runtime.starter_lane_agent`, GUI-CORE-030).
+    ///
+    /// The preview and receipt come from the shared fixture, so what is
+    /// asserted about the echo and the refusal is Core's own wire truth.
+    #[test]
+    fn creating_a_lane_carries_the_agent_pick_and_renders_the_receipts_session_outcome() {
+        let interaction: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../crates/types/tests/fixtures/frontend-contract-v1/interaction-closed-loop.json"
+        ))
+        .expect("interaction fixture");
+        let mut events = interaction["events"]
+            .as_array()
+            .expect("fixture events")
+            .iter()
+            .take(4)
+            .map(|value| {
+                serde_json::from_value::<RuntimeEventEnvelope>(value.clone())
+                    .expect("runtime event")
+            })
+            .collect::<VecDeque<_>>();
+        for event in &mut events {
+            event.cursor.stream_id = "fixture".to_string();
+        }
+        // Core's own answer about the bound session, replayed onto the
+        // receipt this flow waits for.
+        if let viden_core::RuntimeWireEvent::Known(viden_core::RuntimeEvent {
+            kind: viden_core::RuntimeEventKind::StarterLaneCreated { receipt },
+            ..
+        }) = &mut events[3].event
+        {
+            receipt.session = Some(viden_types::StarterLaneSessionOutcome::Refused {
+                reason: "starter_lane.agent_unknown:claude-code".to_string(),
+            });
+        } else {
+            panic!("the fourth fixture event is the starter Lane receipt");
+        }
+        let client = FakeCoreClient {
+            transport: FakeCoreTransport {
+                events,
+                ..FakeCoreTransport::default()
+            },
+            ..FakeCoreClient::default()
+        };
+        let sent = Arc::clone(&client.sent);
+        let mut driver = TuiClientDriver::connect(client).expect("connect");
+        let mut state = TuiState::default();
+        for _ in 0..2 {
+            driver.pump().expect("eligibility event");
+        }
+        project_driver_view(&mut state, &driver);
+        observe_driver_events(&mut state, &mut driver).expect("observe eligibility");
+        state.capabilities = driver.capabilities();
+        state
+            .runtime
+            .agent_adapters
+            .push(viden_core::AgentAdapterView {
+                agent_id: "claude-code".to_string(),
+                display_name: "Claude Code".to_string(),
+                route: viden_core::AgentRoute::Acp,
+                source: viden_core::AgentAdapterSource::Registry,
+                availability: viden_core::AgentAvailability::Available,
+                auth_state: viden_core::AgentAuthState::Ready,
+                startability: viden_core::AgentStartability::Ready,
+                capabilities: Vec::new(),
+                models: vec!["claude-sonnet".to_string()],
+                diagnostics: Vec::new(),
+            });
+        state.ui.interaction_panel = Some(InteractionPanel::NewLaneTask {
+            task: "fix the parser".to_string(),
+            // Row 0 is the two-step flow; row 2 is the adapter at its
+            // published model.
+            phase: NewLanePhase::AgentPick { selected: 2 },
+        });
+
+        apply_interaction_panel_selection(&mut driver, &mut state).expect("request preview");
+        assert_eq!(
+            state.ui.pending_native_lane,
+            Some(PendingNativeLane::AwaitingPreview {
+                task: "fix the parser".to_string(),
+                agent: Some(viden_types::StarterLaneAgentBinding {
+                    agent_id: "claude-code".to_string(),
+                    model: Some("claude-sonnet".to_string()),
+                    task: None,
+                }),
+            })
+        );
+
+        driver.pump().expect("preview event");
+        project_driver_view(&mut state, &driver);
+        observe_driver_events(&mut state, &mut driver).expect("create from preview");
+        assert!(
+            matches!(
+                &sent.lock().expect("sent commands")[1].command,
+                RuntimeCommand::CreateStarterLane { request, .. }
+                    if request.agent
+                        == Some(viden_types::StarterLaneAgentBinding {
+                            agent_id: "claude-code".to_string(),
+                            model: Some("claude-sonnet".to_string()),
+                            task: None,
+                        })
+            ),
+            "the pick must travel with the request"
+        );
+
+        driver.pump().expect("receipt event");
+        project_driver_view(&mut state, &driver);
+        observe_driver_events(&mut state, &mut driver).expect("render the session outcome");
+        assert!(
+            state.ui.entries.iter().any(|entry| entry
+                .body
+                .contains("starter_lane.agent_unknown:claude-code")),
+            "the receipt's refusal must be stated beside the Lane that exists: {:?}",
+            state.ui.entries
+        );
+        assert!(
+            state
+                .runtime
+                .lanes
+                .iter()
+                .any(|lane| lane.id == state.ui.focused_lane.clone().unwrap_or_default()),
+            "Lane creation never fails because a session did not start"
+        );
+    }
+
+    #[test]
+    fn escape_unwinds_the_agent_pick_back_to_the_task_without_losing_it() {
+        let client = FakeCoreClient::default();
+        let mut driver = TuiClientDriver::connect(client).expect("connect");
+        let mut state = TuiState::default();
+        state.ui.interaction_panel = Some(InteractionPanel::NewLaneTask {
+            task: "fix the parser".to_string(),
+            phase: NewLanePhase::AgentPick { selected: 0 },
+        });
+
+        handle_ui_event(
+            &mut driver,
+            &mut state,
+            Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
+            (120, 40),
+        )
+        .expect("unwind the agent pick");
+
+        assert_eq!(
+            state.ui.interaction_panel,
+            Some(InteractionPanel::NewLaneTask {
+                task: "fix the parser".to_string(),
+                phase: NewLanePhase::Task,
+            })
+        );
     }
 }

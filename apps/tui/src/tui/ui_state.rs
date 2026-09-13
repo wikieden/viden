@@ -1,3 +1,5 @@
+use viden_types::StarterLaneAgentBinding;
+
 use super::{
     audit_panel::AuditPanel,
     composer_buffer::ComposerBuffer,
@@ -193,10 +195,22 @@ pub(super) enum FocusedConversation {
     AcpSession(String),
 }
 
+/// Where Lane creation is: typing the first turn, or picking the Agent that
+/// will answer it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum NewLanePhase {
+    Task,
+    AgentPick { selected: usize },
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum PendingNativeLane {
     AwaitingPreview {
         task: String,
+        /// The operator's Agent pick, travelling with the request rather than
+        /// being dropped at the client boundary (GUI-CORE-030). `None` is the
+        /// two-step flow and serializes to the bytes it always did.
+        agent: Option<StarterLaneAgentBinding>,
     },
     AwaitingReceipt {
         task: String,
@@ -251,6 +265,12 @@ pub(super) enum InteractionPanel {
     },
     NewLaneTask {
         task: String,
+        /// Which step of Lane creation the panel is on
+        /// (`runtime.starter_lane_agent`, GUI-CORE-030). A phase rather than
+        /// an optional field so the task can never be submitted while the
+        /// Agent pick is still open, and the pick can never be made before
+        /// there is a task to create the Lane for.
+        phase: NewLanePhase,
     },
 }
 
