@@ -2507,6 +2507,7 @@ fn agent_adapter_and_session_events_roundtrip_as_known_owner_scoped_facts() {
         task: "review the runtime contract".to_string(),
         diagnostic: None,
         output: None,
+        control: None,
     };
     let cases = [
         RuntimeEventKind::AgentAdaptersLoaded {
@@ -2570,6 +2571,7 @@ fn agent_adapter_and_session_events_roundtrip_as_known_owner_scoped_facts() {
                     task: "review".to_string(),
                     diagnostic: None,
                     output: None,
+                    control: None,
                 },
             },
         )),
@@ -2603,6 +2605,7 @@ fn agent_adapter_and_session_events_roundtrip_as_known_owner_scoped_facts() {
                     task: "review".to_string(),
                     diagnostic: None,
                     output: None,
+                    control: None,
                 },
             },
         )),
@@ -2667,6 +2670,7 @@ fn agent_adapter_and_session_events_reduce_by_stable_identity_and_owner() {
         task: "review the runtime contract".to_string(),
         diagnostic: None,
         output: None,
+        control: None,
     };
     let completed = AgentSessionView {
         status: AgentSessionStatus::Completed,
@@ -2782,6 +2786,7 @@ fn first_agent_session_promotes_the_provisional_lane_runtime_owner() {
         task: "inspect the repository".to_string(),
         diagnostic: None,
         output: None,
+        control: None,
     };
     let mut view = RuntimeViewState::new(runtime_snapshot_for_contract());
     view.apply_event(&RuntimeEvent::new(
@@ -2958,6 +2963,7 @@ fn d1_main_cockpit_keeps_one_agent_session_per_lane_projection() {
         task: "replacement must not join the Lane projection".to_string(),
         diagnostic: None,
         output: None,
+        control: None,
     };
     let replacement_owner = replacement.owner.clone();
     let replacement_session = RuntimeEventEnvelope {
@@ -3068,6 +3074,7 @@ fn d1_terminal_lane_cannot_rebind_a_second_execution_owner() {
         task: "must not restart a terminal Lane".to_string(),
         diagnostic: None,
         output: None,
+        control: None,
     };
     view.apply_event(&RuntimeEvent::new(
         92,
@@ -4455,6 +4462,7 @@ fn assistant_deltas_grow_one_owner_scoped_conversation_message() {
         task: "draw a cat".to_string(),
         diagnostic: None,
         output: None,
+        control: None,
     };
     let mut view = RuntimeViewState::new(runtime_snapshot_for_contract());
     view.apply_event(&RuntimeEvent::new(
@@ -4529,6 +4537,7 @@ fn a_completed_session_does_not_duplicate_the_streamed_reply() {
         task: "draw a cat".to_string(),
         diagnostic: None,
         output: None,
+        control: None,
     };
     let mut view = RuntimeViewState::new(runtime_snapshot_for_contract());
     view.apply_event(&RuntimeEvent::new(
@@ -4648,6 +4657,7 @@ fn an_agent_message_part_attaches_to_its_streamed_message() {
         task: "draw a cat".to_string(),
         diagnostic: None,
         output: None,
+        control: None,
     };
     let mut view = RuntimeViewState::new(runtime_snapshot_for_contract());
     view.apply_event(&RuntimeEvent::new(
@@ -5637,6 +5647,7 @@ fn stream_lifecycle_session(session_id: &str, status: AgentSessionStatus) -> Age
         task: "settle the stream".to_string(),
         diagnostic: None,
         output: Some("the settled reply".to_string()),
+        control: None,
     }
 }
 
@@ -7777,7 +7788,7 @@ fn the_transcript_rows_capability_is_an_advertised_extension() {
     // 29 completed the 0.3.4 increment (C8 was its last Core batch); the
     // 0.3.5 increment moves it again, starting with C13's
     // `runtime.plan_documents`.
-    assert_eq!(FRONTEND_V1_EXTENSION_CAPABILITIES.len(), 30);
+    assert_eq!(FRONTEND_V1_EXTENSION_CAPABILITIES.len(), 31);
 }
 
 // ---------------------------------------------------------------------------
@@ -8105,5 +8116,238 @@ fn the_plan_documents_capability_is_an_advertised_extension() {
         "extension capabilities must stay sorted and unique"
     );
     // 29 -> 30 with C13, the first Core batch of the 0.3.5 increment.
-    assert_eq!(FRONTEND_V1_EXTENSION_CAPABILITIES.len(), 30);
+    assert_eq!(FRONTEND_V1_EXTENSION_CAPABILITIES.len(), 31);
+}
+
+// ---------------------------------------------------------------------------
+// `runtime.agent_session_control` (0.3.5 C14): pause, resume, and kill.
+// ---------------------------------------------------------------------------
+
+/// Builds a session view for the session-control tests.
+fn session_control_session(status: AgentSessionStatus) -> AgentSessionView {
+    AgentSessionView {
+        session_id: "agent-session-control".to_string(),
+        lane_id: "lane-control".to_string(),
+        agent_id: "codex-acp".to_string(),
+        model: None,
+        status,
+        owner: RuntimeOwner {
+            workspace_id: "workspace-viden".to_string(),
+            project_id: "project-viden".to_string(),
+            lane_id: Some("lane-control".to_string()),
+            session_id: Some("agent-session-control".to_string()),
+            ..Default::default()
+        },
+        task: "hold the session".to_string(),
+        diagnostic: None,
+        output: None,
+        control: None,
+    }
+}
+
+/// The control record is additive: a session that was never paused, resumed,
+/// or terminated encodes to exactly the bytes it did before the capability.
+#[test]
+fn an_uncontrolled_agent_session_encodes_without_a_control_record() {
+    let encoded = serde_json::to_value(session_control_session(AgentSessionStatus::Running))
+        .expect("encode the session view");
+    assert!(
+        encoded.get("control").is_none(),
+        "a session that was never controlled must not carry a control key"
+    );
+}
+
+/// A pre-capability session record decodes with no control history rather than
+/// with a fabricated one.
+#[test]
+fn legacy_agent_session_without_control_decodes_as_absent() {
+    let legacy = serde_json::json!({
+        "session_id": "agent-session-legacy",
+        "lane_id": "lane-agent",
+        "agent_id": "codex-acp",
+        "model": null,
+        "status": "completed",
+        "owner": {
+            "workspace_id": "workspace-agent",
+            "project_id": "project-agent",
+            "lane_id": "lane-agent",
+            "session_id": "agent-session-legacy",
+            "task_id": null,
+            "turn_id": null
+        },
+        "task": "inspect the repository",
+        "diagnostic": null
+    });
+
+    let decoded: AgentSessionView = serde_json::from_value(legacy).unwrap();
+
+    assert_eq!(decoded.control, None);
+}
+
+/// The two new statuses and the termination cause are stable wire tokens: a
+/// frontend switches on them, so they must never be renamed silently.
+#[test]
+fn paused_killed_and_termination_serde_names_are_stable() {
+    assert_eq!(
+        serde_json::to_value(AgentSessionStatus::Paused).unwrap(),
+        serde_json::json!("paused")
+    );
+    assert_eq!(
+        serde_json::to_value(AgentSessionStatus::Killed).unwrap(),
+        serde_json::json!("killed")
+    );
+    assert_eq!(
+        serde_json::to_value(AgentSessionTermination::Cancelled).unwrap(),
+        serde_json::json!("cancelled")
+    );
+    assert_eq!(
+        serde_json::to_value(AgentSessionTermination::Killed).unwrap(),
+        serde_json::json!("killed")
+    );
+}
+
+/// A paused session is alive; a killed one is terminal. Core's own honesty
+/// rule: nothing may treat `Paused` as settled work or `Killed` as in flight.
+#[test]
+fn a_paused_session_is_alive_and_a_killed_session_is_terminal() {
+    assert!(!AgentSessionStatus::Paused.is_terminal());
+    assert!(AgentSessionStatus::Killed.is_terminal());
+    for status in [
+        AgentSessionStatus::Completed,
+        AgentSessionStatus::Failed,
+        AgentSessionStatus::Cancelled,
+    ] {
+        assert!(status.is_terminal());
+    }
+    for status in [
+        AgentSessionStatus::Starting,
+        AgentSessionStatus::Running,
+        AgentSessionStatus::WaitingApproval,
+    ] {
+        assert!(!status.is_terminal());
+    }
+}
+
+/// The full control record round-trips, including the held-input count a
+/// client renders while a session is paused.
+#[test]
+fn an_agent_session_control_record_round_trips() {
+    let session = AgentSessionView {
+        control: Some(AgentSessionControlView {
+            paused_at: Some(1_700_000_100),
+            resumed_at: Some(1_700_000_200),
+            terminated_by: Some(AgentSessionTermination::Killed),
+            held_input_count: 2,
+        }),
+        ..session_control_session(AgentSessionStatus::Killed)
+    };
+
+    let encoded = serde_json::to_value(&session).expect("encode the controlled session");
+    assert_eq!(
+        encoded["control"],
+        serde_json::json!({
+            "paused_at": 1_700_000_100u64,
+            "resumed_at": 1_700_000_200u64,
+            "terminated_by": "killed",
+            "held_input_count": 2
+        })
+    );
+    let decoded: AgentSessionView = serde_json::from_value(encoded).unwrap();
+    assert_eq!(decoded, session);
+}
+
+/// `AgentSessionKilled` is the terminal fact for a killed session: it projects
+/// the session exactly as the other terminal facts do and settles the turn.
+#[test]
+fn a_killed_agent_session_settles_the_turn_and_projects_the_session() {
+    let killed = AgentSessionView {
+        status: AgentSessionStatus::Killed,
+        diagnostic: Some("killed by owner".to_string()),
+        control: Some(AgentSessionControlView {
+            paused_at: None,
+            resumed_at: None,
+            terminated_by: Some(AgentSessionTermination::Killed),
+            held_input_count: 0,
+        }),
+        ..stream_lifecycle_session("agent-session-1", AgentSessionStatus::Killed)
+    };
+    let view = stream_then_terminal(RuntimeEventKind::AgentSessionKilled {
+        session: killed.clone(),
+    });
+
+    assert!(
+        view.assistant_stream.is_empty(),
+        "a killed turn must not leave its reply in the unscoped stream"
+    );
+    assert_eq!(view.agent_sessions.len(), 1);
+    assert_eq!(view.agent_sessions[0], killed);
+}
+
+/// A paused update is not settlement: the session is still alive and its
+/// in-flight display must survive.
+#[test]
+fn a_paused_agent_session_update_keeps_the_in_flight_assistant_stream() {
+    let view = stream_then_terminal(RuntimeEventKind::AgentSessionUpdated {
+        session: AgentSessionView {
+            control: Some(AgentSessionControlView {
+                paused_at: Some(1_700_000_100),
+                resumed_at: None,
+                terminated_by: None,
+                held_input_count: 0,
+            }),
+            ..stream_lifecycle_session("agent-session-1", AgentSessionStatus::Paused)
+        },
+    });
+
+    assert_eq!(view.assistant_stream, "in-flight text");
+    assert_eq!(
+        view.agent_sessions[0].status,
+        AgentSessionStatus::Paused,
+        "a paused session must stay projected as alive"
+    );
+}
+
+/// The three control commands are part of the stable command vocabulary.
+#[test]
+fn session_control_commands_round_trip_as_stable_wire_shapes() {
+    let commands = [
+        RuntimeCommand::PauseAgentSession {
+            session_id: "agent-session-control".to_string(),
+        },
+        RuntimeCommand::ResumeAgentSession {
+            session_id: "agent-session-control".to_string(),
+        },
+        RuntimeCommand::KillAgentSession {
+            session_id: "agent-session-control".to_string(),
+        },
+    ];
+    let names = [
+        "pause_agent_session",
+        "resume_agent_session",
+        "kill_agent_session",
+    ];
+    for (command, name) in commands.iter().zip(names) {
+        let encoded = serde_json::to_value(command).unwrap();
+        assert_eq!(encoded["type"], serde_json::json!(name));
+        assert_eq!(
+            encoded["session_id"],
+            serde_json::json!("agent-session-control")
+        );
+        let decoded: RuntimeCommand = serde_json::from_value(encoded).unwrap();
+        assert_eq!(&decoded, command);
+    }
+}
+
+/// `runtime.agent_session_control` is a post-checkpoint addition, so it is an
+/// advertised extension and never a frozen base capability.
+#[test]
+fn the_agent_session_control_capability_is_an_advertised_extension() {
+    assert!(FRONTEND_V1_EXTENSION_CAPABILITIES.contains(&"runtime.agent_session_control"));
+    assert!(!FRONTEND_V1_CAPABILITIES.contains(&"runtime.agent_session_control"));
+    assert!(
+        FRONTEND_V1_EXTENSION_CAPABILITIES
+            .windows(2)
+            .all(|pair| pair[0] < pair[1]),
+        "extension capabilities must stay sorted and unique"
+    );
 }

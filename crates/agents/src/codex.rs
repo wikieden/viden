@@ -587,20 +587,103 @@ pub(super) fn acp_session_cancel_grace() -> Duration {
     ACP_SESSION_CANCEL_GRACE
 }
 
+/// Why a live agent job was interrupted (`runtime.agent_session_control`).
+///
+/// The three differ in exactly two places, and both of them need the answer
+/// after the operator command has returned: how long the adapter is given to
+/// stop cooperatively, and whether the ACP child survives the interruption.
+/// The reason therefore travels in the job's own marker file rather than in
+/// memory, so the ACP runner and the session monitor — neither of which the
+/// commanding thread can reach — read the same intent the operator expressed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum AgentJobInterrupt {
+    /// Cooperative cancel with today's grace, then process termination.
+    Cancel,
+    /// Cooperative cancel with today's grace; the child stays resident so the
+    /// session can be resumed without reloading it.
+    Pause,
+    /// Immediate process termination with no grace at all.
+    Kill,
+}
+
+impl AgentJobInterrupt {
+    /// The leading marker token. `cancel` is what every pre-0.3.5 marker
+    /// already carries, so an in-flight cancel written by an older build keeps
+    /// reading as a cancel.
+    pub(super) fn marker_token(self) -> &'static str {
+        match self {
+            Self::Cancel => "cancel",
+            Self::Pause => "pause",
+            Self::Kill => "kill",
+        }
+    }
+
+    fn from_marker_text(text: &str) -> Self {
+        match text.split_whitespace().next() {
+            Some("pause") => Self::Pause,
+            Some("kill") => Self::Kill,
+            _ => Self::Cancel,
+        }
+    }
+
+    /// The durable job status this interruption settles the job at.
+    pub(super) fn job_status(self) -> &'static str {
+        match self {
+            Self::Cancel => "cancelled",
+            // A paused job is explicitly not terminal: the session is alive and
+            // is waiting for the operator to resume or kill it.
+            Self::Pause => "paused",
+            Self::Kill => "killed",
+        }
+    }
+}
+
+/// Read the interruption the marker at `path` records, if any.
+///
+/// `None` means no interruption was requested, which is the only answer that
+/// may be inferred from an absent marker.
+pub(super) fn read_agent_job_interrupt(path: &Path) -> Option<AgentJobInterrupt> {
+    fs::read_to_string(path)
+        .ok()
+        .map(|text| AgentJobInterrupt::from_marker_text(&text))
+}
+
 // Keep the liveness check and termination result as separate branches: the
 // cancellation monitor races this path and depends on the original ordering.
 /// Cancel a tracked Codex job by id, or the most recent one when `id` is
 /// `None`, terminating its process group and recording the cancellation.
-#[allow(clippy::collapsible_if)]
 pub fn cancel_codex_job(cwd: &Path, id: Option<&str>) -> Result<String, String> {
+    interrupt_codex_job(cwd, id, AgentJobInterrupt::Cancel).map(|(message, _)| message)
+}
+
+/// Interrupt a tracked Codex job with an explicit reason.
+///
+/// Returns the operator-facing message and whether the adapter's process was
+/// left alive, which is true only for a pause the adapter answered inside the
+/// grace.
+///
+/// Cancel is the historical path and is unchanged. Pause gives the adapter the
+/// same grace but leaves a cooperatively stopped child alive, because the
+/// resident connection is the whole point of pausing rather than cancelling.
+/// Kill skips the grace outright: it is the operator's answer when the
+/// cooperative path is what is failing.
+#[allow(clippy::collapsible_if)]
+pub(super) fn interrupt_codex_job(
+    cwd: &Path,
+    id: Option<&str>,
+    interrupt: AgentJobInterrupt,
+) -> Result<(String, bool), String> {
     let id = id.ok_or_else(|| "Usage: /agent cancel <id>".to_string())?;
     let mut job = find_codex_job(cwd, id)?.ok_or_else(|| format!("Unknown agent job `{id}`"))?;
     let label = agent_job_label(&job);
-    if matches!(job.status.as_str(), "cancelled" | "finished") {
-        return Ok(format!("{label} `{id}` is already {}.", job.status));
+    if matches!(job.status.as_str(), "cancelled" | "finished" | "killed") {
+        return Ok((format!("{label} `{id}` is already {}.", job.status), false));
     }
+    let verb = interrupt.marker_token();
     // Every process-backed job receives a durable intent marker so its monitor
-    // cannot race a confirmed cancellation with a later nonterminal record.
+    // cannot race a confirmed cancellation with a later nonterminal record. The
+    // marker also carries *which* interruption this is, because the ACP runner
+    // decides from it whether the child survives.
     let cancel_path = Some(acp_job_cancel_path(cwd, &job.id));
     if let Some(path) = &cancel_path {
         if let Some(parent) = path.parent() {
@@ -608,7 +691,7 @@ pub fn cancel_codex_job(cwd: &Path, id: Option<&str>) -> Result<String, String> 
         }
         fs::write(
             path,
-            format!("cancel requested at {}\n", timestamp_millis()),
+            format!("{verb} requested at {}\n", timestamp_millis()),
         )
         .map_err(|err| format!("failed to write {}: {err}", path.display()))?;
     }
@@ -616,40 +699,59 @@ pub fn cancel_codex_job(cwd: &Path, id: Option<&str>) -> Result<String, String> 
     // confirmed. Restart recovery must never hide a still-live child behind a
     // terminal `cancelled` record.
     job.updated_at = timestamp_millis();
-    append_codex_job_record(cwd, "cancel_requested", &job)?;
+    append_codex_job_record(cwd, &format!("{verb}_requested"), &job)?;
     let Some(pid) = job.pid else {
         append_agent_job_log_event(
             &job.log_path,
             "system",
-            &format!("cancel requested for {label} `{id}` before process startup"),
+            &format!("{verb} requested for {label} `{id}` before process startup"),
         )?;
         return Err(format!(
-            "Cancellation requested for {label} `{id}`, but process termination is not confirmed yet; retry after startup completes."
+            "Interruption requested for {label} `{id}`, but process termination is not confirmed yet; retry after startup completes."
         ));
     };
-    if job.kind == "acp-session" {
-        let _ =
+    let mut cooperative = false;
+    if job.kind == "acp-session" && interrupt != AgentJobInterrupt::Kill {
+        cooperative =
             wait_for_agent_job_text(&job.log_path, "session/cancel", acp_session_cancel_grace());
     }
-    if process_is_running(pid) {
-        if let Err(error) = terminate_process(pid) {
+    // A paused session that stopped cooperatively keeps its child: the ACP
+    // runner has already stored it as the resident connection, and terminating
+    // it here would turn a pause into a cancel with extra steps.
+    let keep_child = interrupt == AgentJobInterrupt::Pause && cooperative;
+    if !keep_child {
+        if process_is_running(pid) {
+            if let Err(error) = terminate_process(pid) {
+                job.updated_at = timestamp_millis();
+                append_codex_job_record(cwd, &format!("{verb}_failed"), &job)?;
+                return Err(error);
+            }
+        }
+        if process_is_running(pid) {
             job.updated_at = timestamp_millis();
-            append_codex_job_record(cwd, "cancel_failed", &job)?;
-            return Err(error);
+            append_codex_job_record(cwd, &format!("{verb}_failed"), &job)?;
+            return Err(format!(
+                "process {pid} is still running after {verb}; retry the command"
+            ));
         }
     }
-    if process_is_running(pid) {
-        job.updated_at = timestamp_millis();
-        append_codex_job_record(cwd, "cancel_failed", &job)?;
-        return Err(format!(
-            "process {pid} is still running after cancellation; retry cancellation"
-        ));
-    }
-    job.status = "cancelled".to_string();
+    job.status = interrupt.job_status().to_string();
     job.updated_at = timestamp_millis();
-    append_codex_job_record(cwd, "cancelled", &job)?;
-    write_agent_job_cancel_result(&job, pid)?;
-    Ok(format!("Cancelled {label} `{id}` (pid {pid})."))
+    append_codex_job_record(cwd, interrupt.job_status(), &job)?;
+    if !keep_child {
+        write_agent_job_cancel_result(&job, pid)?;
+    }
+    Ok((
+        format!(
+            "{} {label} `{id}` (pid {pid}).",
+            match interrupt {
+                AgentJobInterrupt::Cancel => "Cancelled",
+                AgentJobInterrupt::Pause => "Paused",
+                AgentJobInterrupt::Kill => "Killed",
+            }
+        ),
+        keep_child,
+    ))
 }
 
 pub(super) fn write_agent_job_cancel_result(job: &CodexJobRecord, pid: u32) -> Result<(), String> {
@@ -1139,7 +1241,13 @@ pub(super) fn looks_like_repo_file(token: &str) -> bool {
 }
 
 pub(super) fn observed_codex_status(job: &CodexJobRecord) -> String {
-    if matches!(job.status.as_str(), "cancelled" | "failed" | "finished") {
+    // `paused` is deliberately here: a paused ACP session keeps a live child,
+    // so observing the process would report it as still running and erase the
+    // operator's pause.
+    if matches!(
+        job.status.as_str(),
+        "cancelled" | "failed" | "finished" | "killed" | "paused"
+    ) {
         return job.status.clone();
     }
     match job.pid {

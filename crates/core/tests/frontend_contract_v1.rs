@@ -12,28 +12,29 @@ use viden_core::{
 use viden_types::{
     AgentAdapterSource, AgentAdapterView, AgentAuthState, AgentAvailability, AgentContentPart,
     AgentConversationRole, AgentDagRecord, AgentDagStatus, AgentDagTaskSpec, AgentLaneRecord,
-    AgentNextAction, AgentRole, AgentRoute, AgentSessionStatus, AgentSessionView,
-    AgentStartability, AgentTaskKind, AgentTaskRecord, AgentTaskStatus, ApprovalDecision,
-    ApprovalDefaultAction, ApprovalRequestView, ApprovalResponse, ApprovalRisk, ApprovalScope,
-    ApprovalTarget, AuditActor, AuditActorFilter, AuditObjectRef, AuditOutcome, AuditPage,
-    AuditQuery, AuditRecord, CanonicalEvidenceReference, CapabilityId, ConflictBaseline,
-    ConflictBounce, ConflictBounceStatus, ConflictContent, ConflictFile, ConflictHunk,
-    ConflictHunkReason, ContextBudgetRecord, ContextBundleRecord, ContextOmittedSourceRecord,
-    ContextScope, ContextSourceRecord, CostScope, CostUsageOutcome, CostUsageRecord,
-    DecisionContext, DiffDocument, DiffFile, DiffHunk, DiffLine, DiffLineKind, EventCursor,
-    EvidenceContent, EvidenceCursor, EvidencePage, EvidenceProducer, EvidenceQualityFacts,
-    EvidenceQualityStatus, EvidenceQuery, EvidenceUnavailableReason, EvidenceVerificationState,
-    EvidenceView, ExecutionTarget, FRONTEND_SCHEMA_V1, GateStrength, LaneBudget,
-    LaneRuntimeOwnerBinding, LaneSidebarMode, LaneStatus, MAX_HIDDEN_STATUSBAR_SEGMENTS,
-    MergeGateDecision, MergeGateDecisionOutcome, MergeGatePolicySnapshot, MergeGateRecord,
-    MergeGateStatus, MergeGateType, MergeGateValidator, MutationPolicy, OperatorGitAction,
-    OperatorGitFailureClass, OperatorGitOutcome, PermissionLevel, PermissionMode,
-    ProjectConfigState, ProjectIdOrigin, ProjectProbe, QueuedInputView, RecentProjectSummary,
-    RecentSessionSummary, ResolvedUiPreferences, ReviewRequestStatus, RuntimeCommand,
-    RuntimeErrorView, RuntimeEvent, RuntimeEventEnvelope, RuntimeEventKind, RuntimeOwner,
-    RuntimeSnapshot, RuntimeViewState, RuntimeWireEvent, SchemaVersion, SourceTarget,
-    StarterLanePreview, StarterLanePreviewInvalidationReason, StarterLaneReceipt, TokenCostView,
-    TokenUsage, TurnOutcome, TurnSource, TurnView, UiColorMode, UiDensity, UiLayoutPreferencePatch,
+    AgentNextAction, AgentRole, AgentRoute, AgentSessionControlView, AgentSessionInput,
+    AgentSessionStatus, AgentSessionTermination, AgentSessionView, AgentStartability,
+    AgentTaskKind, AgentTaskRecord, AgentTaskStatus, ApprovalDecision, ApprovalDefaultAction,
+    ApprovalRequestView, ApprovalResponse, ApprovalRisk, ApprovalScope, ApprovalTarget, AuditActor,
+    AuditActorFilter, AuditObjectRef, AuditOutcome, AuditPage, AuditQuery, AuditRecord,
+    CanonicalEvidenceReference, CapabilityId, ConflictBaseline, ConflictBounce,
+    ConflictBounceStatus, ConflictContent, ConflictFile, ConflictHunk, ConflictHunkReason,
+    ContextBudgetRecord, ContextBundleRecord, ContextOmittedSourceRecord, ContextScope,
+    ContextSourceRecord, CostScope, CostUsageOutcome, CostUsageRecord, DecisionContext,
+    DiffDocument, DiffFile, DiffHunk, DiffLine, DiffLineKind, EventCursor, EvidenceContent,
+    EvidenceCursor, EvidencePage, EvidenceProducer, EvidenceQualityFacts, EvidenceQualityStatus,
+    EvidenceQuery, EvidenceUnavailableReason, EvidenceVerificationState, EvidenceView,
+    ExecutionTarget, FRONTEND_SCHEMA_V1, GateStrength, LaneBudget, LaneRuntimeOwnerBinding,
+    LaneSidebarMode, LaneStatus, MAX_HIDDEN_STATUSBAR_SEGMENTS, MergeGateDecision,
+    MergeGateDecisionOutcome, MergeGatePolicySnapshot, MergeGateRecord, MergeGateStatus,
+    MergeGateType, MergeGateValidator, MutationPolicy, OperatorGitAction, OperatorGitFailureClass,
+    OperatorGitOutcome, PermissionLevel, PermissionMode, ProjectConfigState, ProjectIdOrigin,
+    ProjectProbe, QueuedInputView, RecentProjectSummary, RecentSessionSummary,
+    ResolvedUiPreferences, ReviewRequestStatus, RuntimeCommand, RuntimeErrorView, RuntimeEvent,
+    RuntimeEventEnvelope, RuntimeEventKind, RuntimeOwner, RuntimeSnapshot, RuntimeViewState,
+    RuntimeWireEvent, SchemaVersion, SourceTarget, StarterLanePreview,
+    StarterLanePreviewInvalidationReason, StarterLaneReceipt, TokenCostView, TokenUsage,
+    TurnOutcome, TurnSource, TurnView, UiColorMode, UiDensity, UiLayoutPreferencePatch,
     UiLayoutPreferences, UiMotion, UiPreferenceDiagnostic, UiPreferences, UiSkin, WorkMode,
     WorkspaceChangeKind, WorkspaceDiffEntry, WorkspaceDiffPage, WorkspaceDiffQuery,
     WorkspaceDiffScope, WorkspaceEligibility, WorkspaceFileBody, WorkspaceFileContent,
@@ -184,6 +185,10 @@ fn frontend_host_capabilities_are_schema_one_core_0_3_6_and_additive() {
         "runtime.agent_adapters",
         "runtime.agent_conversation",
         "runtime.agent_permission_bridge",
+        // The 0.3.5 contract increment's session-control capability (C14):
+        // pause, resume, and kill for an Agent session. Additive like every
+        // row around it; the frozen base list is untouched.
+        "runtime.agent_session_control",
         "runtime.agent_session_input",
         "runtime.agent_sessions",
         "runtime.audit",
@@ -992,6 +997,212 @@ fn refresh_message_parts_extension_fixture() {
     let fixture = message_parts_fixture();
     fs::write(
         root.join("message-parts.json"),
+        serde_json::to_string_pretty(&fixture).unwrap() + "\n",
+    )
+    .unwrap();
+}
+
+/// `runtime.agent_session_control`: a paused session is alive, a killed one is
+/// terminal, and both are distinguishable from a cancel after the fact.
+#[test]
+fn agent_session_control_fixture_holds_input_while_paused_and_settles_a_kill() {
+    let name = "agent-session-control.json";
+    let root = fixture_root();
+    let fixture_bytes = fs::read(root.join(name)).expect("read session control fixture bytes");
+    let fixture_sha256 = format!("{:x}", Sha256::digest(&fixture_bytes));
+    let extension_manifest = include_str!("../frontend-contract-extensions.toml");
+    assert!(
+        extension_manifest.contains(&format!(
+            "agent_session_control_fixture_sha256 = \"{fixture_sha256}\""
+        )),
+        "the extension manifest must register the exact session control fixture bytes"
+    );
+    assert!(
+        extension_manifest
+            .contains("agent_session_control_fixture = \"agent-session-control.json\"")
+    );
+    assert!(extension_manifest.contains("runtime.agent_session_control"));
+
+    let fixture = read_fixture(&root, name);
+    assert_fixture_identity(name, &fixture);
+    assert_capabilities_are_sorted_unique_and_advertised(name, &fixture);
+    assert_cursors_are_contiguous(name, &fixture);
+
+    let (first_view, first_cursor, first_digest) = replay_fixture(&fixture);
+    let (second_view, second_cursor, second_digest) = replay_fixture(&fixture);
+    assert_eq!(first_view, second_view);
+    assert_eq!(first_cursor, second_cursor);
+    assert_eq!(first_digest, second_digest);
+    assert_eq!(first_cursor, fixture.expected_final_cursor);
+    assert_eq!(first_digest, fixture.expected_view_sha256);
+
+    let kinds = fixture
+        .events
+        .iter()
+        .filter_map(|envelope| match &envelope.event {
+            RuntimeWireEvent::Known(event) => Some(&event.kind),
+            RuntimeWireEvent::Unknown { .. } => None,
+        })
+        .collect::<Vec<_>>();
+
+    // The approval the paused turn was waiting on is resolved by Core, not left
+    // for an operator who can no longer affect anything by answering it.
+    let denial = kinds
+        .iter()
+        .find_map(|kind| match kind {
+            RuntimeEventKind::ApprovalResolved {
+                request_id,
+                decision,
+                audit_id,
+                ..
+            } => Some((request_id, decision, audit_id)),
+            _ => None,
+        })
+        .expect("pausing resolves the pending approval");
+    assert_eq!(denial.0, "approval_session_control");
+    assert!(matches!(denial.1, ApprovalDecision::Deny));
+    // The row the denial names is on the page, so the receipt resolves.
+    let page = kinds
+        .iter()
+        .find_map(|kind| match kind {
+            RuntimeEventKind::AuditPageLoaded { page, .. } => Some(page),
+            _ => None,
+        })
+        .expect("the fixture publishes the audit page");
+    let actions = page
+        .records
+        .iter()
+        .map(|record| record.action.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        actions,
+        [
+            "agent_session.kill",
+            "agent_session.resume",
+            "agent_session.pause",
+            "approval.deny",
+        ]
+    );
+    assert!(
+        page.records
+            .iter()
+            .any(|record| record.audit_id == *denial.2),
+        "the denial's audit id must resolve to a row on the page"
+    );
+
+    // Held inputs are accepted, so "typed but not sent" is a Core fact.
+    let paused_counts = kinds
+        .iter()
+        .filter_map(|kind| match kind {
+            RuntimeEventKind::AgentSessionUpdated { session }
+                if session.status == AgentSessionStatus::Paused =>
+            {
+                session.control.map(|control| control.held_input_count)
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(paused_counts, [0, 1, 2]);
+    assert_eq!(
+        kinds
+            .iter()
+            .filter(|kind| matches!(
+                kind,
+                RuntimeEventKind::AgentSessionInputAccepted { session_id, .. }
+                    if session_id == "session_control"
+            ))
+            .count(),
+        2,
+        "every input held while paused is still accepted"
+    );
+
+    // Every held input runs, in order, and the count walks to zero. The second
+    // turn is the one a client cannot infer: it starts with no `CommandAccepted`
+    // of its own, because the drain behind the first turn is what released it.
+    let forwarded = kinds
+        .iter()
+        .filter_map(|kind| match kind {
+            RuntimeEventKind::AgentSessionStarted { session } => session
+                .control
+                .map(|control| (session.task.as_str(), control.held_input_count)),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        forwarded,
+        [
+            ("task.session_control.held_one", 1),
+            ("task.session_control.held_two", 0),
+        ]
+    );
+    let drained = kinds
+        .iter()
+        .position(|kind| {
+            matches!(
+                kind,
+                RuntimeEventKind::AgentSessionStarted { session }
+                    if session.task == "task.session_control.held_two"
+            )
+        })
+        .expect("the drained turn is published");
+    assert!(
+        matches!(
+            kinds[drained - 1],
+            RuntimeEventKind::AgentSessionCompleted { .. }
+        ),
+        "the drained turn follows the completion that released it, with no \
+         command of its own in between"
+    );
+
+    // Wrong-status commands are refused by name, both directions.
+    let rejections = kinds
+        .iter()
+        .filter_map(|kind| match kind {
+            RuntimeEventKind::CommandRejected { reason, .. } => Some(reason.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        rejections,
+        ["session_status_paused", "session_status_running"]
+    );
+
+    // The kill is its own terminal fact, and `terminated_by` is what tells it
+    // apart from a cancel once the status alone no longer can.
+    let killed = kinds
+        .iter()
+        .find_map(|kind| match kind {
+            RuntimeEventKind::AgentSessionKilled { session } => Some(session),
+            _ => None,
+        })
+        .expect("the fixture publishes the killed fact");
+    assert_eq!(killed.status, AgentSessionStatus::Killed);
+    assert_eq!(
+        killed.control.and_then(|control| control.terminated_by),
+        Some(AgentSessionTermination::Killed)
+    );
+
+    // The last word is the retry: a killed session is retryable, and the view
+    // ends on the restarted session rather than on the kill.
+    assert_eq!(first_view.agent_sessions.len(), 1);
+    assert_eq!(
+        first_view.agent_sessions[0].status,
+        AgentSessionStatus::Starting
+    );
+    assert_eq!(
+        first_view.agent_sessions[0].control, None,
+        "a retried session starts with no control history of its own"
+    );
+}
+
+#[test]
+#[ignore = "manual session control fixture refresh; normal tests validate committed JSON only"]
+fn refresh_agent_session_control_extension_fixture() {
+    let root = fixture_root();
+    fs::create_dir_all(&root).unwrap();
+    let fixture = agent_session_control_fixture();
+    fs::write(
+        root.join("agent-session-control.json"),
         serde_json::to_string_pretty(&fixture).unwrap() + "\n",
     )
     .unwrap();
@@ -3343,6 +3554,7 @@ fn streamed_turn_fixture() -> FrontendContractFixtureOut {
         task: "task.streamed_turn.investigate".to_string(),
         diagnostic: None,
         output: None,
+        control: None,
     };
 
     let mut kinds = vec![RuntimeEventKind::AgentSessionStarted {
@@ -3402,6 +3614,7 @@ fn message_parts_fixture() -> FrontendContractFixtureOut {
         task: "task.message_parts.render_chart".to_string(),
         diagnostic: None,
         output: None,
+        control: None,
     };
     let follow_up = "Nothing else changed.";
     let delta = |message_id: &str, content: &str| RuntimeEventKind::AssistantDelta {
@@ -3469,6 +3682,299 @@ fn message_parts_fixture() -> FrontendContractFixtureOut {
 /// actors and comes back `complete` while strictly older operator and system
 /// records are still visible on the unfiltered pages — the fact a client-side
 /// filter could never establish.
+/// Canonical proof of `runtime.agent_session_control`: pause holds a session
+/// without ending it, resume forwards what it held, and kill ends it as a
+/// distinct terminal fact.
+///
+/// Three things here cannot be inferred from any other fixture. The approval
+/// the paused turn was waiting on is resolved by Core as a denial with reason
+/// `session_paused` — a client that left it on screen would be asking about a
+/// turn that no longer exists. The input typed while paused is *accepted*, so
+/// `held_input_count` is the only honest place a client can read "typed but not
+/// sent" from. And `terminated_by` is what separates a kill from a cancel after
+/// the fact, which the status alone never could.
+fn agent_session_control_fixture() -> FrontendContractFixtureOut {
+    let fixture_id = "agent-session-control";
+    let owner = RuntimeOwner {
+        workspace_id: "workspace_contract_v1".to_string(),
+        project_id: "project_viden".to_string(),
+        lane_id: Some("lane_session_control".to_string()),
+        session_id: Some("session_control".to_string()),
+        task_id: Some("task_session_control".to_string()),
+        turn_id: Some("turn_session_control".to_string()),
+    };
+    let session = AgentSessionView {
+        session_id: "session_control".to_string(),
+        lane_id: "lane_session_control".to_string(),
+        agent_id: "codex-acp".to_string(),
+        model: Some("gpt-5-codex".to_string()),
+        status: AgentSessionStatus::Running,
+        owner: owner.clone(),
+        task: "task.session_control.refactor".to_string(),
+        diagnostic: None,
+        output: None,
+        control: None,
+    };
+    let with_control = |status: AgentSessionStatus,
+                        diagnostic: Option<&str>,
+                        control: AgentSessionControlView| AgentSessionView {
+        status,
+        diagnostic: diagnostic.map(str::to_string),
+        control: Some(control),
+        ..session.clone()
+    };
+    let approval = ApprovalRequestView {
+        id: "approval_session_control".to_string(),
+        tool_name: "apply_patch".to_string(),
+        title: "Apply the refactor".to_string(),
+        message: "Core requests scoped permission".to_string(),
+        input_preview: "crates/runtime/src/lib.rs".to_string(),
+        is_mutating: true,
+        reason: Some("the Agent asked to write a file".to_string()),
+        owner: owner.clone(),
+        risk: ApprovalRisk::Medium,
+        target: ApprovalTarget {
+            kind: "repo_path".to_string(),
+            display: "crates/runtime/src/lib.rs".to_string(),
+            canonical_ref: Some("repo://crates/runtime/src/lib.rs".to_string()),
+        },
+        allowed_scopes: vec![ApprovalScope::Once],
+        policy_reason_key: "permission.requires_approval".to_string(),
+        policy_reason_args: BTreeMap::new(),
+        expires_at: 1_700_006_000,
+        default_action: ApprovalDefaultAction::Deny,
+        audit_id: "audit_approval_session_control".to_string(),
+        decision_context: None,
+    };
+    let control_audit = |audit_id: &str, timestamp: u64, action: &str| {
+        AuditRecord::sanitized(
+            audit_id.to_string(),
+            timestamp,
+            owner.clone(),
+            AuditActor::Operator,
+            action.to_string(),
+            vec![
+                AuditObjectRef::new(AuditObjectRef::KIND_SESSION, "session_control"),
+                AuditObjectRef::new(AuditObjectRef::KIND_LANE, "lane_session_control"),
+            ],
+            AuditOutcome::Success,
+            BTreeMap::new(),
+        )
+        .expect("the audit record is well formed")
+    };
+    let denial_audit = AuditRecord::sanitized(
+        "audit_approval_session_control".to_string(),
+        1_700_006_010,
+        owner.clone(),
+        AuditActor::Operator,
+        "approval.deny".to_string(),
+        vec![
+            AuditObjectRef::new(AuditObjectRef::KIND_PERMISSION, "approval_session_control"),
+            AuditObjectRef::new("tool", "apply_patch"),
+        ],
+        AuditOutcome::Success,
+        [("scope".to_string(), "deny".to_string())]
+            .into_iter()
+            .collect(),
+    )
+    .expect("the audit record is well formed");
+    let retried = AgentSessionView {
+        status: AgentSessionStatus::Starting,
+        control: None,
+        ..session.clone()
+    };
+    let paused_with = |held_input_count: u32| RuntimeEventKind::AgentSessionUpdated {
+        session: with_control(
+            AgentSessionStatus::Paused,
+            Some("paused by owner; the agent connection is held"),
+            AgentSessionControlView {
+                paused_at: Some(1_700_006_010),
+                resumed_at: None,
+                terminated_by: None,
+                held_input_count,
+            },
+        ),
+    };
+    let accepted_input = |command_id: &str| RuntimeEventKind::CommandAccepted {
+        command_id: command_id.to_string(),
+        command: RuntimeCommand::SendAgentSessionInput {
+            input: AgentSessionInput {
+                session_id: "session_control".to_string(),
+                content: "[REDACTED]".to_string(),
+            },
+        },
+    };
+    let input_accepted = |input_id: &str| RuntimeEventKind::AgentSessionInputAccepted {
+        session_id: "session_control".to_string(),
+        input_id: input_id.to_string(),
+    };
+    let forwarded_turn = |task: &str, held_input_count: u32| AgentSessionView {
+        status: AgentSessionStatus::Starting,
+        task: task.to_string(),
+        control: Some(AgentSessionControlView {
+            paused_at: Some(1_700_006_010),
+            resumed_at: Some(1_700_006_020),
+            terminated_by: None,
+            held_input_count,
+        }),
+        ..session.clone()
+    };
+
+    let kinds = vec![
+        RuntimeEventKind::AgentSessionStarted {
+            session: session.clone(),
+        },
+        RuntimeEventKind::ApprovalRequested {
+            approval: approval.clone(),
+        },
+        RuntimeEventKind::AgentSessionUpdated {
+            session: AgentSessionView {
+                status: AgentSessionStatus::WaitingApproval,
+                ..session.clone()
+            },
+        },
+        // Pause. The approval is denied first: its turn is gone, so the answer
+        // cannot come from the operator any more.
+        RuntimeEventKind::ApprovalResolved {
+            request_id: "approval_session_control".to_string(),
+            decision: ApprovalDecision::Deny,
+            owner: owner.clone(),
+            audit_id: "audit_approval_session_control".to_string(),
+        },
+        RuntimeEventKind::CommandAccepted {
+            command_id: "cmd_session_pause".to_string(),
+            command: RuntimeCommand::PauseAgentSession {
+                session_id: "session_control".to_string(),
+            },
+        },
+        RuntimeEventKind::AgentSessionUpdated {
+            session: with_control(
+                AgentSessionStatus::Paused,
+                Some("paused by owner; the agent connection is held"),
+                AgentSessionControlView {
+                    paused_at: Some(1_700_006_010),
+                    resumed_at: None,
+                    terminated_by: None,
+                    held_input_count: 0,
+                },
+            ),
+        },
+        // Two inputs typed while paused: accepted, counted, not forwarded.
+        accepted_input("cmd_session_held_input_one"),
+        input_accepted("agent-input_session_control_held_one"),
+        paused_with(1),
+        accepted_input("cmd_session_held_input_two"),
+        input_accepted("agent-input_session_control_held_two"),
+        paused_with(2),
+        // A control command against a status that does not allow it is refused
+        // by name, so a client can tell "already paused" from "already gone".
+        RuntimeEventKind::CommandRejected {
+            command_id: "cmd_session_pause_again".to_string(),
+            reason: "session_status_paused".to_string(),
+        },
+        // Resume forwards the first held input and the session runs it.
+        RuntimeEventKind::CommandAccepted {
+            command_id: "cmd_session_resume".to_string(),
+            command: RuntimeCommand::ResumeAgentSession {
+                session_id: "session_control".to_string(),
+            },
+        },
+        RuntimeEventKind::AgentSessionStarted {
+            session: forwarded_turn("task.session_control.held_one", 1),
+        },
+        RuntimeEventKind::CommandRejected {
+            command_id: "cmd_session_resume_running".to_string(),
+            reason: "session_status_running".to_string(),
+        },
+        RuntimeEventKind::AgentSessionCompleted {
+            session: AgentSessionView {
+                status: AgentSessionStatus::Completed,
+                output: Some("the first held prompt ran".to_string()),
+                ..forwarded_turn("task.session_control.held_one", 1)
+            },
+        },
+        // The drain: the second held input starts a turn the client never
+        // commanded. No `CommandAccepted` precedes it, and the count reaches
+        // zero — the fact a client cannot infer from its own sent commands.
+        RuntimeEventKind::AgentSessionStarted {
+            session: forwarded_turn("task.session_control.held_two", 0),
+        },
+        // Kill: immediate, terminal, and distinguishable from a cancel.
+        RuntimeEventKind::CommandAccepted {
+            command_id: "cmd_session_kill".to_string(),
+            command: RuntimeCommand::KillAgentSession {
+                session_id: "session_control".to_string(),
+            },
+        },
+        RuntimeEventKind::AgentSessionKilled {
+            session: AgentSessionView {
+                status: AgentSessionStatus::Killed,
+                diagnostic: Some("killed by owner".to_string()),
+                control: Some(AgentSessionControlView {
+                    paused_at: Some(1_700_006_010),
+                    resumed_at: Some(1_700_006_020),
+                    terminated_by: Some(AgentSessionTermination::Killed),
+                    held_input_count: 0,
+                }),
+                ..forwarded_turn("task.session_control.held_two", 0)
+            },
+        },
+        // A killed session is retryable exactly as a failed one is, and the
+        // retry runs under the same logical session id.
+        RuntimeEventKind::CommandAccepted {
+            command_id: "cmd_session_retry".to_string(),
+            command: RuntimeCommand::RetryAgentSession {
+                session_id: "session_control".to_string(),
+            },
+        },
+        RuntimeEventKind::AgentSessionStarted { session: retried },
+        // The operator's control acts are on the durable timeline, newest
+        // first, alongside the denial that pausing caused.
+        RuntimeEventKind::CommandAccepted {
+            command_id: "cmd_session_control_audit".to_string(),
+            command: RuntimeCommand::QueryAudit {
+                query: AuditQuery {
+                    limit: 10,
+                    ..AuditQuery::default()
+                },
+            },
+        },
+        RuntimeEventKind::AuditPageLoaded {
+            command_id: Some("cmd_session_control_audit".to_string()),
+            page: AuditPage {
+                records: vec![
+                    control_audit("audit_session_kill", 1_700_006_030, "agent_session.kill"),
+                    control_audit(
+                        "audit_session_resume",
+                        1_700_006_020,
+                        "agent_session.resume",
+                    ),
+                    control_audit("audit_session_pause", 1_700_006_010, "agent_session.pause"),
+                    denial_audit,
+                ],
+                next_before: None,
+                complete: true,
+            },
+        },
+    ];
+
+    fixture(
+        fixture_id,
+        &[
+            "runtime.agent_session_control",
+            "runtime.agent_session_input",
+            "runtime.agent_sessions",
+            "runtime.approvals",
+            "runtime.audit",
+            "runtime.commands",
+            "runtime.events",
+            "runtime.snapshot",
+        ],
+        snapshot(WorkMode::Build),
+        owned_envelopes(fixture_id, owner, kinds, 1_700_006_000),
+    )
+}
+
 fn audit_reads_fixture() -> FrontendContractFixtureOut {
     let fixture_id = "audit-reads";
     let owner = RuntimeOwner {
@@ -5370,6 +5876,7 @@ fn interaction_closed_loop_fixture() -> FrontendContractFixtureOut {
         task: "task.loop.preflight".to_string(),
         diagnostic: None,
         output: None,
+        control: None,
     };
     let acp_session = AgentSessionView {
         session_id: "session-loop-acp".to_string(),
@@ -5381,6 +5888,7 @@ fn interaction_closed_loop_fixture() -> FrontendContractFixtureOut {
         task: "task.loop.implement".to_string(),
         diagnostic: None,
         output: None,
+        control: None,
     };
     let mut approval = approval("approval-loop-tool", "approval.tool.execute", true);
     approval.owner = acp_owner.clone();

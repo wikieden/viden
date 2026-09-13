@@ -431,6 +431,7 @@ mod tests {
             task: "work".to_string(),
             diagnostic: None,
             output: None,
+            control: None,
         };
         let gate = |gate_id: &str, session_id: &str| MergeGateRecord {
             gate_id: gate_id.to_string(),

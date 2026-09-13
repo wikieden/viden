@@ -107,12 +107,21 @@ final_cursor = 10
 
 # The 0.3.5 contract increment's first batch (C13,
 # docs/release-0.3.5-contract-design.md section 1). 29 -> 30 extension
-# capabilities; C14 and C15 move it again to 33 inside this milestone.
+# capabilities; C14 takes it to 31 and C15 to 33 inside this milestone.
 [fixtures.plan_documents]
 path = "../types/tests/fixtures/frontend-contract-v1/plan-documents.json"
 payload_sha256 = "c476eba39b579b9ff41231b55dba9d918104cdeac0003e8a3cb32c270e512112"
 view_sha256 = "4bb38df5fb986239ff02422f0aaa518327eec9bfb903fcfae0bbf93f1bc5a13b"
 final_cursor = 20
+
+# The 0.3.5 contract increment's session-control batch (C14):
+# `runtime.agent_session_control`. Extension capability 31 (reconciled at
+# integration after C13's 30); C15's two capabilities take the count to 33.
+[fixtures.agent_session_control]
+path = "../types/tests/fixtures/frontend-contract-v1/agent-session-control.json"
+payload_sha256 = "19fda086d830ebf6d7cc3bb4f6a16515d875f02a5d9d3a4ac4a1acbe3139fcd3"
+view_sha256 = "7b9ece0d1673adf67ccbc1f1c1cd83c84c2149f12082bd6dfa1b50b95868da0d"
+final_cursor = 24
 
 [verification]
 date = "2026-09-12"
@@ -120,7 +129,7 @@ core_gates = "passed"
 workspace_gate = "passed"
 workspace_baseline = "39ed155dcc1847b915965f49626e6779b8b538d7"
 base_fixture_bytes = "nine frozen frontend-contract-v1 fixtures byte-identical to `git show 25072a0a:<path>` and to their apps/tui/release-manifest.toml digests"
-capability_count = "15 frozen base + 30 extensions"
+capability_count = "15 frozen base + 31 extensions"
 integration_branch = "claude/int-0.3.4"
 on_main = false
 tag_authorized = false

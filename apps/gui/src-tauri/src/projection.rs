@@ -2018,6 +2018,11 @@ fn agent_session_status(status: AgentSessionStatus) -> &'static str {
         AgentSessionStatus::Completed => "completed",
         AgentSessionStatus::Failed => "failed",
         AgentSessionStatus::Cancelled => "cancelled",
+        // C14 contract tokens. The live Pause/Resume/Kill action row is G9's;
+        // this projection only has to name the status honestly instead of
+        // collapsing a paused or killed session into another one.
+        AgentSessionStatus::Paused => "paused",
+        AgentSessionStatus::Killed => "killed",
     }
 }
 
@@ -3477,6 +3482,7 @@ mod tests {
             task: "Return an exact response".to_string(),
             diagnostic: None,
             output: Some("ACP-GUI-CLOSED-LOOP-OK".to_string()),
+            control: None,
         });
         view.agent_conversation.extend([
             AgentConversationMessageView {

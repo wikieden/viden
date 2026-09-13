@@ -3978,6 +3978,7 @@ mod tests {
                 task: "implement".to_string(),
                 diagnostic: None,
                 output: None,
+                control: None,
             });
         state.ui.focus_lane("lane-1".to_string());
         state.ui.session_id = "acp-1".to_string();
@@ -4223,6 +4224,7 @@ mod tests {
                 task: "failed task".to_string(),
                 diagnostic: Some("recoverable".to_string()),
                 output: None,
+                control: None,
             });
         state.ui.interaction_panel = Some(InteractionPanel::AcpPicker {
             selected: 0,
@@ -9156,6 +9158,7 @@ mod tests {
             task: "review the gate".to_string(),
             diagnostic: None,
             output: output.map(str::to_string),
+            control: None,
         }
     }
 

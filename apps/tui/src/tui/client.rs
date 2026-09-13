@@ -747,11 +747,12 @@ mod tests {
         // `runtime.workspace_file_reads`, which landed on concurrent branches
         // and were reconciled at integration; 28 -> 29 with C8's
         // `runtime.transcript_rows`, which completed the 0.3.4 increment.
-        // 29 -> 30 opens the 0.3.5 increment with C13's
-        // `runtime.plan_documents`; C14 and C15 move it again to 33 inside
-        // that milestone. Count bookkeeping only — T4 owns the TUI's plan
-        // lens.
-        assert_eq!(CORE_EXTENSION_CAPABILITIES.len(), 30);
+        // The 0.3.5 increment moves it again: 29 -> 30 with C13's
+        // `runtime.plan_documents`, 30 -> 31 with C14's
+        // `runtime.agent_session_control`, and on to 33 with C15's
+        // `runtime.approval_scopes` and `runtime.starter_lane_agent`. Count
+        // bookkeeping only — T4 owns the TUI's plan lens and session keys.
+        assert_eq!(CORE_EXTENSION_CAPABILITIES.len(), 31);
         for capability in CORE_EXTENSION_CAPABILITIES {
             let mut fake = FakeCoreClient::compatible();
             let capability = CapabilityId((*capability).to_string());

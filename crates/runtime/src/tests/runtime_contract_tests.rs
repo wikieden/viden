@@ -4832,6 +4832,7 @@ fn runtime_view_state_emits_tracked_acp_session_jobs() {
                         task: "implement adapter".to_string(),
                         diagnostic: None,
                         output: None,
+                        control: None,
                     },
                 },
             ))
@@ -4880,6 +4881,7 @@ fn runtime_view_state_emits_tracked_acp_session_jobs() {
                         task: "implement adapter".to_string(),
                         diagnostic: None,
                         output: Some("implemented adapter".to_string()),
+                        control: None,
                     },
                 },
             ))

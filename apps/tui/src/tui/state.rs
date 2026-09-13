@@ -595,6 +595,7 @@ mod tests {
             task: "review the gate".to_string(),
             diagnostic: None,
             output: None,
+            control: None,
         }
     }
 

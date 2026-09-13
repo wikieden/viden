@@ -1,13 +1,13 @@
 use crate::{
     AgentAdapterView, AgentContentPart, AgentConversationMessageView, AgentConversationRole,
     AgentDagRecord, AgentDagTaskSpec, AgentLaneId, AgentLaneRecord, AgentSessionInput,
-    AgentSessionInputView, AgentSessionRequest, AgentSessionStatus, AgentSessionView, AgentTaskId,
-    AgentTaskRecord, ApprovalDecision, ApprovalDefaultAction, ApprovalResponse, ApprovalRisk,
-    ApprovalScope, ApprovalTarget, AuditPage, AuditQuery, CheckRunView, ConflictBounce,
-    ContextBudgetRecord, ContextBundleRecord, ContextBundleSummaryRecord, ContextHandleRecord,
-    ContextItemRecord, ContextQualityRecord, ContextReductionRecord, ContextRetrievalRecord,
-    ContextScope, ContextViewRecord, ContractDecision, ContractRecord, CostLedgerTotals,
-    CostUsageRecord, CredentialHandle, DecisionContext, DependencyRecord, DependencyState,
+    AgentSessionInputView, AgentSessionRequest, AgentSessionView, AgentTaskId, AgentTaskRecord,
+    ApprovalDecision, ApprovalDefaultAction, ApprovalResponse, ApprovalRisk, ApprovalScope,
+    ApprovalTarget, AuditPage, AuditQuery, CheckRunView, ConflictBounce, ContextBudgetRecord,
+    ContextBundleRecord, ContextBundleSummaryRecord, ContextHandleRecord, ContextItemRecord,
+    ContextQualityRecord, ContextReductionRecord, ContextRetrievalRecord, ContextScope,
+    ContextViewRecord, ContractDecision, ContractRecord, CostLedgerTotals, CostUsageRecord,
+    CredentialHandle, DecisionContext, DependencyRecord, DependencyState,
     EvidenceCanonicalizationRecord, EvidenceContent, EvidenceId, EvidencePage, EvidenceQuery,
     HandoffAcceptance, HandoffRecord, LaneStatus, MergeGateId, MergeGateRecord, MessageId,
     OperatorGitAction, OperatorGitOutcome, PermissionLevel, PlanDocumentDraft, PlanDocumentId,
@@ -49,6 +49,27 @@ pub enum RuntimeCommand {
     },
     CancelAgentSession {
         session_id: String,
+    },
+    /// Hold an Agent session's input path without ending it
+    /// (`runtime.agent_session_control`).
+    ///
+    /// Accepted from `Starting`, `Running`, and `WaitingApproval`; any other
+    /// status is `CommandRejected` with `session_status_<current>`.
+    PauseAgentSession {
+        session_id: SessionId,
+    },
+    /// Release a paused Agent session, forwarding the first held input.
+    ///
+    /// Accepted from `Paused` only.
+    ResumeAgentSession {
+        session_id: SessionId,
+    },
+    /// End an Agent session immediately, with no cancel grace.
+    ///
+    /// Accepted from any non-terminal status, `Paused` included. Cancel keeps
+    /// its grace; this is the operator's escape hatch when it does not help.
+    KillAgentSession {
+        session_id: SessionId,
     },
     ProbeProject,
     PreviewProjectConfig {
@@ -778,6 +799,15 @@ pub enum RuntimeEventKind {
     AgentSessionFailed {
         session: AgentSessionView,
     },
+    /// Terminal fact for a session the operator killed
+    /// (`runtime.agent_session_control`).
+    ///
+    /// Separate from `AgentSessionFailed` because a kill is an operator act,
+    /// not an agent failure, and a client must be able to say so; the reducer
+    /// settles it exactly as the other terminal session facts.
+    AgentSessionKilled {
+        session: AgentSessionView,
+    },
     AgentSessionInputAccepted {
         session_id: SessionId,
         input_id: String,
@@ -1460,7 +1490,8 @@ impl RuntimeViewState {
             RuntimeEventKind::AgentSessionStarted { session }
             | RuntimeEventKind::AgentSessionUpdated { session }
             | RuntimeEventKind::AgentSessionCompleted { session }
-            | RuntimeEventKind::AgentSessionFailed { session } => {
+            | RuntimeEventKind::AgentSessionFailed { session }
+            | RuntimeEventKind::AgentSessionKilled { session } => {
                 // A terminal turn settles the unscoped assistant stream.
                 //
                 // That stream is the in-flight display surface only. Once a
@@ -1483,13 +1514,9 @@ impl RuntimeViewState {
                         event.kind,
                         RuntimeEventKind::AgentSessionCompleted { .. }
                             | RuntimeEventKind::AgentSessionFailed { .. }
+                            | RuntimeEventKind::AgentSessionKilled { .. }
                     ) || (matches!(event.kind, RuntimeEventKind::AgentSessionUpdated { .. })
-                        && matches!(
-                            session.status,
-                            AgentSessionStatus::Completed
-                                | AgentSessionStatus::Failed
-                                | AgentSessionStatus::Cancelled
-                        ));
+                        && session.status.is_terminal());
                 if settles_turn {
                     self.assistant_stream.clear();
                 }

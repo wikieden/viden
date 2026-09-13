@@ -28,8 +28,9 @@ mod workspace_owner;
 
 pub use agent::{
     AgentAdapterSource, AgentAdapterView, AgentAuthState, AgentAvailability, AgentContentPart,
-    AgentConversationMessageView, AgentConversationRole, AgentSessionInput, AgentSessionInputView,
-    AgentSessionRequest, AgentSessionStatus, AgentSessionView, AgentStartability,
+    AgentConversationMessageView, AgentConversationRole, AgentSessionControlView,
+    AgentSessionInput, AgentSessionInputView, AgentSessionRequest, AgentSessionStatus,
+    AgentSessionTermination, AgentSessionView, AgentStartability,
 };
 pub use audit::{
     AuditActor, AuditActorFilter, AuditCursor, AuditId, AuditObjectRef, AuditOutcome, AuditPage,

@@ -64,6 +64,7 @@ fn with_bound_session(
         task: "restore the failed turn".to_string(),
         diagnostic: None,
         output: None,
+        control: None,
     });
 }
 

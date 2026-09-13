@@ -18,12 +18,12 @@ use viden_permissions::PermissionContext;
 use viden_plugin_api::{AgentAuthMode, AgentPluginDescriptor, AgentSource, AgentTransport};
 use viden_types::{
     AgentAdapterSource, AgentAdapterView, AgentAuthState, AgentAvailability, AgentNextAction,
-    AgentRole, AgentRoute, AgentSessionRequest, AgentSessionStatus, AgentSessionView,
-    AgentStartability, AgentTaskKind, AgentTaskRecord, AgentTaskStatus, ApprovalResponse,
-    CapabilityId, EvidenceView, MergeGateDecision, MergeGateDecisionOutcome,
-    MergeGatePolicySnapshot, MergeGateRecord, MergeGateStatus, MergeGateType, RuntimeEvent,
-    RuntimeEventKind, RuntimeOwner, TurnOutcome, TurnSource, TurnView, fresh_id, now_timestamp,
-    truncate_for_preview,
+    AgentRole, AgentRoute, AgentSessionControlView, AgentSessionRequest, AgentSessionStatus,
+    AgentSessionTermination, AgentSessionView, AgentStartability, AgentTaskKind, AgentTaskRecord,
+    AgentTaskStatus, ApprovalResponse, CapabilityId, EvidenceView, MergeGateDecision,
+    MergeGateDecisionOutcome, MergeGatePolicySnapshot, MergeGateRecord, MergeGateStatus,
+    MergeGateType, RuntimeEvent, RuntimeEventKind, RuntimeOwner, TurnOutcome, TurnSource, TurnView,
+    fresh_id, now_timestamp, truncate_for_preview,
 };
 
 pub(super) const MAX_RESIDENT_ACP_SESSIONS: usize = 8;
@@ -411,6 +411,12 @@ pub fn tracked_agent_job_sessions(cwd: &Path) -> Vec<AgentSessionView> {
             } else {
                 match stored_status.as_str() {
                 "cancelled" => AgentSessionStatus::Cancelled,
+                "killed" => AgentSessionStatus::Killed,
+                // A paused session survives a restart as paused. Its resident
+                // connection does not, but resume reloads the ACP session from
+                // its recorded handle, which is the same path a follow-up turn
+                // already takes.
+                "paused" => AgentSessionStatus::Paused,
                 "failed" => AgentSessionStatus::Failed,
                 "finished" => AgentSessionStatus::Completed,
                 // A new Core cannot resume the old process' stdio or approval
@@ -444,6 +450,7 @@ pub fn tracked_agent_job_sessions(cwd: &Path) -> Vec<AgentSessionView> {
                 output: (status == AgentSessionStatus::Completed)
                     .then(|| read_acp_session_output(&job.result_path))
                     .flatten(),
+                control: None,
             })
         })
         .collect()
@@ -575,11 +582,16 @@ pub fn start_typed_agent_session(
         runtime_event_sink,
         approver,
         None,
+        None,
     )
 }
 
 /// Send another prompt turn into an existing typed agent session, reusing its
 /// resident connection when one is still cached.
+/// `control` is the session's operator-control history, which the runtime owns
+/// and this crate only carries onto the facts it publishes. Without it a
+/// resumed turn would republish the session with no control record at all, and
+/// a client watching `held_input_count` drain would see it vanish instead.
 pub fn resume_typed_agent_session(
     cwd: &Path,
     session_id: &str,
@@ -587,6 +599,7 @@ pub fn resume_typed_agent_session(
     owner: RuntimeOwner,
     runtime_event_sink: RuntimeEventSink,
     approver: AgentSessionApprover,
+    control: Option<AgentSessionControlView>,
 ) -> Result<String, String> {
     let job = find_codex_job(cwd, session_id)?
         .ok_or_else(|| format!("Unknown agent session `{session_id}`"))?;
@@ -628,6 +641,7 @@ pub fn resume_typed_agent_session(
         runtime_event_sink,
         approver,
         Some(input_id.clone()),
+        control,
     )?;
     Ok(input_id)
 }
@@ -640,6 +654,7 @@ pub fn retry_typed_agent_session(
     owner: RuntimeOwner,
     runtime_event_sink: RuntimeEventSink,
     approver: AgentSessionApprover,
+    control: Option<AgentSessionControlView>,
 ) -> Result<String, String> {
     let job = find_codex_job(cwd, session_id)?
         .ok_or_else(|| format!("Unknown agent session `{session_id}`"))?;
@@ -650,6 +665,7 @@ pub fn retry_typed_agent_session(
         owner,
         runtime_event_sink,
         approver,
+        control,
     )
 }
 
@@ -663,6 +679,7 @@ pub(super) fn start_typed_agent_session_attempt(
     runtime_event_sink: RuntimeEventSink,
     mut approver: AgentSessionApprover,
     accepted_input_id: Option<String>,
+    control: Option<AgentSessionControlView>,
 ) -> Result<AgentSessionView, String> {
     validate_typed_agent_session_request(&request)?;
     let agents = acp_agent_descriptors();
@@ -728,6 +745,10 @@ pub(super) fn start_typed_agent_session_attempt(
         task: request.task,
         diagnostic: None,
         output: None,
+        // The runtime's control record travels with every fact of this turn,
+        // including the terminal one the monitor builds from this view, so a
+        // client never loses the count of what is still held.
+        control,
     };
     let mut start_events = Vec::new();
     if let Some(input_id) = accepted_input_id {
@@ -820,13 +841,28 @@ pub(super) fn start_typed_agent_session_attempt(
                 },
             },
         );
-        // The marker expresses owner intent, but cancellation becomes terminal
-        // only here, after the ACP runner and its child process have stopped.
-        let was_cancelled = monitor_cancel_path.exists()
-            || find_codex_job(&monitor_cwd, &monitor_record.id)
+        // The marker expresses owner intent, but an interruption becomes
+        // terminal only here, after the ACP runner and its child process have
+        // stopped. Pause and kill publish their own session facts from the
+        // runtime, which is the only place that knows the held-input count and
+        // the control record; this monitor must therefore stay silent about the
+        // session for those two and only settle the turn and the job record.
+        let interrupt = read_agent_job_interrupt(&monitor_cancel_path).or_else(|| {
+            find_codex_job(&monitor_cwd, &monitor_record.id)
                 .ok()
                 .flatten()
-                .is_some_and(|job| job.status == "cancelled");
+                .and_then(|job| match job.status.as_str() {
+                    "cancelled" => Some(AgentJobInterrupt::Cancel),
+                    "paused" => Some(AgentJobInterrupt::Pause),
+                    "killed" => Some(AgentJobInterrupt::Kill),
+                    _ => None,
+                })
+        });
+        let was_cancelled = interrupt == Some(AgentJobInterrupt::Cancel);
+        let runtime_owned_interrupt = matches!(
+            interrupt,
+            Some(AgentJobInterrupt::Pause) | Some(AgentJobInterrupt::Kill)
+        );
         monitor_record.pid = pid_slot.lock().ok().and_then(|slot| *slot);
         let mut terminal = monitor_view;
         let kind = match result {
@@ -840,26 +876,40 @@ pub(super) fn start_typed_agent_session_attempt(
                 // replay, which rebuild from the file.
                 let _ = write_acp_session_result(&result_path, &evidence);
                 monitor_record.status = acp_session_job_status(&evidence);
-                if was_cancelled {
+                if runtime_owned_interrupt {
+                    monitor_record.status = interrupt
+                        .expect("a runtime-owned interrupt is always present")
+                        .job_status()
+                        .to_string();
+                    None
+                } else if was_cancelled {
                     monitor_record.status = "cancelled".to_string();
                     terminal.status = AgentSessionStatus::Cancelled;
-                    RuntimeEventKind::AgentSessionUpdated { session: terminal }
+                    terminal.control = Some(cancelled_session_control());
+                    Some(RuntimeEventKind::AgentSessionUpdated { session: terminal })
                 } else if monitor_record.status == "failed" {
                     terminal.status = AgentSessionStatus::Failed;
                     terminal.diagnostic = Some("ACP session reported a failed status".to_string());
-                    RuntimeEventKind::AgentSessionFailed { session: terminal }
+                    Some(RuntimeEventKind::AgentSessionFailed { session: terminal })
                 } else {
                     terminal.status = AgentSessionStatus::Completed;
                     terminal.output = nonempty_acp_output(&evidence.message);
-                    RuntimeEventKind::AgentSessionCompleted { session: terminal }
+                    Some(RuntimeEventKind::AgentSessionCompleted { session: terminal })
                 }
             }
             Err(error) => {
-                if was_cancelled {
+                if runtime_owned_interrupt {
+                    monitor_record.status = interrupt
+                        .expect("a runtime-owned interrupt is always present")
+                        .job_status()
+                        .to_string();
+                    None
+                } else if was_cancelled {
                     monitor_record.status = "cancelled".to_string();
                     terminal.status = AgentSessionStatus::Cancelled;
                     terminal.diagnostic = Some("cancelled by owner".to_string());
-                    RuntimeEventKind::AgentSessionUpdated { session: terminal }
+                    terminal.control = Some(cancelled_session_control());
+                    Some(RuntimeEventKind::AgentSessionUpdated { session: terminal })
                 } else {
                     // Host bookkeeping (job result scratch file), not a
                     // model-driven effect: stays outside the capability seam.
@@ -867,7 +917,7 @@ pub(super) fn start_typed_agent_session_attempt(
                     monitor_record.status = "failed".to_string();
                     terminal.status = AgentSessionStatus::Failed;
                     terminal.diagnostic = Some(truncate_for_preview(&error, 320));
-                    RuntimeEventKind::AgentSessionFailed { session: terminal }
+                    Some(RuntimeEventKind::AgentSessionFailed { session: terminal })
                 }
             }
         };
@@ -876,8 +926,8 @@ pub(super) fn start_typed_agent_session_attempt(
         // The turn's outcome is read from the terminal session fact this block
         // just decided, so the two can never disagree about how the run ended.
         let outcome = match &kind {
-            RuntimeEventKind::AgentSessionCompleted { .. } => TurnOutcome::Completed,
-            RuntimeEventKind::AgentSessionFailed { session } => TurnOutcome::failed(
+            Some(RuntimeEventKind::AgentSessionCompleted { .. }) => TurnOutcome::Completed,
+            Some(RuntimeEventKind::AgentSessionFailed { session }) => TurnOutcome::failed(
                 session
                     .diagnostic
                     .as_deref()
@@ -885,15 +935,19 @@ pub(super) fn start_typed_agent_session_attempt(
             ),
             _ => TurnOutcome::Cancelled,
         };
-        let terminal_event = RuntimeEvent::new(0, kind);
         // The monitor's half of the single-writer rule: only the terminal
         // session fact, which the runner cannot know because it is decided
         // here from the run result and the cancellation marker. The turn's own
-        // end is live-only, for the reason its start is.
-        let _ = append_acp_runtime_events(
-            &monitor_runtime_event_path,
-            std::slice::from_ref(&terminal_event),
-        );
+        // end is live-only, for the reason its start is. A pause or a kill has
+        // no fact here at all: the runtime publishes it, and the durable job
+        // record above is what rebuilds it after a restart.
+        let terminal_event = kind.map(|kind| RuntimeEvent::new(0, kind));
+        if let Some(terminal_event) = terminal_event.as_ref() {
+            let _ = append_acp_runtime_events(
+                &monitor_runtime_event_path,
+                std::slice::from_ref(terminal_event),
+            );
+        }
         let finished = RuntimeEvent::new(
             0,
             RuntimeEventKind::TurnFinished {
@@ -903,7 +957,7 @@ pub(super) fn start_typed_agent_session_attempt(
                 finished_at: now_timestamp(),
             },
         );
-        terminal_sink(vec![terminal_event, finished]);
+        terminal_sink(terminal_event.into_iter().chain([finished]).collect());
     });
 
     Ok(session)
@@ -1093,11 +1147,61 @@ pub(super) fn start_acp_session_job(
 /// Cancel a typed agent session by id, stopping its process and recording the
 /// terminal status.
 pub fn cancel_typed_agent_session(cwd: &Path, session_id: &str) -> Result<(), String> {
-    let result = cancel_codex_job(cwd, Some(session_id)).map(|_| ());
+    let result = interrupt_codex_job(cwd, Some(session_id), AgentJobInterrupt::Cancel).map(|_| ());
+
     // A completed turn may leave its ACP process idle for a fast follow-up.
     // Explicit session cancellation must also retire that resident connection.
     remove_resident_acp_session(cwd, session_id);
     result
+}
+
+/// The control record a cancelled session carries.
+///
+/// Cancel and kill both settle a session; only this record says which of the
+/// two the operator actually asked for.
+pub fn cancelled_session_control() -> AgentSessionControlView {
+    AgentSessionControlView {
+        terminated_by: Some(AgentSessionTermination::Cancelled),
+        ..AgentSessionControlView::default()
+    }
+}
+
+/// Pause a typed agent session: stop the in-flight prompt with today's cancel
+/// grace and keep the session's connection alive.
+///
+/// Returns whether the adapter stopped cooperatively, which is exactly whether
+/// the resident connection survived. Neither ACP nor the Codex app-server has a
+/// pause verb, so a pause is a cooperative cancel plus the decision not to
+/// retire the session; when the adapter does not answer within the grace this
+/// falls back to the same bounded process termination cancel uses, and the
+/// caller is told so rather than being left to assume a live connection.
+pub fn pause_typed_agent_session(cwd: &Path, session_id: &str) -> Result<bool, String> {
+    interrupt_codex_job(cwd, Some(session_id), AgentJobInterrupt::Pause)
+        .map(|(_, kept_child)| kept_child)
+}
+
+/// Kill a typed agent session: terminate immediately with no cancel grace and
+/// retire the resident connection.
+pub fn kill_typed_agent_session(cwd: &Path, session_id: &str) -> Result<(), String> {
+    let result = interrupt_codex_job(cwd, Some(session_id), AgentJobInterrupt::Kill).map(|_| ());
+    // A kill ends the session, so the connection goes with it. Doing this after
+    // the interruption keeps the ordering cancel already relies on: the process
+    // is confirmed stopped before the cache stops referring to it.
+    remove_resident_acp_session(cwd, session_id);
+    result
+}
+
+/// Whether a resident ACP connection for `session_id` is cached and its child
+/// is still running.
+///
+/// Reports observed state; it never revives or replaces a dead connection.
+pub fn resident_acp_session_is_live(cwd: &Path, session_id: &str) -> bool {
+    let key = resident_acp_session_key(cwd, session_id);
+    resident_acp_sessions()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .get_mut(&key)
+        .is_some_and(|resident| matches!(resident.child.try_wait(), Ok(None)))
 }
 
 /// Record a terminal or transitional status against a tracked agent session.

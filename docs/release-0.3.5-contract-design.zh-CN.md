@@ -514,3 +514,56 @@ Agent Board（覆盖 Lane/会话层级的中央面板视图）：
   而每个轮次的投影都会重新发布该前缀，因此一个同时折入了 `update_plan` 调用的轮次，会在
   前缀里发布一次记录，又作为有序事实再发布一次。`AgentDagUpdated` 自 `0.3.0` 起就有这个
   性质；归约器按 plan id 做 upsert，因此客户端两种情况下看到的都是一份计划。
+## 实现修订（2026-09-13）
+
+由批次 C14 按本文档自身的规则记录：批次只能在其报告中给出理由的前提下偏离，
+并在该偏离通过评审后记入此处。上文正文保持原样；本节是第 2 节
+`runtime.agent_session_control` 实际交付的内容。
+
+- **只有在适配器于宽限期内应答时，暂停才保留常驻连接。** 正文无条件地说暂停
+  “保留常驻 session 及其 `load_session_id`”。它做不到总是如此：只要发出过取消，
+  ACP runner 就会杀掉子进程；而不应答 `session/cancel` 的适配器仍然必须由取消
+  今天所用的同一套有界进程终止来停下。实际交付：当作业标记记录的是*暂停*且该轮
+  以协作方式结束时，runner 保留子进程，否则退回到终止。
+  `pause_typed_agent_session` 返回发生的是两者中的哪一种，session 的 diagnostic
+  也会说明，因为悄悄变成重新加载的暂停是操作者无法信任的暂停。无论哪一种，恢复
+  路径都从记录下来的 `load_session_id` 重新加载。
+- **适配器监视线程不为暂停或终止发布任何 session 事实。** 两者都由 runtime 独家
+  发布，因为只有它知道被持有的输入计数与控制记录；第二个写入者会把该记录竞争掉，
+  让一个被暂停的 session 完全不带 `control`。持久作业记录承载 `paused` 与
+  `killed`，因此两者在重启后仍能重建。取消保持不变，仍由监视线程发布，并且现在
+  会盖上 `terminated_by: Cancelled`，使两个写入者不可能互相矛盾。
+- **每一条被持有的输入都会按序转发，且排空动作跨线程。** 正文既说“第一条被转发”，
+  又说“被持有的输入在恢复时按序转发”，只有当某个东西放行其余输入时两者才自洽。恢复
+  转发第一条；此后每一轮*完成*都放行下一条，于是 `held_input_count` 一路走到零。
+  触发信号是终态 session 事实，它到达于适配器的监视线程，而该线程无法触碰由 worker
+  独占的被持有输入表 —— 因此该 session 的 sink 投递
+  `SupervisorMessage::DrainHeldSessionInput`，由 worker 执行排空，这正是 C6 的
+  “置位—排空”配对，只是置位一侧位于另一个线程。失败、被取消或被终止的那一轮之后不
+  放行任何东西，这正是 C6 已经对会话队列采用的规则：剩余输入继续被持有并计数，由
+  操作者重试或终止，而不是眼看每一条被持有的提示词涌入一个已经损坏的 session。这一点
+  收窄了评审意见中把 `AgentSessionFailed` 列为放行事实的那个括注。
+- **控制记录随每一轮的事实一同传递。** 被恢复或被排空的一轮会重新发布整个 session
+  视图，因此若不这样做，`held_input_count` 会在它所描述的那一轮启动的瞬间消失。
+  `resume_typed_agent_session` 与 `retry_typed_agent_session` 因此接收由 runtime
+  拥有的 `control` 并把它放到所发布的视图上；agents crate 对它不做任何决定。
+- **“现有输入队列上界”是 50。** 即 `RUNTIME_VIEW_COLLECTION_LIMIT` 已经用来限制
+  runtime 视图各集合的那个值，因此客户端读到的 `held_input_count` 所对的上界正是
+  视图自身强制的那个。超出它的输入以 `CommandRejected` 回答。
+- **新增了 `AgentSessionStatus::is_terminal()`。** 正文要求 Core 中每一个穷尽匹配
+  都诚实处理两个新状态。让这条规则只住在一个谓词里，任何匹配点都不必重新判断
+  “被暂停的 session 是活的、被终止的已了结”。
+- **能力计数到达 30，而不是 31。** 写 C14 时 C13 的 `runtime.plan_documents` 尚未
+  落地，而一个指名本构建并未公布的能力的计数常量是假的。三个计数位置的注释都指明了
+  0.3.5 剩余的能力以及每一个会把计数带到多少。
+- **完全没有触碰 Lane 的 `active_session_ids`。** 正文说该列表“保留被暂停的
+  session”，并说“被终止的像被取消的那样离开它”。Core 在 session 了结时并不修剪该
+  列表 —— 对取消同样不修剪；它是在 session 启动时追加、在 Lane 评审时清空的 Lane
+  生命周期状态。让终止成为第一个修剪它的状态是本批次并不拥有的 Lane 生命周期改动，
+  而把现有行为描述成会修剪则是假的。契约现在改为：客户端从 session 自身的 `status`
+  读取存活性。
+- **两处机械性的 `apps/**` 改动无法避免。** `control` 是 `AgentSessionView` 上的新
+  字段，因此每一个既有字面量都需要 `control: None` 才能编译；而 GUI 的
+  `agent_session_status` 投影是一个穷尽匹配，必须指名 `paused` 与 `killed`，而不是
+  把它们折叠掉。没有触碰任何客户端行为、布局或动作行；实时的 Pause/Resume/Kill 表面
+  仍属于 G9 与 T4。

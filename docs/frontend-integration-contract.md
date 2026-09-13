@@ -129,6 +129,7 @@ self-referential inside the payload commit.
 | Token/cost | cost bar, provider card, task budget panel | `TokenCostView`, provider telemetry | future budget commands | partial |
 | Lanes and external agents | lane monitor, external-job cards | `AgentLaneRecord`, lane lifecycle events | negotiated lane lifecycle commands | Core `0.3.2` extension `runtime.lane_lifecycle` |
 | Native and ACP agent sessions | built-in DeepSeek/OpenAI work and Codex/Claude/Kiro ACP sessions | `AgentAdapterView.startability`, `AgentSessionView`, `RuntimeViewState.agent_session_inputs`, ordered `agent_conversation` | `StartAgentSession`, `SendAgentSessionInput`, `RetryAgentSession`, `CancelAgentSession` | Core `0.3.5` extensions `runtime.agent_adapters`, `runtime.agent_sessions`, `runtime.agent_session_input`, `runtime.agent_conversation` |
+| Agent session control | Pause/Resume/Kill in the Agent action row beside Stop | `AgentSessionStatus::Paused` and `Killed`, `AgentSessionView.control`, `AgentSessionKilled` | `PauseAgentSession`, `ResumeAgentSession`, `KillAgentSession` | Core `0.3.8` extension `runtime.agent_session_control` |
 | Live Lane runtime owners | exact cancel availability and owner-scoped controls | `LaneRuntimeOwnerBinding`, `LaneRuntimeOwnerBound`, `RuntimeViewState.lane_runtime_owners` | existing `CancelActiveTurn` with the exact bound envelope owner | Core `0.3.2` extension `runtime.lane_owner_projection` |
 | Reviewed starter Lane | first-run starter choice and reviewed isolation target | owner-scoped `StarterLanePreview`, `StarterLaneReceipt`, typed invalidation reason | `PreviewStarterLane`, then `CreateStarterLane` with the exact preview id/hash | Core `0.3.2` extension `runtime.starter_lane_preview`; Git workspaces carry branch/worktree facts, while direct workspaces carry neither |
 | Errors and recovery | inline warning, recovery dock, retry action | `RuntimeErrorView`, `AgentNextAction` | task-specific retry command or existing runtime command | landed |
@@ -375,6 +376,7 @@ a contract change, not a refactor.
 | Decide a plan | `AcceptPlanDocument { plan_id, revision, content_sha256 }`, `RejectPlanDocument { .., reason }` | the pin check that refuses a stale revision or digest with `plan_revision_stale` and settles nothing, the `plan.accepted`/`plan.rejected` audit row written durably before `PlanDocumentDecided`, and the decided record with its `decided_at` and `decision_audit_id` |
 | Turn an accepted plan into work | `HandOffPlanDocument { plan_id, revision, content_sha256 }` | the plan-mode refusal raised before anything is authorized, the `plan.handed_off` audit row, one `AgentDagTaskSpec` per step built with the mapped dependencies and the session's own mutation policy, the existing `start_agent_dag` path, and the ordering that publishes `AgentDagUpdated` before `PlanDocumentHandedOff` |
 | Create a starter Lane | `PreviewStarterLane`, review the result, then `CreateStarterLane` with the unchanged request/id/hash | preset resolution, workspace/isolation checks, permission gate, execution-time recheck, compensation, typed receipt |
+| Pause, resume, or kill an Agent session | `PauseAgentSession`, `ResumeAgentSession`, `KillAgentSession`, each from the session's exact bound owner | the adapter cancel and its grace, the resident connection a pause keeps and a kill retires, the denial of the pending approval whose turn is gone, the held inputs and their count, the `agent_session.*` audit row before the fact that announces it, and the status the next control command is judged against |
 | Arrange the cockpit layout | `SetUiLayoutPreferences { patch }`, `ResetUiLayoutPreferences` | `[ui.layout]` persistence in the user config, bounds on the hidden-segment list, the published record with `persisted` and its diagnostics, and the snapshot-prefix copy |
 
 Starter Lane isolation is selected by Core, not by the frontend. A workspace
@@ -1284,6 +1286,74 @@ Rules a frontend must honor:
 - **The settlements are correlation, not state.** Use `PlanDocumentDecided` and
   `PlanDocumentHandedOff` to settle your own command and to reach the audit row
   through `audit_id`; take the plan's state from the record.
+### Session Control (`runtime.agent_session_control`)
+
+Requires the `runtime.agent_session_control` extension. A client without it
+renders Pause, Resume, and Kill as unavailable and says so; Stop stays
+`CancelAgentSession`, which is unchanged. A client must never simulate a pause
+by withholding input locally: an input a client is sitting on is invisible to
+Core, to replay, and to every other client on the same session.
+
+`PauseAgentSession { session_id }`, `ResumeAgentSession { session_id }`, and
+`KillAgentSession { session_id }` are each sent from the session's exact bound
+owner, the same rule `CancelAgentSession` already follows. A session the owner
+does not hold is rejected as it is today.
+
+Neither ACP nor the Codex app-server has a pause verb, so pause is a Core-side
+state over the session's input path rather than a frozen adapter:
+
+- **Pause** is accepted from `Starting`, `Running`, and `WaitingApproval`. Core
+  sends the adapter's cancel with today's grace, keeps the resident connection
+  when the adapter answers inside it, and forwards no further input. The
+  session's diagnostic says which of the two happened, because a pause that fell
+  back to process termination will reload the session on resume. Status becomes
+  `Paused` with `control.paused_at` set, and an `agent_session.pause` audit row
+  names the session and its Lane.
+- **Input while paused** is accepted, not refused: `AgentSessionInputAccepted`
+  is published and `control.held_input_count` counts what is held, in arrival
+  order, bounded at 50. `held_input_count` is the only honest source for "typed
+  but not sent" — nothing else in the contract distinguishes it from "sent and
+  still running".
+- **Resume** is accepted from `Paused` only. The first held input is forwarded
+  and the session runs it; with nothing held the session settles at `Completed`,
+  which in this contract already means "no turn in flight, session alive and
+  accepting input" rather than "the work finished". `control.resumed_at` is set
+  and an `agent_session.resume` row is audited.
+- **Each completed turn releases the next held input.** A resumed session drains
+  what it held in the order it was typed: when a turn completes and inputs
+  remain, Core starts the next one itself and `held_input_count` decreases with
+  it, reaching zero on the last. A client must expect an `AgentSessionStarted`
+  it did not command — no `CommandAccepted` precedes a drained turn, and the
+  session's `control` is how the client knows why it appeared. Nothing is
+  released behind a turn that failed, was cancelled, or was killed: the
+  remaining inputs stay held and counted, and the operator retries or kills.
+- **Kill** is accepted from any non-terminal status, `Paused` included. The
+  process is terminated with no grace at all, the resident connection is
+  retired, held inputs are discarded and named in the diagnostic, and the
+  session settles as the new terminal event `AgentSessionKilled` with
+  `control.terminated_by: Killed`. An `agent_session.kill` row is audited.
+  `RetryAgentSession` accepts `Killed` exactly as it accepts `Failed`.
+- **Cancel** is otherwise unchanged and now stamps
+  `control.terminated_by: Cancelled`, so a client can tell a cancel from a kill
+  once both have settled and the status alone no longer can.
+- **A pending approval the paused or killed turn was waiting on is resolved by
+  Core** as a denial with reason `session_paused` or `session_killed`, audited
+  before the `ApprovalResolved` that announces it. The turn the question
+  belonged to is gone; leaving the prompt on screen would ask the operator to
+  answer about work that no longer exists.
+- **A command against a status that does not allow it** is `CommandRejected`
+  with reason `session_status_<current>`. A client that retried blindly could
+  not otherwise tell "already paused" from "already finished".
+
+Pause, resume, and kill leave a Lane's `active_session_ids` unchanged. That
+list is Lane-lifecycle state Core does not prune when a session settles — it
+does not prune it for a cancel either — so a client reads liveness from the
+session's own `status`, never from membership in it.
+
+Switching model is a client composition of Kill (or Cancel) followed by
+`StartAgentSession` carrying the new `model` and the previous
+`load_session_id`. There is no switch-model command and a client must render it
+as the two-step flow it is.
 
 ## Approval And Permission UI Contract
 

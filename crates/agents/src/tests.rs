@@ -2757,17 +2757,27 @@ fn acp_async_job_can_be_cancelled_by_pid() {
     let _guard = subprocess_test_guard();
     let root = temp_root("acp_async_cancel");
     let script = root.join("mock-acp-cancel.sh");
+    // The mock stamps a marker once it has answered the prompt, and the test
+    // waits for that marker before cancelling. The job's pid is recorded at
+    // spawn, before a single byte of the handshake has been exchanged, so
+    // gating on it let the cancel grace expire while the agent was still
+    // starting up: the child was terminated mid-`initialize`, the run failed
+    // instead of being cancelled, and the cooperative evidence asserted below
+    // was never produced. The marker is a signal this test owns, and it moves
+    // no bound the code under test depends on.
+    let ready = root.join("mock-acp-cancel.prompted");
     fs::write(
         &script,
         [
-            "#!/bin/sh",
-            "trap 'exit 0' TERM",
-            "read _init",
-            "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":0,\"result\":{\"protocolVersion\":1,\"agentCapabilities\":{},\"agentInfo\":{\"name\":\"mock-cancel-acp\",\"version\":\"0.5.0\"}}}'",
-            "read _new_session",
-            "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"sessionId\":\"session_cancel\"}}'",
-            "read _prompt",
-            "sleep 20",
+            "#!/bin/sh".to_string(),
+            "trap 'exit 0' TERM".to_string(),
+            "read _init".to_string(),
+            "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":0,\"result\":{\"protocolVersion\":1,\"agentCapabilities\":{},\"agentInfo\":{\"name\":\"mock-cancel-acp\",\"version\":\"0.5.0\"}}}'".to_string(),
+            "read _new_session".to_string(),
+            "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"sessionId\":\"session_cancel\"}}'".to_string(),
+            "read _prompt".to_string(),
+            format!(": > \"{}\"", ready.display()),
+            "sleep 20".to_string(),
         ]
         .join("\n"),
     )
@@ -2790,12 +2800,17 @@ fn acp_async_job_can_be_cancelled_by_pid() {
         .to_string();
     wait_until(
         || {
-            find_codex_job(&root, &id)
-                .ok()
-                .flatten()
-                .is_some_and(|job| job.pid.is_some() && job.status == "running")
+            ready.exists()
+                && find_codex_job(&root, &id)
+                    .ok()
+                    .flatten()
+                    .is_some_and(|job| job.pid.is_some() && job.status == "running")
         },
-        Duration::from_secs(10),
+        Duration::from_secs(30),
+    );
+    assert!(
+        ready.exists(),
+        "the mock agent must have completed its handshake before cancellation"
     );
 
     let cancelled = cancel_codex_job(&root, Some(&id)).expect("cancel acp job");
@@ -3441,4 +3456,235 @@ fn a_typed_agent_turn_publishes_its_bracket_live_and_persists_neither_half() {
         )),
         "a turn leaves no durable trace: a replayed half-bracket is a phantom turn"
     );
+}
+
+// ---------------------------------------------------------------------------
+// `runtime.agent_session_control` (0.3.5 C14): pause keeps the connection,
+// kill skips the grace.
+// ---------------------------------------------------------------------------
+
+/// A mock ACP agent that answers `session/cancel` and then keeps running.
+///
+/// This is the cooperative adapter: the turn ends, the process does not. It is
+/// the only shape in which a pause can keep a resident connection, so the test
+/// has to model it rather than assume it.
+fn mock_cooperative_acp_script(root: &Path, name: &str, session: &str) -> PathBuf {
+    let script = root.join(name);
+    fs::write(
+        &script,
+        [
+            "#!/bin/sh".to_string(),
+            "read _init".to_string(),
+            "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":0,\"result\":{\"protocolVersion\":1,\"agentCapabilities\":{\"sessionCancel\":true},\"agentInfo\":{\"name\":\"mock-cooperative-acp\",\"version\":\"0.6.0\"}}}'".to_string(),
+            "read _new_session".to_string(),
+            format!(
+                "printf '%s\\n' '{{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{{\"sessionId\":\"{session}\"}}}}'"
+            ),
+            "read _prompt".to_string(),
+            "while IFS= read -r line; do".to_string(),
+            "  case \"$line\" in".to_string(),
+            "    *'\"method\":\"session/cancel\"'*)".to_string(),
+            "      printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{\"status\":\"cancelled\"}}'".to_string(),
+            "      ;;".to_string(),
+            "  esac".to_string(),
+            "done".to_string(),
+        ]
+        .join("\n"),
+    )
+    .expect("write cooperative acp script");
+    make_executable(&script);
+    script
+}
+
+fn start_control_session(root: &Path, session_id: &str, lane_id: &str) {
+    let sink: RuntimeEventSink = Arc::new(|_events| {});
+    let approver: AgentSessionApprover = Box::new(|_prompt: viden_types::PermissionPrompt| {
+        ApprovalResponse::allow_once(Some("test".into()))
+    });
+    start_typed_agent_session(
+        root,
+        session_id.to_string(),
+        viden_types::AgentSessionRequest {
+            lane_id: lane_id.to_string(),
+            agent_id: "custom-acp".to_string(),
+            model: None,
+            load_session_id: None,
+            task: "hold this session".to_string(),
+        },
+        typed_session_owner(session_id, lane_id),
+        sink,
+        approver,
+    )
+    .expect("start typed agent session");
+    wait_until(
+        || {
+            find_codex_job(root, session_id)
+                .ok()
+                .flatten()
+                .is_some_and(|job| job.pid.is_some() && job.status == "running")
+        },
+        Duration::from_secs(20),
+    );
+}
+
+/// Pause stops the in-flight prompt and keeps the session's ACP connection, so
+/// resume does not have to reload the agent. The monitor publishes no terminal
+/// session fact: a paused session is alive, and the runtime owns the fact that
+/// says so.
+#[test]
+fn pausing_a_typed_agent_session_keeps_its_resident_connection() {
+    let _guard = subprocess_test_guard();
+    // The cooperative window must stay open under parallel load: if the
+    // production grace expired, the process-termination fallback would
+    // legitimately retire the very connection this test asserts survives.
+    let _grace = widen_acp_session_cancel_grace_for_test(30_000);
+    let root = temp_root("acp_session_pause");
+    let script = mock_cooperative_acp_script(&root, "mock-acp-pause.sh", "session_pause");
+    let _agent_guard = CustomAcpAgentGuard::install(&script);
+    let session_id = "agent-session_pause".to_string();
+    start_control_session(&root, &session_id, "lane-pause");
+
+    let kept_connection = pause_typed_agent_session(&root, &session_id).expect("pause the session");
+
+    assert!(
+        kept_connection,
+        "a cooperatively paused session keeps its adapter process"
+    );
+    let job = find_codex_job(&root, &session_id)
+        .expect("find job")
+        .expect("job exists");
+    assert_eq!(job.status, "paused");
+    // The resident connection is cached by the runner just after it flushes the
+    // log the pause waited on, so wait for the cache rather than racing it.
+    wait_until(
+        || resident_acp_session_is_live(&root, &session_id),
+        Duration::from_secs(10),
+    );
+    assert!(resident_acp_session_is_live(&root, &session_id));
+    // A paused session is alive: no terminal session fact was persisted for it.
+    let persisted = read_acp_runtime_events(&acp_job_runtime_events_path(&root, &session_id));
+    assert!(
+        !persisted.iter().any(|event| matches!(
+            event.kind,
+            RuntimeEventKind::AgentSessionCompleted { .. }
+                | RuntimeEventKind::AgentSessionFailed { .. }
+                | RuntimeEventKind::AgentSessionKilled { .. }
+        )),
+        "pausing must not settle the session"
+    );
+    // A paused job keeps reporting paused even though its child is alive.
+    assert_eq!(observed_codex_status(&job), "paused");
+
+    kill_typed_agent_session(&root, &session_id).expect("clean up the paused session");
+}
+
+/// Kill does not wait for the adapter's cooperative window at all.
+///
+/// The grace is widened far past this test's own liveness ceiling, so a kill
+/// that still waited for `session/cancel` could not finish inside it. The
+/// ceiling is generous; what it catches is the grace, not slow machines.
+#[test]
+fn killing_a_typed_agent_session_skips_the_cancel_grace() {
+    let _guard = subprocess_test_guard();
+    let _grace = widen_acp_session_cancel_grace_for_test(600_000);
+    let root = temp_root("acp_session_kill");
+    // This agent never answers `session/cancel`, which is exactly when an
+    // operator reaches for kill instead of cancel.
+    let script = root.join("mock-acp-deaf.sh");
+    fs::write(
+        &script,
+        [
+            "#!/bin/sh",
+            "read _init",
+            "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":0,\"result\":{\"protocolVersion\":1,\"agentCapabilities\":{},\"agentInfo\":{\"name\":\"mock-deaf-acp\",\"version\":\"0.5.0\"}}}'",
+            "read _new_session",
+            "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"sessionId\":\"session_kill\"}}'",
+            "read _prompt",
+            "sleep 600",
+        ]
+        .join("\n"),
+    )
+    .expect("write deaf acp script");
+    make_executable(&script);
+    let _agent_guard = CustomAcpAgentGuard::install(&script);
+    let session_id = "agent-session_kill".to_string();
+    start_control_session(&root, &session_id, "lane-kill");
+
+    let killed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let killed_flag = Arc::clone(&killed);
+    let kill_root = root.clone();
+    let kill_session = session_id.clone();
+    let worker = std::thread::spawn(move || {
+        kill_typed_agent_session(&kill_root, &kill_session).expect("kill the session");
+        killed_flag.store(true, Ordering::Relaxed);
+    });
+    wait_until(|| killed.load(Ordering::Relaxed), Duration::from_secs(30));
+    assert!(
+        killed.load(Ordering::Relaxed),
+        "kill must not wait for the adapter's cooperative cancel window"
+    );
+    worker.join().expect("kill worker");
+
+    let job = find_codex_job(&root, &session_id)
+        .expect("find job")
+        .expect("job exists");
+    assert_eq!(job.status, "killed");
+    assert!(
+        !resident_acp_session_is_live(&root, &session_id),
+        "a killed session keeps no connection"
+    );
+    // The runtime publishes `AgentSessionKilled`; the monitor stays silent so
+    // the control record cannot be raced away by a second writer.
+    let persisted = read_acp_runtime_events(&acp_job_runtime_events_path(&root, &session_id));
+    assert!(
+        !persisted
+            .iter()
+            .any(|event| matches!(event.kind, RuntimeEventKind::AgentSessionKilled { .. })),
+        "the adapter monitor must not publish the killed fact"
+    );
+}
+
+/// A killed session survives a Core restart as killed, and a paused one as
+/// paused: the durable job record is what rebuilds both.
+#[test]
+fn killed_and_paused_job_records_rebuild_as_their_own_statuses() {
+    let root = temp_root("acp_session_status_rebuild");
+    for (id, status, expected) in [
+        (
+            "agent-session-rebuild-killed",
+            "killed",
+            viden_types::AgentSessionStatus::Killed,
+        ),
+        (
+            "agent-session-rebuild-paused",
+            "paused",
+            viden_types::AgentSessionStatus::Paused,
+        ),
+    ] {
+        let record = CodexJobRecord {
+            id: id.to_string(),
+            kind: "acp-session".to_string(),
+            status: status.to_string(),
+            pid: None,
+            command: "mock-acp".to_string(),
+            task: "rebuild me".to_string(),
+            log_path: codex_job_artifact_path(&root, id, "jsonl"),
+            result_path: codex_job_artifact_path(&root, id, "result.md"),
+            baseline_path: codex_job_artifact_path(&root, id, "baseline.status"),
+            updated_at: timestamp_millis(),
+            agent: Some(AgentJobMetadata {
+                agent_id: "custom-acp".to_string(),
+                model: None,
+                owner: typed_session_owner(id, "lane-rebuild"),
+            }),
+        };
+        append_codex_job_record(&root, "started", &record).expect("record job");
+
+        let session = tracked_agent_job_sessions(&root)
+            .into_iter()
+            .find(|session| session.session_id == id)
+            .expect("the job rebuilds into a session");
+
+        assert_eq!(session.status, expected);
+    }
 }

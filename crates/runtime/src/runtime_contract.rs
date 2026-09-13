@@ -640,7 +640,10 @@ impl SessionEngine {
             RuntimeCommand::StartAgentSession { .. }
             | RuntimeCommand::SendAgentSessionInput { .. }
             | RuntimeCommand::RetryAgentSession { .. }
-            | RuntimeCommand::CancelAgentSession { .. } => {
+            | RuntimeCommand::CancelAgentSession { .. }
+            | RuntimeCommand::PauseAgentSession { .. }
+            | RuntimeCommand::ResumeAgentSession { .. }
+            | RuntimeCommand::KillAgentSession { .. } => {
                 return Ok(vec![command_rejected(
                     command_id,
                     "typed agent session execution must be handled by the runtime supervisor"
@@ -2132,6 +2135,16 @@ impl SessionEngine {
                 }
                 viden_types::AgentSessionStatus::Failed => {
                     RuntimeEventKind::AgentSessionFailed { session }
+                }
+                viden_types::AgentSessionStatus::Killed => {
+                    RuntimeEventKind::AgentSessionKilled { session }
+                }
+                // A paused or cancelled session is an update to a session that
+                // already exists, never a start: rebuilding it as `Starting`
+                // would erase the operator's control act.
+                viden_types::AgentSessionStatus::Paused
+                | viden_types::AgentSessionStatus::Cancelled => {
+                    RuntimeEventKind::AgentSessionUpdated { session }
                 }
                 _ => RuntimeEventKind::AgentSessionStarted { session },
             };
@@ -6265,6 +6278,15 @@ pub(crate) fn redacted_runtime_command_for_event(command: &RuntimeCommand) -> Ru
             session_id: redact_identifier_for_event(session_id),
         },
         RuntimeCommand::CancelAgentSession { session_id } => RuntimeCommand::CancelAgentSession {
+            session_id: redact_identifier_for_event(session_id),
+        },
+        RuntimeCommand::PauseAgentSession { session_id } => RuntimeCommand::PauseAgentSession {
+            session_id: redact_identifier_for_event(session_id),
+        },
+        RuntimeCommand::ResumeAgentSession { session_id } => RuntimeCommand::ResumeAgentSession {
+            session_id: redact_identifier_for_event(session_id),
+        },
+        RuntimeCommand::KillAgentSession { session_id } => RuntimeCommand::KillAgentSession {
             session_id: redact_identifier_for_event(session_id),
         },
         RuntimeCommand::ProbeProject => RuntimeCommand::ProbeProject,

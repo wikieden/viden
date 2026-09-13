@@ -1975,6 +1975,7 @@ mod tests {
                 task: "continue implementation".to_string(),
                 diagnostic: None,
                 output: None,
+                control: None,
             });
         state
             .runtime
@@ -2088,6 +2089,7 @@ mod tests {
                 task: "work".to_string(),
                 diagnostic: None,
                 output: None,
+                control: None,
             };
         state.runtime.agent_sessions.push(session(
             "session-live",

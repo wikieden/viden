@@ -37,6 +37,7 @@ capabilities = [
   "runtime.agent_adapters",
   "runtime.agent_conversation",
   "runtime.agent_permission_bridge",
+  "runtime.agent_session_control",
   "runtime.agent_session_input",
   "runtime.agent_sessions",
   "runtime.audit",

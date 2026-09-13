@@ -53,6 +53,7 @@ core.workspace_host
 runtime.agent_adapters
 runtime.agent_conversation
 runtime.agent_permission_bridge
+runtime.agent_session_control
 runtime.agent_session_input
 runtime.agent_sessions
 runtime.audit
@@ -123,6 +124,7 @@ payload SHA。Payload commit 内没有猜测或写入自引用 SHA。
 | Token/cost | cost bar、provider card、task budget panel | `TokenCostView`、provider telemetry | 后续 budget commands | 部分落地 |
 | Lanes and external agents | lane monitor、external-job cards | `AgentLaneRecord`、Lane 生命周期 events | 协商后启用 Lane 生命周期 commands | Core `0.3.2` extension `runtime.lane_lifecycle` |
 | 原生与 ACP agent session | 内置 DeepSeek/OpenAI 工作，以及 Codex/Claude/Kiro ACP session | `AgentAdapterView.startability`、`AgentSessionView`、`RuntimeViewState.agent_session_inputs`、有序 `agent_conversation` | `StartAgentSession`、`SendAgentSessionInput`、`RetryAgentSession`、`CancelAgentSession` | Core `0.3.5` extensions `runtime.agent_adapters`、`runtime.agent_sessions`、`runtime.agent_session_input`、`runtime.agent_conversation` |
+| Agent session 控制 | Agent 动作行中与 Stop 并列的 Pause/Resume/Kill | `AgentSessionStatus::Paused` 与 `Killed`、`AgentSessionView.control`、`AgentSessionKilled` | `PauseAgentSession`、`ResumeAgentSession`、`KillAgentSession` | Core `0.3.8` extension `runtime.agent_session_control` |
 | Live Lane runtime owner | 精确 cancel 可用性与 owner-scoped control | `LaneRuntimeOwnerBinding`、`LaneRuntimeOwnerBound`、`RuntimeViewState.lane_runtime_owners` | 使用精确 bound envelope owner 的现有 `CancelActiveTurn` | Core `0.3.2` extension `runtime.lane_owner_projection` |
 | 已审阅 starter Lane | 首启 starter 选择与隔离目标审阅确认 | owner-scoped `StarterLanePreview`、`StarterLaneReceipt`、typed invalidation reason | `PreviewStarterLane`，再携带精确 preview id/hash 发送 `CreateStarterLane` | Core `0.3.2` extension `runtime.starter_lane_preview`；Git 工作区携带 branch/worktree facts，直接工作区两者均为空 |
 | Errors and recovery | inline warning、recovery dock、retry action | `RuntimeErrorView`、`AgentNextAction` | task-specific retry command 或已有 runtime command | 已落地 |
@@ -328,6 +330,7 @@ flowchart LR
 | 决定一份计划 | `AcceptPlanDocument { plan_id, revision, content_sha256 }`、`RejectPlanDocument { .., reason }` | 以 `plan_revision_stale` 拒绝过期 revision 或摘要且不落定任何东西的钉住检查、在 `PlanDocumentDecided` 之前持久写下的 `plan.accepted`/`plan.rejected` 审计行，以及带 `decided_at` 与 `decision_audit_id` 的已决定记录 |
 | 把已接受的计划变成工作 | `HandOffPlanDocument { plan_id, revision, content_sha256 }` | 在任何东西被授权之前抛出的 plan 模式拒绝、`plan.handed_off` 审计行、按映射依赖与会话自身变更策略为每个 step 构造的一个 `AgentDagTaskSpec`、既有的 `start_agent_dag` 路径，以及让 `AgentDagUpdated` 先于 `PlanDocumentHandedOff` 发布的顺序 |
 | 创建 starter Lane | `PreviewStarterLane`，审阅结果后携带未变化 request/id/hash 发送 `CreateStarterLane` | preset 解析、workspace/isolation 校验、permission gate、执行前复检、补偿和 typed receipt |
+| 暂停、恢复或终止一个 Agent session | `PauseAgentSession`、`ResumeAgentSession`、`KillAgentSession`，均来自该 session 精确绑定的 owner | 适配器取消及其宽限期、暂停所保留而终止所退役的常驻连接、对那一轮已不存在的待决审批的拒绝、被持有的输入及其计数、写在宣告事实之前的 `agent_session.*` 审计行，以及下一条控制命令所依据的状态 |
 | 安排驾驶舱布局 | `SetUiLayoutPreferences { patch }`、`ResetUiLayoutPreferences` | 用户配置中的 `[ui.layout]` 持久化、隐藏段列表的边界、带 `persisted` 与诊断的已发布记录，以及快照前缀的副本 |
 
 Starter Lane 的隔离模式由 Core 决定，而不是由前端决定。位于 Git work tree 且具有有效
@@ -1044,6 +1047,58 @@ command_id, page }` 是被冻结的 `LoadTranscriptPage` 的类型化、所有�
   因为 `AgentDagUpdated` 先于 `PlanDocumentHandedOff`。链接进去，而不是轮询它。
 - **落定事实用于关联，不是状态。** 用 `PlanDocumentDecided` 与 `PlanDocumentHandedOff`
   落定你自己的命令，并通过 `audit_id` 抵达审计行；计划的状态取自记录。
+### Session 控制（`runtime.agent_session_control`）
+
+需要 `runtime.agent_session_control` extension。没有它的客户端把 Pause、Resume
+与 Kill 渲染为不可用并说明原因；Stop 仍然是未改动的 `CancelAgentSession`。客户端
+绝不能通过在本地扣留输入来模拟暂停：客户端压着的输入对 Core、对重放、对同一
+session 上的其他客户端都是不可见的。
+
+`PauseAgentSession { session_id }`、`ResumeAgentSession { session_id }` 与
+`KillAgentSession { session_id }` 都从该 session 精确绑定的 owner 发出，与
+`CancelAgentSession` 今天遵循的规则一致；owner 不持有的 session 依旧被拒绝。
+
+ACP 与 Codex app-server 都没有暂停动词，因此暂停是 Core 侧对该 session 输入路径
+的状态，而不是把适配器冻结在半途：
+
+- **Pause** 接受 `Starting`、`Running` 与 `WaitingApproval`。Core 以今天的宽限期
+  发出适配器取消；若适配器在宽限期内应答，则保留常驻连接，并不再转发任何输入。
+  session 的 diagnostic 说明发生的是两者中的哪一种，因为退回到进程终止的暂停会在
+  恢复时重新加载 session。状态变为 `Paused` 并设置 `control.paused_at`，同时写入
+  指名该 session 与其 Lane 的 `agent_session.pause` 审计行。
+- **暂停期间的输入**被接受而不是被拒绝：发布 `AgentSessionInputAccepted`，并由
+  `control.held_input_count` 按到达顺序计数，上限为 50。`held_input_count` 是
+  “已键入但未发送”的唯一诚实来源 —— 契约中没有别的东西能把它与“已发送且仍在运行”
+  区分开。
+- **Resume** 只接受 `Paused`。第一条被持有的输入被转发并由 session 运行；若没有被
+  持有的输入，session 落到 `Completed`，在本契约中它本来就表示“没有在途轮次，
+  session 存活并接受输入”，而不是“工作完成了”。设置 `control.resumed_at` 并写入
+  `agent_session.resume` 行。
+- **每一轮完成都会放行下一条被持有的输入。** 被恢复的 session 按键入顺序排空它所
+  持有的内容：当一轮完成且仍有输入在手时，Core 自己启动下一轮，`held_input_count`
+  随之递减，在最后一条上归零。客户端必须预期出现自己并未命令的
+  `AgentSessionStarted` —— 被排空的那一轮之前没有 `CommandAccepted`，而 session 的
+  `control` 正是客户端据以知道它为何出现的依据。失败、被取消或被终止的那一轮之后
+  不放行任何东西：剩余输入继续被持有并计数，由操作者重试或终止。
+- **Kill** 接受任何非终态状态，包括 `Paused`。进程被立即终止、完全没有宽限期，
+  常驻连接被退役，被持有的输入被丢弃并在 diagnostic 中指明数量，session 以新的
+  终态事件 `AgentSessionKilled` 了结，携带 `control.terminated_by: Killed`，并写入
+  `agent_session.kill` 行。`RetryAgentSession` 接受 `Killed`，与接受 `Failed` 完全
+  一样。
+- **Cancel** 其余部分不变，现在会盖上 `control.terminated_by: Cancelled`，使客户端
+  在两者都已了结、仅凭状态已无法区分时仍能分辨取消与终止。
+- **被暂停或被终止的那一轮所等待的待决审批由 Core 解析**为带 `session_paused` 或
+  `session_killed` 原因的拒绝，并在宣告它的 `ApprovalResolved` 之前审计。该问题所
+  属的那一轮已经不存在；把提示留在界面上等于请操作者回答一件不复存在的工作。
+- **对不允许该命令的状态发出的命令**以 `session_status_<current>` 作为原因被
+  `CommandRejected`。盲目重试的客户端否则无从分辨“已经暂停”与“已经结束”。
+
+暂停、恢复与终止都不会改动 Lane 的 `active_session_ids`。该列表是 Lane 生命周期
+状态，Core 在 session 了结时并不修剪它 —— 对取消同样不修剪 —— 因此客户端应当从
+session 自身的 `status` 读取存活性，而绝不从它在该列表中的成员资格读取。
+
+切换模型是客户端对 Kill（或 Cancel）加上携带新 `model` 与原 `load_session_id` 的
+`StartAgentSession` 的组合。没有切换模型命令，客户端必须把它渲染成它本来的两步流程。
 
 ## Approval 和 Permission UI 契约
 

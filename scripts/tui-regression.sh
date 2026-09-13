@@ -163,11 +163,12 @@ if release["supported_schema_versions"] != [1]:
 # runtime.durable_work_evidence (section 4) and C9's
 # runtime.workspace_file_reads (section 6), reconciled at integration; 29 adds
 # C8's runtime.transcript_rows (section 5), which completed the 0.3.4
-# increment. 30 opens the 0.3.5 increment with C13's runtime.plan_documents
-# (docs/release-0.3.5-contract-design.md, section 1); C14 and C15 move it again
-# to 33 inside this milestone.
-if len(base_capabilities) != 15 or len(extension_capabilities) != 30:
-    raise SystemExit("TUI certification capability counts are not base 15 + extension 30")
+# increment. The 0.3.5 increment moves it again
+# (docs/release-0.3.5-contract-design.md): 30 adds C13's runtime.plan_documents,
+# 31 adds C14's runtime.agent_session_control, and C15's runtime.approval_scopes
+# and runtime.starter_lane_agent take it to 33.
+if len(base_capabilities) != 15 or len(extension_capabilities) != 31:
+    raise SystemExit("TUI certification capability counts are not base 15 + extension 31")
 if set(base_capabilities) & set(extension_capabilities):
     raise SystemExit("TUI certification base and extension capabilities overlap")
 

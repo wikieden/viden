@@ -7971,3 +7971,668 @@ fn an_agent_reported_patch_is_canonical_in_the_artifact_it_was_persisted_to() {
     assert_eq!(canonical.item_id, canonicalized.1);
     assert_eq!(canonical.source_hash, canonicalized.2);
 }
+
+// ---------------------------------------------------------------------------
+// `runtime.agent_session_control` (0.3.5 C14).
+// ---------------------------------------------------------------------------
+
+/// A mock ACP agent whose *first* turn hangs on a permission request and whose
+/// later turns complete, and which answers `session/cancel` throughout.
+///
+/// The first turn has to stay in flight for a pause to have anything to
+/// interrupt; the later ones have to finish for the held-input drain to be
+/// observable at all. The turn counter is a file beside the script because a
+/// pause that falls back to process termination restarts the agent, and a
+/// counter in the shell would reset with it — which is exactly the case where a
+/// resumed turn would otherwise ask for permission a second time and hang.
+fn write_session_control_mock(path: &Path, remote_session: &str) {
+    fs::write(
+        path,
+        [
+            "#!/bin/sh".to_string(),
+            "first_turn=\"$0.first-turn\"".to_string(),
+            "read _init".to_string(),
+            "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":0,\"result\":{\"protocolVersion\":1,\"agentCapabilities\":{\"sessionCancel\":true},\"agentInfo\":{\"name\":\"mock-control-acp\",\"version\":\"0.1.0\"}}}'".to_string(),
+            "read _new_session".to_string(),
+            format!(
+                "printf '%s\\n' '{{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{{\"sessionId\":\"{remote_session}\"}}}}'"
+            ),
+            "while IFS= read -r line; do".to_string(),
+            "  case \"$line\" in".to_string(),
+            "    *'\"method\":\"session/cancel\"'*)".to_string(),
+            "      printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{\"status\":\"cancelled\"}}'".to_string(),
+            "      ;;".to_string(),
+            "    *'\"method\":\"session/prompt\"'*)".to_string(),
+            "      if [ -f \"$first_turn\" ]; then".to_string(),
+            format!(
+                "        printf '%s\\n' '{{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{{\"sessionId\":\"{remote_session}\",\"update\":{{\"type\":\"AgentMessageChunk\",\"content\":\"resumed work\"}}}}}}'"
+            ),
+            format!(
+                "        printf '%s\\n' '{{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{{\"sessionId\":\"{remote_session}\",\"update\":{{\"type\":\"TurnEnd\",\"status\":\"completed\"}}}}}}'"
+            ),
+            "      else".to_string(),
+            "        : > \"$first_turn\"".to_string(),
+            format!(
+                "        printf '%s\\n' '{{\"jsonrpc\":\"2.0\",\"id\":39,\"method\":\"session/request_permission\",\"params\":{{\"sessionId\":\"{remote_session}\",\"toolCall\":{{\"toolCallId\":\"tool_control\",\"title\":\"Edit file\",\"kind\":\"edit\"}},\"options\":[{{\"optionId\":\"allow\",\"kind\":\"allow_once\",\"name\":\"Allow\"}},{{\"optionId\":\"reject\",\"kind\":\"reject_once\",\"name\":\"Reject\"}}]}}}}'"
+            ),
+            "      fi".to_string(),
+            "      ;;".to_string(),
+            "  esac".to_string(),
+            "done".to_string(),
+        ]
+        .join("\n"),
+    )
+    .expect("write session control ACP mock");
+}
+
+/// Pause denies the approval its turn was waiting on, holds the input the
+/// operator types while paused, and forwards it on resume.
+///
+/// The denial is the part a client cannot infer: the prompt the approval
+/// belonged to is gone, so leaving it on screen would be asking the operator to
+/// answer a question about work that no longer exists.
+#[test]
+fn runtime_supervisor_pause_denies_the_pending_approval_and_holds_input_until_resume() {
+    let _guard = CUSTOM_ACP_ENV_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .expect("custom ACP env lock");
+    let cwd = temp_dir("runtime_supervisor_session_pause_cwd");
+    let home = temp_dir("runtime_supervisor_session_pause_home");
+    let script = cwd.join("mock-typed-acp-pause.sh");
+    write_session_control_mock(&script, "remote-pause-session");
+    unsafe {
+        std::env::set_var(
+            "VIDEN_AGENT_ACP_COMMAND",
+            format!("sh {}", script.display()),
+        );
+    }
+    let engine = SessionEngine::new_with_home(
+        &cwd,
+        Box::new(SequenceProvider::new(Vec::new())),
+        Some(home),
+    )
+    .unwrap();
+    let supervisor = RuntimeSupervisor::start(engine);
+    let owner = owner_for_lane("lane-pause-acp");
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "cmd_pause_start",
+            RuntimeCommand::StartAgentSession {
+                request: AgentSessionRequest {
+                    lane_id: "lane-pause-acp".to_string(),
+                    agent_id: "custom-acp".to_string(),
+                    model: None,
+                    load_session_id: None,
+                    task: "wait for the operator".to_string(),
+                },
+            },
+        )
+        .unwrap();
+    let started = collect_events_until(&supervisor, Duration::from_secs(10), |events| {
+        events
+            .iter()
+            .any(|event| matches!(event.kind, RuntimeEventKind::AgentSessionStarted { .. }))
+            && events
+                .iter()
+                .any(|event| matches!(event.kind, RuntimeEventKind::ApprovalRequested { .. }))
+    });
+    let session = started
+        .iter()
+        .find_map(|event| match &event.kind {
+            RuntimeEventKind::AgentSessionStarted { session } => Some(session.clone()),
+            _ => None,
+        })
+        .expect("started session");
+    assert_eq!(session.control, None, "a fresh session carries no control");
+    // Core mints the session identity, so every later command for this session
+    // must come from the owner Core published, not from the starting one.
+    let owner = session.owner.clone();
+
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "cmd_pause",
+            RuntimeCommand::PauseAgentSession {
+                session_id: session.session_id.clone(),
+            },
+        )
+        .unwrap();
+    let paused = collect_events_until(&supervisor, Duration::from_secs(15), |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::AgentSessionUpdated { session }
+                    if session.status == AgentSessionStatus::Paused
+            )
+        })
+    });
+    assert!(
+        paused.iter().any(|event| matches!(
+            &event.kind,
+            RuntimeEventKind::ApprovalResolved { decision, .. }
+                if matches!(decision, ApprovalDecision::Deny)
+        )),
+        "pausing must resolve the approval its turn was waiting on"
+    );
+    let paused_session = paused
+        .iter()
+        .rev()
+        .find_map(|event| match &event.kind {
+            RuntimeEventKind::AgentSessionUpdated { session }
+                if session.status == AgentSessionStatus::Paused =>
+            {
+                Some(session.clone())
+            }
+            _ => None,
+        })
+        .expect("paused session");
+    let control = paused_session
+        .control
+        .expect("a paused session is controlled");
+    assert!(control.paused_at.is_some());
+    assert_eq!(control.resumed_at, None);
+    assert_eq!(control.terminated_by, None);
+    assert_eq!(control.held_input_count, 0);
+
+    // Input typed while paused is accepted and held, never forwarded.
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "cmd_pause_input",
+            RuntimeCommand::SendAgentSessionInput {
+                input: viden_types::AgentSessionInput {
+                    session_id: session.session_id.clone(),
+                    content: "do the held work".to_string(),
+                },
+            },
+        )
+        .unwrap();
+    let held = collect_events_until(&supervisor, Duration::from_secs(10), |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::AgentSessionUpdated { session }
+                    if session.status == AgentSessionStatus::Paused
+                        && session.control.is_some_and(|control| control.held_input_count == 1)
+            )
+        })
+    });
+    assert!(
+        held.iter().any(|event| matches!(
+            &event.kind,
+            RuntimeEventKind::AgentSessionInputAccepted { session_id, .. }
+                if *session_id == session.session_id
+        )),
+        "an input held while paused is still accepted"
+    );
+
+    // Resume forwards the held input, so the session runs again.
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "cmd_resume",
+            RuntimeCommand::ResumeAgentSession {
+                session_id: session.session_id.clone(),
+            },
+        )
+        .unwrap();
+    let resumed = collect_events_until(&supervisor, Duration::from_secs(20), |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::AgentSessionStarted { session }
+                    if session.task == "do the held work"
+            )
+        })
+    });
+    let resume_update = resumed
+        .iter()
+        .find_map(|event| match &event.kind {
+            RuntimeEventKind::AgentSessionUpdated { session }
+                if session
+                    .control
+                    .is_some_and(|control| control.resumed_at.is_some()) =>
+            {
+                Some(session.clone())
+            }
+            _ => None,
+        })
+        .expect("the resume publishes its own control record");
+    assert_eq!(
+        resume_update
+            .control
+            .expect("resumed control")
+            .held_input_count,
+        0,
+        "the only held input was forwarded"
+    );
+
+    // Resume against a status that does not allow it is rejected by name.
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "cmd_resume_again",
+            RuntimeCommand::ResumeAgentSession {
+                session_id: session.session_id.clone(),
+            },
+        )
+        .unwrap();
+    collect_events_until(&supervisor, Duration::from_secs(10), |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::CommandRejected { command_id, reason }
+                    if command_id == "cmd_resume_again" && reason.starts_with("session_status_")
+            )
+        })
+    });
+
+    // The operator's control acts are on the durable audit timeline.
+    supervisor
+        .send_command_from_owner(
+            owner,
+            "cmd_pause_audit",
+            RuntimeCommand::QueryAudit {
+                query: viden_types::AuditQuery {
+                    limit: 100,
+                    ..viden_types::AuditQuery::default()
+                },
+            },
+        )
+        .unwrap();
+    let audit = collect_events_until(&supervisor, Duration::from_secs(10), |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::AuditPageLoaded { command_id, .. }
+                    if command_id.as_deref() == Some("cmd_pause_audit")
+            )
+        })
+    });
+    let page = audit
+        .iter()
+        .rev()
+        .find_map(|event| match &event.kind {
+            RuntimeEventKind::AuditPageLoaded { page, .. } => Some(page.clone()),
+            _ => None,
+        })
+        .expect("audit page");
+    let actions = page
+        .records
+        .iter()
+        .map(|record| record.action.clone())
+        .collect::<Vec<_>>();
+    assert!(
+        actions.iter().any(|action| action == "agent_session.pause"),
+        "pause must be audited, got {actions:?}"
+    );
+    assert!(
+        actions
+            .iter()
+            .any(|action| action == "agent_session.resume"),
+        "resume must be audited, got {actions:?}"
+    );
+    assert!(
+        actions.iter().any(|action| action == "approval.deny"),
+        "the denial pause caused must be audited, got {actions:?}"
+    );
+
+    unsafe {
+        std::env::remove_var("VIDEN_AGENT_ACP_COMMAND");
+    }
+}
+
+/// Kill settles the session as `Killed`, names the held inputs it discarded,
+/// and leaves it retryable exactly as a failure is.
+#[test]
+fn runtime_supervisor_kill_discards_held_inputs_and_stays_retryable() {
+    let _guard = CUSTOM_ACP_ENV_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .expect("custom ACP env lock");
+    let cwd = temp_dir("runtime_supervisor_session_kill_cwd");
+    let home = temp_dir("runtime_supervisor_session_kill_home");
+    let script = cwd.join("mock-typed-acp-kill.sh");
+    write_session_control_mock(&script, "remote-kill-session");
+    unsafe {
+        std::env::set_var(
+            "VIDEN_AGENT_ACP_COMMAND",
+            format!("sh {}", script.display()),
+        );
+    }
+    let engine = SessionEngine::new_with_home(
+        &cwd,
+        Box::new(SequenceProvider::new(Vec::new())),
+        Some(home),
+    )
+    .unwrap();
+    let supervisor = RuntimeSupervisor::start(engine);
+    let owner = owner_for_lane("lane-kill-acp");
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "cmd_kill_start",
+            RuntimeCommand::StartAgentSession {
+                request: AgentSessionRequest {
+                    lane_id: "lane-kill-acp".to_string(),
+                    agent_id: "custom-acp".to_string(),
+                    model: None,
+                    load_session_id: None,
+                    task: "wait for the operator".to_string(),
+                },
+            },
+        )
+        .unwrap();
+    let started = collect_events_until(&supervisor, Duration::from_secs(10), |events| {
+        events
+            .iter()
+            .any(|event| matches!(event.kind, RuntimeEventKind::AgentSessionStarted { .. }))
+            && events
+                .iter()
+                .any(|event| matches!(event.kind, RuntimeEventKind::ApprovalRequested { .. }))
+    });
+    let session = started
+        .iter()
+        .find_map(|event| match &event.kind {
+            RuntimeEventKind::AgentSessionStarted { session } => Some(session.clone()),
+            _ => None,
+        })
+        .expect("started session");
+    let owner = session.owner.clone();
+
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "cmd_kill_pause",
+            RuntimeCommand::PauseAgentSession {
+                session_id: session.session_id.clone(),
+            },
+        )
+        .unwrap();
+    collect_events_until(&supervisor, Duration::from_secs(15), |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::AgentSessionUpdated { session }
+                    if session.status == AgentSessionStatus::Paused
+            )
+        })
+    });
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "cmd_kill_input",
+            RuntimeCommand::SendAgentSessionInput {
+                input: viden_types::AgentSessionInput {
+                    session_id: session.session_id.clone(),
+                    content: "never sent".to_string(),
+                },
+            },
+        )
+        .unwrap();
+    collect_events_until(&supervisor, Duration::from_secs(10), |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::AgentSessionUpdated { session }
+                    if session.control.is_some_and(|control| control.held_input_count == 1)
+            )
+        })
+    });
+
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "cmd_kill",
+            RuntimeCommand::KillAgentSession {
+                session_id: session.session_id.clone(),
+            },
+        )
+        .unwrap();
+    let killed = collect_events_until(&supervisor, Duration::from_secs(15), |events| {
+        events
+            .iter()
+            .any(|event| matches!(event.kind, RuntimeEventKind::AgentSessionKilled { .. }))
+    });
+    let killed_session = killed
+        .iter()
+        .find_map(|event| match &event.kind {
+            RuntimeEventKind::AgentSessionKilled { session } => Some(session.clone()),
+            _ => None,
+        })
+        .expect("killed session");
+    assert_eq!(killed_session.status, AgentSessionStatus::Killed);
+    let control = killed_session
+        .control
+        .expect("a killed session is controlled");
+    assert_eq!(
+        control.terminated_by,
+        Some(viden_types::AgentSessionTermination::Killed)
+    );
+    assert_eq!(control.held_input_count, 0);
+    assert!(
+        killed_session
+            .diagnostic
+            .as_deref()
+            .is_some_and(|diagnostic| diagnostic.contains("1 held input")),
+        "a discarded prompt must be named, got {:?}",
+        killed_session.diagnostic
+    );
+    assert_eq!(
+        supervisor.snapshot_envelope().unwrap().view.agent_sessions[0].status,
+        AgentSessionStatus::Killed
+    );
+
+    // Killing twice is rejected by the status it is already in.
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "cmd_kill_again",
+            RuntimeCommand::KillAgentSession {
+                session_id: session.session_id.clone(),
+            },
+        )
+        .unwrap();
+    collect_events_until(&supervisor, Duration::from_secs(10), |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::CommandRejected { command_id, reason }
+                    if command_id == "cmd_kill_again" && reason == "session_status_killed"
+            )
+        })
+    });
+
+    // A killed session is retryable exactly as a failed one is.
+    supervisor
+        .send_command_from_owner(
+            owner,
+            "cmd_kill_retry",
+            RuntimeCommand::RetryAgentSession {
+                session_id: session.session_id.clone(),
+            },
+        )
+        .unwrap();
+    let retried = collect_events_for(&supervisor, Duration::from_secs(3));
+    assert!(
+        !retried.iter().any(|event| matches!(
+            &event.kind,
+            RuntimeEventKind::CommandRejected { command_id, reason }
+                if command_id == "cmd_kill_retry" && reason.contains("is still active")
+        )),
+        "a killed session must accept a retry"
+    );
+
+    unsafe {
+        std::env::remove_var("VIDEN_AGENT_ACP_COMMAND");
+    }
+}
+
+/// Every input held while paused runs, in order, once resume releases the
+/// first: each completed turn forwards the next and `held_input_count` walks
+/// down to zero.
+///
+/// A resume that forwarded only the first would leave the rest held forever —
+/// invisible work an operator typed and Core acknowledged — and the count would
+/// never reach zero.
+#[test]
+fn runtime_supervisor_resume_drains_every_held_input_in_order() {
+    let _guard = CUSTOM_ACP_ENV_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .expect("custom ACP env lock");
+    let cwd = temp_dir("runtime_supervisor_session_drain_cwd");
+    let home = temp_dir("runtime_supervisor_session_drain_home");
+    let script = cwd.join("mock-typed-acp-drain.sh");
+    write_session_control_mock(&script, "remote-drain-session");
+    unsafe {
+        std::env::set_var(
+            "VIDEN_AGENT_ACP_COMMAND",
+            format!("sh {}", script.display()),
+        );
+    }
+    let engine = SessionEngine::new_with_home(
+        &cwd,
+        Box::new(SequenceProvider::new(Vec::new())),
+        Some(home),
+    )
+    .unwrap();
+    let supervisor = RuntimeSupervisor::start(engine);
+    supervisor
+        .send_command_from_owner(
+            owner_for_lane("lane-drain-acp"),
+            "cmd_drain_start",
+            RuntimeCommand::StartAgentSession {
+                request: AgentSessionRequest {
+                    lane_id: "lane-drain-acp".to_string(),
+                    agent_id: "custom-acp".to_string(),
+                    model: None,
+                    load_session_id: None,
+                    task: "wait for the operator".to_string(),
+                },
+            },
+        )
+        .unwrap();
+    let started = collect_events_until(&supervisor, Duration::from_secs(10), |events| {
+        events
+            .iter()
+            .any(|event| matches!(event.kind, RuntimeEventKind::AgentSessionStarted { .. }))
+            && events
+                .iter()
+                .any(|event| matches!(event.kind, RuntimeEventKind::ApprovalRequested { .. }))
+    });
+    let session = started
+        .iter()
+        .find_map(|event| match &event.kind {
+            RuntimeEventKind::AgentSessionStarted { session } => Some(session.clone()),
+            _ => None,
+        })
+        .expect("started session");
+    let owner = session.owner.clone();
+
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "cmd_drain_pause",
+            RuntimeCommand::PauseAgentSession {
+                session_id: session.session_id.clone(),
+            },
+        )
+        .unwrap();
+    collect_events_until(&supervisor, Duration::from_secs(15), |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::AgentSessionUpdated { session }
+                    if session.status == AgentSessionStatus::Paused
+            )
+        })
+    });
+
+    let held = ["held one", "held two", "held three"];
+    for (index, content) in held.iter().enumerate() {
+        let expected = index as u32 + 1;
+        supervisor
+            .send_command_from_owner(
+                owner.clone(),
+                format!("cmd_drain_input_{expected}"),
+                RuntimeCommand::SendAgentSessionInput {
+                    input: viden_types::AgentSessionInput {
+                        session_id: session.session_id.clone(),
+                        content: (*content).to_string(),
+                    },
+                },
+            )
+            .unwrap();
+        collect_events_until(&supervisor, Duration::from_secs(10), |events| {
+            events.iter().any(|event| {
+                matches!(
+                    &event.kind,
+                    RuntimeEventKind::AgentSessionUpdated { session }
+                        if session.status == AgentSessionStatus::Paused
+                            && session.control.is_some_and(|control| {
+                                control.held_input_count == expected
+                            })
+                )
+            })
+        });
+    }
+
+    supervisor
+        .send_command_from_owner(
+            owner,
+            "cmd_drain_resume",
+            RuntimeCommand::ResumeAgentSession {
+                session_id: session.session_id.clone(),
+            },
+        )
+        .unwrap();
+    // One resume releases the first; each completed turn releases the next.
+    let drained = collect_events_until(&supervisor, Duration::from_secs(60), |events| {
+        events
+            .iter()
+            .filter(|event| {
+                matches!(
+                    &event.kind,
+                    RuntimeEventKind::AgentSessionStarted { session }
+                        if held.contains(&session.task.as_str())
+                )
+            })
+            .count()
+            == held.len()
+    });
+    unsafe {
+        std::env::remove_var("VIDEN_AGENT_ACP_COMMAND");
+    }
+
+    let forwarded = drained
+        .iter()
+        .filter_map(|event| match &event.kind {
+            RuntimeEventKind::AgentSessionStarted { session }
+                if held.contains(&session.task.as_str()) =>
+            {
+                Some((
+                    session.task.clone(),
+                    session
+                        .control
+                        .map(|control| control.held_input_count)
+                        .expect("a forwarded turn carries the control record"),
+                ))
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        forwarded,
+        vec![
+            ("held one".to_string(), 2),
+            ("held two".to_string(), 1),
+            ("held three".to_string(), 0),
+        ],
+        "every held input must run in the order it was typed, with the count \
+         walking 3 -> 2 -> 1 -> 0"
+    );
+}

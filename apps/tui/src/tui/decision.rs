@@ -1488,6 +1488,7 @@ mod dormant_gate_tests {
             task: "work".to_string(),
             diagnostic: None,
             output: None,
+            control: None,
         }
     }
 

@@ -1,0 +1,1046 @@
+{
+  "fixture_id": "agent-session-control",
+  "schema_version": 1,
+  "required_capabilities": [
+    "runtime.agent_session_control",
+    "runtime.agent_session_input",
+    "runtime.agent_sessions",
+    "runtime.approvals",
+    "runtime.audit",
+    "runtime.commands",
+    "runtime.events",
+    "runtime.snapshot"
+  ],
+  "initial_snapshot": {
+    "cwd": "workspace/viden",
+    "provider_family": "deepseek",
+    "model_label": "deepseek-v4-flash",
+    "work_mode": "build",
+    "permission_mode": "default",
+    "permission_level": "ask",
+    "config_summary": "{\"design_entry\":{\"d11\":\"onboarding subordinate\",\"gui\":\"GUI index -> component library -> D1 desktop cockpit\",\"hierarchy\":[\"docs/viden-design/Viden/index.html\",\"client design index\",\"component library\",\"TUI unified prototype or GUI D1 desktop cockpit\"],\"tui\":\"TUI index -> component library -> unified prototype\"},\"ui\":{\"density\":[\"compact\",\"regular\",\"comfy\"],\"effective\":{\"density\":\"regular\",\"locale\":\"zh-CN\",\"mode\":\"dark\",\"motion\":\"reduced\",\"skin\":\"aurora\"},\"locales\":[\"en\",\"zh-CN\"],\"motion\":[\"system\",\"reduced\",\"full\"],\"skin_mode_pairs\":[[\"aurora\",\"dark\"],[\"aurora\",\"light\"],[\"ice\",\"dark\"],[\"ice\",\"light\"],[\"mono\",\"dark\"],[\"mono\",\"light\"],[\"amber\",\"dark\"],[\"phosphor\",\"dark\"]]}}",
+    "loaded_config_files": [
+      "config/viden.toml"
+    ],
+    "startup_overrides": [
+      "--provider=deepseek"
+    ],
+    "ui_preferences": {
+      "locale": "zh-CN",
+      "skin": "aurora",
+      "mode": "dark",
+      "density": "regular",
+      "motion": "reduced",
+      "diagnostics": []
+    }
+  },
+  "events": [
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_session_control",
+        "session_id": "session_control",
+        "task_id": "task_session_control",
+        "turn_id": "turn_session_control"
+      },
+      "cursor": {
+        "stream_id": "fixture:agent-session-control",
+        "sequence": 1
+      },
+      "event": {
+        "sequence": 1,
+        "timestamp": 1700006001,
+        "kind": {
+          "type": "agent_session_started",
+          "payload": {
+            "session": {
+              "session_id": "session_control",
+              "lane_id": "lane_session_control",
+              "agent_id": "codex-acp",
+              "model": "gpt-5-codex",
+              "status": "running",
+              "owner": {
+                "workspace_id": "workspace_contract_v1",
+                "project_id": "project_viden",
+                "lane_id": "lane_session_control",
+                "session_id": "session_control",
+                "task_id": "task_session_control",
+                "turn_id": "turn_session_control"
+              },
+              "task": "task.session_control.refactor",
+              "diagnostic": null
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_session_control",
+        "session_id": "session_control",
+        "task_id": "task_session_control",
+        "turn_id": "turn_session_control"
+      },
+      "cursor": {
+        "stream_id": "fixture:agent-session-control",
+        "sequence": 2
+      },
+      "event": {
+        "sequence": 2,
+        "timestamp": 1700006002,
+        "kind": {
+          "type": "approval_requested",
+          "payload": {
+            "approval": {
+              "id": "approval_session_control",
+              "tool_name": "apply_patch",
+              "title": "Apply the refactor",
+              "message": "Core requests scoped permission",
+              "input_preview": "crates/runtime/src/lib.rs",
+              "is_mutating": true,
+              "reason": "the Agent asked to write a file",
+              "owner": {
+                "workspace_id": "workspace_contract_v1",
+                "project_id": "project_viden",
+                "lane_id": "lane_session_control",
+                "session_id": "session_control",
+                "task_id": "task_session_control",
+                "turn_id": "turn_session_control"
+              },
+              "risk": "medium",
+              "target": {
+                "kind": "repo_path",
+                "display": "crates/runtime/src/lib.rs",
+                "canonical_ref": "repo://crates/runtime/src/lib.rs"
+              },
+              "allowed_scopes": [
+                "once"
+              ],
+              "policy_reason_key": "permission.requires_approval",
+              "policy_reason_args": {},
+              "expires_at": 1700006000,
+              "default_action": "deny",
+              "audit_id": "audit_approval_session_control"
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_session_control",
+        "session_id": "session_control",
+        "task_id": "task_session_control",
+        "turn_id": "turn_session_control"
+      },
+      "cursor": {
+        "stream_id": "fixture:agent-session-control",
+        "sequence": 3
+      },
+      "event": {
+        "sequence": 3,
+        "timestamp": 1700006003,
+        "kind": {
+          "type": "agent_session_updated",
+          "payload": {
+            "session": {
+              "session_id": "session_control",
+              "lane_id": "lane_session_control",
+              "agent_id": "codex-acp",
+              "model": "gpt-5-codex",
+              "status": "waiting_approval",
+              "owner": {
+                "workspace_id": "workspace_contract_v1",
+                "project_id": "project_viden",
+                "lane_id": "lane_session_control",
+                "session_id": "session_control",
+                "task_id": "task_session_control",
+                "turn_id": "turn_session_control"
+              },
+              "task": "task.session_control.refactor",
+              "diagnostic": null
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_session_control",
+        "session_id": "session_control",
+        "task_id": "task_session_control",
+        "turn_id": "turn_session_control"
+      },
+      "cursor": {
+        "stream_id": "fixture:agent-session-control",
+        "sequence": 4
+      },
+      "event": {
+        "sequence": 4,
+        "timestamp": 1700006004,
+        "kind": {
+          "type": "approval_resolved",
+          "payload": {
+            "request_id": "approval_session_control",
+            "decision": "deny",
+            "owner": {
+              "workspace_id": "workspace_contract_v1",
+              "project_id": "project_viden",
+              "lane_id": "lane_session_control",
+              "session_id": "session_control",
+              "task_id": "task_session_control",
+              "turn_id": "turn_session_control"
+            },
+            "audit_id": "audit_approval_session_control"
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_session_control",
+        "session_id": "session_control",
+        "task_id": "task_session_control",
+        "turn_id": "turn_session_control"
+      },
+      "cursor": {
+        "stream_id": "fixture:agent-session-control",
+        "sequence": 5
+      },
+      "event": {
+        "sequence": 5,
+        "timestamp": 1700006005,
+        "kind": {
+          "type": "command_accepted",
+          "payload": {
+            "command_id": "cmd_session_pause",
+            "command": {
+              "type": "pause_agent_session",
+              "session_id": "session_control"
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_session_control",
+        "session_id": "session_control",
+        "task_id": "task_session_control",
+        "turn_id": "turn_session_control"
+      },
+      "cursor": {
+        "stream_id": "fixture:agent-session-control",
+        "sequence": 6
+      },
+      "event": {
+        "sequence": 6,
+        "timestamp": 1700006006,
+        "kind": {
+          "type": "agent_session_updated",
+          "payload": {
+            "session": {
+              "session_id": "session_control",
+              "lane_id": "lane_session_control",
+              "agent_id": "codex-acp",
+              "model": "gpt-5-codex",
+              "status": "paused",
+              "owner": {
+                "workspace_id": "workspace_contract_v1",
+                "project_id": "project_viden",
+                "lane_id": "lane_session_control",
+                "session_id": "session_control",
+                "task_id": "task_session_control",
+                "turn_id": "turn_session_control"
+              },
+              "task": "task.session_control.refactor",
+              "diagnostic": "paused by owner; the agent connection is held",
+              "control": {
+                "paused_at": 1700006010,
+                "resumed_at": null,
+                "terminated_by": null,
+                "held_input_count": 0
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_session_control",
+        "session_id": "session_control",
+        "task_id": "task_session_control",
+        "turn_id": "turn_session_control"
+      },
+      "cursor": {
+        "stream_id": "fixture:agent-session-control",
+        "sequence": 7
+      },
+      "event": {
+        "sequence": 7,
+        "timestamp": 1700006007,
+        "kind": {
+          "type": "command_accepted",
+          "payload": {
+            "command_id": "cmd_session_held_input_one",
+            "command": {
+              "type": "send_agent_session_input",
+              "input": {
+                "session_id": "session_control",
+                "content": "[REDACTED]"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_session_control",
+        "session_id": "session_control",
+        "task_id": "task_session_control",
+        "turn_id": "turn_session_control"
+      },
+      "cursor": {
+        "stream_id": "fixture:agent-session-control",
+        "sequence": 8
+      },
+      "event": {
+        "sequence": 8,
+        "timestamp": 1700006008,
+        "kind": {
+          "type": "agent_session_input_accepted",
+          "payload": {
+            "session_id": "session_control",
+            "input_id": "agent-input_session_control_held_one"
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_session_control",
+        "session_id": "session_control",
+        "task_id": "task_session_control",
+        "turn_id": "turn_session_control"
+      },
+      "cursor": {
+        "stream_id": "fixture:agent-session-control",
+        "sequence": 9
+      },
+      "event": {
+        "sequence": 9,
+        "timestamp": 1700006009,
+        "kind": {
+          "type": "agent_session_updated",
+          "payload": {
+            "session": {
+              "session_id": "session_control",
+              "lane_id": "lane_session_control",
+              "agent_id": "codex-acp",
+              "model": "gpt-5-codex",
+              "status": "paused",
+              "owner": {
+                "workspace_id": "workspace_contract_v1",
+                "project_id": "project_viden",
+                "lane_id": "lane_session_control",
+                "session_id": "session_control",
+                "task_id": "task_session_control",
+                "turn_id": "turn_session_control"
+              },
+              "task": "task.session_control.refactor",
+              "diagnostic": "paused by owner; the agent connection is held",
+              "control": {
+                "paused_at": 1700006010,
+                "resumed_at": null,
+                "terminated_by": null,
+                "held_input_count": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_session_control",
+        "session_id": "session_control",
+        "task_id": "task_session_control",
+        "turn_id": "turn_session_control"
+      },
+      "cursor": {
+        "stream_id": "fixture:agent-session-control",
+        "sequence": 10
+      },
+      "event": {
+        "sequence": 10,
+        "timestamp": 1700006010,
+        "kind": {
+          "type": "command_accepted",
+          "payload": {
+            "command_id": "cmd_session_held_input_two",
+            "command": {
+              "type": "send_agent_session_input",
+              "input": {
+                "session_id": "session_control",
+                "content": "[REDACTED]"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_session_control",
+        "session_id": "session_control",
+        "task_id": "task_session_control",
+        "turn_id": "turn_session_control"
+      },
+      "cursor": {
+        "stream_id": "fixture:agent-session-control",
+        "sequence": 11
+      },
+      "event": {
+        "sequence": 11,
+        "timestamp": 1700006011,
+        "kind": {
+          "type": "agent_session_input_accepted",
+          "payload": {
+            "session_id": "session_control",
+            "input_id": "agent-input_session_control_held_two"
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_session_control",
+        "session_id": "session_control",
+        "task_id": "task_session_control",
+        "turn_id": "turn_session_control"
+      },
+      "cursor": {
+        "stream_id": "fixture:agent-session-control",
+        "sequence": 12
+      },
+      "event": {
+        "sequence": 12,
+        "timestamp": 1700006012,
+        "kind": {
+          "type": "agent_session_updated",
+          "payload": {
+            "session": {
+              "session_id": "session_control",
+              "lane_id": "lane_session_control",
+              "agent_id": "codex-acp",
+              "model": "gpt-5-codex",
+              "status": "paused",
+              "owner": {
+                "workspace_id": "workspace_contract_v1",
+                "project_id": "project_viden",
+                "lane_id": "lane_session_control",
+                "session_id": "session_control",
+                "task_id": "task_session_control",
+                "turn_id": "turn_session_control"
+              },
+              "task": "task.session_control.refactor",
+              "diagnostic": "paused by owner; the agent connection is held",
+              "control": {
+                "paused_at": 1700006010,
+                "resumed_at": null,
+                "terminated_by": null,
+                "held_input_count": 2
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_session_control",
+        "session_id": "session_control",
+        "task_id": "task_session_control",
+        "turn_id": "turn_session_control"
+      },
+      "cursor": {
+        "stream_id": "fixture:agent-session-control",
+        "sequence": 13
+      },
+      "event": {
+        "sequence": 13,
+        "timestamp": 1700006013,
+        "kind": {
+          "type": "command_rejected",
+          "payload": {
+            "command_id": "cmd_session_pause_again",
+            "reason": "session_status_paused"
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_session_control",
+        "session_id": "session_control",
+        "task_id": "task_session_control",
+        "turn_id": "turn_session_control"
+      },
+      "cursor": {
+        "stream_id": "fixture:agent-session-control",
+        "sequence": 14
+      },
+      "event": {
+        "sequence": 14,
+        "timestamp": 1700006014,
+        "kind": {
+          "type": "command_accepted",
+          "payload": {
+            "command_id": "cmd_session_resume",
+            "command": {
+              "type": "resume_agent_session",
+              "session_id": "session_control"
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_session_control",
+        "session_id": "session_control",
+        "task_id": "task_session_control",
+        "turn_id": "turn_session_control"
+      },
+      "cursor": {
+        "stream_id": "fixture:agent-session-control",
+        "sequence": 15
+      },
+      "event": {
+        "sequence": 15,
+        "timestamp": 1700006015,
+        "kind": {
+          "type": "agent_session_started",
+          "payload": {
+            "session": {
+              "session_id": "session_control",
+              "lane_id": "lane_session_control",
+              "agent_id": "codex-acp",
+              "model": "gpt-5-codex",
+              "status": "starting",
+              "owner": {
+                "workspace_id": "workspace_contract_v1",
+                "project_id": "project_viden",
+                "lane_id": "lane_session_control",
+                "session_id": "session_control",
+                "task_id": "task_session_control",
+                "turn_id": "turn_session_control"
+              },
+              "task": "task.session_control.held_one",
+              "diagnostic": null,
+              "control": {
+                "paused_at": 1700006010,
+                "resumed_at": 1700006020,
+                "terminated_by": null,
+                "held_input_count": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_session_control",
+        "session_id": "session_control",
+        "task_id": "task_session_control",
+        "turn_id": "turn_session_control"
+      },
+      "cursor": {
+        "stream_id": "fixture:agent-session-control",
+        "sequence": 16
+      },
+      "event": {
+        "sequence": 16,
+        "timestamp": 1700006016,
+        "kind": {
+          "type": "command_rejected",
+          "payload": {
+            "command_id": "cmd_session_resume_running",
+            "reason": "session_status_running"
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_session_control",
+        "session_id": "session_control",
+        "task_id": "task_session_control",
+        "turn_id": "turn_session_control"
+      },
+      "cursor": {
+        "stream_id": "fixture:agent-session-control",
+        "sequence": 17
+      },
+      "event": {
+        "sequence": 17,
+        "timestamp": 1700006017,
+        "kind": {
+          "type": "agent_session_completed",
+          "payload": {
+            "session": {
+              "session_id": "session_control",
+              "lane_id": "lane_session_control",
+              "agent_id": "codex-acp",
+              "model": "gpt-5-codex",
+              "status": "completed",
+              "owner": {
+                "workspace_id": "workspace_contract_v1",
+                "project_id": "project_viden",
+                "lane_id": "lane_session_control",
+                "session_id": "session_control",
+                "task_id": "task_session_control",
+                "turn_id": "turn_session_control"
+              },
+              "task": "task.session_control.held_one",
+              "diagnostic": null,
+              "output": "the first held prompt ran",
+              "control": {
+                "paused_at": 1700006010,
+                "resumed_at": 1700006020,
+                "terminated_by": null,
+                "held_input_count": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_session_control",
+        "session_id": "session_control",
+        "task_id": "task_session_control",
+        "turn_id": "turn_session_control"
+      },
+      "cursor": {
+        "stream_id": "fixture:agent-session-control",
+        "sequence": 18
+      },
+      "event": {
+        "sequence": 18,
+        "timestamp": 1700006018,
+        "kind": {
+          "type": "agent_session_started",
+          "payload": {
+            "session": {
+              "session_id": "session_control",
+              "lane_id": "lane_session_control",
+              "agent_id": "codex-acp",
+              "model": "gpt-5-codex",
+              "status": "starting",
+              "owner": {
+                "workspace_id": "workspace_contract_v1",
+                "project_id": "project_viden",
+                "lane_id": "lane_session_control",
+                "session_id": "session_control",
+                "task_id": "task_session_control",
+                "turn_id": "turn_session_control"
+              },
+              "task": "task.session_control.held_two",
+              "diagnostic": null,
+              "control": {
+                "paused_at": 1700006010,
+                "resumed_at": 1700006020,
+                "terminated_by": null,
+                "held_input_count": 0
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_session_control",
+        "session_id": "session_control",
+        "task_id": "task_session_control",
+        "turn_id": "turn_session_control"
+      },
+      "cursor": {
+        "stream_id": "fixture:agent-session-control",
+        "sequence": 19
+      },
+      "event": {
+        "sequence": 19,
+        "timestamp": 1700006019,
+        "kind": {
+          "type": "command_accepted",
+          "payload": {
+            "command_id": "cmd_session_kill",
+            "command": {
+              "type": "kill_agent_session",
+              "session_id": "session_control"
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_session_control",
+        "session_id": "session_control",
+        "task_id": "task_session_control",
+        "turn_id": "turn_session_control"
+      },
+      "cursor": {
+        "stream_id": "fixture:agent-session-control",
+        "sequence": 20
+      },
+      "event": {
+        "sequence": 20,
+        "timestamp": 1700006020,
+        "kind": {
+          "type": "agent_session_killed",
+          "payload": {
+            "session": {
+              "session_id": "session_control",
+              "lane_id": "lane_session_control",
+              "agent_id": "codex-acp",
+              "model": "gpt-5-codex",
+              "status": "killed",
+              "owner": {
+                "workspace_id": "workspace_contract_v1",
+                "project_id": "project_viden",
+                "lane_id": "lane_session_control",
+                "session_id": "session_control",
+                "task_id": "task_session_control",
+                "turn_id": "turn_session_control"
+              },
+              "task": "task.session_control.held_two",
+              "diagnostic": "killed by owner",
+              "control": {
+                "paused_at": 1700006010,
+                "resumed_at": 1700006020,
+                "terminated_by": "killed",
+                "held_input_count": 0
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_session_control",
+        "session_id": "session_control",
+        "task_id": "task_session_control",
+        "turn_id": "turn_session_control"
+      },
+      "cursor": {
+        "stream_id": "fixture:agent-session-control",
+        "sequence": 21
+      },
+      "event": {
+        "sequence": 21,
+        "timestamp": 1700006021,
+        "kind": {
+          "type": "command_accepted",
+          "payload": {
+            "command_id": "cmd_session_retry",
+            "command": {
+              "type": "retry_agent_session",
+              "session_id": "session_control"
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_session_control",
+        "session_id": "session_control",
+        "task_id": "task_session_control",
+        "turn_id": "turn_session_control"
+      },
+      "cursor": {
+        "stream_id": "fixture:agent-session-control",
+        "sequence": 22
+      },
+      "event": {
+        "sequence": 22,
+        "timestamp": 1700006022,
+        "kind": {
+          "type": "agent_session_started",
+          "payload": {
+            "session": {
+              "session_id": "session_control",
+              "lane_id": "lane_session_control",
+              "agent_id": "codex-acp",
+              "model": "gpt-5-codex",
+              "status": "starting",
+              "owner": {
+                "workspace_id": "workspace_contract_v1",
+                "project_id": "project_viden",
+                "lane_id": "lane_session_control",
+                "session_id": "session_control",
+                "task_id": "task_session_control",
+                "turn_id": "turn_session_control"
+              },
+              "task": "task.session_control.refactor",
+              "diagnostic": null
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_session_control",
+        "session_id": "session_control",
+        "task_id": "task_session_control",
+        "turn_id": "turn_session_control"
+      },
+      "cursor": {
+        "stream_id": "fixture:agent-session-control",
+        "sequence": 23
+      },
+      "event": {
+        "sequence": 23,
+        "timestamp": 1700006023,
+        "kind": {
+          "type": "command_accepted",
+          "payload": {
+            "command_id": "cmd_session_control_audit",
+            "command": {
+              "type": "query_audit",
+              "query": {
+                "project_id": null,
+                "lane_id": null,
+                "object": null,
+                "actor": null,
+                "from": null,
+                "until": null,
+                "before": null,
+                "limit": 10
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "schema_version": 1,
+      "owner": {
+        "workspace_id": "workspace_contract_v1",
+        "project_id": "project_viden",
+        "lane_id": "lane_session_control",
+        "session_id": "session_control",
+        "task_id": "task_session_control",
+        "turn_id": "turn_session_control"
+      },
+      "cursor": {
+        "stream_id": "fixture:agent-session-control",
+        "sequence": 24
+      },
+      "event": {
+        "sequence": 24,
+        "timestamp": 1700006024,
+        "kind": {
+          "type": "audit_page_loaded",
+          "payload": {
+            "command_id": "cmd_session_control_audit",
+            "page": {
+              "records": [
+                {
+                  "audit_id": "audit_session_kill",
+                  "timestamp": 1700006030,
+                  "owner": {
+                    "workspace_id": "workspace_contract_v1",
+                    "project_id": "project_viden",
+                    "lane_id": "lane_session_control",
+                    "session_id": "session_control",
+                    "task_id": "task_session_control",
+                    "turn_id": "turn_session_control"
+                  },
+                  "actor": "operator",
+                  "action": "agent_session.kill",
+                  "objects": [
+                    {
+                      "kind": "session",
+                      "id": "session_control"
+                    },
+                    {
+                      "kind": "lane",
+                      "id": "lane_session_control"
+                    }
+                  ],
+                  "outcome": "success",
+                  "args": {}
+                },
+                {
+                  "audit_id": "audit_session_resume",
+                  "timestamp": 1700006020,
+                  "owner": {
+                    "workspace_id": "workspace_contract_v1",
+                    "project_id": "project_viden",
+                    "lane_id": "lane_session_control",
+                    "session_id": "session_control",
+                    "task_id": "task_session_control",
+                    "turn_id": "turn_session_control"
+                  },
+                  "actor": "operator",
+                  "action": "agent_session.resume",
+                  "objects": [
+                    {
+                      "kind": "session",
+                      "id": "session_control"
+                    },
+                    {
+                      "kind": "lane",
+                      "id": "lane_session_control"
+                    }
+                  ],
+                  "outcome": "success",
+                  "args": {}
+                },
+                {
+                  "audit_id": "audit_session_pause",
+                  "timestamp": 1700006010,
+                  "owner": {
+                    "workspace_id": "workspace_contract_v1",
+                    "project_id": "project_viden",
+                    "lane_id": "lane_session_control",
+                    "session_id": "session_control",
+                    "task_id": "task_session_control",
+                    "turn_id": "turn_session_control"
+                  },
+                  "actor": "operator",
+                  "action": "agent_session.pause",
+                  "objects": [
+                    {
+                      "kind": "session",
+                      "id": "session_control"
+                    },
+                    {
+                      "kind": "lane",
+                      "id": "lane_session_control"
+                    }
+                  ],
+                  "outcome": "success",
+                  "args": {}
+                },
+                {
+                  "audit_id": "audit_approval_session_control",
+                  "timestamp": 1700006010,
+                  "owner": {
+                    "workspace_id": "workspace_contract_v1",
+                    "project_id": "project_viden",
+                    "lane_id": "lane_session_control",
+                    "session_id": "session_control",
+                    "task_id": "task_session_control",
+                    "turn_id": "turn_session_control"
+                  },
+                  "actor": "operator",
+                  "action": "approval.deny",
+                  "objects": [
+                    {
+                      "kind": "permission",
+                      "id": "approval_session_control"
+                    },
+                    {
+                      "kind": "tool",
+                      "id": "apply_patch"
+                    }
+                  ],
+                  "outcome": "success",
+                  "args": {
+                    "scope": "deny"
+                  }
+                }
+              ],
+              "next_before": null,
+              "complete": true
+            }
+          }
+        }
+      }
+    }
+  ],
+  "expected_final_cursor": {
+    "stream_id": "fixture:agent-session-control",
+    "sequence": 24
+  },
+  "expected_view_sha256": "7b9ece0d1673adf67ccbc1f1c1cd83c84c2149f12082bd6dfa1b50b95868da0d"
+}

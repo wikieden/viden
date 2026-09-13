@@ -23,26 +23,26 @@ pub use local_transport::LocalCoreTransport;
 pub use viden_types::{
     AgentAdapterSource, AgentAdapterView, AgentAuthState, AgentAvailability, AgentContentPart,
     AgentConversationMessageView, AgentConversationRole, AgentDagRecord, AgentDagStatus,
-    AgentDagTaskSpec, AgentLaneRecord, AgentRole, AgentRoute, AgentSessionInput,
-    AgentSessionInputView, AgentSessionRequest, AgentSessionStatus, AgentSessionView,
-    AgentStartability, AgentTaskKind, AgentTaskRecord, AgentTaskStatus, ApprovalDecision,
-    ApprovalDefaultAction, ApprovalRequestView, ApprovalResponse, ApprovalRisk, ApprovalScope,
-    ApprovalTarget, AuditActor, AuditActorFilter, AuditCursor, AuditId, AuditObjectRef,
-    AuditOutcome, AuditPage, AuditQuery, AuditRecord, CapabilityId, CheckRunStatus, CheckRunView,
-    CommandAction, ConflictBaseline, ConflictBounce, ConflictBounceStatus, ConflictContent,
-    ConflictFile, ConflictHunk, ConflictHunkReason, ContextBudgetRecord, ContextBundleRecord,
-    ContextOmittedSourceRecord, ContextScope, ContextSourceRecord, ContractDecision,
-    ContractRecord, CoreHandshake, CostLedgerTotals, CostMeterability, CostUsageRecord,
-    CredentialHandle, CredentialRequestId, CredentialStatus, DEFAULT_EVIDENCE_PAGE_SIZE,
-    DEFAULT_TRANSCRIPT_ROWS_PAGE, DEFAULT_WORKSPACE_DIFF_BYTES, DEFAULT_WORKSPACE_FILE_BYTES,
-    DataEgressPolicy, DecisionContext, DependencyRecord, DependencyState, DiffDocument, DiffFile,
-    DiffHunk, DiffLine, DiffLineKind, EventCursor, EvidenceContent, EvidenceCursor, EvidencePage,
-    EvidenceQualityStatus, EvidenceQuery, EvidenceUnavailableReason, EvidenceVerificationState,
-    EvidenceView, ExecutionTarget, FRONTEND_SCHEMA_V1, GapRecovery, GateStrength,
-    HandoffAcceptance, HandoffRecord, LaneBudget, LaneConflictView, LaneRunStats,
-    LaneRuntimeOwnerBinding, LaneSidebarMode, LaneStatus, LocaleId, MAX_CONFLICT_CONTENT_BYTES,
-    MAX_EVIDENCE_CONTENT_BYTES, MAX_EVIDENCE_PAGE_SIZE, MAX_EVIDENCE_QUERY_KINDS,
-    MAX_HIDDEN_STATUSBAR_SEGMENT_BYTES, MAX_HIDDEN_STATUSBAR_SEGMENTS,
+    AgentDagTaskSpec, AgentLaneRecord, AgentRole, AgentRoute, AgentSessionControlView,
+    AgentSessionInput, AgentSessionInputView, AgentSessionRequest, AgentSessionStatus,
+    AgentSessionTermination, AgentSessionView, AgentStartability, AgentTaskKind, AgentTaskRecord,
+    AgentTaskStatus, ApprovalDecision, ApprovalDefaultAction, ApprovalRequestView,
+    ApprovalResponse, ApprovalRisk, ApprovalScope, ApprovalTarget, AuditActor, AuditActorFilter,
+    AuditCursor, AuditId, AuditObjectRef, AuditOutcome, AuditPage, AuditQuery, AuditRecord,
+    CapabilityId, CheckRunStatus, CheckRunView, CommandAction, ConflictBaseline, ConflictBounce,
+    ConflictBounceStatus, ConflictContent, ConflictFile, ConflictHunk, ConflictHunkReason,
+    ContextBudgetRecord, ContextBundleRecord, ContextOmittedSourceRecord, ContextScope,
+    ContextSourceRecord, ContractDecision, ContractRecord, CoreHandshake, CostLedgerTotals,
+    CostMeterability, CostUsageRecord, CredentialHandle, CredentialRequestId, CredentialStatus,
+    DEFAULT_EVIDENCE_PAGE_SIZE, DEFAULT_TRANSCRIPT_ROWS_PAGE, DEFAULT_WORKSPACE_DIFF_BYTES,
+    DEFAULT_WORKSPACE_FILE_BYTES, DataEgressPolicy, DecisionContext, DependencyRecord,
+    DependencyState, DiffDocument, DiffFile, DiffHunk, DiffLine, DiffLineKind, EventCursor,
+    EvidenceContent, EvidenceCursor, EvidencePage, EvidenceQualityStatus, EvidenceQuery,
+    EvidenceUnavailableReason, EvidenceVerificationState, EvidenceView, ExecutionTarget,
+    FRONTEND_SCHEMA_V1, GapRecovery, GateStrength, HandoffAcceptance, HandoffRecord, LaneBudget,
+    LaneConflictView, LaneRunStats, LaneRuntimeOwnerBinding, LaneSidebarMode, LaneStatus, LocaleId,
+    MAX_CONFLICT_CONTENT_BYTES, MAX_EVIDENCE_CONTENT_BYTES, MAX_EVIDENCE_PAGE_SIZE,
+    MAX_EVIDENCE_QUERY_KINDS, MAX_HIDDEN_STATUSBAR_SEGMENT_BYTES, MAX_HIDDEN_STATUSBAR_SEGMENTS,
     MAX_OPERATOR_COMMIT_MESSAGE_BYTES, MAX_OPERATOR_GIT_OUTPUT_BYTES, MAX_PLAN_GOAL_BYTES,
     MAX_PLAN_SECTION_BODY_BYTES, MAX_PLAN_STEPS, MAX_PLAN_TITLE_BYTES,
     MAX_TRANSCRIPT_ROW_TEXT_BYTES, MAX_TRANSCRIPT_ROWS_PAGE, MAX_TURN_FAILURE_REASON_CHARS,
@@ -166,6 +166,19 @@ mod tests {
         assert_eq!(MAX_PLAN_GOAL_BYTES, 4 * 1024);
         assert_eq!(MAX_PLAN_TITLE_BYTES, 256);
         assert!(CORE_EXTENSION_CAPABILITIES.contains(&"runtime.plan_documents"));
+        // C14: pause, resume, and kill for an Agent session. Without
+        // `AgentSessionControlView` a client can render a paused session but
+        // not what it is holding, and without `AgentSessionTermination` it
+        // cannot tell a kill from a cancel once both have settled.
+        assert!(
+            std::any::type_name::<AgentSessionControlView>().contains("AgentSessionControlView")
+        );
+        assert!(
+            std::any::type_name::<AgentSessionTermination>().contains("AgentSessionTermination")
+        );
+        assert!(!AgentSessionStatus::Paused.is_terminal());
+        assert!(AgentSessionStatus::Killed.is_terminal());
+        assert!(CORE_EXTENSION_CAPABILITIES.contains(&"runtime.agent_session_control"));
         // GUI-CORE-012: the typed diff substrate. A frontend must render hunk
         // rows from Core facts instead of parsing unified diff text itself,
         // which would put a second parser and a second definition of "hunk"

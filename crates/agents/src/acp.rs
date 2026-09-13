@@ -1315,9 +1315,17 @@ where
         ));
     };
     write_probe_log(&log_path, &log_entries)?;
+    // A pause is the one interruption that keeps its connection: the operator
+    // asked for the turn to stop, not for the session to end, and neither ACP
+    // nor the Codex app-server has a pause verb to express that difference. The
+    // intent is read back from the job's own marker because the thread that
+    // requested it cannot reach this runner.
+    let paused = cancel_path
+        .as_deref()
+        .and_then(read_agent_job_interrupt)
+        .is_some_and(|interrupt| interrupt == AgentJobInterrupt::Pause);
     if let Some(resident_key) = resident_key
-        && !cancel_sent
-        && final_status != "cancelled"
+        && (paused || (!cancel_sent && final_status != "cancelled"))
     {
         store_resident_acp_session(
             resident_key,
