@@ -1658,6 +1658,47 @@ Open follow-ups added 2026-09-13 by the C12 review, from C12's own report:
    `viden-agents` and should follow the rule `crates/AGENTS.md` now states.
    `0.3.5` hygiene if a slot exists, else `0.3.6`.
 
+Follow-up added and closed 2026-09-13 by batch C16, from H4's native GUI re-run
+(`apps/gui/contract-requests.md`, GUI-CORE-035):
+
+19. **Adapter discovery held Core's command worker** (Core, 2026-09-13).
+   `RuntimeCommand::ProbeAgentAdapter` was executed inline on the supervisor's
+   single command worker, and the work it does is a real subprocess handshake:
+   `probe_typed_agent_adapter` -> `run_acp_initialize_probe_for_agent`
+   (`crates/agents/src/glue.rs:78`, `crates/agents/src/acp.rs:718`) spawns the
+   adapter's command and blocks on `read_line_with_timeout` for
+   `DEFAULT_LOCAL_ACP_HANDSHAKE_TIMEOUT_SECS` 30 s or
+   `DEFAULT_REGISTRY_ACP_HANDSHAKE_TIMEOUT_SECS` 90 s
+   (`crates/agents/src/acp.rs:32`, `:34`), the latter for the two built-in
+   registry adapters whose command is `npx -y <package>`
+   (`crates/plugin-host/src/lib.rs:1178`). Every other command —
+   `PreviewDefaultStarterLane`, `SubmitUserInput`, `RunOperatorGitAction`,
+   `RespondToApproval` — waited behind it in the supervisor's channel, which is
+   what closed both Lane-creation paths in `0.1.0-rc.5`: E3a watched
+   `Checking ACP agents…` stand for over six minutes and D4's
+   `Preview with Core` never resolved behind it. **Closed 2026-09-13 by C16.**
+   A probe is now accepted on the worker and nothing more: an unregistered
+   `agent_id` is still refused synchronously through
+   `unknown_typed_agent_adapter_reason` (`crates/agents/src/glue.rs:57`, a
+   registry lookup that touches no process), and a registered one is handed to
+   `AgentAdapterProbes` (`crates/runtime/src/runtime_supervisor.rs:537`), which
+   runs the handshake on its own thread and posts the result back as
+   `SupervisorMessage::AgentAdapterProbed`
+   (`crates/runtime/src/runtime_supervisor.rs:500`) — the same
+   adapter-thread-to-worker posting shape C14 uses for session facts. The
+   worker turns that message into the `AgentAdapterProbed` fact
+   (`:2463`) and keeps answering every other command meanwhile. At most
+   `MAX_CONCURRENT_ADAPTER_PROBES` (4) handshakes run at once and a further
+   probe queues off-worker; a duplicate probe of an adapter already pending is
+   coalesced onto that one handshake, so both command ids are acknowledged and
+   one fact answers both. An absent or non-answering adapter therefore
+   publishes a probed fact with its existing `AgentStartability` diagnostic
+   within the handshake timeout instead of the silence H4 observed. Tests:
+   `crates/runtime/src/tests/runtime_supervisor_tests.rs:8697`, `:8761`,
+   `:8821`, `:8905`, `:8984`. The direct `handle_runtime_command` contract path
+   is unchanged, so no capability, count, event shape, or fixture moved; the
+   GUI keeps its own 15 s client-side bound as defense in depth.
+
 
 The `context-budgets` fixture backs the frontend-neutral facade export of
 `ContextScope` and `ContextBudgetRecord`. A budget belongs to a Lane only

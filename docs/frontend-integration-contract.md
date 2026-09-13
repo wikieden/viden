@@ -1358,6 +1358,41 @@ Switching model is a client composition of Kill (or Cancel) followed by
 `load_session_id`. There is no switch-model command and a client must render it
 as the two-step flow it is.
 
+### Adapter Discovery (`runtime.agent_adapters`, GUI-CORE-035)
+
+`QueryAgentAdapters` is a synchronous projection of the registered adapters: it
+starts no process and is answered on Core's command worker.
+
+`ProbeAgentAdapter` is not. A probe spawns the adapter's own command and waits
+for an ACP `initialize` reply for up to that adapter's handshake timeout — 30 s
+for a local command, 90 s for a registry package started through `npx -y` — so
+**a probe is an asynchronous fact**:
+
+- `CommandAccepted` arrives immediately, on the worker, and means only that the
+  probe was admitted;
+- the handshake runs off the worker, so every other command keeps being
+  answered while a probe is in flight. Core no longer serializes unrelated work
+  behind adapter discovery;
+- `AgentAdapterProbed` arrives later and is the answer. There is no second
+  acknowledgement in between and no progress fact;
+- **a probe always answers.** An adapter whose binary is absent, whose package
+  is not installed, or which never replies is published as an
+  `AgentAdapterProbed` carrying the classified `AgentStartability` —
+  `InstallRequired`, `AuthenticationRequired`, or `Unavailable` — plus a
+  diagnostic, within its handshake timeout. Silence is not a possible outcome.
+  Only an `agent_id` that is not registered is refused, and that refusal is a
+  plain `CommandRejected` answered synchronously;
+- **at most four handshakes run at once**, and a fifth queues behind them off
+  the worker. Two probes of the same adapter while one is in flight are
+  coalesced: each command id gets its own `CommandAccepted`, and both are
+  answered by the one `AgentAdapterProbed` that handshake publishes. A client
+  must therefore correlate a probed fact by `AgentAdapterView.agent_id`, never
+  by counting one fact per command it sent.
+
+A client may still bound its own wait and offer a retry — the GUI does, at 15 s
+(`apps/gui/src/components/agent_menu.ts`) — but that is now defense in depth
+rather than the only bound. Core's own bound is the handshake timeout above.
+
 ## Approval And Permission UI Contract
 
 Approvals use `ApprovalRequestView` and `RespondToApproval`.

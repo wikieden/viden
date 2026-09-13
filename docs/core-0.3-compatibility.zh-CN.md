@@ -1264,6 +1264,38 @@ E2 的第四项发现属于客户端侧，记录在它该在的地方而不是�
    `viden-agents` 中改为确定性的测试属同一类，应遵循 `crates/AGENTS.md` 现在陈述的规则。
    有空位则在 `0.3.5` 卫生批次处理，否则 `0.3.6`。
 
+2026-09-13 由批次 C16 依据 H4 的原生 GUI 复跑新增并同时关闭的后续项
+（`apps/gui/contract-requests.zh-CN.md`，GUI-CORE-035）：
+
+19. **Adapter 发现曾占住 Core 的 command worker**（Core，2026-09-13）。
+   `RuntimeCommand::ProbeAgentAdapter` 过去在 supervisor 唯一的 command worker 上就地执行，
+   而它做的是真正的子进程握手：`probe_typed_agent_adapter` ->
+   `run_acp_initialize_probe_for_agent`（`crates/agents/src/glue.rs:78`、
+   `crates/agents/src/acp.rs:718`）会启动 adapter 的命令并在 `read_line_with_timeout` 上
+   阻塞，时长为 `DEFAULT_LOCAL_ACP_HANDSHAKE_TIMEOUT_SECS` 30 秒或
+   `DEFAULT_REGISTRY_ACP_HANDSHAKE_TIMEOUT_SECS` 90 秒（`crates/agents/src/acp.rs:32`、
+   `:34`），后者适用于两个内置 registry adapter，因为它们的命令是 `npx -y <package>`
+   （`crates/plugin-host/src/lib.rs:1178`）。其余每一条命令——
+   `PreviewDefaultStarterLane`、`SubmitUserInput`、`RunOperatorGitAction`、
+   `RespondToApproval`——都在 supervisor 的 channel 里排在它后面，这正是 `0.1.0-rc.5`
+   两条 Lane 创建路径双双关闭的原因：E3a 看着 `Checking ACP agents…` 停了六分多钟，
+   D4 的 `Preview with Core` 排在它后面始终没有解析。**已于 2026-09-13 由 C16 关闭。**
+   现在 probe 只在 worker 上被受理：未注册的 `agent_id` 仍由
+   `unknown_typed_agent_adapter_reason`（`crates/agents/src/glue.rs:57`，只查注册表、
+   不触碰任何进程）同步拒绝；已注册的则交给 `AgentAdapterProbes`
+   （`crates/runtime/src/runtime_supervisor.rs:537`），由它在自己的线程上运行握手，
+   并把结果作为 `SupervisorMessage::AgentAdapterProbed`
+   （`crates/runtime/src/runtime_supervisor.rs:500`）回传——与 C14 用于 session 事实的
+   adapter 线程到 worker 的投递形状相同。worker 把该消息转成 `AgentAdapterProbed` 事实
+   （`:2463`），期间继续回答其他每一条命令。同时最多运行
+   `MAX_CONCURRENT_ADAPTER_PROBES`（4）次握手，更多的 probe 在 worker 之外排队；对已在
+   等待中的 adapter 的重复 probe 会合并到那一次握手上，因此两个 command id 都被确认，
+   而由一条事实回答两者。于是缺失或不应答的 adapter 会在握手超时之内发布带有既有
+   `AgentStartability` 诊断的 probed 事实，而不是 H4 观察到的沉默。测试：
+   `crates/runtime/src/tests/runtime_supervisor_tests.rs:8697`、`:8761`、`:8821`、
+   `:8905`、`:8984`。直接的 `handle_runtime_command` 契约路径未改动，因此没有 capability、
+   计数、事件形状或 fixture 发生移动；GUI 保留其 15 秒客户端侧上限作为纵深防御。
+
 `context-budgets` fixture 为 `ContextScope` 与 `ContextBudgetRecord` 的 frontend-neutral
 facade 导出提供依据。Budget 只能通过该 Lane 精确绑定的 runtime owner 所指名的 typed task
 scope 归属到 Lane；"取最近一条 budget" 永远不是有效归属，fixture 中两个 scope 刻意互不相交。
