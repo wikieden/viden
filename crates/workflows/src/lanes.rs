@@ -940,8 +940,7 @@ mod tests {
             store
                 .load_lane_agent_bindings()
                 .unwrap()
-                .get("lane-race")
-                .is_some()
+                .contains_key("lane-race")
         );
     }
 

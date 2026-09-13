@@ -69,7 +69,7 @@ fn frontend_status_git_sampling_is_read_only_and_missing_git_is_not_clean() {
     let non_repo = temp_dir("frontend_status_missing_git");
     let unavailable = sample_workspace_source(&non_repo);
     assert_eq!(unavailable.status, WorkspaceSourceStatus::Unavailable);
-    assert_eq!(unavailable.dirty, false);
+    assert!(!unavailable.dirty);
 }
 
 #[cfg(unix)]

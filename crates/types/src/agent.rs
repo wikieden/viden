@@ -133,20 +133,17 @@ pub enum AgentAuthState {
     Error,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentStartability {
     Ready,
+    /// An agent whose startability has not been probed yet is the safe default:
+    /// the client must not offer to start what Core has not confirmed.
+    #[default]
     ProbeRequired,
     InstallRequired,
     AuthenticationRequired,
     Unavailable,
-}
-
-impl Default for AgentStartability {
-    fn default() -> Self {
-        Self::ProbeRequired
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
