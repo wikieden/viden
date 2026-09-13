@@ -1461,20 +1461,8 @@ mod tests {
         ContextReducerExecutor::trusted_in_process_for_test(executor)
     }
 
-    fn compile_context_reducer_helper() -> std::path::PathBuf {
-        static HELPER_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-        let unique = format!(
-            "viden-context-reducer-helper-{}-{}",
-            std::process::id(),
-            HELPER_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
-        );
-        let dir = std::env::temp_dir().join(unique);
-        std::fs::create_dir_all(&dir).unwrap();
-        let src = dir.join("helper.rs");
-        let bin = dir.join("helper");
-        std::fs::write(
-            &src,
-            r###"
+    /// Source of the out-of-process context-reducer adapter these tests spawn.
+    const CONTEXT_REDUCER_HELPER_SOURCE: &str = r###"
 use std::env;
 use std::fs;
 use std::io::{self, Read};
@@ -1522,7 +1510,10 @@ fn main() {
             if let Some(pid_path) = env::args().nth(3) {
                 fs::write(pid_path, std::process::id().to_string()).unwrap();
             }
-            thread::sleep(Duration::from_millis(5000));
+            // 20s, not 5s: the marker below is the witness that the host killed
+            // this child instead of waiting for it, so its lifetime must dwarf
+            // every host deadline under test even on a fully loaded machine.
+            thread::sleep(Duration::from_millis(20000));
             fs::write(marker, "late mutation").unwrap();
             print!("{}", success_json());
         }
@@ -1538,7 +1529,7 @@ fn main() {
                 fs::write(pid_path, std::process::id().to_string()).unwrap();
             }
             print!("{}", "x".repeat(2_000_000));
-            thread::sleep(Duration::from_millis(5000));
+            thread::sleep(Duration::from_millis(20000));
             fs::write(marker, "late mutation").unwrap();
         }
         "descendant_stdout" => {
@@ -1554,7 +1545,7 @@ fn main() {
         }
         "hold_stdout" => {
             let marker = env::args().nth(2).expect("marker path");
-            thread::sleep(Duration::from_millis(5000));
+            thread::sleep(Duration::from_millis(20000));
             fs::write(marker, "descendant retained stdout").unwrap();
         }
         "timeout_descendant" => {
@@ -1583,16 +1574,60 @@ fn main() {
         _ => std::process::exit(2),
     }
 }
-"###,
-        )
-        .unwrap();
-        let status = std::process::Command::new("rustc")
-            .arg(&src)
-            .arg("-o")
-            .arg(&bin)
-            .status()
-            .unwrap();
-        assert!(status.success(), "helper should compile");
+"###;
+
+    /// Compiles the helper once per test process and hands each caller its own
+    /// directory holding a copy of it.
+    ///
+    /// This used to run `rustc` once per test. A dozen concurrent compilations
+    /// is the load that starved the children the deadline-sensitive tests below
+    /// spawn, which is what made this module flake under a parallel run — the
+    /// tests themselves were sound. The per-caller directory is still unique, so
+    /// each test keeps its own marker and pid files and its own `trusted_root`.
+    fn compile_context_reducer_helper() -> std::path::PathBuf {
+        static SHARED_HELPER: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+        static HELPER_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+        let shared = SHARED_HELPER.get_or_init(|| {
+            let dir = std::env::temp_dir().join(format!(
+                "viden-context-reducer-helper-src-{}",
+                std::process::id()
+            ));
+            std::fs::create_dir_all(&dir).unwrap();
+            let src = dir.join("helper.rs");
+            let bin = dir.join("helper");
+            std::fs::write(&src, CONTEXT_REDUCER_HELPER_SOURCE).unwrap();
+            let status = std::process::Command::new("rustc")
+                .arg(&src)
+                .arg("-o")
+                .arg(&bin)
+                .status()
+                .unwrap();
+            assert!(status.success(), "helper should compile");
+            bin
+        });
+
+        let unique = format!(
+            "viden-context-reducer-helper-{}-{}",
+            std::process::id(),
+            HELPER_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+        );
+        let dir = std::env::temp_dir().join(unique);
+        std::fs::create_dir_all(&dir).unwrap();
+        let bin = dir.join("helper");
+        // `fs::copy` carries the executable bit on unix, so the copy is spawnable.
+        std::fs::copy(shared, &bin).unwrap();
+        // Execute the copy once, here, outside any host deadline. macOS validates
+        // a Mach-O's signature on the first exec of a new inode, and paying that
+        // cost inside a timeout window — while other tests are doing the same —
+        // is what left the timeout test's child unscheduled and its pid file
+        // unwritten. "warmup" is an unknown mode, so the helper exits at once.
+        let _ = std::process::Command::new(&bin)
+            .arg("warmup")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
         bin
     }
 
@@ -2002,20 +2037,28 @@ fn main() {
             timeout_ms: 25,
             ..ContextReducerAdapterConfig::default()
         };
-        let started = std::time::Instant::now();
+        // Deterministic by construction instead of by wall clock: the adapter
+        // blocks on a channel this test owns, so it cannot return before
+        // `execute_context_reducer` does, whatever the machine load. The old
+        // `elapsed() < 125ms` bound raced the host's own 25ms deadline plus
+        // thread spawn under a parallel workspace run.
+        let (release, blocked) = std::sync::mpsc::channel::<()>();
+        let blocked = std::sync::Mutex::new(blocked);
 
         let outcome = execute_context_reducer(
             &config,
             &context_reducer_descriptor("adapter"),
             context_reducer_request(),
-            Some(in_process(|request| {
-                std::thread::sleep(std::time::Duration::from_millis(200));
+            Some(in_process(move |request| {
+                let _ = blocked.lock().expect("adapter mutex is uncontended").recv();
                 Ok(context_reducer_response(&request))
             })),
             native_response,
         );
 
-        assert!(started.elapsed() < std::time::Duration::from_millis(125));
+        // Releasing only now proves the host returned while the adapter was
+        // still blocked; it also lets the isolated adapter thread exit.
+        drop(release);
         assert!(outcome.used_native_fallback);
         assert_eq!(outcome.response.reducer_id, "viden-context-native");
         assert_eq!(outcome.health.status, ContextReducerHealthStatus::Timeout);
@@ -2156,7 +2199,11 @@ fn main() {
             native_response,
         );
 
-        assert!(started.elapsed() < std::time::Duration::from_millis(4_500));
+        // The witness that the host did not wait for the child is the absent
+        // marker below, which the helper writes only after a 20s sleep; this
+        // ceiling is a generous liveness bound, not the assertion that matters,
+        // so a loaded host cannot flake it the way `< 4_500ms` did.
+        assert!(started.elapsed() < std::time::Duration::from_secs(15));
         assert!(outcome.used_native_fallback);
         assert_eq!(outcome.health.status, ContextReducerHealthStatus::Timeout);
         assert_eq!(outcome.response.reducer_id, "viden-context-native");
@@ -2342,7 +2389,10 @@ fn main() {
             native_response,
         );
 
-        assert!(started.elapsed() < std::time::Duration::from_millis(4_500));
+        // As above: `Oversize` plus the absent 20s marker prove the host stopped
+        // on the sentinel rather than on its own 10s deadline, so the elapsed
+        // bound only has to be generous.
+        assert!(started.elapsed() < std::time::Duration::from_secs(15));
         assert!(outcome.used_native_fallback);
         assert_eq!(outcome.health.status, ContextReducerHealthStatus::Oversize);
         std::thread::sleep(std::time::Duration::from_millis(100));
@@ -2411,7 +2461,10 @@ fn main() {
             native_response,
         );
 
-        assert!(started.elapsed() < std::time::Duration::from_millis(4_500));
+        // The descendant holds the inherited stdout for 20s, so returning inside
+        // this window is itself the proof that the host waited for the direct
+        // child's exit rather than for stdout EOF.
+        assert!(started.elapsed() < std::time::Duration::from_secs(15));
         assert!(
             !outcome.used_native_fallback,
             "direct child emitted a valid response before descendant retained stdout"
