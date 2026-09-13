@@ -25,7 +25,7 @@
    ★ 改这里后跑 tools/check-status.js（防悬空 file / 重复 id / 非法枚举）。
    ============================================================ */
 window.VIDEN_STATUS = {
-  updated: "2026-07-02",
+  updated: "2026-09-13",
   cursor: "",   /* Core/TUI/GUI 三轨主屏均已建 · 进入跨轨收敛与评审打磨期（见 设计审查看板） */
 
   /* 轨道元信息（门户分组头直读，不再硬编码） */
@@ -109,7 +109,7 @@ window.VIDEN_STATUS = {
     { id: "G-INDEX", track: "GUI", code: "▤", state: "BUILT", kind: "kit",
       file: "GUI/Viden - 设计稿索引 (GUI).html",
       nm: "设计稿索引", nmEn: "Design docs index",
-      meta: "侧栏导航 + iframe 秒切：D1–D13 全部 GUI 设计稿",
+      meta: "侧栏导航 + iframe 秒切：D1–D16 全部 GUI 设计稿",
       metaEn: "Sidebar nav + iframe: all GUI design screens", note: "" },
   ],
 
@@ -140,6 +140,7 @@ window.VIDEN_STATUS = {
     /* —— GUI（旗舰在 GUI/ 根，其余在 GUI/pages/）—— */
     { track:"GUI", nav:"D1",  group:"旗舰",          groupEn:"Flagship",         state:"BUILT", kind:"star", nm:"驾驶舱 · 打开即用", nmEn:"Cockpit · the product", file:"GUI/Viden - 桌面驾驶舱 (GUI).html" },
     { track:"GUI", nav:"KIT", group:"旗舰",          groupEn:"Flagship",         state:"BUILT", kind:"star", nm:"组件库",          nmEn:"Component library",  file:"GUI/Viden - 组件库 (GUI).html" },
+    { track:"GUI", nav:"D15", group:"规划",          groupEn:"Plan",             state:"BUILT", kind:"kit", nm:"Plan Studio",     nmEn:"Plan Studio",        file:"GUI/pages/Viden - D15 Plan Studio (GUI).html" },
     { track:"GUI", nav:"D2",  group:"决策",          groupEn:"Decision",         state:"BUILT", kind:"kit", nm:"决策中心",        nmEn:"Decision Center",    file:"GUI/pages/Viden - D2 决策中心 (GUI).html" },
     { track:"GUI", nav:"D2a", group:"决策",          groupEn:"Decision",         state:"ARCHIVED", kind:"ref", nm:"行为 Diff 评审 · 存档", nmEn:"Behavior diff · archive", file:"GUI/pages/Viden - D2 行为Diff评审 存档 (GUI).html" },
     { track:"GUI", nav:"D11", group:"接入与创建",     groupEn:"Onboarding",       state:"BUILT", kind:"kit", nm:"首启与项目接入",   nmEn:"First-run onboarding", file:"GUI/pages/Viden - D11 首启与项目接入 (GUI).html" },
@@ -151,6 +152,7 @@ window.VIDEN_STATUS = {
     { track:"GUI", nav:"D14", group:"评审与协作",     groupEn:"Review",           state:"BUILT", kind:"kit", nm:"审计与时间线",     nmEn:"Audit & timeline",   file:"GUI/pages/Viden - D14 审计与时间线 (GUI).html" },
     { track:"GUI", nav:"D10", group:"监视与编排",     groupEn:"Monitor",          state:"BUILT", kind:"kit", nm:"Lane 监视器",     nmEn:"Lane monitor",       file:"GUI/pages/Viden - D10 Lane监视器 (GUI).html" },
     { track:"GUI", nav:"D13", group:"监视与编排",     groupEn:"Monitor",          state:"BUILT", kind:"kit", nm:"Fleet 编排与 Workflow", nmEn:"Fleet & Workflow", file:"GUI/pages/Viden - D13 Fleet 编排与 Workflow (GUI).html" },
+    { track:"GUI", nav:"D16", group:"监视与编排",     groupEn:"Monitor",          state:"BUILT", kind:"kit", nm:"Agent 看板",      nmEn:"Agent Board",        file:"GUI/pages/Viden - D16 Agent Board (GUI).html" },
     { track:"GUI", nav:"D6",  group:"系统态",         groupEn:"States",           state:"BUILT", kind:"kit", nm:"空态与错误态",     nmEn:"Empty & error states", file:"GUI/pages/Viden - D6 空态与错误态 (GUI).html" },
     { track:"GUI", nav:"D9",  group:"远程",          groupEn:"Remote",           state:"BUILT", kind:"kit", roadmap:true, nm:"远程目标开发",     nmEn:"Remote target dev",  file:"GUI/pages/Viden - D9 远程目标开发 (GUI).html" },
     { track:"GUI", nav:"D2h", group:"召唤坞 (概念稿)", groupEn:"Summon (concept · source = D1 dock)", state:"BUILT", kind:"ref", nm:"横屏召唤坞",   nmEn:"Summon dock · H",    file:"GUI/pages/Viden - D2 横屏召唤坞 (GUI).html" },

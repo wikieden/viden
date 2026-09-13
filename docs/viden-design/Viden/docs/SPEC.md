@@ -19,7 +19,7 @@ role: machine-source-of-truth   # 决策护栏；叙事版 = CLAUDE.md
 read_before: [design_screen, change_token, change_decision, cross-track_change]
 on_change: [sync_self, sync_CHANGELOG, sync_DESIGN-REF(若动 token/组件)]
 status: living
-updated: 2026-09-08
+updated: 2026-09-13
 product: Viden                  # AI agent 编排开发工具：lane/会话编排多智能体协作写代码，带工具门控(gate)+人审
 tracks: [Core, TUI, GUI]        # Core=Rust 视觉真源&文档 / TUI=终端驾驶舱 / GUI=Rust+Tauri 桌面
 impl: { core: Rust, gui: "Rust + Tauri" }   # UI 设计阶段以 HTML 高保真稿沉淀规范
@@ -173,6 +173,27 @@ D-RAILNAV 活动 rail = 路由器(2026-09-08 定档)：rail 按钮导航到独�
             D-POPOUT 指名它为召唤坞实现真源、DESIGN-REF 却从未登记的治理不一致，两处自此一致。
           ⚠ 登记只说「组件可复用」(D-COMP)，不承诺可开工；deferred/roadmap 标沿用 D-ROADMAP 语义
             —— 实现目标版本是排期，不是交付承诺。
+D-PLANBOARD Plan Studio(D15) 与 Agent Board(D16) 定档为 **驾驶舱中央面**(2026-09-13)：
+          二者都是 in-cockpit centre-pane view、**chrome 保留**(标题栏 + 活动 rail + 状态栏)，
+          与 D2/D10/D12/D13/D14 同一宿主模型(D-RAILNAV)；不是第二个应用壳、不新开窗口。
+          **rail 入口**：旗舰 D1 既无 plan 也无 fleet 目的地 → D15 新登记一个图标 key `plan`
+            (步骤清单·首项已勾;刻意不与 `decide` 的剪贴板+勾重复)；D16 **复用已登记的 `robot`**
+            (语义 = agent,原为替 🤖 的图标,自此同时是 Agent Board 的 rail 目的地) —— 共新增 1 个 key,
+            见 DESIGN-REF「GUI 图标目录」。两页 rail 顺序统一 chat · plan · lanes · robot · fleet · decide。
+          **控件 → 事实**:以 `docs/release-0.3.5-contract-design.md`「Design Package Inputs」两张表为准
+            (D15 → runtime.plan_documents;D16 → runtime.agent_session_control + AgentSessionView +
+            audit/evidence)。表里没有的控件只许画成 **disabled + 标注为请求**,禁止画成能用
+            (D16 的 Downgrade to manual / Ask user 即此类,虚线禁用)。
+          **Plan → Build 是显式操作者动作**:Hand off 是 plan 唯一的 mutation,Plan 模式拒绝它
+            (reason `plan_mode`),Accept/Reject 钉住 revision + content_sha256(不匹配 = `plan_revision_stale`)。
+            三个诚实态必画:no plan proposed · stale revision refused · hand off refused in plan mode。
+          **pause/kill 是 Core 命令**(C14),`switch model` **没有单命令** —— 画成 Kill(或 Cancel)
+            + StartAgentSession{model, load_session_id} 的两步流程并写明,禁止伪装成一个按钮。
+            会话永远挂在它的 lane 下渲染;单 lane 内嵌 subagent 树按 D-RAILNAV ④ 延后,本轮不画。
+          **组件**:两页零新增可复用组件 —— chrome 走 gui-kit(`.frame`/`GuiTitleBar`/`.act`/`GuiStatusBar`/
+            `.composer`),D16 右栏详情壳复用已登记的 EvidenceView 家族(`.evdethead`/`.evsec`/`.evkv`/
+            `.evchip`/`.evfoot`,同 DiagnosticsView 的复用法);页面专属类一律前缀 `.ps*`/`.ab*`,
+            不占裸登记族名(PROTO-STANDARD §5)。新增可复用件才回 DESIGN-REF 登记(D-COMP)。
 ```
 
 ## @OPEN 开放问题（详情/进度在 Core「设计审查看板」·此处只做 grep 索引）

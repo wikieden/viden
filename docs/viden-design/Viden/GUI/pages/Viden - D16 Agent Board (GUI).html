@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en" data-mode="dark" data-skin="aurora">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Viden D16 · Agent Board</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="../../i18n.js"></script>
+<script src="../../chrome.js"></script>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<link rel="stylesheet" href="../../tokens.css">
+<link rel="stylesheet" href="../gui-kit.css">
+<style>
+/* Token 单一真源 → ../tokens.css;本页只用 var(--*)。窗口壳 / 标题栏 / 活动 rail /
+   状态栏走 ../gui-kit.css;右栏详情壳直接复用已登记的 EvidenceView 家族
+   (.evdethead / .evsec / .evkv / .evterm / .evchip / .evfoot —— 同 DiagnosticsView 的复用法)。
+   其余是 D16 页面专属类(前缀 .ab*,有意避开已登记族名 · PROTO-STANDARD §5)。 */
+*{box-sizing:border-box;}
+body{margin:0;background:var(--page-bg);color:var(--fg-primary);font-family:var(--sans);-webkit-font-smoothing:antialiased;}
+.pwrap{max-width:1600px;margin:0 auto;padding:28px 24px 70px;}
+.pkicker{font-family:var(--mono);font-size:11.5px;font-weight:700;letter-spacing:2.5px;text-transform:uppercase;color:var(--accent);display:flex;align-items:center;gap:10px;margin-bottom:10px;}
+.pkicker::before{content:"";width:24px;height:2px;background:var(--accent);}
+.ph1{font-size:28px;margin:0 0 8px;letter-spacing:-.6px;}
+.ph1 .ac{color:var(--accent);}
+.plead{font-size:14px;color:var(--fg-secondary);margin:0 0 20px;max-width:980px;line-height:1.6;text-wrap:pretty;}
+.plead b{color:var(--fg-primary);font-weight:600;}
+.plead .mono{font-family:var(--mono);font-size:12.5px;color:var(--fg-muted);}
+
+.frame{height:892px;min-width:1240px;}
+.vbody{flex:1;display:grid;grid-template-columns:var(--rail-act) 1fr 372px;min-height:0;}
+
+/* ===== centre pane ===== */
+.abmain{min-width:0;min-height:0;display:flex;flex-direction:column;background:var(--bg-base);}
+.abtop{flex:none;display:flex;align-items:center;gap:11px;padding:11px 18px;border-bottom:1px solid var(--border-soft);background:var(--bg-void);}
+.abtop .t{font-size:14px;font-weight:700;display:flex;align-items:center;gap:8px;}
+.abtop .ct{font-family:var(--mono);font-size:10.5px;color:var(--fg-muted);}
+.abtop .ct b{color:var(--fg-primary);}
+.abtop .ct .g{color:var(--gold-bright);font-weight:700;}
+.abtop .sp{flex:1;}
+.abseg{display:flex;border:1px solid var(--border-soft);border-radius:8px;overflow:hidden;flex:none;}
+.abseg button{font-family:var(--mono);font-size:10.5px;padding:5px 11px;min-height:28px;background:var(--bg-panel);color:var(--fg-muted);border:none;border-right:1px solid var(--border-soft);cursor:pointer;}
+.abseg button:last-child{border-right:none;}
+.abseg button.on{background:var(--bg-sel);color:var(--accent-bright);}
+
+.abscroll{flex:1;min-height:0;overflow:hidden auto;padding:12px 16px 16px;scrollbar-width:thin;scrollbar-color:var(--border) transparent;}
+.abscroll::-webkit-scrollbar{width:6px;}.abscroll::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px;}
+
+/* lane group: sessions are always nested under their lane, never detached */
+.ablane{border:1px solid var(--border-soft);border-radius:var(--r-md);background:var(--bg-panel);margin-bottom:10px;overflow:hidden;}
+.ablane.attn{border-color:color-mix(in srgb,var(--gold) 50%,transparent);}
+.ablhd{display:flex;align-items:center;gap:9px;padding:9px 13px;border-bottom:1px solid var(--border-soft);background:var(--bg-void);}
+.ablhd .lid{font-family:var(--mono);font-size:10px;font-weight:700;color:var(--accent);flex:none;}
+.ablhd .nm{font-size:12.5px;font-weight:600;color:var(--fg-primary);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.ablhd .br{font-family:var(--mono);font-size:9.5px;color:var(--fg-muted);flex:none;}
+.ablhd .sp{flex:1;}
+.abvia{font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:.4px;border:1px solid;border-radius:4px;padding:1px 6px;flex:none;}
+.abgs{font-family:var(--mono);font-size:8px;font-weight:700;letter-spacing:.4px;color:var(--fg-muted);border:1px solid var(--border-soft);border-radius:3px;padding:1px 5px;flex:none;display:inline-flex;align-items:center;gap:3px;}
+.abgs .g{font-size:9px;opacity:.9;}   /* gate_strength ●full ◐coop ○containment（SPEC D-GATESTR） */
+.ablhd .ct{font-family:var(--mono);font-size:9.5px;color:var(--fg-faint);flex:none;}
+
+.abses{display:grid;grid-template-columns:16px 92px 1fr auto auto;gap:3px 10px;align-items:center;padding:8px 13px;cursor:pointer;border-left:3px solid transparent;}
+.abses:hover{background:var(--bg-base);}
+.abses.on{background:var(--bg-sel);border-left-color:var(--accent);}
+.abses .sg{font-family:var(--mono);font-size:11px;text-align:center;}
+.abses .role{font-family:var(--mono);font-size:10px;color:var(--accent);border:1px solid var(--accent-dim);border-radius:4px;padding:1px 0;text-align:center;}
+.abses .task{font-size:12.5px;color:var(--fg-secondary);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.abses.on .task{color:var(--fg-primary);}
+.abses .mdl{font-family:var(--mono);font-size:9.5px;color:var(--fg-faint);white-space:nowrap;}
+.abses .stt{font-family:var(--mono);font-size:8.5px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;border:1px solid;border-radius:4px;padding:1px 7px;white-space:nowrap;}
+.abses .dx{grid-column:3/6;font-family:var(--mono);font-size:9.5px;color:var(--fg-muted);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.abses .dx.bad{color:var(--error);}
+
+.abempty{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;text-align:center;color:var(--fg-muted);}
+.abempty .eh{font-size:15px;font-weight:600;color:var(--fg-secondary);}
+.abempty .es{font-size:12.5px;max-width:440px;line-height:1.65;}
+.abempty .ek{font-family:var(--mono);font-size:11px;color:var(--fg-faint);border:1px solid var(--border-soft);border-radius:7px;padding:5px 11px;}
+
+/* ===== right rail ===== */
+.abdet{background:var(--bg-panel);border-left:1px solid var(--border-soft);display:flex;flex-direction:column;min-width:0;overflow:hidden auto;scrollbar-width:thin;scrollbar-color:var(--border) transparent;}
+.abdet::-webkit-scrollbar{width:6px;}.abdet::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px;}
+.abtl{display:grid;grid-template-columns:40px 14px 1fr;gap:3px 9px;font-family:var(--mono);font-size:10.5px;line-height:1.7;padding:2px 0;}
+.abtl .tm{color:var(--fg-faint);text-align:right;}
+.abtl .ki{text-align:center;}
+.abtl .tx{color:var(--fg-secondary);min-width:0;}
+.abtl .tx b{color:var(--fg-primary);font-weight:600;}
+.abnone{font-family:var(--mono);font-size:10.5px;color:var(--fg-faint);padding:3px 0;}
+
+/* action row —— .evfoot 作容器（已登记），按钮是本页专属 */
+.abact{font-family:var(--sans);font-size:11.5px;font-weight:600;border:1px solid var(--border);background:var(--bg-base);color:var(--fg-secondary);border-radius:7px;padding:6px 12px;min-height:30px;cursor:pointer;display:inline-flex;flex-direction:column;align-items:flex-start;gap:1px;}
+.abact:hover:not(:disabled){color:var(--fg-primary);border-color:var(--fg-muted);}
+.abact.kill{color:var(--error);border-color:color-mix(in srgb,var(--error) 40%,transparent);}
+.abact.kill:hover:not(:disabled){background:color-mix(in srgb,var(--error) 8%,transparent);}
+.abact.go{color:var(--on-accent);background:var(--accent);border-color:var(--accent);font-weight:700;}
+.abact.go:hover:not(:disabled){background:var(--accent-bright);border-color:var(--accent-bright);}
+.abact:disabled{opacity:.38;cursor:not-allowed;}
+.abact .why{font-family:var(--mono);font-size:8.5px;font-weight:400;color:var(--fg-faint);letter-spacing:.2px;}
+.abact.go .why{color:var(--on-accent);opacity:.72;}
+.abreq{border-style:dashed;}
+
+/* two-step model switch */
+.abswap{margin:0 15px 11px;border:1px solid var(--accent-dim);border-radius:var(--r-md);background:var(--bg-base);padding:10px 12px;}
+.abswap .sh{font-family:var(--mono);font-size:9.5px;font-weight:700;letter-spacing:1.1px;text-transform:uppercase;color:var(--accent);margin-bottom:7px;}
+.abstep{display:flex;align-items:flex-start;gap:8px;font-size:11.5px;color:var(--fg-secondary);line-height:1.55;margin-bottom:6px;}
+.abstep .n{flex:none;font-family:var(--mono);font-size:9.5px;font-weight:700;color:var(--accent-bright);border:1px solid var(--accent-dim);border-radius:4px;padding:0 5px;margin-top:1px;}
+.abstep .mono{font-family:var(--mono);font-size:11px;color:var(--fg-muted);}
+.abswap .foot{font-family:var(--mono);font-size:9.5px;color:var(--fg-faint);border-top:1px solid var(--border-soft);padding-top:7px;margin-top:3px;display:flex;align-items:center;gap:9px;}
+.abswap .foot .sp{flex:1;}
+
+.abnote{margin-top:auto;border-top:1px solid var(--border-soft);padding:12px 15px;font-family:var(--mono);font-size:9.5px;color:var(--fg-faint);line-height:1.8;}
+.abnote .a{color:var(--accent);}
+</style>
+</head>
+<body>
+<div class="pwrap">
+  <div id="root"></div>
+</div>
+
+<script type="text/babel" src="../../tweaks-panel.jsx"></script>
+<script type="text/babel" src="../gui-icons.jsx"></script>
+<script type="text/babel" src="../gui-statusbar.jsx"></script>
+<script type="text/babel" src="../gui-titlebar.jsx"></script>
+<script type="text/babel">
+const {useState} = React;
+const t = window.t || ((en,zh)=>en);
+
+/* ════════════════════════════════════════════════════════════════
+ * D16 Agent Board —— 驾驶舱中央面(D1 chrome 保留 · SPEC D-RAILNAV/D-PLANBOARD)
+ *
+ * 控件 → Core 事实映射(0.3.5 契约设计「Design Package Inputs」表 · runtime.agent_session_control):
+ *   lane 行 + 其下会话  → lanes / agent_sessions(按 lane_id 归属)   缺席 = "no Lane"
+ *   角色 / 任务 / 状态 / 诊断 → AgentSessionView                    逐字段缺席
+ *   事件时间线          → runtime.audit(按 session 取)+ agent_conversation   缺席 = "no rows"
+ *   证据                → latest_evidence(按 owner)                  缺席 = "none published"
+ *   Pause / Resume / Kill → C14 新命令                               不允许时 disabled + 写明状态原因
+ *   Stop                → CancelAgentSession(既有,保留 grace)
+ *   Retry               → RetryAgentSession(仅终态可用;Killed 与 Failed 同权)
+ *   Switch model        → 没有单命令:Kill 然后 StartAgentSession{model, load_session_id}
+ *                         —— 画成显式两步流程,不假装是一个按钮
+ *   Downgrade to manual / Ask user → 无 Core 事实 → 虚线 disabled,标为请求
+ *   子 agent 树         → D-RAILNAV ④ 延后,本页有意不画
+ *
+ * 会话层级铁律:会话永远挂在它的 lane 下渲染,不单独摘出来(功能设计 §4)。
+ * 状态枚举只映射不猜(D-ROLES):Starting/Running/WaitingApproval/Paused/
+ * Completed/Failed/Cancelled/Killed —— Paused 与 Killed 是 0.3.5 新增。
+ * ════════════════════════════════════════════════════════════════ */
+
+/* 活动 rail = 路由器(D-RAILNAV)。robot = 本屏;plan = D15 Plan Studio。 */
+const RAIL = [['chat','Conversation'],['plan','Plan Studio'],['lanes','Lane monitor'],['robot','Agent Board'],['fleet','Fleet & Workflow'],['decide','Decision Center']];
+
+function VRail({on, need}){
+  /* 角标只在真有「需要人」的会话时出现 —— 没有 lane 就没有角标(不摆假数字)。 */
+  return (
+    <div className="act">
+      {RAIL.map(([k,lbl])=>(
+        <div key={k} className={"actbtn "+(k===on?'on':'')} title={lbl}>{ICONS[k]}
+          {k==='robot'&&need>0&&<span className="badge" style={{background:'var(--gold)'}}>{need}</span>}
+          {k==='decide'&&<span className="badge" style={{background:'var(--gold)'}}>2</span>}
+        </div>
+      ))}
+      <div className="actspacer"></div>
+      <div className="actbtn" title="Settings">{ICONS.settings}</div>
+    </div>
+  );
+}
+
+/* 后端 chip 色 = D-BACKEND 铁律：ACP 青 / built-in 紫 / tmux 金（跨轨固定，勿换） */
+const VIA_COLOR={ACP:'var(--accent)','built-in':'var(--builtin)',tmux:'var(--gold)'};
+/* gate_strength = lane 契约一等事实（D-GATESTR）：实心→空心 = 门越来越软 */
+const GS_GLYPH={full:'●',cooperative:'◐',containment:'○'};
+const GS_SHORT={full:'FULL',cooperative:'COOP',containment:'CTN'};
+const GS_LABEL=()=>({
+  full:t('full gate · per-call interception (native/built-in)','强门控 · 逐调用拦截(native/built-in)'),
+  cooperative:t('cooperative · ACP advisory + worktree fence','半合作 · ACP 建议性 + worktree 兜底'),
+  containment:t('containment · worktree fence + exit-diff only','围栏兜底 · worktree + 退出 diff'),
+});
+
+/* AgentSessionStatus → 字形 + 色 + 显示分组（D-ROLES：UI 只映射，不另立枚举） */
+const ST=()=>({
+  starting:        {g:'◌', c:'var(--fg-muted)',  t:'STARTING',  lb:t('starting','启动中')},
+  running:         {g:'●', c:'var(--progress)',  t:'RUNNING',   lb:t('running','运行中')},
+  waiting_approval:{g:'⏸', c:'var(--gold)',      t:'NEEDS YOU', lb:t('waiting on your approval','等你批准')},
+  paused:          {g:'‖', c:'var(--fg-muted)',  t:'PAUSED',    lb:t('paused','已暂停')},
+  completed:       {g:'✓', c:'var(--success)',   t:'COMPLETED', lb:t('completed','已完成')},
+  failed:          {g:'✕', c:'var(--error)',     t:'FAILED',    lb:t('failed','失败')},
+  cancelled:       {g:'⊗', c:'var(--fg-faint)',  t:'CANCELLED', lb:t('cancelled','已取消')},
+  killed:          {g:'⊘', c:'var(--error)',     t:'KILLED',    lb:t('killed','已终止')},
+});
+const TERMINAL={completed:1,failed:1,cancelled:1,killed:1};
+const PAUSABLE={starting:1,running:1,waiting_approval:1};
+
+const LANES=()=>[
+  {id:'L1', nm:t('config loader refactor','config 加载重构'), br:'vd/config-loader', via:'ACP', gs:'cooperative', sessions:[
+    {id:'s1', role:'planner', task:t('Draft the fail-closed plan','起草失败关闭的计划'), st:'completed', mdl:'codex · gpt-5-codex',
+     tl:[['13:58','●',<span><b>session.start</b> · planner</span>],['14:02','§',<span>update_plan · rev 1</span>],['14:21','§',<span>update_plan · rev 2</span>],['14:24','✓',<span><b>plan.accepted</b> · rev 2 · a-0409</span>]],
+     ev:[[t('plan · rev 2 · 6 steps','计划 · 第 2 版 · 6 步')],['doc_update · config.md']]},
+    {id:'s2', role:'coder', task:t('Return Err(Empty) from ConfigLoader::load','ConfigLoader::load 返回 Err(Empty)'), st:'running', mdl:'codex · gpt-5-codex',
+     tl:[['14:26','●',<span><b>session.start</b> · coder</span>],['14:27','▸',<span>read_file · crates/config/src/lib.rs</span>],['14:29','▸',<span>apply_patch · +12 −3</span>],['14:31','·',<span>{t('streaming the second hunk','第二块 hunk 流式输出中')}</span>]],
+     ev:[['+12 −3 patch · lib.rs']]},
+    {id:'s3', role:'tester', task:t('Run config_tests','跑 config_tests'), st:'waiting_approval', mdl:'built-in · deepseek-v4', on:true,
+     tl:[['14:31','●',<span><b>session.start</b> · tester</span>],['14:32','⏸',<span><b>approval.requested</b> · shell · <span style={{fontFamily:'var(--mono)'}}>cargo test -p viden-cli</span></span>],['14:32','·',<span>{t('blocked before the effect — permission comes first','在产生效果前阻塞 —— 权限先行')}</span>]],
+     ev:[['test_result · config_tests ✕']]},
+  ]},
+  {id:'L2', nm:t('snowfield shader','雪原 shader'), br:'vd/shader', via:'tmux', gs:'containment', sessions:[
+    {id:'s4', role:'coder', task:t('Port the noise term to the new curve','把噪声项迁到新曲线'), st:'paused', mdl:'tmux · claude-code',
+     dx:t('1 held input · forwarded in order on resume','1 条输入待发 · 恢复时按序转交'),
+     tl:[['13:44','●',<span><b>session.start</b> · coder</span>],['14:05','‖',<span><b>agent_session.pause</b> · {t('by you','由你')}</span>],['14:05','✕',<span>{t('pending approval denied','待批权限已拒绝')} · session_paused</span>],['14:12','·',<span>{t('input accepted and held','输入已接收并保留')} · 1</span>]],
+     ev:[['+38 −12 patch · snow.wgsl']]},
+  ]},
+  {id:'L3', nm:t('parser clippy sweep','parser clippy 清扫'), br:'vd/parser-fmt', via:'built-in', gs:'full', sessions:[
+    {id:'s5', role:'coder', task:t('clippy --fix across the parser crate','对 parser crate 跑 clippy --fix'), st:'killed', mdl:'built-in · deepseek-v4',
+     dx:t('killed at 14:05 · no grace · 2 held inputs discarded','14:05 终止 · 无宽限 · 丢弃 2 条待发输入'),
+     tl:[['13:20','●',<span><b>session.start</b> · coder</span>],['14:05','⊘',<span><b>agent_session.kill</b> · {t('by you','由你')} · a-0402</span>],['14:05','✕',<span>{t('pending approval denied','待批权限已拒绝')} · session_killed</span>]],
+     ev:[]},
+    {id:'s6', role:'reviewer', task:t('Review what the sweep already landed','评审清扫已落地的部分'), st:'completed', mdl:'claude · sonnet-4.6',
+     tl:[['14:08','●',<span><b>session.start</b> · reviewer</span>],['14:19','✓',<span>review · {t('2 findings','2 条发现')}</span>]],
+     ev:[['review · 2 findings']]},
+  ]},
+  {id:'L4', nm:t('migration notes','迁移说明'), br:'vd/docs-migration', via:'ACP', gs:'cooperative', sessions:[
+    {id:'s7', role:'doc-writer', task:t('Migration notes 3/5 sections','迁移说明 3/5 节'), st:'running', mdl:'claude · sonnet-4.6',
+     tl:[['14:00','●',<span><b>session.start</b> · doc-writer</span>],['14:22','▸',<span>write_file · docs/migration.md</span>]],
+     ev:[['doc_update · migration.md']]},
+    {id:'s8', role:'researcher', task:t('Survey the two mdBook alternatives','调研两个 mdBook 备选')  , st:'starting', mdl:'built-in · deepseek-v4',
+     tl:[], ev:[]},
+  ]},
+];
+
+function Detail({lane, s, swap, setSwap}){
+  const st=ST()[s.st], term=!!TERMINAL[s.st];
+  const canPause=!!PAUSABLE[s.st], canResume=s.st==='paused', canStop=!term, canKill=!term, canRetry=term&&s.st!=='completed';
+  const why=(ok,txt)=> ok?null:<span className="why">{txt}</span>;
+  const ended=t('session has ended','会话已结束');
+  return (
+    <React.Fragment>
+      <div className="evdethead">
+        <div className="t1"><span style={{color:st.c}}>{st.g}</span> {s.role} · {s.id}</div>
+        <div className="t2">{lane.id} {lane.nm} · {'⎇'} {lane.br} · {s.mdl}</div>
+      </div>
+
+      <div className="evsec">
+        <h5>{t('Session','会话')}</h5>
+        <div className="evkv"><span className="k">{t('task','任务')}</span><span className="v">{s.task}</span></div>
+        <div className="evkv"><span className="k">{t('status','状态')}</span><span className="v" style={{color:st.c}}>{st.lb}</span></div>
+        <div className="evkv"><span className="k">{t('route','后端')}</span><span className="v">{lane.via}</span></div>
+        <div className="evkv"><span className="k">{t('gate','门控')}</span><span className="v">{GS_GLYPH[lane.gs]} {GS_SHORT[lane.gs]}</span></div>
+        <div className="evkv"><span className="k">{t('diagnostic','诊断')}</span><span className="v" style={s.dx?{color:'var(--fg-secondary)'}:{color:'var(--fg-faint)'}}>{s.dx||t('none','无')}</span></div>
+      </div>
+
+      <div className="evsec">
+        <h5>{t('Events','事件')}</h5>
+        {s.tl.length===0
+          ? <div className="abnone">{t('no rows yet — this session has not written one','还没有行 —— 这个会话一条都没写过')}</div>
+          : s.tl.map((r,i)=>(
+              <div className="abtl" key={i}><span className="tm">{r[0]}</span><span className="ki">{r[1]}</span><span className="tx">{r[2]}</span></div>
+            ))}
+      </div>
+
+      <div className="evsec">
+        <h5>{t('Evidence','证据')}</h5>
+        {s.ev.length===0
+          ? <div className="abnone">{t('none published','尚未发布')}</div>
+          : <div style={{display:'flex',flexWrap:'wrap',gap:'6px'}}>{s.ev.map((e,i)=><span className="evchip" key={i}>{e[0]}</span>)}</div>}
+      </div>
+
+      <div className="evfoot" data-screen-label="会话动作行">
+        <button className="abact" disabled={!canPause}>{t('Pause','暂停')}{why(canPause, s.st==='paused'?t('already paused','已经暂停'):ended)}</button>
+        <button className="abact" disabled={!canResume}>{t('Resume','恢复')}{why(canResume, term?ended:t('not paused','未处于暂停'))}</button>
+        <button className="abact kill" disabled={!canKill}>{t('Kill','终止')}{why(canKill, ended)}</button>
+        <button className="abact" disabled={!canStop}>{t('Stop','停止')}{why(canStop, ended)}</button>
+        <button className="abact" disabled={!canRetry}>{t('Retry','重试')}{why(canRetry, s.st==='completed'?t('it finished','它已完成'):t('only after it ends','结束之后才可用'))}</button>
+        <button data-act="swap" className={"abact "+(swap?'go':'')} disabled={term} onClick={()=>setSwap(!swap)}>
+          {t('Switch model','换模型')}{why(!term, ended)}{!term&&<span className="why">{t('two steps','两步')}</span>}
+        </button>
+        <button className="abact abreq" disabled>{t('Downgrade to manual','降级为人工')}<span className="why">{t('no runtime fact yet','运行时尚无此事实')}</span></button>
+        <button className="abact abreq" disabled>{t('Ask user','向人提问')}<span className="why">{t('no runtime fact yet','运行时尚无此事实')}</span></button>
+      </div>
+
+      {swap && !term && (
+        <div className="abswap" data-screen-label="换模型两步流程">
+          <div className="sh">{t('Switch model · two steps','换模型 · 两步')}</div>
+          <div className="abstep"><span className="n">1</span><span>{t('End this session. Kill has no grace; Stop keeps it. Either way the step is recorded.','结束当前会话。Kill 不留宽限,Stop 保留。两种都会被记录。')}</span></div>
+          <div className="abstep"><span className="n">2</span><span>{t('Start again on ','用 ')}<span className="mono">claude · sonnet-4.6</span>{t(', loading this session so the new one keeps the transcript.',' 重新开始,载入本会话,新会话保留全部转录。')}</span></div>
+          <div className="foot"><span>{t('Viden has no single switch-model command — this is what actually happens.','Viden 没有「一键换模型」这条命令 —— 这就是实际会发生的事。')}</span><span className="sp"></span></div>
+        </div>
+      )}
+
+      <div className="abnote">
+        {t('Pause keeps the session alive and holds what you type; it cancels the prompt in flight and denies the approval that prompt was waiting on. Kill ends it with no grace and discards held input. Both are recorded before the session state changes.','暂停保留会话并暂存你输入的内容;它取消正在进行的这一轮,并拒掉这一轮正在等的那条权限。终止不留宽限、丢弃暂存输入。两者都在会话状态改变之前先记录。')}
+      </div>
+    </React.Fragment>
+  );
+}
+
+function App(){
+  const [sel,setSel]=useState('s3');
+  const [swap,setSwap]=useState(false);
+  const [tw,setTweak]=useTweaks(/*EDITMODE-BEGIN*/{
+    "hasLanes": true
+  }/*EDITMODE-END*/);
+
+  const lanes = tw.hasLanes ? LANES() : [];
+  const st=ST(), gsl=GS_LABEL();
+  let selLane=null, selSes=null;
+  lanes.forEach(l=>l.sessions.forEach(s=>{ if(s.id===sel){selLane=l;selSes=s;} }));
+  const sesN = lanes.reduce((a,l)=>a+l.sessions.length,0);
+  const needN = lanes.reduce((a,l)=>a+l.sessions.filter(s=>s.st==='waiting_approval').length,0);
+
+  return (
+    <div>
+      <div className="pkicker">viden · D16 concept · draft 01</div>
+      <h1 className="ph1">{t('Agent Board','Agent 看板')} <span className="ac">{t('every session under the Lane that owns it','每个会话都挂在拥有它的 lane 下')}</span></h1>
+      <p className="plead">{t('Agent Board is a ','Agent 看板是一个')}<b>{t('centre-pane view of the cockpit','驾驶舱的中央面')}</b>{t(' over the Lane/session hierarchy (D-RAILNAV): a session is never shown detached from its Lane, and no agent appears without a runtime fact behind it. Role, task, status, diagnostic, the event timeline and the evidence chips are read from ','，看的是 lane / 会话的层级（D-RAILNAV）：会话永远不脱离它的 lane 单独出现，没有运行时事实撑腰的 agent 一个都不画。角色 / 任务 / 状态 / 诊断 / 事件时间线 / 证据芯片读自 ')}<span className="mono">AgentSessionView</span>{t(', the audit rows and the published evidence. Pause, Resume and Kill are commands; Stop stays Cancel; Retry waits for a terminal status. ','、审计行与已发布证据。Pause / Resume / Kill 是命令；Stop 仍是 Cancel；Retry 等到终态才可用。')}<b>{t('Switch model','换模型')}</b>{t(' is drawn as the two steps it really is, and the two actions with no Core fact behind them — downgrade to manual, ask user — are drawn disabled and labelled as requests rather than faked. The sub-agent tree is deferred and deliberately absent.','画成它真正的两步；两个背后没有 Core 事实的动作 —— 降级为人工、向人提问 —— 画成虚线禁用并标注为待接入的请求，而不是假装它们能用。子 agent 树已延后，本页有意不画。')}</p>
+
+      <div className="frame" data-screen-label="Agent Board 中央面">
+        <GuiTitleBar project={t('viden','viden')} branch="main" worktrees={4} tools={['palette','focus','popout','|','index','settings']}/>
+
+        <div className="vbody">
+          <VRail on="robot" need={needN}/>
+
+          <div className="abmain">
+            <div className="abtop" data-screen-label="看板头">
+              <span className="t">{t('Agent Board','Agent 看板')}</span>
+              <span className="ct">
+                {lanes.length===0
+                  ? t('no Lane','没有 lane')
+                  : <React.Fragment><b>{lanes.length}</b> {t('lanes','条 lane')} · <b>{sesN}</b> {t('sessions','个会话')} · <span className="g">{needN}</span> {t('awaiting you','项等你')}</React.Fragment>}
+              </span>
+              <span className="sp"></span>
+              <div className="abseg">
+                <button data-lanes="yes" className={tw.hasLanes?'on':''} onClick={()=>setTweak('hasLanes',true)}>{t('Lanes','有 lane')}</button>
+                <button data-lanes="no" className={!tw.hasLanes?'on':''} onClick={()=>setTweak('hasLanes',false)}>{t('No Lane','无 lane')}</button>
+              </div>
+            </div>
+
+            {lanes.length===0 ? (
+              <div className="abscroll" data-screen-label="空态">
+                <div className="abempty">
+                  <div className="eh">{t('No Lane','没有 lane')}</div>
+                  <div className="es">{t('This workspace has no Lane, so there is no agent session to supervise. Create a Lane and its first session appears here — the board never invents one.','这个工作区里没有 lane,也就没有可监督的 agent 会话。创建一条 lane,它的第一个会话就出现在这里 —— 看板绝不会自己编一个。')}</div>
+                  <div className="ek">{t('Sessions are always shown under the Lane that owns them.','会话永远显示在拥有它的 lane 之下。')}</div>
+                </div>
+              </div>
+            ) : (
+              <div className="abscroll" data-screen-label="lane 与会话层级">
+                {lanes.map(l=>{
+                  const attn=l.sessions.some(s=>s.st==='waiting_approval');
+                  return (
+                    <div className={"ablane "+(attn?'attn':'')} key={l.id}>
+                      <div className="ablhd">
+                        <span className="lid">{l.id}</span>
+                        <span className="nm">{l.nm}</span>
+                        <span className="br">{'⎇'} {l.br}</span>
+                        <span className="abvia" style={{color:VIA_COLOR[l.via],borderColor:'color-mix(in srgb,'+VIA_COLOR[l.via]+' 45%,transparent)'}}>{l.via}</span>
+                        <span className="abgs" title={gsl[l.gs]}><span className="g">{GS_GLYPH[l.gs]}</span>{GS_SHORT[l.gs]}</span>
+                        <span className="sp"></span>
+                        <span className="ct">{l.sessions.length} {t('sessions','会话')}</span>
+                      </div>
+                      {l.sessions.map(s=>{
+                        const m=st[s.st];
+                        return (
+                          <div className={"abses "+(sel===s.id?'on':'')} key={s.id} data-session={s.id} onClick={()=>{setSel(s.id);setSwap(false);}}>
+                            <span className="sg" style={{color:m.c}}>{m.g}</span>
+                            <span className="role">{s.role}</span>
+                            <span className="task">{s.task}</span>
+                            <span className="mdl">{s.mdl}</span>
+                            <span className="stt" style={{color:m.c,borderColor:'color-mix(in srgb,'+m.c+' 50%,transparent)'}}>{m.t}</span>
+                            {s.dx && <span className={"dx "+(s.st==='killed'?'bad':'')}>{s.dx}</span>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          <div className="abdet" data-screen-label="会话详情与动作">
+            {selSes
+              ? <Detail lane={selLane} s={selSes} swap={swap} setSwap={setSwap}/>
+              : <React.Fragment>
+                  <div className="evdethead"><div className="t1">{t('No session selected','未选中会话')}</div>
+                    <div className="t2">{t('pick a session under a Lane on the left','在左边任一 lane 下选一个会话')}</div></div>
+                  <div className="abnote">{t('With no Lane there is nothing to supervise — the detail pane stays empty rather than showing a placeholder agent.','没有 lane 就没有可监督的对象 —— 详情面保持空白,而不是摆一个占位 agent。')}</div>
+                </React.Fragment>}
+          </div>
+        </div>
+
+        <GuiStatusBar right={lanes.length===0?t('no Lane','没有 lane'):('⏸ '+needN+t(' awaiting you','项等你'))}/>
+      </div>
+
+      <TweaksPanel>
+        <TweakSection label={t('Demo','演示')} />
+        <TweakToggle label={t('Workspace has Lanes','工作区里有 lane')} value={tw.hasLanes} onChange={v=>setTweak('hasLanes',v)} />
+      </TweaksPanel>
+    </div>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
