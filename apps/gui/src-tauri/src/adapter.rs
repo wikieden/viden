@@ -21,7 +21,7 @@ use viden_core::{RecentProjectSummary, RecentSessionSummary, RecentWorkQuery};
 
 use crate::d1::{
     ComposerControlIntent, D1_OWNER_CAPABILITY, D1CockpitProjection, D1Intent, D1IntentResult,
-    D1OutcomeProjection, D1TurnFailureProjection,
+    D1OutcomeProjection, D1PendingCommandProjection, D1TurnFailureProjection,
 };
 use crate::d4::{D4OutcomeProjection, PendingD4, ReviewedD4};
 use crate::d10::D10_EVENT_TICKER_LIMIT;
@@ -439,6 +439,10 @@ struct PendingD1 {
     owner: RuntimeOwner,
     kind: PendingD1Kind,
     accepted: bool,
+    /// When the client sent this command. It is the only honest source for
+    /// the age a refusal reports: Core publishes no per-command clock, and a
+    /// number invented from a render would be a claim about Core.
+    sent_at: Instant,
 }
 
 enum D1Observation {
@@ -447,7 +451,53 @@ enum D1Observation {
     Rejected(String),
 }
 
+impl PendingD1Kind {
+    /// Stable name of the Core command this pending waits on, for the refusal
+    /// a blocked submit renders. Never a display string: the frontend
+    /// translates it.
+    fn name(&self) -> &'static str {
+        match self {
+            Self::Submit => "submit_user_input",
+            Self::Queue => "queue_follow_up",
+            Self::Cancel => "cancel_active_turn",
+            Self::QueryAgentAdapters => "query_agent_adapters",
+            Self::ProbeAgentAdapter { .. } => "probe_agent_adapter",
+            Self::PreviewDefaultLane => "preview_starter_lane",
+            Self::CreateStarterLane { .. } => "create_starter_lane",
+            Self::StartAgentSession { .. } => "start_agent_session",
+            Self::SendAgentSessionInput { .. } => "send_agent_session_input",
+            Self::RetryAgentSession { .. } => "retry_agent_session",
+            Self::CancelAgentSession { .. } => "cancel_agent_session",
+            Self::SetWorkMode => "set_work_mode",
+            Self::SetPermissionLevel => "set_permission_level",
+            Self::SelectModel => "select_model",
+        }
+    }
+
+    /// Whether the client may stop waiting on this command by itself.
+    ///
+    /// Exactly the predicate `abandon_pending_probe` enforces, kept as one
+    /// function so the refusal can never offer a control the host refuses:
+    /// the two adapter-discovery reads mutate nothing, and every other
+    /// pending carries an effect whose answer is the only record it ran.
+    fn is_abandonable(&self) -> bool {
+        matches!(
+            self,
+            Self::ProbeAgentAdapter { .. } | Self::QueryAgentAdapters
+        )
+    }
+}
+
 impl PendingD1 {
+    fn projection(&self) -> D1PendingCommandProjection {
+        D1PendingCommandProjection {
+            command_id: self.command_id.clone(),
+            kind: self.kind.name(),
+            age_ms: self.sent_at.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
+            abandonable: self.kind.is_abandonable(),
+        }
+    }
+
     fn is_satisfied_by_agent_sessions(&self, sessions: &[viden_core::AgentSessionView]) -> bool {
         match &self.kind {
             PendingD1Kind::StartAgentSession {
@@ -4904,6 +4954,7 @@ impl GuiCoreAdapter {
             owner,
             kind,
             accepted: false,
+            sent_at: Instant::now(),
         });
         self.d1_outcome = D1OutcomeProjection::pending();
         self.poll_d1(selected_lane_id.as_deref(), event_timeout)
@@ -4968,6 +5019,10 @@ impl GuiCoreAdapter {
                 .pending_d1
                 .as_ref()
                 .map(|pending| pending.command_id.clone()),
+            // Published beside the id so a refused submit can name what holds
+            // the slot and for how long, instead of returning in silence
+            // (E3b defect 23).
+            pending_command: self.pending_d1.as_ref().map(PendingD1::projection),
             outcome: self.d1_outcome.clone(),
         })
     }
@@ -5036,6 +5091,7 @@ impl GuiCoreAdapter {
             owner,
             kind,
             accepted: false,
+            sent_at: Instant::now(),
         });
         self.d1_outcome = D1OutcomeProjection::pending();
         self.poll_d1(selected_lane_id, event_timeout)
@@ -6612,7 +6668,7 @@ fn core_event_kind(kind: &viden_core::RuntimeEventKind) -> String {
 mod tests {
     use std::path::PathBuf;
     use std::process::Command;
-    use std::time::{Duration, SystemTime, UNIX_EPOCH};
+    use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
     use viden_core::{AgentSessionStatus, AgentSessionView, LocalCoreHost, RuntimeOwner};
 
@@ -6671,6 +6727,7 @@ mod tests {
                 matching_sessions_before: 0,
             },
             accepted: false,
+            sent_at: Instant::now(),
         };
         let sessions = vec![AgentSessionView {
             session_id: "session-reconciled".to_string(),

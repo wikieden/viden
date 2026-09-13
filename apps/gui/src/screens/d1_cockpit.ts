@@ -1,4 +1,5 @@
 import { translate, type MessageKey } from "../i18n/catalog";
+import { formatCode } from "../i18n/format";
 import {
   renderActivityRail,
   type D1RailDestination,
@@ -160,9 +161,32 @@ const SECONDARY_VIEW_LABELS = {
   d16: "d1.activity.agentBoard",
 } as const satisfies Record<D1SecondaryRoute, MessageKey>;
 
+/**
+ * The client's own in-flight command, as the host reports it.
+ *
+ * Defect 23 (E3b). A submit the client cannot send must name what is holding
+ * the single command slot, and every fact in that sentence comes from here —
+ * the host's own pending record — rather than from anything this screen
+ * remembers or guesses.
+ */
+export interface D1PendingCommandProjection {
+  commandId: string;
+  /** Stable snake_case name of the Core command being waited on. */
+  kind: string;
+  /** Milliseconds since the client sent it. */
+  ageMs: number;
+  /** Whether the host will let the client stop waiting. Reads only. */
+  abandonable: boolean;
+}
+
 export interface D1IntentResult {
   projection: D1CockpitProjection;
   pendingCommandId: string | null;
+  /**
+   * Present exactly when `pendingCommandId` is. Older hosts omit it, and a
+   * refusal then names the command id alone rather than inventing a kind.
+   */
+  pendingCommand?: D1PendingCommandProjection | null;
   outcome: {
     state: "idle" | "pending" | "confirmed" | "rejected";
     reason: string | null;
@@ -807,6 +831,18 @@ export function renderD1Cockpit(
   let unsubscribeCoreWake: (() => void) | null = null;
   let sending = false;
   let pendingCommandId: string | null = null;
+  /**
+   * The host's record of the command holding the slot, kept so a refused
+   * submit can name it. Never derived locally: a host that publishes no
+   * record leaves this null and the refusal says only what it knows.
+   */
+  let pendingCommand: D1PendingCommandProjection | null = null;
+  /**
+   * The standing refusal for a submit the occupied command slot turned away.
+   * Cleared the moment the slot frees, so it can never outlive the condition
+   * it describes.
+   */
+  let slotBusyRefusal: { kind: string; age: string; abandonable: boolean } | null = null;
   let submittedDraft: string | null = null;
   let composerDispatchQueued = false;
   let errorMessage: string | null = null;
@@ -1686,6 +1722,10 @@ export function renderD1Cockpit(
       if (disposed) return;
       const previousPending = pendingCommandId;
       pendingCommandId = result.pendingCommandId;
+      pendingCommand = result.pendingCommand ?? null;
+      // The refusal describes an occupied slot. A free slot retires it rather
+      // than leaving a sentence standing over a condition that is gone.
+      if (!pendingCommandId) slotBusyRefusal = null;
       if (result.outcome.state === "confirmed" && submittedDraft !== null) {
         // Do not erase edits typed after the submitted content entered pending state.
         if (draft === submittedDraft) draft = "";
@@ -3172,11 +3212,52 @@ export function renderD1Cockpit(
     }, 250);
   };
 
+  /**
+   * Core's own name for the command holding the slot, formatted for the
+   * refusal. The host publishes a stable snake_case command name; it is shown
+   * verbatim as code rather than translated, because it is Core's identifier
+   * and a rewritten one could not be matched against the audit trail.
+   */
+  const slotBusyAge = (ageMs: number): string => {
+    const total = Math.max(0, Math.round(ageMs / 1000));
+    if (total < 60) return translate(locale, "d1.slotBusy.age.seconds", { seconds: String(total) });
+    return translate(locale, "d1.slotBusy.age.minutes", {
+      minutes: String(Math.floor(total / 60)),
+      seconds: String(total % 60),
+    });
+  };
+
+  /**
+   * Defect 23 (E3b). A submit the client cannot send is never dropped in
+   * silence: the slot's occupant and its age go on screen as a `role=alert`
+   * refusal, the composer keeps its text, and the abandon control is offered
+   * only where the host would actually accept it — a pending *mutation* is
+   * never abandoned client-side, because its answer is the only record of
+   * whether its effect ran, and the refusal says so instead of hiding it.
+   */
+  const refuseOccupiedCommandSlot = (): void => {
+    if (!pendingCommandId) return;
+    const kind = pendingCommand?.kind ?? pendingCommandId;
+    slotBusyRefusal = {
+      kind,
+      age: slotBusyAge(pendingCommand?.ageMs ?? 0),
+      // A host that publishes no pending record cannot be asked to abandon
+      // one either, so the control stays off rather than being guessed on.
+      abandonable: pendingCommand?.abandonable === true,
+    };
+    errorMessage = null;
+    render(true);
+  };
+
   const sendAndWait = async (
     intent: D1Intent,
     onRejected?: () => void,
   ): Promise<D1IntentResult | null> => {
-    if (sending || pendingCommandId) return null;
+    if (sending || pendingCommandId) {
+      refuseOccupiedCommandSlot();
+      return null;
+    }
+    slotBusyRefusal = null;
     sending = true;
     try {
       let result = await send(intent);
@@ -3484,6 +3565,7 @@ export function renderD1Cockpit(
       }
     } else {
       pendingCommandId = null;
+      pendingCommand = null;
     }
     if (disposed) return;
     releaseCommandSlotWaiters();
@@ -4974,6 +5056,41 @@ export function renderD1Cockpit(
       rejection.setAttribute("role", "alert");
       rejection.textContent = errorMessage;
       composerRegion.append(rejection);
+    }
+    if (slotBusyRefusal) {
+      // Defect 23 (E3b): the same `role=alert` shape a Core rejection uses, so
+      // a refusal the *client* made is as visible as one Core made. It carries
+      // its own data attribute because the two are different claims: this one
+      // says nothing about Core at all.
+      const busy = document.createElement("p");
+      busy.dataset.d1SlotBusy = "true";
+      busy.dataset.d1SlotBusyKind = slotBusyRefusal.kind;
+      busy.setAttribute("role", "alert");
+      busy.textContent = translate(locale, "d1.slotBusy", {
+        kind: formatCode(slotBusyRefusal.kind),
+        age: slotBusyRefusal.age,
+      });
+      composerRegion.append(busy);
+      if (slotBusyRefusal.abandonable) {
+        const abandon = document.createElement("button");
+        abandon.type = "button";
+        abandon.dataset.d1SlotBusyAbandon = "true";
+        abandon.textContent = translate(locale, "d1.slotBusy.abandon", {
+          kind: formatCode(slotBusyRefusal.kind),
+        });
+        abandon.addEventListener("click", () => {
+          void abandonAgentProbe("create");
+        });
+        composerRegion.append(abandon);
+      } else {
+        const held = document.createElement("p");
+        held.dataset.d1SlotBusyMutation = "true";
+        held.setAttribute("role", "status");
+        held.textContent = translate(locale, "d1.slotBusy.mutation", {
+          kind: formatCode(slotBusyRefusal.kind),
+        });
+        composerRegion.append(held);
+      }
     }
     if (mutationBlock) {
       const blocked = document.createElement("p");
