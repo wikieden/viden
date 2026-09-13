@@ -16,7 +16,8 @@ use viden_core::{
 use viden_types::{
     ConflictBaseline, ConflictContent, ConflictFile, ConflictHunk, ConflictHunkReason,
     EvidenceContent, EvidencePage, EvidenceUnavailableReason, EvidenceView, LaneConflictView,
-    RuntimeEvent, RuntimeEventKind, RuntimeOwner,
+    PlanAuthor, PlanDocumentId, PlanDocumentRecord, PlanDocumentStatus, PlanSection,
+    PlanSectionKind, PlanStep, PlanStepStatus, RuntimeEvent, RuntimeEventKind, RuntimeOwner,
 };
 
 pub fn render_preview(provider: &str, model: &str) -> String {
@@ -337,6 +338,78 @@ pub fn render_ansi_lane_preview_with_theme(
 ) -> String {
     let theme_name = theme_name.unwrap_or("aurora-cyan");
     let state = focused_lane_preview_state(provider, model, theme_name);
+    terminal::render_ansi_preview_with_theme(
+        &render::render_frame(&state, 140, 40),
+        Some(theme_name),
+    )
+}
+
+pub fn render_plan_lens_preview(provider: &str, model: &str) -> String {
+    let state = plan_lens_preview_state(provider, model, "aurora-cyan");
+    render::render_frame(&state, 140, 40)
+}
+
+pub fn render_session_control_preview(provider: &str, model: &str) -> String {
+    let state = session_control_preview_state(provider, model, "aurora-cyan");
+    render::render_frame(&state, 140, 40)
+}
+
+pub fn render_approval_scopes_preview(provider: &str, model: &str) -> String {
+    let state = approval_scopes_preview_state(provider, model, "aurora-cyan");
+    render::render_frame(&state, 140, 40)
+}
+
+pub fn render_lane_agent_preview(provider: &str, model: &str) -> String {
+    let state = lane_agent_preview_state(provider, model, "aurora-cyan");
+    render::render_frame(&state, 140, 40)
+}
+
+pub fn render_ansi_plan_lens_preview_with_theme(
+    provider: &str,
+    model: &str,
+    theme_name: Option<&str>,
+) -> String {
+    let theme_name = theme_name.unwrap_or("aurora-cyan");
+    let state = plan_lens_preview_state(provider, model, theme_name);
+    terminal::render_ansi_preview_with_theme(
+        &render::render_frame(&state, 140, 40),
+        Some(theme_name),
+    )
+}
+
+pub fn render_ansi_session_control_preview_with_theme(
+    provider: &str,
+    model: &str,
+    theme_name: Option<&str>,
+) -> String {
+    let theme_name = theme_name.unwrap_or("aurora-cyan");
+    let state = session_control_preview_state(provider, model, theme_name);
+    terminal::render_ansi_preview_with_theme(
+        &render::render_frame(&state, 140, 40),
+        Some(theme_name),
+    )
+}
+
+pub fn render_ansi_approval_scopes_preview_with_theme(
+    provider: &str,
+    model: &str,
+    theme_name: Option<&str>,
+) -> String {
+    let theme_name = theme_name.unwrap_or("aurora-cyan");
+    let state = approval_scopes_preview_state(provider, model, theme_name);
+    terminal::render_ansi_preview_with_theme(
+        &render::render_frame(&state, 140, 40),
+        Some(theme_name),
+    )
+}
+
+pub fn render_ansi_lane_agent_preview_with_theme(
+    provider: &str,
+    model: &str,
+    theme_name: Option<&str>,
+) -> String {
+    let theme_name = theme_name.unwrap_or("aurora-cyan");
+    let state = lane_agent_preview_state(provider, model, theme_name);
     terminal::render_ansi_preview_with_theme(
         &render::render_frame(&state, 140, 40),
         Some(theme_name),
@@ -767,6 +840,265 @@ fn approval_hunks_preview_state(provider: &str, model: &str, theme_name: &str) -
     overlay.selected_id = Some("approval-preview-edit".to_string());
     state.ui.overlay = Some(overlay);
     state.ui.lens = Lens::Decisions;
+    state
+}
+
+/// The plan lens over one Core-owned plan document
+/// (`runtime.plan_documents`, C13).
+///
+/// Every row is a `PlanDocumentRecord` field: the title, goal, status,
+/// revision, author and content digest Core minted, the sections and the steps
+/// with their registered status glyphs and dependencies. The decision rows
+/// state which status blocks which key. Nothing here is parsed out of
+/// assistant prose.
+fn plan_lens_preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState {
+    let mut state = preview_state(provider, model, theme_name);
+    state.ui.input = "".into();
+    state.capabilities.insert(viden_types::CapabilityId(
+        "runtime.plan_documents".to_string(),
+    ));
+    state.runtime.plan_documents = vec![PlanDocumentRecord {
+        plan_id: PlanDocumentId("plan_preview".to_string()),
+        owner: RuntimeOwner {
+            workspace_id: "ws_preview".to_string(),
+            project_id: "prj_preview".to_string(),
+            session_id: Some("session_preview".to_string()),
+            ..RuntimeOwner::default()
+        },
+        title: "Split the runtime supervisor".to_string(),
+        goal: "Move lane lifecycle out of the supervisor without moving authority".to_string(),
+        status: PlanDocumentStatus::Proposed,
+        revision: 2,
+        content_sha256: "bcdf81ea4a40a16a5c639734cd6e4fa064fef61d558b062d7abbd1b57b076a79"
+            .to_string(),
+        sections: vec![
+            PlanSection {
+                kind: PlanSectionKind::Requirements,
+                body: "Core keeps every authoritative effect; the split is mechanical.".to_string(),
+            },
+            PlanSection {
+                kind: PlanSectionKind::AcceptanceCriteria,
+                body: "The nine frozen base fixtures are byte-identical afterwards.".to_string(),
+            },
+        ],
+        steps: vec![
+            PlanStep {
+                id: "step_1".to_string(),
+                title: "Extract the lane lifecycle seam".to_string(),
+                status: PlanStepStatus::Completed,
+                role: Some(AgentRole::Coder),
+                file_scope: vec!["crates/lanes/src/lib.rs".to_string()],
+                dependencies: Vec::new(),
+            },
+            PlanStep {
+                id: "step_2".to_string(),
+                title: "Move the supervisor's lane arms behind it".to_string(),
+                status: PlanStepStatus::InProgress,
+                role: Some(AgentRole::Coder),
+                file_scope: vec!["crates/runtime/src/runtime_supervisor.rs".to_string()],
+                dependencies: vec!["step_1".to_string()],
+            },
+            PlanStep {
+                id: "step_3".to_string(),
+                title: "Re-run the frozen fixture digests".to_string(),
+                status: PlanStepStatus::Pending,
+                role: Some(AgentRole::Reviewer),
+                file_scope: Vec::new(),
+                dependencies: vec!["step_2".to_string()],
+            },
+        ],
+        proposed_by: PlanAuthor::Assistant {
+            session_id: "session_preview".to_string(),
+            turn_id: "turn_preview_plan".to_string(),
+        },
+        created_at: 1_700_000_000,
+        updated_at: 1_700_000_120,
+        decided_at: None,
+        decision_audit_id: None,
+        handoff: None,
+    }];
+    state.ui.plan = Some(Default::default());
+    state.ui.overlay = Some(super::state::OverlayState::new(
+        super::keymap::OverlayKind::PlanLens,
+    ));
+    state
+}
+
+/// The Lane view's session-control row over a paused Agent session
+/// (`runtime.agent_session_control`, C14).
+///
+/// The paused session shows the registered gate glyph, the held-input count
+/// Core is holding, and the control row stating which key each control is and
+/// which status refuses it. The killed session below it shows the fail glyph
+/// and its `terminated_by`, which is the only thing that tells a kill from a
+/// cancel once both have settled.
+fn session_control_preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState {
+    let mut state = preview_state(provider, model, theme_name);
+    state.ui.input = "".into();
+    state.capabilities.insert(viden_types::CapabilityId(
+        "runtime.agent_session_control".to_string(),
+    ));
+    let lane_id = state
+        .runtime
+        .lanes
+        .first()
+        .map(|lane| lane.id.clone())
+        .unwrap_or_else(|| "L1".to_string());
+    state.ui.focus_lane(lane_id.clone());
+    let session = |session_id: &str,
+                   status: viden_types::AgentSessionStatus,
+                   control: Option<viden_types::AgentSessionControlView>| {
+        viden_types::AgentSessionView {
+            session_id: session_id.to_string(),
+            lane_id: lane_id.clone(),
+            agent_id: "codex-acp".to_string(),
+            model: Some("gpt-5-codex".to_string()),
+            status,
+            owner: RuntimeOwner {
+                lane_id: Some(lane_id.clone()),
+                session_id: Some(session_id.to_string()),
+                ..RuntimeOwner::default()
+            },
+            task: "tidy the config loader".to_string(),
+            output: None,
+            diagnostic: None,
+            control,
+        }
+    };
+    state.runtime.agent_sessions = vec![
+        session(
+            "session_paused",
+            viden_types::AgentSessionStatus::Paused,
+            Some(viden_types::AgentSessionControlView {
+                paused_at: Some(1_700_006_010),
+                resumed_at: None,
+                terminated_by: None,
+                held_input_count: 2,
+            }),
+        ),
+        session(
+            "session_killed",
+            viden_types::AgentSessionStatus::Killed,
+            Some(viden_types::AgentSessionControlView {
+                paused_at: Some(1_700_006_010),
+                resumed_at: Some(1_700_006_020),
+                terminated_by: Some(viden_types::AgentSessionTermination::Killed),
+                held_input_count: 0,
+            }),
+        ),
+    ];
+    state.ui.interaction_panel = Some(InteractionPanel::AcpPicker {
+        selected: 0,
+        phase: super::state::AcpPickerPhase::Browse,
+    });
+    state
+}
+
+/// The decision modal with the standing scope and the revision field
+/// (`runtime.approval_scopes`, GUI-CORE-019).
+///
+/// The request offers `Always` and says it is editable, so both keys are live;
+/// the repo-allowlist scope is not offered and is shown disabled with that
+/// reason rather than hidden. The open revision field states that Core
+/// publishes no typed input to pre-fill it.
+fn approval_scopes_preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState {
+    let mut state = preview_state(provider, model, theme_name);
+    state.ui.input = "".into();
+    state.capabilities.insert(viden_types::CapabilityId(
+        "runtime.approval_scopes".to_string(),
+    ));
+    state.runtime.pending_approvals = vec![ApprovalRequestView {
+        id: "approval-preview-shell".to_string(),
+        tool_name: "shell".to_string(),
+        title: "Approve shell".to_string(),
+        message: "shell requires approval".to_string(),
+        input_preview: "  command: cargo fmt --all -- --check".to_string(),
+        is_mutating: true,
+        reason: Some("shell requires approval".to_string()),
+        owner: Default::default(),
+        risk: ApprovalRisk::Medium,
+        target: ApprovalTarget {
+            kind: "shell".to_string(),
+            display: "cargo fmt --all -- --check".to_string(),
+            canonical_ref: None,
+        },
+        allowed_scopes: vec![
+            ApprovalScope::Once,
+            ApprovalScope::Session {
+                session_id: "session_preview".to_string(),
+            },
+            ApprovalScope::Always,
+        ],
+        revised_from: Some("approval-preview-wide".to_string()),
+        editable: true,
+        policy_reason_key: "permission.requires_approval".to_string(),
+        policy_reason_args: Default::default(),
+        expires_at: 0,
+        default_action: ApprovalDefaultAction::Deny,
+        audit_id: "audit-preview-shell".to_string(),
+        decision_context: None,
+    }];
+    state.runtime.standing_approvals = vec![viden_types::StandingApprovalView {
+        rule_id: "rule_preview".to_string(),
+        tool_name: "read_file".to_string(),
+        rule_content: "path=crates/types/src/plan.rs".to_string(),
+        granted_at: 1_700_004_002,
+        granted_in_workspace: "ws_4f3c1a09b8d27e65".to_string(),
+        audit_id: "audit-preview-always".to_string(),
+    }];
+    state.ui.approval_edit = Some(super::state::ApprovalEdit {
+        request_id: "approval-preview-shell".to_string(),
+        draft: "command=cargo fmt --all".to_string(),
+        notice: None,
+    });
+    let mut overlay = super::state::OverlayState::new(super::keymap::OverlayKind::Approval);
+    overlay.selected_id = Some("approval-preview-shell".to_string());
+    state.ui.overlay = Some(overlay);
+    state.ui.lens = Lens::Decisions;
+    state
+}
+
+/// Lane creation's Agent step (`runtime.starter_lane_agent`, GUI-CORE-030).
+///
+/// The first row is the two-step flow this client had before the capability;
+/// every other row is an adapter Core published, at its default model or at
+/// one of the models it published, with Core's own startability beside it.
+fn lane_agent_preview_state(provider: &str, model: &str, theme_name: &str) -> TuiState {
+    let mut state = preview_state(provider, model, theme_name);
+    state.ui.input = "".into();
+    state.capabilities.insert(viden_types::CapabilityId(
+        "runtime.starter_lane_agent".to_string(),
+    ));
+    state.runtime.agent_adapters = vec![
+        viden_types::AgentAdapterView {
+            agent_id: "claude-code".to_string(),
+            display_name: "Claude Code".to_string(),
+            route: AgentRoute::Acp,
+            source: viden_types::AgentAdapterSource::Registry,
+            availability: viden_types::AgentAvailability::Available,
+            auth_state: viden_types::AgentAuthState::Ready,
+            startability: viden_types::AgentStartability::Ready,
+            capabilities: Vec::new(),
+            models: vec!["claude-sonnet".to_string()],
+            diagnostics: Vec::new(),
+        },
+        viden_types::AgentAdapterView {
+            agent_id: "codex-acp".to_string(),
+            display_name: "Codex ACP".to_string(),
+            route: AgentRoute::Acp,
+            source: viden_types::AgentAdapterSource::Registry,
+            availability: viden_types::AgentAvailability::NeedsAuth,
+            auth_state: viden_types::AgentAuthState::LoggedOut,
+            startability: viden_types::AgentStartability::AuthenticationRequired,
+            capabilities: Vec::new(),
+            models: Vec::new(),
+            diagnostics: vec!["agent.auth.required".to_string()],
+        },
+    ];
+    state.ui.interaction_panel = Some(InteractionPanel::NewLaneTask {
+        task: "split the runtime supervisor".to_string(),
+        phase: super::state::NewLanePhase::AgentPick { selected: 1 },
+    });
     state
 }
 

@@ -423,7 +423,7 @@ mod tests {
             held_input_count: 0,
         });
         let suffix = control_suffix(&state, &killed);
-        assert!(suffix.contains("killed"), "{suffix}");
+        assert!(suffix.contains("ended by kill"), "{suffix}");
         assert!(!suffix.contains('0'), "absence is not zero: {suffix}");
     }
 

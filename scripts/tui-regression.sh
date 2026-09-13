@@ -416,6 +416,10 @@ copy_artifact "$OUT_DIR/main-git-outcome.svg" "$SCREENSHOT_DIR/${VERSION}-tui-gi
 copy_artifact "$OUT_DIR/main-conflict-detail.svg" "$SCREENSHOT_DIR/${VERSION}-tui-conflict-detail.svg"
 copy_artifact "$OUT_DIR/main-evidence-list.svg" "$SCREENSHOT_DIR/${VERSION}-tui-evidence-list.svg"
 copy_artifact "$OUT_DIR/main-evidence-detail.svg" "$SCREENSHOT_DIR/${VERSION}-tui-evidence-detail.svg"
+copy_artifact "$OUT_DIR/main-plan-lens.svg" "$SCREENSHOT_DIR/${VERSION}-tui-plan-lens.svg"
+copy_artifact "$OUT_DIR/main-session-control.svg" "$SCREENSHOT_DIR/${VERSION}-tui-session-control.svg"
+copy_artifact "$OUT_DIR/main-approval-scopes.svg" "$SCREENSHOT_DIR/${VERSION}-tui-approval-scopes.svg"
+copy_artifact "$OUT_DIR/main-lane-agent.svg" "$SCREENSHOT_DIR/${VERSION}-tui-lane-agent.svg"
 copy_artifact "$OUT_DIR/main-lane.svg" "$SCREENSHOT_DIR/${VERSION}-tui-lane-detail.svg"
 copy_artifact "$OUT_DIR/side-1.svg" "$SCREENSHOT_DIR/${VERSION}-tui-side-1.svg"
 copy_artifact "$OUT_DIR/side-2.svg" "$SCREENSHOT_DIR/${VERSION}-tui-side-2.svg"
@@ -446,6 +450,10 @@ required = {
     "conflict_detail": out_dir / "main-conflict-detail.txt",
     "evidence_list": out_dir / "main-evidence-list.txt",
     "evidence_detail": out_dir / "main-evidence-detail.txt",
+    "plan_lens": out_dir / "main-plan-lens.txt",
+    "session_control": out_dir / "main-session-control.txt",
+    "approval_scopes": out_dir / "main-approval-scopes.txt",
+    "lane_agent": out_dir / "main-lane-agent.txt",
     "lane_detail": out_dir / "main-lane.txt",
     "side_1": out_dir / "side-1.txt",
     "side_2": out_dir / "side-2.txt",
@@ -538,6 +546,35 @@ lane_selector = required["lane_selector"].read_text(encoding="utf-8")
 if "LANE ACTIONS" not in lane_selector or "inspect L1" not in lane_selector:
     fail("lane selector preview does not show lane action evidence")
 
+# The four 0.3.5 parity surfaces. Each assertion names a Core fact the frame
+# must be showing, not a layout: the plan's pinned revision, the paused
+# session's held-input count and the killed session's termination, the
+# standing scope beside the revision decision, and the Agent pick's two-step
+# default row.
+plan_lens = required["plan_lens"].read_text(encoding="utf-8")
+if "rev 2" not in plan_lens or "a Accept" not in plan_lens or "step_1" not in plan_lens:
+    fail("plan lens preview does not show the pinned revision, the steps, and the decision keys")
+if "Hand off \u00b7 unavailable in proposed" not in plan_lens:
+    fail("plan lens preview does not label the status that blocks hand off")
+
+session_control = required["session_control"].read_text(encoding="utf-8")
+if "held 2" not in session_control or "ended by kill" not in session_control:
+    fail("session control preview does not show held inputs and the termination")
+if "p Pause" not in session_control or "u Resume" not in session_control or "k Kill" not in session_control:
+    fail("session control preview does not show the C14 control keys")
+if "load_session_id" not in session_control:
+    fail("session control preview does not state switch model as the two-step flow")
+
+approval_scopes = required["approval_scopes"].read_text(encoding="utf-8")
+if "a Allow always" not in approval_scopes or "e Edit input" not in approval_scopes:
+    fail("approval scopes preview does not show the standing scope and the revision key")
+if "REVISES" not in approval_scopes:
+    fail("approval scopes preview does not name the request a revision replaces")
+
+lane_agent = required["lane_agent"].read_text(encoding="utf-8")
+if "No Agent" not in lane_agent or "claude-sonnet" not in lane_agent:
+    fail("lane agent preview does not show the two-step default and a published model")
+
 side_1 = required["side_1"].read_text(encoding="utf-8")
 side_2 = required["side_2"].read_text(encoding="utf-8")
 if "AGENT LANES" not in side_1:
@@ -566,6 +603,10 @@ if len(artifacts) < 6:
                 "live provider turn evidence",
                 "resize redraw evidence",
                 "CJK composer input",
+                "plan lens decision keys and pinned revision",
+                "session control keys, held inputs, and terminations",
+                "standing approval scope and input revision",
+                "lane creation agent pick",
                 "provider command stays compact before submit",
                 "provider detail is handle-only with trusted ingress unavailable",
                 "model command stays compact before submit",
@@ -606,6 +647,10 @@ Each SVG is a deterministic visual artifact for product review:
 - \`${VERSION}-tui-conflict-detail.svg\`: read-only structured conflict content modal
 - \`${VERSION}-tui-evidence-list.svg\`: paged evidence archive inspector
 - \`${VERSION}-tui-evidence-detail.svg\`: evidence detail with canonical content
+- \`${VERSION}-tui-plan-lens.svg\`: /plan plan-document lens with its decision keys
+- \`${VERSION}-tui-session-control.svg\`: Lane view session controls, held inputs, and terminations
+- \`${VERSION}-tui-approval-scopes.svg\`: decision modal with the standing scope and an open revision
+- \`${VERSION}-tui-lane-agent.svg\`: Lane creation Agent pick
 - \`${VERSION}-tui-lane-detail.svg\`: focused lane detail
 - \`${VERSION}-tui-side-1.svg\`: lane side screen
 - \`${VERSION}-tui-side-2.svg\`: ops/test side screen

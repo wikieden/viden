@@ -245,6 +245,78 @@ fn run() -> Result<(), String> {
         }
         return Ok(());
     }
+    if startup.tui_preview_plan_lens || startup.tui_preview_plan_lens_ansi {
+        if startup.tui_preview_plan_lens_ansi {
+            print!(
+                "{}",
+                tui::render_ansi_plan_lens_preview_with_theme(
+                    preview_provider,
+                    preview_model,
+                    startup.tui_theme.as_deref()
+                )
+            );
+        } else {
+            println!(
+                "{}",
+                tui::render_plan_lens_preview(preview_provider, preview_model)
+            );
+        }
+        return Ok(());
+    }
+    if startup.tui_preview_session_control || startup.tui_preview_session_control_ansi {
+        if startup.tui_preview_session_control_ansi {
+            print!(
+                "{}",
+                tui::render_ansi_session_control_preview_with_theme(
+                    preview_provider,
+                    preview_model,
+                    startup.tui_theme.as_deref()
+                )
+            );
+        } else {
+            println!(
+                "{}",
+                tui::render_session_control_preview(preview_provider, preview_model)
+            );
+        }
+        return Ok(());
+    }
+    if startup.tui_preview_approval_scopes || startup.tui_preview_approval_scopes_ansi {
+        if startup.tui_preview_approval_scopes_ansi {
+            print!(
+                "{}",
+                tui::render_ansi_approval_scopes_preview_with_theme(
+                    preview_provider,
+                    preview_model,
+                    startup.tui_theme.as_deref()
+                )
+            );
+        } else {
+            println!(
+                "{}",
+                tui::render_approval_scopes_preview(preview_provider, preview_model)
+            );
+        }
+        return Ok(());
+    }
+    if startup.tui_preview_lane_agent || startup.tui_preview_lane_agent_ansi {
+        if startup.tui_preview_lane_agent_ansi {
+            print!(
+                "{}",
+                tui::render_ansi_lane_agent_preview_with_theme(
+                    preview_provider,
+                    preview_model,
+                    startup.tui_theme.as_deref()
+                )
+            );
+        } else {
+            println!(
+                "{}",
+                tui::render_lane_agent_preview(preview_provider, preview_model)
+            );
+        }
+        return Ok(());
+    }
     if startup.tui_preview_git_picker || startup.tui_preview_git_picker_ansi {
         if startup.tui_preview_git_picker_ansi {
             print!(
@@ -551,6 +623,14 @@ struct StartupOptions {
     tui_preview_model_selector_ansi: bool,
     tui_preview_approval_hunks: bool,
     tui_preview_approval_hunks_ansi: bool,
+    tui_preview_plan_lens: bool,
+    tui_preview_plan_lens_ansi: bool,
+    tui_preview_session_control: bool,
+    tui_preview_session_control_ansi: bool,
+    tui_preview_approval_scopes: bool,
+    tui_preview_approval_scopes_ansi: bool,
+    tui_preview_lane_agent: bool,
+    tui_preview_lane_agent_ansi: bool,
     tui_preview_git_picker: bool,
     tui_preview_git_picker_ansi: bool,
     tui_preview_git_outcome: bool,
@@ -687,6 +767,30 @@ impl StartupOptions {
         }
         if self.tui_preview_approval_hunks_ansi {
             overrides.push("--tui-preview-approval-hunks-ansi".to_string());
+        }
+        if self.tui_preview_plan_lens {
+            overrides.push("--tui-preview-plan-lens".to_string());
+        }
+        if self.tui_preview_plan_lens_ansi {
+            overrides.push("--tui-preview-plan-lens-ansi".to_string());
+        }
+        if self.tui_preview_session_control {
+            overrides.push("--tui-preview-session-control".to_string());
+        }
+        if self.tui_preview_session_control_ansi {
+            overrides.push("--tui-preview-session-control-ansi".to_string());
+        }
+        if self.tui_preview_approval_scopes {
+            overrides.push("--tui-preview-approval-scopes".to_string());
+        }
+        if self.tui_preview_approval_scopes_ansi {
+            overrides.push("--tui-preview-approval-scopes-ansi".to_string());
+        }
+        if self.tui_preview_lane_agent {
+            overrides.push("--tui-preview-lane-agent".to_string());
+        }
+        if self.tui_preview_lane_agent_ansi {
+            overrides.push("--tui-preview-lane-agent-ansi".to_string());
         }
         if self.tui_preview_git_picker {
             overrides.push("--tui-preview-git-picker".to_string());
@@ -915,6 +1019,30 @@ fn parse_startup_options(args: &[String]) -> Result<StartupOptions, String> {
             "--tui-preview-approval-hunks-ansi" => {
                 options.tui_preview_approval_hunks_ansi = true;
             }
+            "--tui-preview-plan-lens" => {
+                options.tui_preview_plan_lens = true;
+            }
+            "--tui-preview-plan-lens-ansi" => {
+                options.tui_preview_plan_lens_ansi = true;
+            }
+            "--tui-preview-session-control" => {
+                options.tui_preview_session_control = true;
+            }
+            "--tui-preview-session-control-ansi" => {
+                options.tui_preview_session_control_ansi = true;
+            }
+            "--tui-preview-approval-scopes" => {
+                options.tui_preview_approval_scopes = true;
+            }
+            "--tui-preview-approval-scopes-ansi" => {
+                options.tui_preview_approval_scopes_ansi = true;
+            }
+            "--tui-preview-lane-agent" => {
+                options.tui_preview_lane_agent = true;
+            }
+            "--tui-preview-lane-agent-ansi" => {
+                options.tui_preview_lane_agent_ansi = true;
+            }
             "--tui-preview-git-picker" => {
                 options.tui_preview_git_picker = true;
             }
@@ -1068,6 +1196,22 @@ fn print_startup_help() {
     println!("                       Print an approval preview with Core decision-context hunks");
     println!("  --tui-preview-approval-hunks-ansi");
     println!("                       Print a themed approval decision-context hunk preview");
+    println!("  --tui-preview-plan-lens");
+    println!("                       Print the /plan plan-document lens preview");
+    println!("  --tui-preview-plan-lens-ansi");
+    println!("                       Print a themed /plan plan-document lens preview");
+    println!("  --tui-preview-session-control");
+    println!("                       Print the Lane view session-control row preview");
+    println!("  --tui-preview-session-control-ansi");
+    println!("                       Print a themed Lane view session-control row preview");
+    println!("  --tui-preview-approval-scopes");
+    println!("                       Print the decision modal with Always and Edit");
+    println!("  --tui-preview-approval-scopes-ansi");
+    println!("                       Print a themed decision modal with Always and Edit");
+    println!("  --tui-preview-lane-agent");
+    println!("                       Print the Lane creation Agent pick preview");
+    println!("  --tui-preview-lane-agent-ansi");
+    println!("                       Print a themed Lane creation Agent pick preview");
     println!("  --tui-preview-git-picker");
     println!("                       Print the /git operator source-control picker preview");
     println!("  --tui-preview-git-picker-ansi");

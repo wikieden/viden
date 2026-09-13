@@ -197,6 +197,10 @@ run_preview main-git-outcome --tui-preview-git-outcome
 run_preview main-conflict-detail --tui-preview-conflict-detail
 run_preview main-evidence-list --tui-preview-evidence-list
 run_preview main-evidence-detail --tui-preview-evidence-detail
+run_preview main-plan-lens --tui-preview-plan-lens
+run_preview main-session-control --tui-preview-session-control
+run_preview main-approval-scopes --tui-preview-approval-scopes
+run_preview main-lane-agent --tui-preview-lane-agent
 run_preview main-lane --tui-preview-lane
 run_preview side-1 --tui-preview-side
 run_preview side-2 --tui-preview-side-2
@@ -218,6 +222,10 @@ run_ansi_preview main-git-outcome --tui-preview-git-outcome-ansi
 run_ansi_preview main-conflict-detail --tui-preview-conflict-detail-ansi
 run_ansi_preview main-evidence-list --tui-preview-evidence-list-ansi
 run_ansi_preview main-evidence-detail --tui-preview-evidence-detail-ansi
+run_ansi_preview main-plan-lens --tui-preview-plan-lens-ansi
+run_ansi_preview main-session-control --tui-preview-session-control-ansi
+run_ansi_preview main-approval-scopes --tui-preview-approval-scopes-ansi
+run_ansi_preview main-lane-agent --tui-preview-lane-agent-ansi
 run_ansi_preview main-lane --tui-preview-lane-ansi
 run_ansi_preview side-1 --tui-preview-side-ansi
 run_ansi_preview side-2 --tui-preview-side-2-ansi
@@ -243,6 +251,10 @@ render_svg_preview "$OUT_DIR/main-git-outcome.ansi" "$OUT_DIR/main-git-outcome.s
 render_svg_preview "$OUT_DIR/main-conflict-detail.ansi" "$OUT_DIR/main-conflict-detail.svg"
 render_svg_preview "$OUT_DIR/main-evidence-list.ansi" "$OUT_DIR/main-evidence-list.svg"
 render_svg_preview "$OUT_DIR/main-evidence-detail.ansi" "$OUT_DIR/main-evidence-detail.svg"
+render_svg_preview "$OUT_DIR/main-plan-lens.ansi" "$OUT_DIR/main-plan-lens.svg"
+render_svg_preview "$OUT_DIR/main-session-control.ansi" "$OUT_DIR/main-session-control.svg"
+render_svg_preview "$OUT_DIR/main-approval-scopes.ansi" "$OUT_DIR/main-approval-scopes.svg"
+render_svg_preview "$OUT_DIR/main-lane-agent.ansi" "$OUT_DIR/main-lane-agent.svg"
 render_svg_preview "$OUT_DIR/main-lane.ansi" "$OUT_DIR/main-lane.svg"
 render_svg_preview "$OUT_DIR/side-1.ansi" "$OUT_DIR/side-1.svg"
 render_svg_preview "$OUT_DIR/side-2.ansi" "$OUT_DIR/side-2.svg"
