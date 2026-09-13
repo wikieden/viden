@@ -12,10 +12,15 @@
  * this file carries the debt explicitly instead of editing
  * `docs/viden-design/**` from the client track.
  *
- * Only three things are added to the design's declarations, all of them
+ * Only four things are added to the design's declarations, all of them
  * consequences of the parts being real controls rather than prototype divs:
- * button resets, a visible focus ring, and the `min-width: 0` chain a flex row
- * of ellipsising text needs.
+ * button resets, a visible focus ring, the `min-width: 0` chain a flex row of
+ * ellipsising text needs, and — defect 19 (E3a) — the clipping half of that
+ * chain. The prototype draws this strip at the full window width; the cockpit
+ * draws it in the centre pane with the context dock open, where every slot
+ * that can grow must also shrink and ellipsise. Without that, the empty
+ * state's `No Lanes yet`, the project path and the work mode painted over one
+ * another.
  */
 
 .d1-lane-tabs {
@@ -45,6 +50,7 @@
   border-inline-end: 1px solid var(--border-soft);
   cursor: pointer;
   white-space: nowrap;
+  overflow: hidden;
   position: relative;
 }
 
@@ -76,6 +82,8 @@
 .d1-lane-tab-empty {
   color: var(--fg-faint);
   cursor: default;
+  flex: 0 1 auto;
+  text-overflow: ellipsis;
 }
 
 .d1-lane-tabs .lanehd {
@@ -194,7 +202,30 @@
   font-family: var(--mono);
   font-size: 11px;
   color: var(--fg-muted);
+  /* Shrinkable and clipping: the meta slot is the last thing on the rule and
+   * must give way to the tabs rather than run under them. */
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+/* The project path is the one unbounded string in the meta slot. */
+.d1-lane-tabs [data-lane-tab-project] {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.d1-lane-tabs [data-lane-tab-context],
+.d1-lane-tabs .d1-lane-tab-mode {
   flex: none;
+}
+
+/* The spacer may collapse entirely before anything with text does. */
+.d1-lane-tabs .tabspacer {
+  min-width: 0;
 }
 
 .d1-lane-tabs .d1-lane-tab-mode {

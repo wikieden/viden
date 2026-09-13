@@ -299,20 +299,26 @@ describe("context dock environment panel", () => {
     const local = workspaceOnly.querySelector<HTMLElement>("[data-context-section='local']")!;
     expect(local.dataset.localScope).toBe("workspace");
 
-    const laneScoped = renderContextDock(
-      model({
-        laneSource: {
-          status: "ready",
-          branch: "vd/retry-policy",
-          worktree: ".worktrees/retry",
-          ahead: 4,
-          behind: 2,
-          added: 9,
-          deleted: 0,
-          dirty: false,
-        },
-      }),
-    );
+    // No diff page for this scope, so `lane_sources` is the freshest Core
+    // sample there is. When a page *has* been answered for the same scope it
+    // is preferred instead, because `QueryWorkspaceDiff` resamples the target
+    // for that read — see `tests/h4_native_defects.spec.ts` (defect 20).
+    const laneModel = model({
+      laneSource: {
+        status: "ready",
+        branch: "vd/retry-policy",
+        worktree: ".worktrees/retry",
+        ahead: 4,
+        behind: 2,
+        added: 9,
+        deleted: 0,
+        dirty: false,
+      },
+    });
+    const laneScoped = renderContextDock({
+      ...laneModel,
+      diff: { ...laneModel.diff, projection: null },
+    });
     const laneLocal = laneScoped.querySelector<HTMLElement>("[data-context-section='local']")!;
     expect(laneLocal.dataset.localScope).toBe("lane");
     expect(laneLocal.textContent).toContain("vd/retry-policy");

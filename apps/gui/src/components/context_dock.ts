@@ -181,6 +181,9 @@ export interface DockCommitModel {
   onCommitOrPush: () => void;
 }
 
+/** Which Core sample a source-backed dock section is drawing. */
+export type DockSourceSample = "diff-page" | "workspace";
+
 export interface ContextDockModel {
   projection: D1CockpitProjection;
   locale: Locale;
@@ -363,21 +366,34 @@ function renderLaneAgent(
 /**
  * The design's Changes row: `+n −m` over one row per changed file.
  *
- * The two halves come from different Core reads on purpose. The totals are the
- * workspace source's own `git diff --numstat` counts, which Core publishes in
- * the cockpit projection with no command at all. The rows need the structured
- * diff page, which is a separate read — so the totals can be honest while the
- * list is still loading, absent, or refused, and each of those says so.
+ * The totals and the rows come from one sample whenever Core has answered
+ * one. `QueryWorkspaceDiff` resamples the target's source facts *for that
+ * read*, so a loaded page carries both halves of this section and they agree
+ * by construction. Only before a page has arrived — or once Core has
+ * invalidated it — do the totals fall back to the cockpit projection's own
+ * workspace sample, which needs no command at all; `data-changes-sample` says
+ * which of the two is on screen, because a stale `+0 −0` printed over a listed
+ * change is what defect 20 was.
  */
 export function renderChangesSection(
   body: HTMLElement,
   model: ContextDockModel,
   source: WorkspaceSourceProjection | null,
+  sample: DockSourceSample = "workspace",
 ): void {
   const { locale, diff } = model;
   const summary = document.createElement("p");
   summary.className = "envrow";
   summary.dataset.changesSummary = "true";
+  // Defect 20 (E3a). Which sample the totals came from is part of the answer:
+  // the dock used to print the workspace sample's `+0 −0` directly above the
+  // diff page's own `M README.md +1 −1`, and neither said when it was taken.
+  summary.dataset.changesSample = sample === "diff-page" ? "diff-page" : "workspace-sample";
+  summary.title = translate(
+    locale,
+    sample === "diff-page" ? "d1.dock.changes.sample.diff" : "d1.dock.changes.sample.workspace",
+    {},
+  );
   if (source) {
     const added = document.createElement("span");
     added.className = "ad";
@@ -495,6 +511,14 @@ function changeGlyph(status: string | null): string {
  * worktree and the workspace root are different trees, and a branch printed
  * without saying whose it is is the exact mistake the Lane tab strip refuses
  * to make.
+ *
+ * *Which sample* is part of it too. Within one scope the panel reads the diff
+ * page Core last answered, because `QueryWorkspaceDiff` resamples the target
+ * for that read and the file list beside it is drawn from the same page; it
+ * falls back to `lane_sources` (or the workspace sample) when no page for this
+ * scope has arrived or Core has since invalidated it. Reading two samples at
+ * once is what made the panel print `Working tree Clean` under a listed change
+ * (defect 20).
  */
 export function renderLocalSection(
   body: HTMLElement,
@@ -1127,8 +1151,25 @@ export function renderEnvironmentPanel(panel: HTMLElement, model: ContextDockMod
   // The Lane's own worktree source when C5 published one, the workspace sample
   // otherwise. Both are Core facts; which one is on screen is stated, never
   // implied.
-  const source = model.laneSource ?? projection.contextDock.source;
-  const scope: "lane" | "workspace" = model.laneSource ? "lane" : "workspace";
+  const laneScoped = model.laneSource !== null;
+  // Defect 20 (E3a). `QueryWorkspaceDiff` resamples the target's source facts
+  // for that exact read, so a loaded page that describes the scope this panel
+  // is showing is the fresher and the *same* sample the file list below draws
+  // from. A page Core has since invalidated (`stale`) is not preferred: an
+  // older number that agrees with the rows beside it is still a number from
+  // before the last fact, so the panel falls back to the sample Core
+  // republishes with every snapshot.
+  const page = model.diff.projection;
+  const pageMatchesScope =
+    page?.loaded === true &&
+    page.source !== null &&
+    !page.stale &&
+    (laneScoped ? page.targetLaneId !== null : page.targetLaneId === null);
+  const source: WorkspaceSourceProjection | null = pageMatchesScope
+    ? (page!.source as WorkspaceSourceProjection)
+    : (model.laneSource ?? projection.contextDock.source);
+  const sample: DockSourceSample = pageMatchesScope ? "diff-page" : "workspace";
+  const scope: "lane" | "workspace" = laneScoped ? "lane" : "workspace";
 
   appendSection(panel, "environment", translate(locale, "d1.environment", {}), (body) => {
     const environmentFacts = document.createElement("dl");
@@ -1146,7 +1187,7 @@ export function renderEnvironmentPanel(panel: HTMLElement, model: ContextDockMod
     body.append(environmentFacts);
   });
   appendSection(panel, "changes", translate(locale, "d1.dock.changes", {}), (body) => {
-    renderChangesSection(body, model, source);
+    renderChangesSection(body, model, source, sample);
   });
   const local = appendSection(panel, "local", translate(locale, "d1.dock.local", {}), (body) => {
     renderLocalSection(body, model, source, scope);
