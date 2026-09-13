@@ -75,10 +75,12 @@ pub use codex::{
     start_codex_app_server_job, start_codex_job,
 };
 pub use glue::{
-    AgentSessionApprover, cancel_typed_agent_session, mark_typed_agent_session_status,
-    probe_typed_agent_adapter, resume_typed_agent_session, retry_typed_agent_session,
-    shutdown_resident_acp_sessions, start_typed_agent_session, tracked_agent_job_runtime_events,
-    tracked_agent_job_sessions, tracked_agent_job_tasks, typed_agent_adapter_views,
-    typed_agent_session_request_from_compat_input, validate_typed_agent_session_request,
+    AgentSessionApprover, cancel_typed_agent_session, cancelled_session_control,
+    kill_typed_agent_session, mark_typed_agent_session_status, pause_typed_agent_session,
+    probe_typed_agent_adapter, resident_acp_session_is_live, resume_typed_agent_session,
+    retry_typed_agent_session, shutdown_resident_acp_sessions, start_typed_agent_session,
+    tracked_agent_job_runtime_events, tracked_agent_job_sessions, tracked_agent_job_tasks,
+    typed_agent_adapter_views, typed_agent_session_request_from_compat_input,
+    validate_typed_agent_session_request,
 };
 pub use render::{render_agent_doctor, render_agent_list, render_agent_logs_help};
