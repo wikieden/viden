@@ -73,6 +73,21 @@ describe("D1 accessibility and contrast semantics", () => {
     expect(qaHtml).toContain("document.documentElement.style.fontSize");
   });
 
+  test("neutralises the user-agent button fill the registered kit never overrides", () => {
+    // G10 drift. `gui-kit.css` styles `.tbtbtn`, `.gitchip` and friends without
+    // a `background`, because the design package draws them as non-interactive
+    // elements. The client renders them as real `<button>`s so they can be
+    // reached from the keyboard, which exposes the UA's `ButtonFace` fill: the
+    // three titlebar tool buttons painted an opaque grey slab on every
+    // cockpit-bearing surface, in both themes, and no design token authorises
+    // that colour. The reset is written with `:where()` so it carries zero
+    // specificity and any real class background still wins.
+    const themeCss = readFileSync(join(process.cwd(), "src/ui/theme.css"), "utf8");
+
+    expect(themeCss).toContain(":where(#app) :where(button");
+    expect(themeCss).toContain("background-color: transparent");
+  });
+
   test("records the deterministic rc.3 accessibility evidence artifact", () => {
     const evidence = JSON.parse(
       readFileSync(

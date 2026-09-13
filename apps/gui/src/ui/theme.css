@@ -15,3 +15,18 @@
     transition: none !important;
   }
 }
+
+/* The registered kit styles `.tbtbtn`, `.gitchip` and their siblings without a
+ * `background`, because the design package draws those controls as
+ * non-interactive elements. This client renders them as real `<button>`s so
+ * they can be reached from the keyboard, which lets the user agent's own
+ * `ButtonFace` fill through — an opaque grey slab behind the titlebar tool
+ * icons, the D11 step buttons, the review git chip and the Settings cancel,
+ * in a colour no design token authorises.
+ *
+ * `:where()` contributes zero specificity, so this resets the UA default
+ * without outranking any real class background the kit or a screen declares.
+ */
+:where(#app) :where(button, input[type="button"], input[type="submit"], input[type="reset"]) {
+  background-color: transparent;
+}
