@@ -1416,6 +1416,15 @@ command's receipt that is missing, not Core's worker.
 **This is Core-side, so it is numbered and stopped here rather than fixed**, as
 this batch's authorization requires. No `crates/**` file was edited.
 
+**Correction, 2026-09-13 (H5).** That last inference was wrong, and it is left
+standing above so the reasoning can be audited. The reading — one command's
+receipt missing while Core's worker keeps answering — was right; the attribution
+was not. Core emits the receipt correctly on this exact path, proven by a
+runtime test that goes GREEN on its first run. The receipt is lost *after* Core
+publishes it, in the desktop shell's own background event pump, which drains it
+without offering it to the client's D1 pending. The corrected root cause, its
+RED and its fix are under defect 22 below.
+
 ### Defects And Gaps Found By E3b
 
 Numbering continues from the twenty-one above. Each was reproduced, not
@@ -1423,46 +1432,106 @@ inferred. None was fixed here.
 
 22. **A starter Lane created under an approval never settles its creation
     command, so the cockpit's one command slot stays occupied for the life of
-    the process** (Core, blocking). The Lane itself is created correctly — the
-    worktree, the branch, `LaneRuntimeOwnerBound`, `LaneOutputAppended` and the
-    durable Lane row all arrive — but the `StarterLaneCreated` receipt that the
-    host waits on (`apps/gui/src-tauri/src/adapter.rs:610-615`) does not, and
-    the emission site is `crates/lanes/src/lane_supervisor.rs:1068-1101`, where
-    the event is published only if the observed lane event carries a
-    `created_lane` **and** the pending creation entry is still in the registry.
-    The consequences are the whole Lane half: every composer submit and every
-    `Cancel active turn` is dropped (`d1_cockpit.ts:3179`), the Evidence rail
-    slot stops mounting its pane because returning to it is a Core read, and the
-    `git_push` half of `Commit & Push ⇡` never surfaces (defect 25 is most
-    likely this same slot). It is the single defect that keeps the Lane half of
-    the real task unreachable on the `0.3.5` candidate, exactly as defects 14
-    and 15 did on `0.3.4`.
+    the process** (GUI host, blocking). **Fixed 2026-09-13 by H5**
+    (`05764cb2`). E3b numbered this Core-side and stopped; the reproduction
+    says otherwise. A runtime test drives the exact native path —
+    `PreviewDefaultStarterLane` in a real Git workspace, the real
+    `LocalLaneEffectExecutor`, a `lane_create` approval decided allow-once —
+    and Core emits `StarterLaneCreated` after `LaneUpdated` with no
+    invalidation before it, GREEN on the first run
+    (`crates/runtime/src/tests/frontend_services_tests.rs:2331`,
+    `default_starter_lane_in_real_git_workspace_settles_its_creation_receipt`).
+    The RED is one layer up, at the transport. `reconcile_ambient_pendings`
+    (`apps/gui/src-tauri/src/adapter.rs:6252`) — the funnel H4 introduced so
+    that whichever drain consumes an envelope reconciles every correlated
+    command — offered the event to every pending **except `pending_d1`**, which
+    only `poll_d1` observed. In the shipped desktop shell `poll_d1` is almost
+    never the drain that sees a D1 receipt: `spawn_core_event_pump`
+    (`apps/gui/src-tauri/src/lib.rs:1484`) holds the bounded receive on a
+    background thread and the webview reads only after the wake that pump
+    emits, so `pump_events` (`adapter.rs:6277`) consumed `StarterLaneCreated`
+    and the creation command was never settled. Interposing one pump drain
+    between the allow-once and the screen's poll reproduces it exactly:
+    `assertion \`left == right\` failed: a receipt drained by the desktop pump
+    must still free the client's one command slot / left: Some("pump-create-lane")
+    / right: None`
+    (`apps/gui/src-tauri/src/adapter.rs`,
+    `desktop_event_pump_settles_the_lane_creation_it_drains`). It also explains
+    the run's own control group, which E3b recorded without being able to read:
+    `QueryWorkspaceDiff`, `QueryWorkspaceFiles`, `QueryAudit` and all four
+    operator-git commands kept working in the same process because every one of
+    their pendings *is* in the funnel. `observe_pending_d1` now runs inside the
+    funnel and records the outcome on the adapter, so the next `poll_d1` reads
+    the freed slot and the confirmed or rejected outcome regardless of which
+    drain saw the receipt. Tests:
+    `apps/gui/tests/h5_native_defects.rs`
+    `a_receipt_drained_by_the_desktop_pump_still_frees_the_d1_command_slot`, and
+    the live-Core `desktop_event_pump_settles_the_lane_creation_it_drains`
+    above.
+    **What the popover's TASK field does on this path**, since the run could
+    not see it: nothing reaches Core with the creation. `StarterLaneRequest`
+    carries no task on this base and D4 sends `agent: None`
+    (`apps/gui/src-tauri/src/adapter.rs:4726`), so Core's default preview binds
+    no agent and starts no session — the receipt's `session` is `None`. The
+    task is held client-side in `pendingLaneStart`
+    (`apps/gui/src/screens/d1_cockpit.ts:3356`) and submitted as an ordinary
+    composer `SubmitUserInput` by `maybeResumeLaneStart` (`:3373`) once Core
+    publishes the created Lane **and** `commandSlotAvailable()` is true. With
+    the slot never freed that guard returned early on every wake, which is why
+    the Lane's durable record stayed `status: draft`, `task_id: null`,
+    `active_session_ids: []` and the session JSONL held no turn fact at all.
+    The Lane was never stalled; its first message was never sent.
 23. **A composer submit the client cannot send is dropped in silence** (GUI,
-    blocking for diagnosis). `sendAndWait` returns `null` when the slot is
-    occupied (`apps/gui/src/screens/d1_cockpit.ts:3179`): no `role=alert`, no
-    `data-d1-rejection`, no status row, and the typed text is left in the
-    composer as though nothing had been asked. Ten presses of `Send message`
-    produced ten silences. This is why H4 could not diagnose step 5 and had to
-    hand it on, and it is the same failure shape the client's own bounded-wait
-    comment forbids — "a client that waits without a bound cannot report".
-    A refusal made visible would not unblock defect 22, but it would have made
-    it a five-minute finding instead of an hour's.
+    blocking for diagnosis). **Fixed 2026-09-13 by H5** (`0296ce0b`).
+    `sendAndWait` returned `null` when the slot was occupied
+    (`apps/gui/src/screens/d1_cockpit.ts:3179`). `D1IntentResult` now carries
+    `pending_command` (`apps/gui/src-tauri/src/d1.rs:624`) — the occupied
+    pending's command id, its stable Core command name, its age since the
+    client sent it, and whether the host would allow the wait to be abandoned —
+    and the composer renders a `role=alert` `data-d1-slot-busy` naming the kind
+    and the age, keeps its text, offers the host's own abandon only for the two
+    adapter-discovery reads, and otherwise says plainly that the command
+    carries an effect and its wait is never abandoned client-side.
+    `PendingD1Kind::is_abandonable` (`adapter.rs:465`) is the same predicate
+    `abandon_pending_probe` enforces, kept as one function so the control
+    cannot be offered where the host refuses it. Tests:
+    `apps/gui/tests/h5_native_defects.rs`
+    `an_occupied_command_slot_publishes_its_kind_age_and_whether_it_may_be_abandoned`,
+    and `apps/gui/tests/h5_native_defects.spec.ts` "defect 23 — a refused
+    submit names what holds the command slot" (five cases; RED before the fix
+    with `expected null not to be null` on `[data-d1-slot-busy]`).
 24. **`Cancel active turn` is drawn for a Lane with no turn** (GUI, honesty).
-    `composer.canCancel` never reads `busy` or `active_turns`
-    (`apps/gui/src-tauri/src/projection.rs:2163-2165`), so any active Lane with
-    an exact binding advertises a cancellable turn. On a `draft` Lane whose
-    session JSONL holds no turn fact at all, the control is a claim about work
-    that does not exist — and it is precisely the claim that made H4 read this
-    state as a stalled turn.
+    **Fixed 2026-09-13 by H5** (`26eff93d`). `composer.can_cancel`
+    (`apps/gui/src-tauri/src/projection.rs:2172`) read
+    `lane.is_active() && exact_binding.is_some()`, neither of which is a fact
+    about work: an owner binding keeps its `turn_id` after the turn ends. It
+    now gates on `busy` — Core's own `active_turns` entry for this Lane, or a
+    running, starting or waiting-approval Agent session under its owner. The
+    RED was the canonical projection assertion that encoded the old reading:
+    `panicked at apps/gui/src-tauri/../tests/d1_cockpit.rs:139:5: assertion
+    failed: projection.composer.can_cancel`. Tests:
+    `apps/gui/tests/h5_native_defects.rs`
+    `cancel_is_not_offered_for_a_bound_lane_core_is_running_no_turn_for` and
+    `cancel_is_offered_once_core_reports_an_active_turn_for_the_lane`, plus the
+    two render cases in `h5_native_defects.spec.ts`.
 25. **The `git_push` half of `Commit & Push ⇡` reaches no decidable surface**
-    (GUI, blocking for push). After its `git_commit` approval is decided and the
-    commit lands, the commit bar stands on `Push is waiting for approval in the
-    permission dock.` with `Commit & Push ⇡` disabled, while D2 reads
-    `0 awaiting you`, no queue badge appears, and no `git_push` row — not even
-    an authorization — is written to the audit store. Polled for 40 s across
-    D2 and the dock. This is the surviving shape of defect 16 for the *second*
-    approval of a two-approval action; H4 closed the "decided card stays
-    pending" half, and this half remains.
+    (GUI, blocking for push). **Still open after H5, and it is not defect 22.**
+    H5 probed the pair against live in-process Core with the desktop pump
+    interposed (`apps/gui/src-tauri/src/adapter.rs`,
+    `the_push_half_of_commit_and_push_reaches_a_decidable_surface`): after the
+    `git_commit` half is decided and the commit lands, Core raises its own
+    `git_push` approval, `operator_git` reports `awaiting_approval`, the
+    permission dock carries the request with `tool_name == "git_push"`, the
+    Decision Center's `pending_total` is `1`, and answering it settles the
+    action with Core's typed `NoUpstream` outcome. The gate also runs before
+    the upstream check (`crates/runtime/src/operator_git.rs:85` versus `:157`),
+    so a missing remote cannot suppress the approval. The probe ran with a
+    workspace target; the native run had a Lane selected, so the remaining
+    suspect for E3c is the Lane-scoped routing —
+    `GuiCoreAdapter::operator_git_owner` and
+    `RuntimeProjection::permission_dock_for_owner` — not the command slot.
+    The surviving shape of defect 16 for the *second* approval of a
+    two-approval action stands as E3b recorded it.
 26. **Relaunching against a `VIDEN_HOME` that already holds a created Lane
     leaves the window blank** (GUI, blocking for restart). With
     `VIDEN_GUI_WORKSPACE` set and a home carrying one Lane, the process started,
@@ -1559,7 +1628,9 @@ committed change, with audit and evidence recorded":
 - **What the cockpit still cannot do is start a turn in a Lane it just
   created**, and with it the tool approval, the inline tool diff, the check run,
   the archived patch, the queued follow-up, a proposed plan, and any Agent
-  session to pause, resume or kill. The cause is defect 22 and it is Core-side.
+  session to pause, resume or kill. The cause is defect 22 — recorded here as
+  Core-side and corrected by H5 to the GUI host's event pump; see the
+  correction above and defect 22 below.
 - **The honest aggregate:** the source-control half of goal 4 is proven on the
   GUI **with a Lane** as well as without one, and the trust gap `0.3.5` goal 2
   names — an approval decided on the Lane path leaving a durable audit row — is

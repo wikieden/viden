@@ -7216,7 +7216,7 @@ mod tests {
         let result = settled.result.as_ref().expect("Core answered the push");
         assert_eq!(result.action, "push");
         assert_eq!(
-            result.failure_class.as_deref(),
+            result.failure_class,
             Some("no_upstream"),
             "the fixture has no remote, so Core's typed refusal is NoUpstream"
         );
