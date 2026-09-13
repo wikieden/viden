@@ -30,8 +30,8 @@
   box-sizing: border-box;
   background: var(--bg-elev);
   border: 1px solid var(--accent-dim);
-  border-radius: var(--radius-lg, 0.8125rem);
-  box-shadow: var(--shadow-overlay, 0 2.5rem 6.25rem -1.875rem rgb(0 0 0 / 90%));
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-pop-gui);
 }
 
 .gpal-panel .palin {
@@ -54,7 +54,7 @@
   border: 0;
   color: var(--fg-primary);
   font-family: var(--mono);
-  font-size: var(--fs-2, 0.9375rem);
+  font-size: var(--fs-base);
 }
 
 .gpal-panel .palin .q:focus-visible {
@@ -63,7 +63,7 @@
 
 .gpal-panel .palin .esc {
   font-family: var(--mono);
-  font-size: var(--fs-0, 0.65625rem);
+  font-size: var(--fs-micro);
   color: var(--fg-muted);
   white-space: nowrap;
 }
@@ -75,7 +75,7 @@
 
 .gpal-list .palsec {
   font-family: var(--mono);
-  font-size: var(--fs-0, 0.625rem);
+  font-size: var(--fs-micro);
   letter-spacing: 0.0625rem;
   text-transform: uppercase;
   color: var(--fg-muted);
@@ -114,7 +114,7 @@
 }
 
 .gpal-list .palrow .pl {
-  font-size: var(--fs-1, 0.8125rem);
+  font-size: var(--fs-sm);
   color: var(--fg-secondary);
   flex: 1;
   min-width: 0;
@@ -129,7 +129,7 @@
 
 .gpal-list .palrow .pc,
 .gpal-list .palrow .pn {
-  font-size: var(--fs-0, 0.65625rem);
+  font-size: var(--fs-micro);
   color: var(--fg-muted);
   max-width: 45%;
   overflow: hidden;
@@ -138,19 +138,19 @@
 }
 
 .gpal-list .palrow .pn {
-  color: var(--fg-faint, var(--fg-muted));
+  color: var(--fg-faint);
 }
 
 .gpal-list .palrow .pk {
   display: flex;
   gap: var(--sp-1);
-  font-size: var(--fs-0, 0.65625rem);
+  font-size: var(--fs-micro);
   color: var(--fg-muted);
 }
 
 .gpal-list [data-palette-empty] {
   padding: var(--sp-4);
   margin: 0;
-  font-size: var(--fs-1, 0.8125rem);
+  font-size: var(--fs-sm);
   color: var(--fg-muted);
 }
