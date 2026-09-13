@@ -19,6 +19,7 @@ use super::{
     operator_git::{OPERATOR_GIT_CAPABILITY, action_label_key, operator_git_owner},
     panel::panel,
     pending::SupervisionOutcome,
+    plan_lens::plan_lens_rows,
     preferences::{
         PreferenceValue, SettingsPanel, UI_PREFERENCE_PERSISTENCE_CAPABILITY,
         color_depth_label_key, density_label_key, mode_label_key, motion_label_key, skin_label_key,
@@ -106,6 +107,7 @@ pub(super) fn render_overlays(frame: &mut Frame, state: &TuiState, _right_rail_w
             OverlayKind::SupervisionDecision => "overlay.title.supervision",
             OverlayKind::AuditTimeline => "overlay.title.audit",
             OverlayKind::EvidenceInspector => "overlay.title.evidence",
+            OverlayKind::PlanLens => "overlay.title.plan",
             OverlayKind::ConflictContent => "overlay.title.conflict",
             OverlayKind::ContextHelp => "overlay.title.context_help",
             OverlayKind::ExitConfirm => "overlay.title.exit",
@@ -129,6 +131,9 @@ pub(super) fn render_overlays(frame: &mut Frame, state: &TuiState, _right_rail_w
             // Three labelled sides per rejected hunk need a taller panel than
             // a decision list does.
             OverlayKind::ConflictContent => 22,
+            // Sections, steps, and the three decision rows do not fit a
+            // decision list's height; the panel scrolls beyond this.
+            OverlayKind::PlanLens => 22,
             _ => 10,
         };
         let hint = match overlay.kind {
@@ -137,6 +142,7 @@ pub(super) fn render_overlays(frame: &mut Frame, state: &TuiState, _right_rail_w
             OverlayKind::AuditTimeline => super::i18n::text(state, "audit.hint"),
             OverlayKind::EvidenceInspector => super::i18n::text(state, "evidence.hint"),
             OverlayKind::ConflictContent => super::i18n::text(state, "conflict.hint"),
+            OverlayKind::PlanLens => super::i18n::text(state, "plan.hint"),
             _ => super::i18n::text(state, "overlay.close_hint"),
         };
         let block = panel(
@@ -332,6 +338,10 @@ fn global_overlay_rows(state: &TuiState, kind: OverlayKind, filter: &str) -> Vec
             return evidence_rows(state, EVIDENCE_ROW_WIDTH);
         }
         OverlayKind::ConflictContent => return conflict_content_rows(state),
+        // The plan lens owns its keys: `a`, `r` and `h` decide, arrows
+        // scroll, and while the rejection reason is open every printable
+        // character types it. There is no text filter to apply here.
+        OverlayKind::PlanLens => return plan_lens_rows(state),
         OverlayKind::Lane => state
             .runtime
             .lanes
@@ -2041,8 +2051,9 @@ mod tests {
     fn global_jump_windows_rows_to_keep_selected_item_visible() {
         let mut state = TuiState::default();
         let mut overlay = OverlayState::global_jump(None);
-        // One row further down since `/evidence` joined the command registry.
-        overlay.selected = 14;
+        // One row further down again since `/plan` joined the command
+        // registry (`runtime.plan_documents`, C13).
+        overlay.selected = 15;
         state.ui.overlay = Some(overlay);
         let mut frame = Frame::new(120, 40);
 
@@ -2264,9 +2275,9 @@ mod tests {
     fn global_jump_window_keeps_default_disabled_tail_selected() {
         let mut state = TuiState::default();
         let mut overlay = OverlayState::global_jump(None);
-        // The disabled FILES tail, one row further down since `/evidence`
-        // joined the command registry.
-        overlay.selected = 16;
+        // The disabled FILES tail, one row further down again since `/plan`
+        // joined the command registry (`runtime.plan_documents`, C13).
+        overlay.selected = 17;
         state.ui.overlay = Some(overlay);
 
         let rows = global_jump_rows(&state, "");

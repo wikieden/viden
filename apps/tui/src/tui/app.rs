@@ -33,6 +33,9 @@ use super::operator_git::{
     OPERATOR_GIT_CAPABILITY, OperatorGitSettlement, action_label_key, collapsed_output,
     failure_copy, operator_git_owner,
 };
+use super::plan_lens::{
+    MAX_PLAN_REJECT_REASON_BYTES, PlanDecision, PlanPanel, focused_plan, plan_decision_command,
+};
 use super::preferences::{
     ColorDepth, PreferenceField, SettingsPanel, TerminalCapabilities,
     UI_PREFERENCE_PERSISTENCE_CAPABILITY,
@@ -556,6 +559,9 @@ fn apply_input_intent<C: CoreClient>(
         return Ok(outcome);
     }
     if let Some(outcome) = apply_conflict_detail_intent(state, &intent) {
+        return Ok(outcome);
+    }
+    if let Some(outcome) = apply_plan_lens_intent(driver, state, key, &intent)? {
         return Ok(outcome);
     }
     match intent {
@@ -1167,6 +1173,220 @@ fn apply_conflict_detail_intent(
     }
 }
 
+/// Opens the plan lens over the plan Core already published.
+///
+/// Nothing is sent: `plan_documents` rides the authoritative snapshot, so the
+/// lens is a read of state this client already holds. Without the capability
+/// the overlay still opens and its single row names the missing extension,
+/// which is what keeps "Core does not publish plans" distinguishable from "no
+/// plan was proposed".
+fn open_plan_lens(state: &mut TuiState) {
+    state.ui.supervision = None;
+    state.ui.audit = None;
+    state.ui.evidence = None;
+    state.ui.conflict_detail = None;
+    state.ui.plan = Some(PlanPanel::default());
+    state.ui.overlay = Some(OverlayState::new(OverlayKind::PlanLens));
+}
+
+/// Closes the plan lens and drops its scroll, reason draft, and correlation.
+///
+/// Dropping the panel drops the correlation with it, so a refusal that arrives
+/// afterwards is ignored rather than shown on a surface nobody is looking at.
+/// The plan itself is untouched: it is Core's record, not this panel's.
+fn close_plan_lens(state: &mut TuiState) {
+    state.ui.plan = None;
+    state.ui.overlay = None;
+}
+
+/// Owns every key while the plan lens is focused.
+///
+/// `Esc` unwinds the rejection reason before the overlay itself, arrows
+/// scroll, `a`/`r`/`h` decide, and every other printable character keeps
+/// editing the composer so a streaming turn stays answerable while a plan is
+/// open. The decision is built from the record re-read at this instant, never
+/// from the row that was drawn.
+fn apply_plan_lens_intent<C: CoreClient>(
+    driver: &mut TuiClientDriver<C>,
+    state: &mut TuiState,
+    key: KeyEvent,
+    intent: &InputIntent,
+) -> Result<Option<UiEventOutcome>, TuiError> {
+    if !state
+        .ui
+        .overlay
+        .as_ref()
+        .is_some_and(|overlay| overlay.kind == OverlayKind::PlanLens)
+        || state.ui.plan.is_none()
+    {
+        return Ok(None);
+    }
+    let typing_reason = state
+        .ui
+        .plan
+        .as_ref()
+        .is_some_and(|panel| panel.reason.is_some());
+    match intent {
+        InputIntent::CloseOverlay => {
+            let panel = state.ui.plan.as_mut().expect("panel checked above");
+            if panel.reason.take().is_some() {
+                panel.notice = None;
+            } else {
+                close_plan_lens(state);
+            }
+            Ok(Some(UiEventOutcome::Redraw))
+        }
+        InputIntent::MoveSelection(delta) => {
+            let panel = state.ui.plan.as_mut().expect("panel checked above");
+            panel.scroll = if *delta < 0 {
+                panel.scroll.saturating_sub(1)
+            } else {
+                panel.scroll.saturating_add(1)
+            };
+            Ok(Some(UiEventOutcome::Redraw))
+        }
+        InputIntent::InsertChar(value) => {
+            if typing_reason {
+                let panel = state.ui.plan.as_mut().expect("panel checked above");
+                if let Some(reason) = panel.reason.as_mut() {
+                    reason.push(*value);
+                }
+                panel.notice = None;
+                return Ok(Some(UiEventOutcome::Redraw));
+            }
+            match plan_decision_for_key(key) {
+                Some(decision) => {
+                    begin_plan_decision(driver, state, decision)?;
+                    Ok(Some(UiEventOutcome::Redraw))
+                }
+                // This overlay has no text filter, so anything that is not a
+                // decision key belongs to the composer.
+                None => {
+                    push_composer_char(state, *value);
+                    Ok(Some(UiEventOutcome::Redraw))
+                }
+            }
+        }
+        InputIntent::Backspace => {
+            if typing_reason {
+                let panel = state.ui.plan.as_mut().expect("panel checked above");
+                if let Some(reason) = panel.reason.as_mut() {
+                    reason.pop();
+                }
+                panel.notice = None;
+            } else {
+                state.ui.input.backspace();
+                reset_for_input_change(state);
+            }
+            Ok(Some(UiEventOutcome::Redraw))
+        }
+        InputIntent::CompleteSelection | InputIntent::CompleteOrSubmit if typing_reason => {
+            send_plan_rejection(driver, state)?;
+            Ok(Some(UiEventOutcome::Redraw))
+        }
+        _ => Ok(None),
+    }
+}
+
+fn plan_decision_for_key(key: KeyEvent) -> Option<PlanDecision> {
+    match key.code {
+        KeyCode::Char('a') | KeyCode::Char('A') => Some(PlanDecision::Accept),
+        KeyCode::Char('r') | KeyCode::Char('R') => Some(PlanDecision::Reject),
+        KeyCode::Char('h') | KeyCode::Char('H') => Some(PlanDecision::HandOff),
+        _ => None,
+    }
+}
+
+/// Opens the reason line, or sends the decision straight away.
+///
+/// A key whose decision cannot apply to the plan's current status sends
+/// nothing at all: the row already says which status blocked it, and Core is
+/// not asked a question its own contract says it will refuse. Hand off is the
+/// deliberate exception in Plan mode — the status allows it and only Core may
+/// say the mode does not, so the refusal is rendered from Core's reason.
+fn begin_plan_decision<C: CoreClient>(
+    driver: &mut TuiClientDriver<C>,
+    state: &mut TuiState,
+    decision: PlanDecision,
+) -> Result<(), TuiClientError> {
+    let Some(status) = focused_plan(state).map(|plan| plan.status) else {
+        return Ok(());
+    };
+    if !decision.applies_to(status) {
+        return Ok(());
+    }
+    if decision.needs_reason() {
+        let panel = state.ui.plan.as_mut().expect("panel checked by caller");
+        panel.reason = Some(String::new());
+        panel.notice = None;
+        return Ok(());
+    }
+    send_plan_decision(driver, state, decision, None)
+}
+
+/// Sends the typed rejection, or refuses it locally without sending.
+///
+/// Core stores the reason and refuses an empty one, and it bounds the text.
+/// Both refusals happen here rather than as a round trip, and neither
+/// truncates: an operator must not discover afterwards that Core stored half a
+/// sentence.
+fn send_plan_rejection<C: CoreClient>(
+    driver: &mut TuiClientDriver<C>,
+    state: &mut TuiState,
+) -> Result<(), TuiClientError> {
+    let Some(reason) = state
+        .ui
+        .plan
+        .as_ref()
+        .and_then(|panel| panel.reason.clone())
+    else {
+        return Ok(());
+    };
+    let trimmed = reason.trim().to_string();
+    let notice = if trimmed.is_empty() {
+        Some("plan.reject.empty")
+    } else if trimmed.len() > MAX_PLAN_REJECT_REASON_BYTES {
+        Some("plan.reject.too_long")
+    } else {
+        None
+    };
+    if let Some(notice) = notice {
+        let panel = state.ui.plan.as_mut().expect("panel checked above");
+        panel.notice = Some(notice.to_string());
+        return Ok(());
+    }
+    send_plan_decision(driver, state, PlanDecision::Reject, Some(trimmed))?;
+    if let Some(panel) = state.ui.plan.as_mut() {
+        panel.reason = None;
+    }
+    Ok(())
+}
+
+/// Sends one pinned plan decision under the plan's own Core-published owner.
+fn send_plan_decision<C: CoreClient>(
+    driver: &mut TuiClientDriver<C>,
+    state: &mut TuiState,
+    decision: PlanDecision,
+    reason: Option<String>,
+) -> Result<(), TuiClientError> {
+    // Re-read at the instant of the keypress: the pin must name the revision
+    // and digest Core holds now, so a plan that moved is refused as stale
+    // rather than decided from a row this client drew.
+    let Some((owner, command)) = focused_plan(state).map(|plan| {
+        (
+            plan.owner.clone(),
+            plan_decision_command(plan, decision, reason),
+        )
+    }) else {
+        return Ok(());
+    };
+    let command_id = driver.send_for_owner(owner, command)?;
+    if let Some(panel) = state.ui.plan.as_mut() {
+        panel.begin(command_id, decision);
+    }
+    Ok(())
+}
+
 /// Closes the audit timeline and drops its page.
 ///
 /// The TUI has no overlay stack outside the Global Jump return path, so this
@@ -1694,7 +1914,10 @@ fn complete_overlay_selection<C: CoreClient>(
         | OverlayKind::SupervisionDecision
         | OverlayKind::AuditTimeline
         | OverlayKind::EvidenceInspector
-        | OverlayKind::ConflictContent => {}
+        | OverlayKind::ConflictContent
+        // The plan lens owns its own keys and reaches this arm only if its
+        // handler declined the intent; confirming a row there means nothing.
+        | OverlayKind::PlanLens => {}
         OverlayKind::CommandPalette
         | OverlayKind::NewSession
         | OverlayKind::ContextHelp
@@ -1798,6 +2021,16 @@ fn open_local_picker_command<C: CoreClient>(
             selected: 0,
             phase: GitPickerPhase::Browse,
         }),
+        // `/plan` is not a picker either: it is the lens over the plan Core
+        // already published. It opens with or without the capability, because
+        // a surface that names the missing extension is what keeps "Core does
+        // not publish this" distinguishable from "there is no plan".
+        "/plan" => {
+            open_plan_lens(state);
+            state.ui.input.clear();
+            reset_for_input_change(state);
+            return Ok(true);
+        }
         // `/evidence` is not a picker: it is the read itself, scoped to the
         // focused Lane when there is one. Without the capability nothing is
         // sent and the gap is stated, because an inspector that can never be
@@ -2471,6 +2704,12 @@ fn observe_driver_events<C: CoreClient>(
         // can settle the other. With no overlay open there is no panel and the
         // answer is dropped entirely.
         if let Some(panel) = state.ui.evidence.as_mut() {
+            panel.observe_event(event);
+        }
+        // The plan decision correlates on this client's own command id, so a
+        // refusal for somebody else's command never lands on this lens and a
+        // settled decision never clears a decision that is still in flight.
+        if let Some(panel) = state.ui.plan.as_mut() {
             panel.observe_event(event);
         }
         // The inventory read correlates on the exact required command id, so a
@@ -9377,5 +9616,218 @@ mod tests {
             )],
         );
         assert!(entries.iter().all(|entry| entry.kind() != "assistant"));
+    }
+
+    /// Replays the shared `runtime.plan_documents` fixture up to the revision
+    /// the operator would be looking at, then drives the lens.
+    ///
+    /// The fixture is the wire truth for this capability, so the pin the `a`
+    /// key sends is asserted against Core's own `revision` and
+    /// `content_sha256` rather than against values this test composed.
+    fn plan_lens_driver(
+        events: usize,
+    ) -> (
+        TuiClientDriver<FakeCoreClient>,
+        TuiState,
+        Arc<Mutex<Vec<RuntimeCommandEnvelope>>>,
+    ) {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../crates/types/tests/fixtures/frontend-contract-v1/plan-documents.json"
+        ))
+        .expect("plan fixture");
+        let mut view: RuntimeViewState =
+            serde_json::from_value(serde_json::json!({ "snapshot": fixture["initial_snapshot"] }))
+                .map(|_: serde_json::Value| ())
+                .err()
+                .map(|_| unreachable!())
+                .unwrap_or_else(|| {
+                    RuntimeViewState::new(
+                        serde_json::from_value(fixture["initial_snapshot"].clone())
+                            .expect("fixture snapshot"),
+                    )
+                });
+        for raw in fixture["events"]
+            .as_array()
+            .expect("fixture events")
+            .iter()
+            .take(events)
+        {
+            let envelope: RuntimeEventEnvelope =
+                serde_json::from_value(raw.clone()).expect("fixture event");
+            if let RuntimeWireEvent::Known(event) = envelope.event {
+                view.apply_event(&event);
+            }
+        }
+        let client = FakeCoreClient {
+            transport: FakeCoreTransport {
+                view: Some(view),
+                ..FakeCoreTransport::default()
+            },
+            ..FakeCoreClient::default()
+        };
+        let sent = Arc::clone(&client.sent);
+        let driver = TuiClientDriver::connect(client).expect("connect");
+        let mut state = TuiState::new(driver.view().clone());
+        state.capabilities = driver.capabilities();
+        state.ui.input_mode = InputMode::Insert;
+        (driver, state, sent)
+    }
+
+    fn open_plan_lens_through_the_composer(
+        driver: &mut TuiClientDriver<FakeCoreClient>,
+        state: &mut TuiState,
+    ) {
+        state.ui.input = "/plan".into();
+        handle_ui_event(
+            driver,
+            state,
+            Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+            (120, 40),
+        )
+        .expect("open the plan lens");
+    }
+
+    #[test]
+    fn the_plan_lens_accepts_the_exact_revision_and_digest_core_published() {
+        let (mut driver, mut state, sent) = plan_lens_driver(7);
+        open_plan_lens_through_the_composer(&mut driver, &mut state);
+        assert_eq!(
+            state.ui.overlay.as_ref().map(|overlay| overlay.kind),
+            Some(OverlayKind::PlanLens)
+        );
+        assert!(sent.lock().expect("sent commands").is_empty());
+
+        handle_ui_event(
+            &mut driver,
+            &mut state,
+            Event::Key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE)),
+            (120, 40),
+        )
+        .expect("accept the plan");
+
+        let commands = sent.lock().expect("sent commands");
+        let plan = state
+            .runtime
+            .plan_documents
+            .first()
+            .expect("the fixture published one plan");
+        assert_eq!(plan.revision, 2);
+        assert!(matches!(
+            &commands[..],
+            [RuntimeCommandEnvelope {
+                command: RuntimeCommand::AcceptPlanDocument {
+                    revision,
+                    content_sha256,
+                    ..
+                },
+                ..
+            }] if *revision == plan.revision && content_sha256 == &plan.content_sha256
+        ));
+    }
+
+    #[test]
+    fn a_hand_off_refused_in_plan_mode_is_rendered_from_cores_own_reason() {
+        let (mut driver, mut state, sent) = plan_lens_driver(11);
+        open_plan_lens_through_the_composer(&mut driver, &mut state);
+
+        handle_ui_event(
+            &mut driver,
+            &mut state,
+            Event::Key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::NONE)),
+            (120, 40),
+        )
+        .expect("hand the plan off");
+
+        let command_id = sent
+            .lock()
+            .expect("sent commands")
+            .first()
+            .expect("one hand-off command")
+            .command_id
+            .clone();
+        state
+            .ui
+            .plan
+            .as_mut()
+            .expect("the lens is open")
+            .observe_event(&RuntimeEvent {
+                kind: RuntimeEventKind::CommandRejected {
+                    command_id,
+                    reason: "plan_mode: handing a plan off starts agent work".to_string(),
+                },
+                sequence: 12,
+                timestamp: Some(0),
+            });
+
+        let rendered = super::super::render::render_frame(&state, 120, 40);
+        assert!(rendered.contains("plan_mode"), "{rendered}");
+    }
+
+    #[test]
+    fn a_key_whose_status_forbids_it_sends_nothing_at_all() {
+        // Revision 2 is `proposed`, so handing it off cannot apply. The row
+        // already says which status blocked it; Core is not asked a question
+        // its own contract says it will refuse.
+        let (mut driver, mut state, sent) = plan_lens_driver(7);
+        open_plan_lens_through_the_composer(&mut driver, &mut state);
+
+        handle_ui_event(
+            &mut driver,
+            &mut state,
+            Event::Key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::NONE)),
+            (120, 40),
+        )
+        .expect("hand off a proposed plan");
+
+        assert!(sent.lock().expect("sent commands").is_empty());
+    }
+
+    #[test]
+    fn rejecting_opens_a_reason_line_and_refuses_an_empty_one_without_sending() {
+        let (mut driver, mut state, sent) = plan_lens_driver(7);
+        open_plan_lens_through_the_composer(&mut driver, &mut state);
+
+        for key in [KeyCode::Char('r'), KeyCode::Enter] {
+            handle_ui_event(
+                &mut driver,
+                &mut state,
+                Event::Key(KeyEvent::new(key, KeyModifiers::NONE)),
+                (120, 40),
+            )
+            .expect("reject with no reason");
+        }
+        assert!(sent.lock().expect("sent commands").is_empty());
+        // The fixture's snapshot resolves the interface to zh-CN, so the
+        // refusal is asserted on the catalog key and on its rendered zh-CN
+        // text: a client that only refused in English would be refusing
+        // invisibly for half its operators.
+        assert_eq!(
+            state
+                .ui
+                .plan
+                .as_ref()
+                .and_then(|panel| panel.notice.clone())
+                .as_deref(),
+            Some("plan.reject.empty")
+        );
+        let rendered = super::super::render::render_frame(&state, 120, 40);
+        assert!(rendered.contains("拒绝空理由"), "{rendered}");
+
+        for key in [KeyCode::Char('t'), KeyCode::Char('o'), KeyCode::Enter] {
+            handle_ui_event(
+                &mut driver,
+                &mut state,
+                Event::Key(KeyEvent::new(key, KeyModifiers::NONE)),
+                (120, 40),
+            )
+            .expect("reject with a reason");
+        }
+        assert!(matches!(
+            sent.lock().expect("sent commands").as_slice(),
+            [RuntimeCommandEnvelope {
+                command: RuntimeCommand::RejectPlanDocument { reason, .. },
+                ..
+            }] if reason == "to"
+        ));
     }
 }

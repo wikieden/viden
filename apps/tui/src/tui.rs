@@ -30,6 +30,8 @@ mod ops_screen;
 mod palette;
 mod panel;
 mod pending;
+#[allow(dead_code)]
+mod plan_lens;
 mod preferences;
 mod preview;
 mod projection;

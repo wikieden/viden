@@ -4,6 +4,7 @@ use super::{
     decision::{SupervisionAction, SupervisionTarget},
     evidence_panel::EvidencePanel,
     keymap::{InputMode, OverlayKind},
+    plan_lens::PlanPanel,
     preferences::{ColorDepth, SettingsPanel},
     workspace_files::WorkspaceFileIndex,
 };
@@ -415,6 +416,11 @@ pub(super) struct TuiUiState {
     /// instead of showing a page of unknown age, and the per-row content cache
     /// lives exactly as long as the overlay that filled it.
     pub(super) evidence: Option<EvidencePanel>,
+    /// Present exactly while `overlay` is `OverlayKind::PlanLens`. It holds
+    /// scroll, the rejection reason being typed, and the one in-flight command
+    /// id — never the plan, which is re-read from `RuntimeViewState` on every
+    /// frame so a decision can never be sent against a row this client cached.
+    pub(super) plan: Option<PlanPanel>,
     /// Client-local view of the Core workspace file inventory. It outlives one
     /// overlay so reopening the jump index does not re-read a tree Core
     /// already published, and it holds no authoritative record — see
@@ -466,6 +472,7 @@ impl Default for TuiUiState {
             conflict_detail: None,
             audit: None,
             evidence: None,
+            plan: None,
             workspace_files: WorkspaceFileIndex::default(),
             idle_ctrl_c_armed: false,
             color_depth: ColorDepth::Auto,
