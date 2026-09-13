@@ -11,13 +11,13 @@
 .d13-head {
   padding: var(--sp-3) var(--sp-4);
   border-bottom: 1px solid var(--border-soft);
-  background: var(--bg-raised);
+  background: var(--bg-panel);
 }
 
 .d13-title {
   margin: 0;
   color: var(--fg-primary);
-  font: var(--fs-md)/var(--lh-ui) var(--font-sans);
+  font: var(--fs-base)/var(--lh-ui) var(--font-sans);
 }
 
 .d13-board {
@@ -47,7 +47,7 @@
   padding: var(--sp-3);
   border: 1px solid var(--border-soft);
   border-radius: var(--r-lg);
-  background: var(--bg-raised);
+  background: var(--bg-panel);
 }
 
 /* Only a Core-recorded blocked dependency escalates a node. */

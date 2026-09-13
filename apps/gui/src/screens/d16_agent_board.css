@@ -47,7 +47,7 @@
 
 .d16-stage .abtop .t {
   margin: 0;
-  font-size: var(--fs-md);
+  font-size: var(--fs-base);
   font-weight: 700;
   color: var(--fg-primary);
 }
@@ -292,7 +292,7 @@
 
 .d16-stage .abempty .eh {
   margin: 0;
-  font-size: var(--fs-md);
+  font-size: var(--fs-base);
   font-weight: 600;
   color: var(--fg-secondary);
 }

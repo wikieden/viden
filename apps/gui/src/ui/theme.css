@@ -15,3 +15,37 @@
     transition: none !important;
   }
 }
+
+/* The registered kit styles `.tbtbtn`, `.gitchip` and their siblings without a
+ * `background`, because the design package draws those controls as
+ * non-interactive elements. This client renders them as real `<button>`s so
+ * they can be reached from the keyboard, which lets the user agent's own
+ * `ButtonFace` fill through — an opaque grey slab behind the titlebar tool
+ * icons, the D11 step buttons, the review git chip and the Settings cancel,
+ * in a colour no design token authorises.
+ *
+ * `:where()` contributes zero specificity, so this resets the UA default
+ * without outranking any real class background the kit or a screen declares.
+ */
+:where(#app) :where(button, input[type="button"], input[type="submit"], input[type="reset"]) {
+  background-color: transparent;
+  /* The fill was only half of it. A control with no `color` rule of its own
+   * takes the user agent's `buttontext`, which follows the host's colour
+   * scheme rather than the skin: under `ice/light` the Settings Cancel drew
+   * white on the white `--bg-elev` panel. Inheriting puts it back on the
+   * surface's own foreground token. */
+  color: inherit;
+}
+
+/* The document must say which scheme it paints, or the user agent resolves its
+ * system colours, scrollbars, native form controls and caret against the
+ * host's preference instead of the resolved skin — measured as
+ * `colorScheme: "dark"` on a window rendering `ice/light`. `data-mode` is what
+ * `applyResolvedTheme` already writes, so this follows Core's preference. */
+:root[data-mode="dark"] {
+  color-scheme: dark;
+}
+
+:root[data-mode="light"] {
+  color-scheme: light;
+}

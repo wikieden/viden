@@ -1,0 +1,32 @@
+{
+  "component": "viden-gui",
+  "component_version": "0.1.0-rc.5",
+  "batch": "G10 design-fidelity gate (GUI-4)",
+  "branch": "claude/gui-fidelity-g10",
+  "base": "6c06a831bccb80686ef4bbbc5b136afef51d3808 (claude/int-0.3.5)",
+  "generated_at": "2026-09-13T20:00:00+08:00",
+  "method": "Browser-controlled Chrome against the vite dev server on 127.0.0.1:4222. Each surface mounts in a 1440x1180 iframe; the clock starts before navigation and stops when the harness sets data-capture-ready, or, for the two synthetic renders, around the exported production render call plus a forced layout. Three runs per record, median reported.",
+  "bundle": {
+    "measured_on": "the GUI's own modules served by vite in dev",
+    "not_measured_on": "the native Tauri release bundle",
+    "why": "The host screen reported CGSSessionScreenIsLocked=1 for the whole batch, so the native application was never launched and no release-bundle timing was taken. These numbers bound the client's own render cost; they are not the release figure and must not be quoted as one."
+  },
+  "records": [
+    { "id": "cold_start_d1", "what": "D1 cockpit, navigation to bound render", "bound_ms": 400, "runs_ms": [41.9, 37.2, 40.1], "median_ms": 40.1, "result": "pass" },
+    { "id": "cold_start_d14", "what": "D14 audit page load, navigation to bound render", "bound_ms": 400, "runs_ms": [39.7, 41.3, 42.1], "median_ms": 41.3, "result": "pass" },
+    { "id": "cold_start_review", "what": "DiffReview, navigation to bound render", "bound_ms": 400, "runs_ms": [48.3, 47.1, 45.2], "median_ms": 47.1, "result": "pass" },
+    { "id": "cold_start_board", "what": "D16 Agent Board, navigation to bound render", "bound_ms": 400, "runs_ms": [43.5, 38.5, 37.7], "median_ms": 38.5, "result": "pass" },
+    { "id": "cold_start_plan", "what": "D15 Plan Studio, navigation to bound render", "bound_ms": 400, "runs_ms": [38.7, 39.0, 47.3], "median_ms": 39.0, "result": "pass" },
+    { "id": "dock_file_read", "what": "Dock file read: cockpit with the Files tab bound", "bound_ms": 400, "runs_ms": [50.6, 44.7, 49.1], "median_ms": 49.1, "result": "pass" },
+    { "id": "route_switch", "what": "Activity rail Conversation -> Lane monitor, click to painted frame", "bound_ms": 150, "runs_ms": [8.9, 4.0, 9.1], "median_ms": 8.9, "result": "pass" },
+    { "id": "dock_tab_switch", "what": "Context dock Environment -> Files, click to painted frame", "bound_ms": 150, "runs_ms": [3.9, 6.4, 8.0], "median_ms": 6.4, "result": "pass" },
+    { "id": "transcript_500_rows", "what": "appendOrderedTranscriptRows over a 500-row Core page, plus forced layout", "bound_ms": 250, "runs_ms": [16.4, 23.4, 19.8], "median_ms": 19.8, "dom_nodes": 2500, "result": "pass" },
+    { "id": "diff_5000_lines", "what": "renderDiffBody over one 5,000-line hunk, plus forced layout", "bound_ms": 500, "runs_ms": [108.1, 98.9, 90.7], "median_ms": 98.9, "dom_nodes": 15004, "result": "pass" }
+  ],
+  "bounds_provenance": "The bounds are this gate's own, stated before the runs and chosen as the point past which the interaction stops feeling immediate: 400 ms to a bound screen, 150 ms for an in-place switch, 250 ms for a transcript page, 500 ms for the largest diff the byte bound admits. Core publishes no event-to-visible budget for the GUI, so no bound here is quoted from a contract.",
+  "limitations": [
+    "Dev-server timings, not release-bundle timings; the native leg did not run.",
+    "No event-to-visible p95 over a live Core, no memory profile, no soak, and no provider, MCP or LSP latency.",
+    "diff_5000_lines renders every row: DiffReview does not virtualize, which is why the record exists and why the number is the one to watch as the byte bound rises."
+  ]
+}

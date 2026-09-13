@@ -1,0 +1,1064 @@
+{
+  "component": "viden-gui",
+  "component_version": "0.1.0-rc.5",
+  "batch": "G10 design-fidelity gate (GUI-4)",
+  "branch": "claude/gui-fidelity-g10",
+  "base": "6c06a831bccb80686ef4bbbc5b136afef51d3808 (claude/int-0.3.5)",
+  "generated_at": "2026-09-13T20:00:00+08:00",
+  "method": {
+    "harness": "apps/gui/evidence/main-window-interactions/qa.html, one production render per ?state=",
+    "runtime": "Browser-controlled Chrome against the vite dev server on 127.0.0.1:4222, each surface mounted in a 1440x1180 iframe, read after document.documentElement.dataset.captureReady",
+    "pairs": [
+      "aurora/dark + en",
+      "ice/light + zh-CN"
+    ],
+    "accessible_name": "aria-label, then aria-labelledby, then label[for], then a wrapping <label>, then text content, then title/placeholder",
+    "contrast": "WCAG 2.1 relative luminance against the nearest ancestor with an opaque background; 4.5:1 required, 3:1 for large text (>=24px, or >=18.66px bold)",
+    "target_size": "getBoundingClientRect against the design package's >=28px rule",
+    "focus": "every tabbable element was given focus() and document.activeElement re-read"
+  },
+  "limitations": [
+    "Measured in Chrome against the dev server, not in the native Tauri WebView on the release bundle: the host screen reported CGSSessionScreenIsLocked=1 for the whole batch, so no native leg ran.",
+    "No platform accessibility-tree audit (NSAccessibility / AXAPI) was executed; roles and names here are the DOM's own, not what VoiceOver would announce.",
+    "Contrast resolves the nearest opaque ancestor background and does not model layered translucency or backdrop filters.",
+    "Only the two shipped GUI pairs were measured. The other six registered skin/mode pairs were not."
+  ],
+  "outcomes": {
+    "missing_accessible_name": "pass - zero on all 22 surfaces in both pairs",
+    "keyboard_focusability": "pass - every tabbable element took focus on all 22 surfaces in both pairs",
+    "contrast_aurora_dark": "pass except .review-stage at 3.48:1 on DiffReview",
+    "contrast_ice_light": "fail - --accent as small text resolves to #5a8af0 and reads 2.57:1 to 4.16:1 against light surfaces; filed as a design-package defect",
+    "target_size_28px": "fail - 17 distinct controls under 28px in at least one dimension; filed"
+  },
+  "surfaces": {
+    "d1": {
+      "aurora/dark·en": {
+        "focusable": 43,
+        "color_scheme": "dark",
+        "roles": {
+          "button": 37,
+          "tab": 4,
+          "log": 1,
+          "textarea": 1
+        },
+        "every_tabbable_took_focus": true,
+        "missing_accessible_name": [],
+        "target_under_28px": [
+          "button.gitchip 108x27",
+          "button.d1-action 26x32",
+          "button.d1-mpill 85x24",
+          "button.d1-mpill 107x24",
+          "button.d1-mpill 235x24",
+          "button.dtab 80x26",
+          "button.dtab 42x26",
+          "button.dtab 35x26",
+          "button.t 261x20",
+          "button.sb-gear 15x11",
+          "button.sb-right 124x19"
+        ],
+        "contrast_failures": []
+      },
+      "ice/light·zh-CN": {
+        "focusable": 43,
+        "color_scheme": "light",
+        "roles": {
+          "button": 37,
+          "tab": 4,
+          "log": 1,
+          "textarea": 1
+        },
+        "every_tabbable_took_focus": true,
+        "missing_accessible_name": [],
+        "target_under_28px": [
+          "button.gitchip 98x27",
+          "button.d1-action 27x32",
+          "button.d1-mpill 73x24",
+          "button.d1-mpill 109x24",
+          "button.d1-mpill 235x24",
+          "button.t 261x20",
+          "button.sb-gear 15x11",
+          "button.sb-right 78x19"
+        ],
+        "contrast_failures": [
+          "button.actbtn 2.57:1 need 4.5 @13px",
+          "button.wslane 2.57:1 need 4.5 @13px",
+          "button.dtab 3.08:1 need 4.5 @10.5px"
+        ]
+      }
+    },
+    "dock-environment": {
+      "aurora/dark·en": {
+        "focusable": 49,
+        "color_scheme": "dark",
+        "roles": {
+          "button": 43,
+          "tab": 4,
+          "log": 1,
+          "textarea": 1
+        },
+        "every_tabbable_took_focus": true,
+        "missing_accessible_name": [],
+        "target_under_28px": [
+          "button.d1-topbar-dirty 15x12",
+          "button.gitchip 55x25",
+          "button.gitchip 108x27",
+          "button.d1-action 26x32",
+          "button.d1-mpill 85x24",
+          "button.d1-mpill 107x24",
+          "button.d1-mpill 235x24",
+          "button.dtab 80x26",
+          "button.dtab 42x26",
+          "button.dtab 35x26",
+          "button.t 261x20",
+          "button.sb-gear 15x11",
+          "button.sb-right 124x19"
+        ],
+        "contrast_failures": []
+      },
+      "ice/light·zh-CN": {
+        "focusable": 49,
+        "color_scheme": "light",
+        "roles": {
+          "button": 43,
+          "tab": 4,
+          "log": 1,
+          "textarea": 1
+        },
+        "every_tabbable_took_focus": true,
+        "missing_accessible_name": [],
+        "target_under_28px": [
+          "button.d1-topbar-dirty 15x12",
+          "button.gitchip 55x25",
+          "button.gitchip 98x27",
+          "button.d1-action 27x32",
+          "button.d1-mpill 73x24",
+          "button.d1-mpill 109x24",
+          "button.d1-mpill 235x24",
+          "button.t 261x20",
+          "button.sb-gear 15x11",
+          "button.sb-right 78x19"
+        ],
+        "contrast_failures": [
+          "button.actbtn 2.57:1 need 4.5 @13px",
+          "button.wslane 2.57:1 need 4.5 @13px",
+          "button.dtab 3.08:1 need 4.5 @10.5px"
+        ]
+      }
+    },
+    "d2": {
+      "aurora/dark·en": {
+        "focusable": 10,
+        "color_scheme": "dark",
+        "roles": {
+          "button": 10
+        },
+        "every_tabbable_took_focus": true,
+        "missing_accessible_name": [],
+        "target_under_28px": [],
+        "contrast_failures": []
+      },
+      "ice/light·zh-CN": {
+        "focusable": 10,
+        "color_scheme": "light",
+        "roles": {
+          "button": 10
+        },
+        "every_tabbable_took_focus": true,
+        "missing_accessible_name": [],
+        "target_under_28px": [],
+        "contrast_failures": []
+      }
+    },
+    "d4": {
+      "aurora/dark·en": {
+        "focusable": 9,
+        "color_scheme": "dark",
+        "roles": {
+          "button": 9
+        },
+        "every_tabbable_took_focus": true,
+        "missing_accessible_name": [],
+        "target_under_28px": [],
+        "contrast_failures": []
+      },
+      "ice/light·zh-CN": {
+        "focusable": 9,
+        "color_scheme": "light",
+        "roles": {
+          "button": 9
+        },
+        "every_tabbable_took_focus": true,
+        "missing_accessible_name": [],
+        "target_under_28px": [],
+        "contrast_failures": [
+          "button.gbtn 4.16:1 need 4.5 @13px"
+        ]
+      }
+    },
+    "d4-agent-binding-started": {
+      "aurora/dark·en": {
+        "focusable": 10,
+        "color_scheme": "dark",
+        "roles": {
+          "button": 10
+        },
+        "every_tabbable_took_focus": true,
+        "missing_accessible_name": [],
+        "target_under_28px": [],
+        "contrast_failures": []
+      },
+      "ice/light·zh-CN": {
+        "focusable": 10,
+        "color_scheme": "light",
+        "roles": {
+          "button": 10
+        },
+        "every_tabbable_took_focus": true,
+        "missing_accessible_name": [],
+        "target_under_28px": [],
+        "contrast_failures": [
+          "button.gbtn 4.16:1 need 4.5 @13px"
+        ]
+      }
+    },
+    "d6-actions": {
+      "aurora/dark·en": {
+        "focusable": 41,
+        "color_scheme": "dark",
+        "roles": {
+          "button": 37,
+          "textarea": 1,
+          "tab": 3
+        },
+        "every_tabbable_took_focus": true,
+        "missing_accessible_name": [],
+        "target_under_28px": [
+          "button.gitchip 108x27",
+          "button.d1-action 26x32",
+          "button.d1-mpill 85x24",
+          "button.d1-mpill 107x24",
+          "button.d1-mpill 235x24",
+          "button.dtab 80x26",
+          "button.dtab 42x26",
+          "button.dtab 35x26",
+          "button.t 261x20",
+          "button.sb-gear 15x11",
+          "button.sb-right 124x19"
+        ],
+        "contrast_failures": []
+      },
+      "ice/light·zh-CN": {
+        "focusable": 41,
+        "color_scheme": "light",
+        "roles": {
+          "button": 37,
+          "textarea": 1,
+          "tab": 3
+        },
+        "every_tabbable_took_focus": true,
+        "missing_accessible_name": [],
+        "target_under_28px": [
+          "button.gitchip 98x27",
+          "button.d1-action 27x32",
+          "button.d1-mpill 73x24",
+          "button.d1-mpill 109x24",
+          "button.d1-mpill 235x24",
+          "button.t 261x20",
+          "button.sb-gear 15x11",
+          "button.sb-right 78x19"
+        ],
+        "contrast_failures": [
+          "button.wslane 2.57:1 need 4.5 @13px",
+          "button.dtab 3.08:1 need 4.5 @10.5px"
+        ]
+      }
+    },
+    "d10-ticker": {
+      "aurora/dark·en": {
+        "focusable": 4,
+        "color_scheme": "dark",
+        "roles": {
+          "button": 4
+        },
+        "every_tabbable_took_focus": true,
+        "missing_accessible_name": [],
+        "target_under_28px": [],
+        "contrast_failures": []
+      },
+      "ice/light·zh-CN": {
+        "focusable": 4,
+        "color_scheme": "light",
+        "roles": {
+          "button": 4
+        },
+        "every_tabbable_took_focus": true,
+        "missing_accessible_name": [],
+        "target_under_28px": [],
+        "contrast_failures": []
+      }
+    },
+    "d11": {
+      "aurora/dark·en": {
+        "focusable": 8,
+        "color_scheme": "dark",
+        "roles": {
+          "input[text]": 1,
+          "button": 3,
+          "textarea": 1,
+          "input[checkbox]": 3
+        },
+        "every_tabbable_took_focus": true,
+        "missing_accessible_name": [],
+        "target_under_28px": [
+          "button.gbtn 128x22",
+          "input 13x13",
+          "button.gbtn 58x22"
+        ],
+        "contrast_failures": []
+      },
+      "ice/light·zh-CN": {
+        "focusable": 8,
+        "color_scheme": "light",
+        "roles": {
+          "input[text]": 1,
+          "button": 3,
+          "textarea": 1,
+          "input[checkbox]": 3
+        },
+        "every_tabbable_took_focus": true,
+        "missing_accessible_name": [],
+        "target_under_28px": [
+          "button.gbtn 107x25",
+          "input 13x13",
+          "button.gbtn 43x25"
+        ],
+        "contrast_failures": []
+      }
+    },
+    "d12-actions": {
+      "aurora/dark·en": {
+        "focusable": 4,
+        "color_scheme": "dark",
+        "roles": {
+          "button": 3,
+          "input[text]": 1
+        },
+        "every_tabbable_took_focus": true,
+        "missing_accessible_name": [],
+        "target_under_28px": [],
+        "contrast_failures": []
+      },
+      "ice/light·zh-CN": {
+        "focusable": 4,
+        "color_scheme": "light",
+        "roles": {
+          "button": 3,
+          "input[text]": 1
+        },
+        "every_tabbable_took_focus": true,
+        "missing_accessible_name": [],
+        "target_under_28px": [],
+        "contrast_failures": []
+      }
+    },
+    "d13": {
+      "aurora/dark·en": {
+        "focusable": 0,
+        "color_scheme": "dark",
+        "roles": {},
+        "every_tabbable_took_focus": true,
+        "missing_accessible_name": [],
+        "target_under_28px": [],
+        "contrast_failures": []
+      },
+      "ice/light·zh-CN": {
+        "focusable": 0,
+        "color_scheme": "light",
+        "roles": {},
+        "every_tabbable_took_focus": true,
+        "missing_accessible_name": [],
+        "target_under_28px": [],
+        "contrast_failures": []
+      }
+    },
+    "d14-audit": {
+      "aurora/dark·en": {
+        "focusable": 10,
+        "color_scheme": "dark",
+        "roles": {
+          "button": 10
+        },
+        "every_tabbable_took_focus": true,
+        "missing_accessible_name": [],
+        "target_under_28px": [
+          "button.d14-fchip 63x19",
+          "button.d14-fchip 57x19",
+          "button.d14-fchip 44x19",
+          "button.d14-fchip 56x19",
+          "button.d14-fchip 79x19",
+          "button.d14-fchip 80x19",
+          "button.d14-fchip 70x19"
+        ],
+        "contrast_failures": []
+      },
+      "ice/light·zh-CN": {
+        "focusable": 10,
+        "color_scheme": "light",
+        "roles": {
+          "button": 10
+        },
+        "every_tabbable_took_focus": true,
+        "missing_accessible_name": [],
+        "target_under_28px": [
+          "button.d14-fchip 75x21",
+          "button.d14-fchip 64x21",
+          "button.d14-fchip 49x21",
+          "button.d14-fchip 87x21",
+          "button.d14-fchip 74x21",
+          "button.d14-fchip 55x21"
+        ],
+        "contrast_failures": [
+          "button.d14-fchip 3.08:1 need 4.5 @11px"
+        ]
+      }
+    },
+    "plan-proposed": {
+      "aurora/dark·en": {
+        "focusable": 43,
+        "color_scheme": "dark",
+        "roles": {
+          "button": 39,
+          "textarea": 1,
+          "tab": 3
+        },
+        "every_tabbable_took_focus": true,
+        "missing_accessible_name": [],
+        "target_under_28px": [
+          "button.gitchip 108x27",
+          "button.d1-action 26x32",
+          "button.review-icon 23x23",
+          "button.d1-mpill 77x24",
+          "button.d1-mpill 150x24",
+          "button.d1-mpill 235x24",
+          "button.dtab 80x26",
+          "button.dtab 42x26",
+          "button.dtab 35x26",
+          "button.t 261x20",
+          "button.sb-gear 15x11",
+          "button.sb-right 124x19"
+        ],
+        "contrast_failures": []
+      },
+      "ice/light·zh-CN": {
+        "focusable": 43,
+        "color_scheme": "light",
+        "roles": {
+          "button": 39,
+          "textarea": 1,
+          "tab": 3
+        },
+        "every_tabbable_took_focus": true,
+        "missing_accessible_name": [],
+        "target_under_28px": [
+          "button.gitchip 98x27",
+          "button.d1-action 27x32",
+          "button.review-icon 23x23",
+          "button.d1-mpill 73x24",
+          "button.d1-mpill 150x24",
+          "button.d1-mpill 235x24",
+          "button.t 261x20",
+          "button.sb-gear 15x11",
+          "button.sb-right 78x19"
+        ],
+        "contrast_failures": [
+          "button.actbtn 2.57:1 need 4.5 @13px",
+          "button.wslane 2.57:1 need 4.5 @13px",
+          "button.dtab 3.08:1 need 4.5 @10.5px"
+        ]
+      }
+    },
+    "board-lanes": {
+      "aurora/dark·en": {
+        "focusable": 46,
+        "color_scheme": "dark",
+        "roles": {
+          "button": 42,
+          "textarea": 1,
+          "tab": 3
+        },
+        "every_tabbable_took_focus": true,
+        "missing_accessible_name": [],
+        "target_under_28px": [
+          "button.gitchip 108x27",
+          "button.d1-action 26x32",
+          "button.review-icon 23x23",
+          "button.d1-mpill 85x24",
+          "button.d1-mpill 107x24",
+          "button.d1-mpill 235x24",
+          "button.dtab 80x26",
+          "button.dtab 42x26",
+          "button.dtab 35x26",
+          "button.t 261x20",
+          "button.sb-gear 15x11",
+          "button.sb-right 124x19"
+        ],
+        "contrast_failures": []
+      },
+      "ice/light·zh-CN": {
+        "focusable": 46,
+        "color_scheme": "light",
+        "roles": {
+          "button": 42,
+          "textarea": 1,
+          "tab": 3
+        },
+        "every_tabbable_took_focus": true,
+        "missing_accessible_name": [],
+        "target_under_28px": [
+          "button.gitchip 98x27",
+          "button.d1-action 27x32",
+          "button.review-icon 23x23",
+          "button.d1-mpill 73x24",
+          "button.d1-mpill 109x24",
+          "button.d1-mpill 235x24",
+          "button.t 261x20",
+          "button.sb-gear 15x11",
+          "button.sb-right 78x19"
+        ],
+        "contrast_failures": [
+          "button.actbtn 2.57:1 need 4.5 @13px",
+          "button.wslane 2.57:1 need 4.5 @13px",
+          "button.dtab 3.08:1 need 4.5 @10.5px"
+        ]
+      }
+    },
+    "permission-ask": {
+      "aurora/dark·en": {
+        "focusable": 49,
+        "color_scheme": "dark",
+        "roles": {
+          "button": 43,
+          "tab": 4,
+          "log": 1,
+          "textarea": 1
+        },
+        "every_tabbable_took_focus": true,
+        "missing_accessible_name": [],
+        "target_under_28px": [
+          "button.gitchip 108x27",
+          "button.d1-action 26x32",
+          "button.d1-mpill 85x24",
+          "button.d1-mpill 107x24",
+          "button.d1-mpill 235x24",
+          "button.dtab 80x26",
+          "button.dtab 42x26",
+          "button.dtab 35x26",
+          "button.t 261x20",
+          "button.sb-gear 15x11",
+          "button.sb-right 124x19"
+        ],
+        "contrast_failures": []
+      },
+      "ice/light·zh-CN": {
+        "focusable": 49,
+        "color_scheme": "light",
+        "roles": {
+          "button": 43,
+          "tab": 4,
+          "log": 1,
+          "textarea": 1
+        },
+        "every_tabbable_took_focus": true,
+        "missing_accessible_name": [],
+        "target_under_28px": [
+          "button.gitchip 98x27",
+          "button.d1-action 27x32",
+          "button.d1-mpill 73x24",
+          "button.d1-mpill 109x24",
+          "button.d1-mpill 235x24",
+          "button.t 261x20",
+          "button.sb-gear 15x11",
+          "button.sb-right 78x19"
+        ],
+        "contrast_failures": [
+          "button.actbtn 2.57:1 need 4.5 @13px",
+          "button.wslane 2.57:1 need 4.5 @13px",
+          "button.dtab 3.08:1 need 4.5 @10.5px"
+        ]
+      }
+    },
+    "dock-always-edit": {
+      "aurora/dark·en": {
+        "focusable": 51,
+        "color_scheme": "dark",
+        "roles": {
+          "button": 44,
+          "tab": 4,
+          "log": 1,
+          "input[text]": 1,
+          "textarea": 1
+        },
+        "every_tabbable_took_focus": true,
+        "missing_accessible_name": [],
+        "target_under_28px": [
+          "button.gitchip 108x27",
+          "button.d1-action 26x32",
+          "button.d1-mpill 85x24",
+          "button.d1-mpill 107x24",
+          "button.d1-mpill 235x24",
+          "button.dtab 80x26",
+          "button.dtab 42x26",
+          "button.dtab 35x26",
+          "button.t 261x20",
+          "button.sb-gear 15x11",
+          "button.sb-right 124x19"
+        ],
+        "contrast_failures": []
+      },
+      "ice/light·zh-CN": {
+        "focusable": 51,
+        "color_scheme": "light",
+        "roles": {
+          "button": 44,
+          "tab": 4,
+          "log": 1,
+          "input[text]": 1,
+          "textarea": 1
+        },
+        "every_tabbable_took_focus": true,
+        "missing_accessible_name": [],
+        "target_under_28px": [
+          "button.gitchip 98x27",
+          "button.d1-action 27x32",
+          "button.d1-mpill 73x24",
+          "button.d1-mpill 109x24",
+          "button.d1-mpill 235x24",
+          "button.t 261x20",
+          "button.sb-gear 15x11",
+          "button.sb-right 78x19"
+        ],
+        "contrast_failures": [
+          "button.actbtn 2.57:1 need 4.5 @13px",
+          "button.wslane 2.57:1 need 4.5 @13px",
+          "button.dtab 3.08:1 need 4.5 @10.5px"
+        ]
+      }
+    },
+    "review": {
+      "aurora/dark·en": {
+        "focusable": 54,
+        "color_scheme": "dark",
+        "roles": {
+          "button": 49,
+          "input[text]": 1,
+          "textarea": 1,
+          "tab": 3
+        },
+        "every_tabbable_took_focus": true,
+        "missing_accessible_name": [],
+        "target_under_28px": [
+          "button.d1-topbar-dirty 15x12",
+          "button.gitchip 55x25",
+          "button.gitchip 108x27",
+          "button.d1-action 26x32",
+          "button.review-icon 23x23",
+          "button.ftrow 197x26",
+          "button.review-stage 22x21",
+          "button.on 69x21",
+          "button.d1-mpill 85x24",
+          "button.d1-mpill 107x24",
+          "button.d1-mpill 235x24",
+          "button.dtab 80x26",
+          "button.dtab 42x26",
+          "button.dtab 35x26",
+          "button.t 261x20",
+          "button.sb-gear 15x11",
+          "button.sb-right 124x19"
+        ],
+        "contrast_failures": [
+          "button.review-stage 3.48:1 need 4.5 @11px"
+        ]
+      },
+      "ice/light·zh-CN": {
+        "focusable": 54,
+        "color_scheme": "light",
+        "roles": {
+          "button": 49,
+          "input[text]": 1,
+          "textarea": 1,
+          "tab": 3
+        },
+        "every_tabbable_took_focus": true,
+        "missing_accessible_name": [],
+        "target_under_28px": [
+          "button.d1-topbar-dirty 15x12",
+          "button.gitchip 55x25",
+          "button.gitchip 98x27",
+          "button.d1-action 27x32",
+          "button.review-icon 23x23",
+          "button.ftrow 197x26",
+          "button.review-stage 22x21",
+          "button.on 67x23",
+          "button.d1-mpill 73x24",
+          "button.d1-mpill 109x24",
+          "button.d1-mpill 235x24",
+          "button.t 261x20",
+          "button.sb-gear 15x11",
+          "button.sb-right 78x19"
+        ],
+        "contrast_failures": [
+          "button.actbtn 2.57:1 need 4.5 @13px",
+          "button.wslane 2.57:1 need 4.5 @13px",
+          "button.review-stage 3.37:1 need 4.5 @11px",
+          "button.on 4.16:1 need 4.5 @11px",
+          "button.dtab 3.08:1 need 4.5 @10.5px"
+        ]
+      }
+    },
+    "evidence": {
+      "aurora/dark·en": {
+        "focusable": 62,
+        "color_scheme": "dark",
+        "roles": {
+          "button": 57,
+          "input[search]": 1,
+          "textarea": 1,
+          "tab": 3
+        },
+        "every_tabbable_took_focus": true,
+        "missing_accessible_name": [],
+        "target_under_28px": [
+          "button.d1-topbar-dirty 15x12",
+          "button.gitchip 108x27",
+          "button.d1-action 26x32",
+          "button.fchip 42x25",
+          "button.fchip 55x25",
+          "button.fchip 95x25",
+          "button.fchip 62x25",
+          "button.fchip 88x25",
+          "button.fchip 128x25",
+          "button.fchip 101x25",
+          "input.search 220x27",
+          "button.evidence-icon 23x23",
+          "button.evidence-older 93x25",
+          "button.d1-mpill 115x23",
+          "button.d1-mpill 129x23",
+          "button.d1-mpill 85x24",
+          "button.d1-mpill 107x24",
+          "button.d1-mpill 235x24",
+          "button.dtab 80x26",
+          "button.dtab 42x26",
+          "button.dtab 35x26",
+          "button.t 261x20",
+          "button.sb-gear 15x11",
+          "button.sb-right 124x19"
+        ],
+        "contrast_failures": []
+      },
+      "ice/light·zh-CN": {
+        "focusable": 62,
+        "color_scheme": "light",
+        "roles": {
+          "button": 57,
+          "input[search]": 1,
+          "textarea": 1,
+          "tab": 3
+        },
+        "every_tabbable_took_focus": true,
+        "missing_accessible_name": [],
+        "target_under_28px": [
+          "button.d1-topbar-dirty 15x12",
+          "button.gitchip 98x27",
+          "button.d1-action 27x32",
+          "button.fchip 44x25",
+          "button.fchip 66x25",
+          "button.fchip 101x25",
+          "input.search 166x27",
+          "button.evidence-icon 23x23",
+          "button.d1-mpill 87x23",
+          "button.d1-mpill 73x24",
+          "button.d1-mpill 109x24",
+          "button.d1-mpill 235x24",
+          "button.t 261x20",
+          "button.sb-gear 15x11",
+          "button.sb-right 78x19"
+        ],
+        "contrast_failures": [
+          "button.actbtn 2.57:1 need 4.5 @13px",
+          "button.wslane 2.57:1 need 4.5 @13px",
+          "button.fchip 2.57:1 need 4.5 @11px",
+          "button.dtab 3.08:1 need 4.5 @10.5px"
+        ]
+      }
+    },
+    "palette": {
+      "aurora/dark·en": {
+        "focusable": 44,
+        "color_scheme": "dark",
+        "roles": {
+          "button": 37,
+          "tab": 4,
+          "log": 1,
+          "textarea": 1,
+          "combobox": 1
+        },
+        "every_tabbable_took_focus": true,
+        "missing_accessible_name": [],
+        "target_under_28px": [
+          "button.gitchip 108x27",
+          "button.d1-action 26x32",
+          "button.d1-mpill 85x24",
+          "button.d1-mpill 107x24",
+          "button.d1-mpill 235x24",
+          "button.dtab 80x26",
+          "button.dtab 42x26",
+          "button.dtab 35x26",
+          "button.t 261x20",
+          "button.sb-gear 15x11",
+          "button.sb-right 124x19",
+          "input.q 481x20"
+        ],
+        "contrast_failures": []
+      },
+      "ice/light·zh-CN": {
+        "focusable": 44,
+        "color_scheme": "light",
+        "roles": {
+          "button": 37,
+          "tab": 4,
+          "log": 1,
+          "textarea": 1,
+          "combobox": 1
+        },
+        "every_tabbable_took_focus": true,
+        "missing_accessible_name": [],
+        "target_under_28px": [
+          "button.gitchip 98x27",
+          "button.d1-action 27x32",
+          "button.d1-mpill 73x24",
+          "button.d1-mpill 109x24",
+          "button.d1-mpill 235x24",
+          "button.t 261x20",
+          "button.sb-gear 15x11",
+          "button.sb-right 78x19",
+          "input.q 512x20"
+        ],
+        "contrast_failures": [
+          "button.tbtbtn 2.57:1 need 4.5 @13.3333px",
+          "button.actbtn 2.57:1 need 4.5 @13px",
+          "button.wslane 2.57:1 need 4.5 @13px",
+          "button.dtab 3.08:1 need 4.5 @10.5px"
+        ]
+      }
+    },
+    "centre-focus-mode": {
+      "aurora/dark·en": {
+        "focusable": 45,
+        "color_scheme": "dark",
+        "roles": {
+          "button": 38,
+          "tab": 5,
+          "log": 1,
+          "textarea": 1
+        },
+        "every_tabbable_took_focus": true,
+        "missing_accessible_name": [],
+        "target_under_28px": [
+          "button.gitchip 108x27",
+          "button.d1-action 26x32",
+          "button.d1-mpill 85x24",
+          "button.d1-mpill 107x24",
+          "button.d1-mpill 235x24",
+          "button.dtab 80x26",
+          "button.dtab 42x26",
+          "button.dtab 35x26",
+          "button.t 263x20",
+          "button.sb-gear 15x11",
+          "button.sb-right 124x19"
+        ],
+        "contrast_failures": []
+      },
+      "ice/light·zh-CN": {
+        "focusable": 45,
+        "color_scheme": "light",
+        "roles": {
+          "button": 38,
+          "tab": 5,
+          "log": 1,
+          "textarea": 1
+        },
+        "every_tabbable_took_focus": true,
+        "missing_accessible_name": [],
+        "target_under_28px": [
+          "button.gitchip 98x27",
+          "button.d1-action 27x32",
+          "button.d1-mpill 73x24",
+          "button.d1-mpill 109x24",
+          "button.d1-mpill 235x24",
+          "button.t 263x20",
+          "button.sb-gear 15x11",
+          "button.sb-right 78x19"
+        ],
+        "contrast_failures": [
+          "button.tbtbtn 2.57:1 need 4.5 @13.3333px",
+          "button.actbtn 2.57:1 need 4.5 @13px",
+          "button.wslane 2.57:1 need 4.5 @13px",
+          "button.dtab 3.08:1 need 4.5 @10.5px"
+        ]
+      }
+    },
+    "welcome-fill": {
+      "aurora/dark·en": {
+        "focusable": 7,
+        "color_scheme": "dark",
+        "roles": {
+          "button": 7
+        },
+        "every_tabbable_took_focus": true,
+        "missing_accessible_name": [],
+        "target_under_28px": [
+          "button.sb-gear 15x11",
+          "button.sb-right 124x19"
+        ],
+        "contrast_failures": []
+      },
+      "ice/light·zh-CN": {
+        "focusable": 7,
+        "color_scheme": "light",
+        "roles": {
+          "button": 7
+        },
+        "every_tabbable_took_focus": true,
+        "missing_accessible_name": [],
+        "target_under_28px": [
+          "button.sb-gear 15x11",
+          "button.sb-right 78x19"
+        ],
+        "contrast_failures": []
+      }
+    },
+    "settings": {
+      "aurora/dark·en": {
+        "focusable": 72,
+        "color_scheme": "dark",
+        "roles": {
+          "button": 41,
+          "tab": 4,
+          "log": 1,
+          "textarea": 1,
+          "radio": 25
+        },
+        "every_tabbable_took_focus": true,
+        "missing_accessible_name": [],
+        "target_under_28px": [
+          "button.gitchip 108x27",
+          "button.d1-action 26x32",
+          "button.d1-mpill 85x24",
+          "button.d1-mpill 107x24",
+          "button.d1-mpill 235x24",
+          "button.dtab 80x26",
+          "button.dtab 42x26",
+          "button.dtab 35x26",
+          "button.t 261x20",
+          "button.sb-gear 15x11",
+          "button.sb-right 124x19",
+          "button.gset-close 19x17",
+          "button.gset-option 58x27",
+          "button.gset-option 64x27",
+          "button.gset-option 40x27",
+          "button.gset-option 44x27",
+          "button.gset-option 51x27"
+        ],
+        "contrast_failures": []
+      },
+      "ice/light·zh-CN": {
+        "focusable": 72,
+        "color_scheme": "light",
+        "roles": {
+          "button": 41,
+          "tab": 4,
+          "log": 1,
+          "textarea": 1,
+          "radio": 25
+        },
+        "every_tabbable_took_focus": true,
+        "missing_accessible_name": [],
+        "target_under_28px": [
+          "button.gitchip 98x27",
+          "button.d1-action 27x32",
+          "button.d1-mpill 73x24",
+          "button.d1-mpill 109x24",
+          "button.d1-mpill 235x24",
+          "button.t 261x20",
+          "button.sb-gear 15x11",
+          "button.sb-right 78x19",
+          "button.gset-close 19x17",
+          "button.gset-option 62x27",
+          "button.gset-option 64x27",
+          "button.gset-option 40x27"
+        ],
+        "contrast_failures": [
+          "button.actbtn 2.57:1 need 4.5 @13px",
+          "button.wslane 2.57:1 need 4.5 @13px",
+          "button.dtab 3.08:1 need 4.5 @10.5px",
+          "button.gset-option 2.57:1 need 4.5 @11px"
+        ]
+      }
+    },
+    "lane-rail": {
+      "aurora/dark·en": {
+        "focusable": 45,
+        "color_scheme": "dark",
+        "roles": {
+          "button": 39,
+          "tab": 4,
+          "log": 1,
+          "textarea": 1
+        },
+        "every_tabbable_took_focus": true,
+        "missing_accessible_name": [],
+        "target_under_28px": [
+          "button.gitchip 108x27",
+          "button.d1-action 26x32",
+          "button.d1-mpill 85x24",
+          "button.d1-mpill 107x24",
+          "button.d1-mpill 235x24",
+          "button.dtab 80x26",
+          "button.dtab 42x26",
+          "button.dtab 35x26",
+          "button.t 261x20",
+          "button.sb-gear 15x11",
+          "button.sb-right 124x19"
+        ],
+        "contrast_failures": []
+      },
+      "ice/light·zh-CN": {
+        "focusable": 45,
+        "color_scheme": "light",
+        "roles": {
+          "button": 39,
+          "tab": 4,
+          "log": 1,
+          "textarea": 1
+        },
+        "every_tabbable_took_focus": true,
+        "missing_accessible_name": [],
+        "target_under_28px": [
+          "button.gitchip 98x27",
+          "button.d1-action 27x32",
+          "button.d1-mpill 73x24",
+          "button.d1-mpill 109x24",
+          "button.d1-mpill 235x24",
+          "button.t 261x20",
+          "button.sb-gear 15x11",
+          "button.sb-right 78x19"
+        ],
+        "contrast_failures": [
+          "button.actbtn 2.57:1 need 4.5 @13px",
+          "button.wslane 2.57:1 need 4.5 @13px",
+          "button.dtab 3.08:1 need 4.5 @10.5px"
+        ]
+      }
+    }
+  }
+}

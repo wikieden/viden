@@ -73,6 +73,40 @@ describe("D1 accessibility and contrast semantics", () => {
     expect(qaHtml).toContain("document.documentElement.style.fontSize");
   });
 
+  test("neutralises the user-agent button fill the registered kit never overrides", () => {
+    // G10 drift. `gui-kit.css` styles `.tbtbtn`, `.gitchip` and friends without
+    // a `background`, because the design package draws them as non-interactive
+    // elements. The client renders them as real `<button>`s so they can be
+    // reached from the keyboard, which exposes the UA's `ButtonFace` fill: the
+    // three titlebar tool buttons painted an opaque grey slab on every
+    // cockpit-bearing surface, in both themes, and no design token authorises
+    // that colour. The reset is written with `:where()` so it carries zero
+    // specificity and any real class background still wins.
+    const themeCss = readFileSync(join(process.cwd(), "src/ui/theme.css"), "utf8");
+
+    expect(themeCss).toContain(":where(#app) :where(button");
+    expect(themeCss).toContain("background-color: transparent");
+    // The fill was only half of it. A `<button>` with no `color` rule of its
+    // own takes the UA's `buttontext`, which follows the host's colour scheme
+    // rather than the skin: in `ice/light` the Settings Cancel drew white on
+    // the white `--bg-elev` panel, a 1:1 control.
+    expect(themeCss).toContain("color: inherit");
+  });
+
+  test("declares a colour scheme so the user agent follows the skin, not the host", () => {
+    // Root cause of both halves above: the document never said which scheme it
+    // paints, so `getComputedStyle(:root).colorScheme` read `dark` while the
+    // client rendered `ice/light`. Every UA-drawn surface — system colours,
+    // scrollbars, native form controls, the caret — was resolving against the
+    // wrong one. `data-mode` is what `applyResolvedTheme` already writes.
+    const themeCss = readFileSync(join(process.cwd(), "src/ui/theme.css"), "utf8");
+
+    expect(themeCss).toContain('[data-mode="dark"]');
+    expect(themeCss).toContain('[data-mode="light"]');
+    expect(themeCss).toContain("color-scheme: dark");
+    expect(themeCss).toContain("color-scheme: light");
+  });
+
   test("records the deterministic rc.3 accessibility evidence artifact", () => {
     const evidence = JSON.parse(
       readFileSync(

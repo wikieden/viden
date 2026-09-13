@@ -17,13 +17,13 @@
   gap: var(--sp-3);
   padding: var(--sp-3) var(--sp-4);
   border-bottom: 1px solid var(--border-soft);
-  background: var(--bg-raised);
+  background: var(--bg-panel);
 }
 
 .d12-title {
   margin: 0;
   color: var(--fg-primary);
-  font: var(--fs-md)/var(--lh-ui) var(--font-sans);
+  font: var(--fs-base)/var(--lh-ui) var(--font-sans);
 }
 
 .d12-count,
@@ -73,7 +73,7 @@
 .d12-gchip[aria-pressed="true"] {
   color: var(--fg-primary);
   border-color: var(--border-active);
-  background: var(--bg-selected);
+  background: var(--bg-sel);
 }
 
 .d12-banner {

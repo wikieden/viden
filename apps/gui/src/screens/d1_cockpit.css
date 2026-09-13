@@ -1285,7 +1285,7 @@ button.d1-topbar-project[aria-expanded="true"] {
   padding: var(--sp-2);
   border: 1px solid var(--border-soft);
   border-radius: var(--r-md);
-  background: var(--bg-raised);
+  background: var(--bg-panel);
 }
 
 .d1-content-part img {

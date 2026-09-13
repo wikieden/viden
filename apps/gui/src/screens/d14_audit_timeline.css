@@ -14,13 +14,13 @@
   gap: var(--sp-3);
   padding: var(--sp-3) var(--sp-4);
   border-bottom: 1px solid var(--border-soft);
-  background: var(--bg-raised);
+  background: var(--bg-panel);
 }
 
 .d14-title {
   margin: 0;
   color: var(--fg-primary);
-  font: var(--fs-md)/var(--lh-ui) var(--font-sans);
+  font: var(--fs-base)/var(--lh-ui) var(--font-sans);
 }
 
 .d14-count,
@@ -124,7 +124,7 @@
   gap: var(--sp-2);
   padding: var(--sp-2) var(--sp-4);
   border-bottom: 1px solid var(--border-soft);
-  background: var(--bg-raised);
+  background: var(--bg-panel);
 }
 
 .d14-mode {
@@ -238,7 +238,10 @@
 .d14-fchip {
   font: inherit;
   font-size: 11px;
-  color: var(--fg-tertiary, var(--fg-secondary));
+  /* The package's foreground ladder stops at four steps and `--fg-faint` is
+   * reserved for large, non-body text; an 11px chip label stays on the
+   * secondary step the dead `--fg-tertiary` name was already falling back to. */
+  color: var(--fg-secondary);
   background: transparent;
   border: 1px solid var(--border);
   border-radius: 999px;
@@ -296,5 +299,8 @@
 
 .d14-rollup-seg[data-d14-rollup-outcome="denied"],
 .d14-rollup-seg[data-d14-rollup-outcome="failed"] {
-  color: var(--warn, var(--fg-primary));
+  /* `--warn` is not a registered token, so a denied or failed rollup segment
+   * was rendering in the fallback's ordinary primary ink — a failure drawn as
+   * if it were a normal count. `--warning` is the package's semantic token. */
+  color: var(--warning);
 }
