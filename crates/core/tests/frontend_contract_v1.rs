@@ -7128,12 +7128,6 @@ fn ui_layout_preferences_fixture() -> FrontendContractFixtureOut {
     )
 }
 
-/// Envelopes whose owner varies per event.
-///
-/// `owned_envelopes` fixes one owner for a whole fixture, which cannot express
-/// a workspace-scoped fact standing beside a Lane-scoped one — the exact pair
-/// `runtime.workspace_owner` exists to distinguish.
-
 /// GUI-CORE-019: canonical proof that a standing `Always` grant, its
 /// revocation, and an `Edit` decision are readable as facts rather than as
 /// client state.
@@ -7679,6 +7673,11 @@ fn starter_lane_agent_fixture() -> FrontendContractFixtureOut {
     )
 }
 
+/// Envelopes whose owner varies per event.
+///
+/// `owned_envelopes` fixes one owner for a whole fixture, which cannot express
+/// a workspace-scoped fact standing beside a Lane-scoped one — the exact pair
+/// `runtime.workspace_owner` exists to distinguish.
 fn owned_envelopes_per_event(
     fixture_id: &str,
     events: Vec<(RuntimeEventKind, RuntimeOwner)>,

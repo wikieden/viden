@@ -371,7 +371,7 @@ fn an_unoffered_edit_and_an_unchanged_revision_are_both_rejected() {
             )
         })
     });
-    assert_eq!(resolved.is_empty(), false);
+    assert!(!resolved.is_empty());
 }
 
 /// A revision the engine still wants a decision about becomes a second
