@@ -471,6 +471,27 @@ impl ApprovalAuditLog {
         job_id: Option<&str>,
         decision: &ApprovalDecision,
     ) -> Result<(), String> {
+        self.record_decision_for(
+            audit_id, owner, request_id, tool_name, job_id, None, decision,
+        )
+    }
+
+    /// [`Self::record_decision`] with the lane the decision released.
+    ///
+    /// Only the lane branch names one: a runtime-owned approval's objects are
+    /// the request, the tool, and the job, and adding a lane object there
+    /// would move rows every recorded fixture already holds.
+    #[allow(clippy::too_many_arguments)]
+    fn record_decision_for(
+        &self,
+        audit_id: &str,
+        owner: &RuntimeOwner,
+        request_id: &str,
+        tool_name: &str,
+        job_id: Option<&str>,
+        lane_id: Option<&str>,
+        decision: &ApprovalDecision,
+    ) -> Result<(), String> {
         let mut objects = vec![
             AuditObjectRef::new(AuditObjectRef::KIND_PERMISSION, request_id),
             AuditObjectRef::new("tool", tool_name),
@@ -480,6 +501,9 @@ impl ApprovalAuditLog {
         // the decision released rather than only to the prompt.
         if let Some(job_id) = job_id.filter(|id| !id.is_empty()) {
             objects.push(AuditObjectRef::new("job", job_id));
+        }
+        if let Some(lane_id) = lane_id.filter(|id| !id.is_empty()) {
+            objects.push(AuditObjectRef::new(AuditObjectRef::KIND_LANE, lane_id));
         }
         let mut args = BTreeMap::new();
         args.insert(
@@ -1135,10 +1159,10 @@ impl RuntimeSupervisor {
                 request_id,
                 response,
             } => {
-                if let Some(pending_owner) =
-                    self.lane_supervisor.pending_approval_owner(&request_id)?
+                if let Some((pending, lane_permission_epoch)) =
+                    self.lane_supervisor.pending_approval(&request_id)?
                 {
-                    if pending_owner != owner {
+                    if pending.owner != owner {
                         emit_event(
                             &self.event_bus,
                             owner,
@@ -1148,6 +1172,55 @@ impl RuntimeSupervisor {
                             },
                         );
                         return Ok(());
+                    }
+                    // Compatibility follow-up 15. Before this, the lane branch
+                    // returned here and never reached `record_decision` below,
+                    // so a `lane_create` approval published an `audit_id` the
+                    // durable timeline had no row for. The row is written on
+                    // the runtime branch — audit stays runtime-owned policy and
+                    // `crates/lanes` gains no writer — and it is written
+                    // *before* the response is forwarded, because the worker
+                    // emits `ApprovalResolved` carrying this id as soon as it
+                    // picks the message up.
+                    //
+                    // The decision recorded is the lane worker's own intake
+                    // verdict for this answer, read through the same rule the
+                    // worker applies, plus the runtime's mutation block: an
+                    // expired, stale-epoch, or out-of-scope "allow" is enforced
+                    // as a denial and is recorded as one. What can still
+                    // diverge is the worker's injected permission-gate
+                    // re-check, which runs on its own thread after this point;
+                    // that refusal is published as `ApprovalResolved { Deny }`
+                    // and is not re-recorded here, because a second row under
+                    // one pre-minted id would break the receipt join.
+                    let blocks_mutation = self
+                        .permission_control
+                        .lock()
+                        .map_err(|_| "permission control state poisoned".to_string())?
+                        .blocks_mutation();
+                    let intake = pending.intake(&response, now_timestamp(), lane_permission_epoch);
+                    let decision = if intake.is_allowed() && !blocks_mutation {
+                        response.decision.clone()
+                    } else {
+                        ApprovalDecision::Deny
+                    };
+                    if let Err(error) = self.approval_audit.record_decision_for(
+                        &pending.audit_id,
+                        &pending.owner,
+                        &request_id,
+                        &pending.tool_name,
+                        Some(pending.command_id.as_str()),
+                        Some(pending.lane_id.as_str()),
+                        &decision,
+                    ) {
+                        // Fail-open on the decision, not on the audit, exactly
+                        // as the runtime-owned path does: an operator's answer
+                        // is still delivered, and the failure is visible.
+                        emit_error(
+                            &self.event_bus,
+                            pending.owner.clone(),
+                            format!("approval decision was applied but not audited: {error}"),
+                        );
                     }
                     self.commands
                         .send(SupervisorMessage::LaneApprovalResponse {

@@ -79,7 +79,7 @@ pub(crate) enum LaneWorkerMessage {
 
 pub(crate) struct LaneWorkerHandle {
     pub(crate) owner: RuntimeOwner,
-    pending_approval: Arc<Mutex<Option<String>>>,
+    pending_approval: Arc<Mutex<Option<LanePendingApproval>>>,
     terminal_completion: Arc<Mutex<Option<LaneTerminalCompletion>>>,
     permissions: Arc<Mutex<LanePermissionState>>,
     registered: Arc<AtomicBool>,
@@ -179,9 +179,21 @@ impl LaneWorkerHandle {
     }
 
     pub(crate) fn owns_pending_approval(&self, request_id: &str) -> bool {
+        self.pending_approval.lock().is_ok_and(|pending| {
+            pending
+                .as_ref()
+                .is_some_and(|pending| pending.request_id == request_id)
+        })
+    }
+
+    /// The pending approval record, for a runtime that needs to audit the
+    /// decision it is about to forward (compatibility follow-up 15).
+    pub(crate) fn pending_approval(&self, request_id: &str) -> Option<LanePendingApproval> {
         self.pending_approval
             .lock()
-            .is_ok_and(|pending| pending.as_deref() == Some(request_id))
+            .ok()
+            .and_then(|pending| pending.clone())
+            .filter(|pending| pending.request_id == request_id)
     }
 
     pub(crate) fn take_terminal_completion(&self) -> Option<LaneTerminalCompletion> {
@@ -246,13 +258,90 @@ impl Drop for LaneWorkerHandle {
     }
 }
 
+/// The runtime-visible facts about one pending lane approval.
+///
+/// Read-only, and deliberately so: audit is runtime-owned policy that is
+/// injected into this crate, so the runtime's `RespondToApproval` branch reads
+/// this record and writes the `approval.<decision>` row itself
+/// (compatibility follow-up 15). Nothing here writes an audit record.
+#[derive(Debug, Clone)]
+pub struct LanePendingApproval {
+    /// The exact owner Core published the request under.
+    pub owner: RuntimeOwner,
+    pub lane_id: String,
+    pub request_id: String,
+    /// The id already published on `ApprovalRequested`, which the durable row
+    /// must be written under so the receipt an operator saw resolves.
+    pub audit_id: String,
+    pub tool_name: String,
+    /// The client command this approval unblocks; the audit row's job object.
+    pub command_id: String,
+    pub expires_at: u64,
+    pub permission_epoch: u64,
+    pub allowed_scopes: Vec<ApprovalScope>,
+}
+
+/// What the lane worker will do with an operator's answer before its own
+/// injected permission gate re-checks it.
+///
+/// Shared by the worker (which needs the refusal reason) and by the runtime's
+/// audit branch (which needs the decision it is about to record), so the row
+/// and the enforced outcome come from one rule rather than two copies of it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LaneApprovalIntake {
+    Allowed,
+    Denied,
+    Expired,
+    PermissionEpochChanged,
+    ScopeNotAllowed,
+}
+
+impl LaneApprovalIntake {
+    pub fn is_allowed(self) -> bool {
+        matches!(self, Self::Allowed)
+    }
+
+    pub(crate) fn reason(self) -> &'static str {
+        match self {
+            Self::Allowed | Self::Denied => "lane mutation approval denied",
+            Self::Expired => "lane mutation approval expired",
+            Self::PermissionEpochChanged => "lane mutation permission epoch changed",
+            Self::ScopeNotAllowed => "lane mutation approval scope is not allowed",
+        }
+    }
+}
+
+impl LanePendingApproval {
+    /// The verdict the worker reaches for `response`, before the injected
+    /// permission gate runs.
+    ///
+    /// Order matters only for the message a refusal carries; every non-allowed
+    /// arm is a denial.
+    pub fn intake(
+        &self,
+        response: &ApprovalResponse,
+        now: u64,
+        current_permission_epoch: u64,
+    ) -> LaneApprovalIntake {
+        match &response.decision {
+            ApprovalDecision::Deny => LaneApprovalIntake::Denied,
+            ApprovalDecision::Allow { scope } => {
+                if now >= self.expires_at {
+                    LaneApprovalIntake::Expired
+                } else if current_permission_epoch != self.permission_epoch {
+                    LaneApprovalIntake::PermissionEpochChanged
+                } else if !self.allowed_scopes.contains(scope) {
+                    LaneApprovalIntake::ScopeNotAllowed
+                } else {
+                    LaneApprovalIntake::Allowed
+                }
+            }
+        }
+    }
+}
+
 struct PendingMutation {
-    request_id: String,
-    command_id: String,
-    audit_id: String,
-    expires_at: u64,
-    permission_epoch: u64,
-    allowed_scopes: Vec<ApprovalScope>,
+    approval: LanePendingApproval,
     tool: ToolSpec,
     input: ToolInput,
     previous_status: LaneStatus,
@@ -280,7 +369,7 @@ struct LaneWorker {
     events: LaneEventSink,
     approvals: LaneApprovalResolver,
     pending_mutation: Option<PendingMutation>,
-    pending_approval: Arc<Mutex<Option<String>>>,
+    pending_approval: Arc<Mutex<Option<LanePendingApproval>>>,
     terminal_completion: Arc<Mutex<Option<LaneTerminalCompletion>>>,
     terminal_sender: Sender<LaneTerminalCompletion>,
     registered: Arc<AtomicBool>,
@@ -606,20 +695,29 @@ impl LaneWorker {
             &tool,
             &input,
         );
-        self.pending_mutation = Some(PendingMutation {
-            request_id: request_id.clone(),
-            command_id,
+        let record = LanePendingApproval {
+            owner: self.owner.clone(),
+            lane_id: self.lane.id.clone(),
+            request_id,
             audit_id,
+            tool_name: tool.name.clone(),
+            command_id,
             expires_at,
             permission_epoch,
             allowed_scopes,
+        };
+        self.pending_mutation = Some(PendingMutation {
+            approval: record.clone(),
             tool,
             input,
             previous_status,
             operation,
         });
+        // Published to the handle so the runtime's `RespondToApproval` branch
+        // can read the pre-minted `audit_id` and the lane this decision
+        // releases without reaching into the worker thread.
         if let Ok(mut pending) = self.pending_approval.lock() {
-            *pending = Some(request_id);
+            *pending = Some(record);
         }
         self.emit(RuntimeEventKind::ApprovalRequested { approval });
     }
@@ -741,7 +839,7 @@ impl LaneWorker {
         let expired = self
             .pending_mutation
             .as_ref()
-            .is_some_and(|pending| now_timestamp() >= pending.expires_at);
+            .is_some_and(|pending| now_timestamp() >= pending.approval.expires_at);
         if !expired {
             return;
         }
@@ -753,15 +851,18 @@ impl LaneWorker {
             *approval = None;
         }
         self.emit(RuntimeEventKind::ApprovalResolved {
-            request_id: pending.request_id,
+            request_id: pending.approval.request_id,
             decision: ApprovalDecision::Deny,
             owner: self.owner.clone(),
-            audit_id: pending.audit_id,
+            audit_id: pending.approval.audit_id,
         });
         if self.registered.load(Ordering::Acquire) {
             let _ = self.change_status(pending.previous_status, "lane mutation approval expired");
         }
-        self.reject(pending.command_id, "lane mutation approval expired");
+        self.reject(
+            pending.approval.command_id,
+            "lane mutation approval expired",
+        );
     }
 
     fn resume_approval(
@@ -774,36 +875,34 @@ impl LaneWorker {
         let Some(pending) = self.pending_mutation.take() else {
             return;
         };
-        if pending.request_id != request_id {
+        if pending.approval.request_id != request_id {
             self.pending_mutation = Some(pending);
             return;
         }
         if let Ok(mut approval) = self.pending_approval.lock() {
             *approval = None;
         }
-        let valid_scope = match &response.decision {
-            ApprovalDecision::Deny => true,
-            ApprovalDecision::Allow { scope } => pending.allowed_scopes.contains(scope),
+        // The same rule the runtime's audit branch read before it forwarded
+        // this response, so the recorded decision and the enforced one are one
+        // computation rather than two copies of it. Only the injected gate's
+        // own re-check below can still diverge from it.
+        let intake = pending
+            .approval
+            .intake(&response, now_timestamp(), permission_epoch);
+        let permission_allowed = intake.is_allowed() && {
+            // Re-check through the injected permission gate: the queued
+            // operator response stands in for the interactive ask flow, so
+            // the plan-mode re-check in apply_approval still applies.
+            matches!(
+                (self.approvals)(
+                    &mut permissions,
+                    &pending.tool,
+                    &pending.input,
+                    response.clone(),
+                ),
+                PermissionDecision::Allow(_)
+            )
         };
-        let unexpired = now_timestamp() < pending.expires_at;
-        let current_epoch = permission_epoch == pending.permission_epoch;
-        let permission_allowed =
-            if valid_scope && unexpired && current_epoch && response.is_allowed() {
-                // Re-check through the injected permission gate: the queued
-                // operator response stands in for the interactive ask flow, so
-                // the plan-mode re-check in apply_approval still applies.
-                matches!(
-                    (self.approvals)(
-                        &mut permissions,
-                        &pending.tool,
-                        &pending.input,
-                        response.clone(),
-                    ),
-                    PermissionDecision::Allow(_)
-                )
-            } else {
-                false
-            };
         let decision = if permission_allowed {
             response.decision.clone()
         } else {
@@ -813,7 +912,7 @@ impl LaneWorker {
             request_id,
             decision,
             owner: self.owner.clone(),
-            audit_id: pending.audit_id.clone(),
+            audit_id: pending.approval.audit_id.clone(),
         });
         if permission_allowed {
             if let Ok(mut installed) = self.permissions.lock()
@@ -838,16 +937,7 @@ impl LaneWorker {
                 let _ =
                     self.change_status(pending.previous_status, "lane mutation approval denied");
             }
-            let reason = if !unexpired {
-                "lane mutation approval expired"
-            } else if !current_epoch {
-                "lane mutation permission epoch changed"
-            } else if !valid_scope {
-                "lane mutation approval scope is not allowed"
-            } else {
-                "lane mutation approval denied"
-            };
-            self.reject(pending.command_id, reason);
+            self.reject(pending.approval.command_id, intake.reason());
         }
     }
 
@@ -857,10 +947,10 @@ impl LaneWorker {
                 *approval = None;
             }
             self.emit(RuntimeEventKind::ApprovalResolved {
-                request_id: pending.request_id,
+                request_id: pending.approval.request_id,
                 decision: ApprovalDecision::Deny,
                 owner: self.owner.clone(),
-                audit_id: pending.audit_id,
+                audit_id: pending.approval.audit_id,
             });
             let _ = self.change_status(LaneStatus::Cancelled, "lane mutation cancelled");
         } else {
