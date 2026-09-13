@@ -73,6 +73,7 @@ runtime.agent_conversation
 runtime.agent_permission_bridge
 runtime.agent_session_input
 runtime.agent_sessions
+runtime.approval_scopes
 runtime.audit
 runtime.cockpit_context_v1
 runtime.conflict_content
@@ -85,6 +86,7 @@ runtime.lane_owner_projection
 runtime.operator_git
 runtime.project_onboarding
 runtime.recent_work
+runtime.starter_lane_agent
 runtime.starter_lane_preview
 runtime.structured_diff
 runtime.transcript_rows
@@ -426,6 +428,8 @@ Fixture 文件位于 `crates/types/tests/fixtures/frontend-contract-v1/`。下�
 | `workspace-file-reads` | 同一个会话作用域 owner 下的七次单文件读取：两次同时在途且乱序作答；一次完整文本；一次在字符边界上被截断，旁边仍带着整个文件的长度与摘要；一次 Lane 目标下的二进制、不带任何载荷；一次路径并不存在；一次是目录；另有一次离开目标的路径与一条 `read_file` deny 规则，以 `CommandRejected` 作答且完全不发布 body | `1b5ffcffebfeabecf9c79967ca7d84b912d510e7c9f2003012a1e48d0184304e` | `98bd938eb1f2fe6cffe106b1e5d5bbeaa1106663592b1aa5e0dfbd069654255f` |
 | `durable-work-evidence` | 一次被批准的 `edit_file`：该决定成为一条持久审计行，其 id 正是请求已经公布的那一个；随后被应用的变更留下一条归档 `patch` 行，带有规范字节，与描述同一次改动的实时工作区变更并列；归档分页与内容读取都用该行公布的哈希回答它；最后是一条外部 Agent 适配器的补丁事实，由运行时的摄取补全 —— 因为适配器自身没有存储 | `b2719e73785bc9e3a71b459e3eb83ae3a551ac62aa61f8a7c3807e2f883c6f45` | `457c0879ad5e7475b3d79c29dd47af4feaa84d8f95f3317c4335cb04d38a27b5` |
 | `transcript-rows` | 在同一份持久转录之上的三次所有者作用域转录读取，同时在途且被乱序回答：两个 Lane 与会话编辑器各得到自己的一页，没有任何一行出现在两页之上；其中一个 Lane 的一页被 limit 截断，并通过它自己公布的那个不透明 `older` 游标续读，使边界行只落在一侧；每一种行变体各出现一次；一条 assistant 正文承载真实的 8 KiB 截断并指名仍完整保存它的规范证据；一条 tool result 指名属于它自己那次工具调用的归档 `patch` 行；一条作用域放行的权限行承认它不知道审计行从未存下的那个决定；而一个本构建从未签发的游标以 `CommandRejected` 回答，完全不带任何分页 | `2fa91b16aff8c0d896ae2b6cd7843acea86be1cf04ddf2c69394b86d5fa2ad13` | `f17c3e7fad2baf3d5670cf320ec172f50a9048baa3aedbe09c8cd38456ff4ea8` |
+| `approval-scopes` | 一次 `Always` 常驻授权：规则先写入用户级设置文件，`StandingApprovalGranted` 才对外宣告，并指名该决定自己的审计行；在授权与撤销之间，第二个会话用同样的工具与输入运行，其间完全没有任何审批请求；撤销拥有自己的审计行，并让提示重新出现；一次 `Edit` 把原请求解决为 `Edit`，随后公布第二个请求，通过 `revised_from` 指名它所替换的那一个，并携带全新预铸的审计 id；一个高风险请求的 `allowed_scopes` 不含 `Always`，对它发送 `Always` 以 `scope_not_offered` 被拒；以及计划模式在请求这一层直接拒绝一次改写 | `ff20cf15a8a8b857a4d3de9a677eff6bc6ad1bf2c57490709803917d770f453d` | `67b1080c875d8432beefb15ec6153f00903da05a49f480e308b475b21a3fd454` |
+| `starter-lane-agent` | 一次起步 Lane 预览回显操作者所选的 Agent，其回执的 `session` 说明被绑定的会话已在该 Lane 所有者之下启动；旁边是第二个预览，指名本 Core 并不具备的适配器：它被回显并附带 `starter_lane.agent_unknown` 诊断，而不是被丢弃，预览仍可创建，其回执说明会话被拒绝而 Lane 确实存在 —— 另有一个不带绑定的请求，其编码依然不含该字段 | `e5ca0bbf8698731316f37def929f35370102296e320a2f35ebba8763ec424267` | `171ebd5a6770119df91bc0477e630dec4406e4b0150cdaadd06e0cfe01e0dd81` |
 
 2026-09-07 语义修正（评审发现 4）：`RuntimeViewState.assistant_stream` 此前没有生命
 周期——它在整个 view 生命期内只追加，因此启动重放会把每个历史会话的回复串接成一整块

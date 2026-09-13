@@ -80,6 +80,7 @@ runtime.agent_conversation
 runtime.agent_permission_bridge
 runtime.agent_session_input
 runtime.agent_sessions
+runtime.approval_scopes
 runtime.audit
 runtime.cockpit_context_v1
 runtime.conflict_content
@@ -92,6 +93,7 @@ runtime.lane_owner_projection
 runtime.operator_git
 runtime.project_onboarding
 runtime.recent_work
+runtime.starter_lane_agent
 runtime.starter_lane_preview
 runtime.structured_diff
 runtime.transcript_rows
@@ -555,6 +557,8 @@ registered schema-1 extension fixtures are:
 | `workspace-file-reads` | Seven single-file reads over one session-scoped owner: two outstanding at once and answered out of order, one whole text, one cut on a character boundary with the whole file's length and digest beside it, one binary with no payload under a Lane target, one path that is not there, one directory, plus a path that leaves the target and a `read_file` deny rule answered by `CommandRejected` with no body at all | `1b5ffcffebfeabecf9c79967ca7d84b912d510e7c9f2003012a1e48d0184304e` | `98bd938eb1f2fe6cffe106b1e5d5bbeaa1106663592b1aa5e0dfbd069654255f` |
 | `durable-work-evidence` | An approved `edit_file` whose decision becomes a durable audit row under the exact id the request published, the applied mutation's archived `patch` row carrying canonical bytes beside the live workspace change it describes, the archive page and the content read that both answer it with the hash the row published, and an agent adapter's patch fact completed by the runtime's ingestion because the adapter owns no store | `b2719e73785bc9e3a71b459e3eb83ae3a551ac62aa61f8a7c3807e2f883c6f45` | `457c0879ad5e7475b3d79c29dd47af4feaa84d8f95f3317c4335cb04d38a27b5` |
 | `transcript-rows` | Three owner-scoped transcript reads over one durable transcript, outstanding at once and answered out of order: two Lanes and the session composer each get their own page with no row on more than one of them, one Lane's page is cut by its limit and resumed through the exact opaque `older` cursor it published so the boundary row lands on one side only, every row variant appears once, an assistant body carries the real 8 KiB cut and names the canonical evidence that still holds it whole, a tool result names the archived `patch` row for its own tool call, a scoped allow's permission row admits it does not know the decision the audit row never stored, and a cursor this build did not issue is answered by `CommandRejected` with no page at all | `2fa91b16aff8c0d896ae2b6cd7843acea86be1cf04ddf2c69394b86d5fa2ad13` | `f17c3e7fad2baf3d5670cf320ec172f50a9048baa3aedbe09c8cd38456ff4ea8` |
+| `approval-scopes` | One standing `Always` grant written to the user-level settings file before `StandingApprovalGranted` announces it and naming the decision's own audit row, the same tool and input in a second session running with no approval request between the grant and the revocation at all, a revocation whose own audit row brings the prompt back, an `Edit` that resolves the original as `Edit` and publishes a second request naming it through `revised_from` with a freshly pre-minted audit id, a high-risk request whose `allowed_scopes` lacks `Always` and whose grant attempt is refused `scope_not_offered`, and a revision refused by plan mode on the request itself | `ff20cf15a8a8b857a4d3de9a677eff6bc6ad1bf2c57490709803917d770f453d` | `67b1080c875d8432beefb15ec6153f00903da05a49f480e308b475b21a3fd454` |
+| `starter-lane-agent` | A starter-Lane preview echoing the operator's Agent pick and a receipt whose `session` says the bound session started under the Lane owner, beside a second preview naming an adapter this Core does not have: echoed with a `starter_lane.agent_unknown` diagnostic rather than dropped, still creatable, and its receipt saying the session was refused while the Lane exists — plus a request with no binding that still encodes without the field | `e5ca0bbf8698731316f37def929f35370102296e320a2f35ebba8763ec424267` | `171ebd5a6770119df91bc0477e630dec4406e4b0150cdaadd06e0cfe01e0dd81` |
 
 Semantics fix 2026-09-07 (review finding 4): `RuntimeViewState.assistant_stream`
 had no lifecycle — it was append-only for the life of the view, so startup

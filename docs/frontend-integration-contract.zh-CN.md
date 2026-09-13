@@ -324,7 +324,9 @@ flowchart LR
 | 读取单条证据背后的字节 | `ReadEvidenceContent { command_id, evidence_id }` | canonical ContextStore 查找、在提供任何内容之前先做 `source_hash` 校验、类型化的内容或不可用原因，以及 256 KiB 边界 |
 | 打开某个工作区文件 | `ReadWorkspaceFile { command_id, query }` | 由 Core 自有 Lane 记录解析目标、拒绝而非修补的路径校验、读取任何字节之前的真实 `read_file` 权限闸门、相对已解析根的符号链接包含性检查、binary/text 判定、按字符边界的切分，以及覆盖整个文件的 `size` 与 `sha256` |
 | 分页某个所有者的转录行 | `QueryTranscriptRows { command_id, query }` | 行所派生自的持久会话转录与审计时间线、为其归属的 `turn_owner` 括号、在切分分页之前应用的前缀所有者作用域、追加下稳定的排序、不透明的向后游标、8 KiB 正文上界，以及行可以指名的证据 id |
-| 创建 starter Lane | `PreviewStarterLane`，审阅结果后携带未变化 request/id/hash 发送 `CreateStarterLane` | preset 解析、workspace/isolation 校验、permission gate、执行前复检、补偿和 typed receipt |
+| 创建 starter Lane | `PreviewStarterLane`，审阅结果后携带未变化 request/id/hash 发送 `CreateStarterLane`，可附带 `agent` | preset 解析、workspace/isolation 校验、permission gate、执行前复检、补偿和 typed receipt；自 Core `0.3.8` 起，还包括在 Lane 已存在之后启动被绑定 Agent 的会话，并把结果盖在回执上（`runtime.starter_lane_agent`） |
+| 不再被同一工具与输入反复询问 | 以 `Allow { Always }` 发送 `RespondToApproval`，并以 `RevokeStandingApproval { rule_id }` 收回 | `UserSettings` 规则、用户级设置文件中的 `[[permissions.standing]]` 行、启动时载入引擎、`approval.always` 与 `approval.revoke` 审计行，以及 `StandingApprovalGranted`/`StandingApprovalRevoked` 事实（`runtime.approval_scopes`） |
+| 收窄一个请求而不是直接拒绝 | 以 `Edit { revised_input }` 发送 `RespondToApproval` | 通过同一道闸门重新裁决改写、以 `updated_input`/`user_modified` 执行、携带 `revised_from` 的第二个请求，以及 `scope_not_offered`/`revision_unchanged` 两种拒绝（`runtime.approval_scopes`） |
 | 安排驾驶舱布局 | `SetUiLayoutPreferences { patch }`、`ResetUiLayoutPreferences` | 用户配置中的 `[ui.layout]` 持久化、隐藏段列表的边界、带 `persisted` 与诊断的已发布记录，以及快照前缀的副本 |
 
 Starter Lane 的隔离模式由 Core 决定，而不是由前端决定。位于 Git work tree 且具有有效
@@ -1030,6 +1032,64 @@ tool task，再发出 `Error`，且不能留下 active tool call。之后任何 
 failure 都遵守同一 turn-scoped finalization：Core 只把该 turn 登记且仍 active 的
 task 标记为 failed，保留已经 terminal 的 task，不改变无关 active task，并在
 `Error` 之前发布 terminal task facts。
+
+### Approval Scopes（`runtime.approval_scopes`，GUI-CORE-019）
+
+`ApprovalScope` 新增 `always`，`ApprovalDecision` 新增
+`edit { revised_input }`。两者都是可选的：一个都不渲染的客户端行为与之前
+完全一致，而一个都不提供的请求，其编码仍是它一直以来的字节。
+
+- **提供了什么。** `allowed_scopes` 把 `always` 放在最后，排在更窄的作用域
+  之后，并且仅当请求的 `risk` 低于 `high` 且模式不是计划模式时才出现。
+  `editable` 说明是否接受 `edit`；Core 只把输入为命令行或工作区路径这类扁平
+  文本映射的内建工具标记为可编辑（`git_add`、`git_restore`、`glob`、`grep`、
+  `read_file`、`shell`），绝不包含承载补丁正文的工具 —— 因为被改写的正文是
+  另一个变更，却披着已审阅变更的批准。客户端只能渲染请求确实提供的选项；
+  在未提供时发送任一种，都会以 `scope_not_offered` 得到 `CommandRejected`，
+  而该请求仍然可被回答。
+- **一次授权意味着什么。** `always` 安装的规则，其键与 `session` 规则使用的
+  工具加内容对完全相同，持久化在 Viden home 下 `settings.toml` 的
+  `[[permissions.standing]]` 表中，并在启动时载入，因此它在每个工作区、跨越
+  重启都生效 —— 这是唯一具备该性质的审批作用域。规则先写入文件，
+  `StandingApprovalGranted` 才宣告它；文件写不进去时，答案降级为
+  `allow { once }` 并发布 `Error`，而不是宣告一个无人持有的授权。
+- **当前生效的是什么。** `RuntimeViewState.standing_approvals` 是权威，空时被
+  跳过。客户端从它列出与撤销，绝不依据自己记住的授权。
+- **撤销。** `RevokeStandingApproval { rule_id }` 先从文件移除规则，写下
+  `approval.revoke`，发布 `StandingApprovalRevoked`，最后才清理在用引擎。
+  文件中不存在的 `rule_id` 以 `CommandRejected` 回答，而不是回以一次什么也没
+  移除的撤销。
+- **一次编辑意味着什么。** 改写会被重新裁决，而不是被放行：Core 运行
+  `decide(tool, revised_input)`。放行则以改写后的字节执行工具并带上
+  `user_modified: true`，原请求以决定 `edit` 结束。仍需裁决则原请求以 `edit`
+  结束，并发布第二个 `ApprovalRequested`，其 `revised_from` 指名它所替换的
+  请求，`audit_id` 全新预铸；客户端应替换正在展示的那一行，而不是叠加一个
+  互不相干的第二个提示。拒绝 —— 规则拒绝，或计划模式（在请求这一层强制）
+  —— 让原请求以引擎给出的理由 `deny` 结束。与原输入逐字节相同的改写以
+  `revision_unchanged` 得到 `CommandRejected`，并且该请求仍可被回答。每次审批
+  至多八次改写，超出后 Core 向安全侧失败。
+- **审计。** `approval.always` 与 `approval.edit` 是预铸 `audit_id` 之下的决定
+  行，运行时自有分支与 Lane 分支都会写；`approval.edit` 行带有一个有界的
+  `revised_input` 参数。`approval.revoke` 是它自己的一行，指名该规则与它所
+  管辖的工具。
+
+### 起步 Lane 的 Agent 绑定（`runtime.starter_lane_agent`，GUI-CORE-030）
+
+`StarterLaneRequest` 与 `StarterLanePreview` 新增可选的
+`agent { agent_id, model, task }`，`StarterLaneReceipt` 新增可选的 `session`。
+不带绑定的请求行为与之前逐字节一致，两步式流程依然有效。
+
+- 预览的 `content_sha256` 覆盖该绑定，因此审阅之后更换所选 Agent 会像更换
+  分支一样，以 `RequestChanged` 使预览失效。
+- 不在 `agent_adapters` 中的 `agent_id` 会被回显并附带
+  `starter_lane.agent_unknown:<id>` 诊断，而不是被丢弃或被拒绝。预览仍可创建，
+  因为诚实的答案属于回执；一个悄悄消失的选择会让操作者误以为会话正在启动。
+- `CreateStarterLane` 照旧创建 Lane 并写下回执，然后通过 `StartAgentSession`
+  所走的同一套所有者与 Lane 绑定检查启动会话，并把
+  `session: started { session_id }` 或 `refused { reason }` 盖在回执上。`task`
+  默认取该 preset 的 Lane 摘要。
+- Lane 的创建绝不会因为会话没能启动而失败。客户端应把 `refused` 读作
+  “Lane 是你的，会话不是”，并可以自行发送 `StartAgentSession`。
 
 ## UI 偏好与设计入口契约
 

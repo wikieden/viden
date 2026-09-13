@@ -433,7 +433,7 @@ GUI 将其投影为 `available: false`、code 为 `GUI-CORE-003`，且不挂载�
 `docs/release-0.3.5-plan.md` 的「Scope Decisions」，2026-09-13。该条目仍为开放，
 上文的关闭条件不变；改期不等于关闭。
 
-## GUI-CORE-019：Always 审批作用域与 Edit 决定
+## GUI-CORE-019：Always 审批作用域与 Edit 决定 — 已关闭（Core 2026-09-13）
 
 `ApprovalScope` 只建模了 `Once`、`Session` 与 `RepoAllowlist`。权限坞的设计还提供
 「Always」与「Edit」：Always 是跨会话、跨仓库的长期决定，Edit 则返回一条经修改的
@@ -450,8 +450,21 @@ fail-closed 的 `GUI-CORE-003` 占位，且 `PermissionChoice::Always` 与
 将恢复设计规定的 `Shift+A` 绑定。
 
 2026-09-13（H3）裁定：排入 `0.3.5` 的 C15 批次（`runtime.approval_scopes`）——
-`docs/release-0.3.5-plan.md` 的「Batches」与目标 4，2026-09-13。只有当 Core 连同
-fixture 发布这两种决定、且两个客户端都已采用时，它才关闭。
+`docs/release-0.3.5-plan.md` 的「Batches」与目标 4，2026-09-13。
+
+Core 侧已于 2026-09-13 由 C15 批次关闭，能力 `runtime.approval_scopes`。
+`ApprovalScope::Always` 安装一条 `PermissionRuleSource::UserSettings` 规则，持久化在
+Viden home 下 `settings.toml` 的 `[[permissions.standing]]` 表中并在启动时载入，因此
+跨会话、跨仓库生效；`RevokeStandingApproval { rule_id }` 与授权在同一增量中交付，正是
+它让这项授权可以被安全地给出。`ApprovalDecision::Edit` 通过同一道闸门重新裁决改写，
+或以 `user_modified` 执行它，或发布携带 `revised_from` 的第二个请求。`allowed_scopes`
+与新增的 `editable` 标志说明每个请求实际提供了什么，在未提供时发送任一种都会以
+`scope_not_offered` 得到 `CommandRejected`。Fixture 为 `approval-scopes.json`；契约见
+`docs/frontend-integration-contract.zh-CN.md` 的「Approval Scopes」。
+
+客户端侧仍然开放。GUI 权限坞仍把 Always 与 Edit 渲染为 `GUI-CORE-003` 占位，`Shift+A`
+仍绑定在 `repo_allowlist`；两者在 GUI 的 G9 批次中启用，TUI 决策模态在 T4 批次中获得
+`a` 与 `e`。本条目仅在 Core 侧关闭。
 
 ## GUI-CORE-020：面向操作者的 git 动作 — 已关闭
 
@@ -920,7 +933,7 @@ Core 解析好的 diff 行交给共享渲染器（`apps/gui/tests/evidence_reads
 `docs/release-0.3.5-plan.md` 的「Scope Decisions」，2026-09-13。D5 画廊评审发现的
 缺口将在该评审执行时写在这里。
 
-## GUI-CORE-030：starter-Lane 请求上的 Agent 绑定
+## GUI-CORE-030：starter-Lane 请求上的 Agent 绑定 — 已关闭（Core 2026-09-13）
 
 2026-09-12 由 G7 批次开立：把 G4 批次写在 D4 向导自身文案里、而非登记册中的一条请求
 正式编号（`0.3.4` 在途期间登记册处于冻结状态）。未排期；除已发布的那句说明之外，
@@ -938,8 +951,20 @@ Lane 仍然不会启动任何 Agent 会话：这个选择在 Core 侧无处可�
 `AgentSessionUpdated` 已经报告启动了什么。
 
 2026-09-13（H3）裁定：排入 `0.3.5` 的 C15 批次（`runtime.starter_lane_agent`）——
-`docs/release-0.3.5-plan.md` 的「Batches」与目标 4，2026-09-13。只有当 Core 在预览
-与创建上回显该绑定并带上 fixture、且两个客户端都已采用时，它才关闭。
+`docs/release-0.3.5-plan.md` 的「Batches」与目标 4，2026-09-13。
+
+Core 侧已于 2026-09-13 由 C15 批次关闭，能力 `runtime.starter_lane_agent`。
+`StarterLaneRequest` 与 `StarterLanePreview` 携带可选的
+`agent { agent_id, model, task }`，预览哈希覆盖它；未知适配器会被回显并附带
+`starter_lane.agent_unknown` 诊断，而不是被丢弃；`CreateStarterLane` 在 Lane 已存在
+之后，通过 `StartAgentSession` 所走的同一套检查启动会话，并把
+`session: started { session_id }` 或 `refused { reason }` 盖在回执上。Lane 绝不会因为
+会话没能启动而被回滚，不带绑定的请求与既有两步流程逐字节一致。Fixture 为
+`starter-lane-agent.json`；契约见 `docs/frontend-integration-contract.zh-CN.md` 的
+「起步 Lane 的 Agent 绑定」。
+
+客户端侧仍然开放：D4 第 2 步发送绑定、第 4 步渲染回执结果在 GUI 的 G9 批次中完成，
+`/lanes` 创建接受可选 agent 在 TUI 的 T4 批次中完成。本条目仅在 Core 侧关闭。
 
 ## GUI-CORE-031：技能包与上下文注入
 
