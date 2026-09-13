@@ -1227,12 +1227,16 @@ mod tests {
         assert!(idle.contains("ctrl+p commands"));
         assert!(!idle.contains("TRANSCRIPT"));
         assert!(command_palette.contains("COMMANDS"));
-        // The palette shows the first eight registered commands, so this
-        // preview's visible window ends at `/evidence`
-        // (`runtime.evidence_reads`, GUI-CORE-025). `/connect` is still
-        // registered; `palette_exposes_task6_lens_routes` covers it.
-        assert!(command_palette.contains("/evidence"));
-        assert!(command_palette.contains("Page the Core evidence archive"));
+        // The palette shows the first eight registered commands. `/approvals`
+        // (`runtime.approval_scopes`, GUI-CORE-019) and `/plan`
+        // (`runtime.plan_documents`, C13) joined the registry ahead of
+        // `/decisions`, so the visible window now ends there and `/evidence`
+        // is one row past it. Both remain registered;
+        // `palette_exposes_task6_lens_routes` covers the routes.
+        assert!(command_palette.contains("/approvals"));
+        assert!(command_palette.contains("List and revoke standing approvals"));
+        assert!(command_palette.contains("/plan"));
+        assert!(command_palette.contains("Read and decide the Core plan document"));
         assert!(setup_wizard.contains("SETUP SELECTOR"));
         assert!(setup_wizard.contains("DRAFT viden.toml"));
         assert!(setup_wizard.contains("pack = \"robot-pack\""));

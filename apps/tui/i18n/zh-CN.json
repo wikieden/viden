@@ -446,5 +446,15 @@
   "session.control.refused": "Core 拒绝了对会话 {session} 的 {action} · {reason}",
   "session.control.sent": "Core 已接受对会话 {session} 的 {action}。会话自身的事实随后到达。",
   "session.control.switch_model": "切换模型 = {kill} 后以新的 model 与 load_session_id 重新开始会话；Core 未发布切换命令。",
-  "session.control.no_session": "使用会话控制键前请先选中一个 Agent 会话行。"
+  "session.control.no_session": "使用会话控制键前请先选中一个 Agent 会话行。",
+  "approval.action.allow_always": "a 始终允许{availability}",
+  "approval.action.edit": "e 修改输入{availability}",
+  "approval.edit.unavailable": " · Core 标记该输入不可修改",
+  "approval.edit.prompt": "修订 · key=value，以制表符分隔 · Enter 发送 · Esc 放弃 · Core 未发布可预填的结构化输入",
+  "approval.edit.undecodable": "修订需为 key=value 键值对。未发送任何内容。",
+  "approval.revised_from": "修订自  {request_id}",
+  "approval.standing.unavailable": "常驻批准不可用 · {capability}",
+  "approval.standing.empty": "没有常驻批准。Core 未持有任何跨会话留存的规则。",
+  "approval.standing.row": "{marker} {tool}  {content} · 授予于 {workspace} · 审计 {audit}",
+  "interaction.standing_approvals": "常驻批准 · Enter 撤销 · Esc 关闭"
 }

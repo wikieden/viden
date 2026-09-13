@@ -222,6 +222,13 @@ pub(super) enum InteractionPanel {
         search: String,
         selected: usize,
     },
+    /// The `/approvals` standing-rule list
+    /// (`runtime.approval_scopes`, GUI-CORE-019). It reads
+    /// `RuntimeViewState.standing_approvals` and revokes from it, never from
+    /// this client's memory of grants it has seen.
+    StandingApprovals {
+        selected: usize,
+    },
     #[allow(dead_code)]
     ProviderConfig {
         provider_id: String,
@@ -245,6 +252,28 @@ pub(super) enum InteractionPanel {
     NewLaneTask {
         task: String,
     },
+}
+
+/// The operator's in-progress revision of one approval's tool input
+/// (`runtime.approval_scopes`, GUI-CORE-019).
+///
+/// It names the request rather than caching it, so a revision can only ever be
+/// sent against the request Core still has pending. `draft` is the revision in
+/// Core's own `ToolInput` wire encoding — `key=value`, tab-separated for more
+/// than one — which is decoded with `viden_types::decode_tool_input` rather
+/// than with a spelling invented here.
+///
+/// The draft starts empty rather than pre-filled: `ApprovalRequestView`
+/// carries no typed `ToolInput`, only the rendered `input_preview`, and
+/// scraping display text to build a command payload is exactly what this
+/// client must not do. Pre-filling needs a Core fact that does not exist yet;
+/// the prompt row says so.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct ApprovalEdit {
+    pub(super) request_id: String,
+    pub(super) draft: String,
+    /// Catalog key of the last local refusal (empty or undecodable draft).
+    pub(super) notice: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -379,6 +408,9 @@ pub(super) struct TuiUiState {
     pub(super) command_palette_hidden_for: Option<String>,
     pub(super) approval_focus: usize,
     pub(super) approval_apply_all: bool,
+    /// Present exactly while the operator is revising the focused approval's
+    /// input (`runtime.approval_scopes`, GUI-CORE-019).
+    pub(super) approval_edit: Option<ApprovalEdit>,
     pub(super) transcript_scroll: usize,
     pub(super) entries: Vec<TuiEntry>,
     /// The Lane this client's Lane-scoped commands address — the `/git`
@@ -458,6 +490,7 @@ impl Default for TuiUiState {
             command_palette_hidden_for: None,
             approval_focus: 0,
             approval_apply_all: false,
+            approval_edit: None,
             transcript_scroll: 0,
             entries: Vec::new(),
             focused_lane: None,

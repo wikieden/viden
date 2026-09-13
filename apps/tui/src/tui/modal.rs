@@ -1,4 +1,5 @@
 use super::{
+    approval_scopes::APPROVAL_SCOPES_CAPABILITY,
     audit_panel::{AUDIT_ROW_WIDTH, audit_row},
     canvas::Frame,
     command_palette::render_command_suggestions,
@@ -122,7 +123,11 @@ pub(super) fn render_overlays(frame: &mut Frame, state: &TuiState, _right_rail_w
             // The approval panel grows with the hunk rows it renders so the
             // decision context never pushes the approval actions off a short
             // terminal. The growth is bounded by the row cap in `diff_rows`.
-            OverlayKind::Approval => 14 + approval_diff_row_budget(state),
+            // The base was 14 before `runtime.approval_scopes` added the
+            // standing-scope row, the revision row, and the two rows an open
+            // revision field needs; without the extra height the `Deny` and
+            // `Edit` rows fell off the bottom of the panel.
+            OverlayKind::Approval => 18 + approval_diff_row_budget(state),
             OverlayKind::Decisions
             | OverlayKind::SupervisionDecision
             | OverlayKind::AuditTimeline => 14,
@@ -207,6 +212,7 @@ pub(super) fn render_overlays(frame: &mut Frame, state: &TuiState, _right_rail_w
                 GitPickerPhase::CommitMessage { .. } => "interaction.git.commit",
             },
             Some(InteractionPanel::NewLaneTask { .. }) => "interaction.native_lane.task",
+            Some(InteractionPanel::StandingApprovals { .. }) => "interaction.standing_approvals",
             None => unreachable!("panel presence checked above"),
         };
         let title = super::i18n::text(state, title_key);
@@ -920,6 +926,9 @@ fn global_jump_rows(state: &TuiState, filter: &str) -> Vec<String> {
 
 pub(super) fn interaction_rows(state: &TuiState) -> Vec<String> {
     match state.ui.interaction_panel.as_ref() {
+        Some(InteractionPanel::StandingApprovals { selected }) => {
+            standing_approval_rows(state, *selected)
+        }
         Some(InteractionPanel::Settings(panel)) => settings_rows(state, panel),
         Some(InteractionPanel::Setup { selected, draft }) => {
             if !state.has_capability("runtime.project_onboarding") {
@@ -1439,6 +1448,45 @@ pub(super) fn selected_acp_session_id(state: &TuiState) -> Option<String> {
         .map(|session| session.session_id.clone())
 }
 
+/// The standing `Always` rules in force, read from Core
+/// (`runtime.approval_scopes`, GUI-CORE-019).
+///
+/// `RuntimeViewState.standing_approvals` is the authority: this list never
+/// shows a grant this client remembers seeing and never hides one it did not
+/// witness, because the rules load at bootstrap from a file that outlives
+/// every session. An empty list is a real answer and is rendered as absence.
+pub(super) fn standing_approval_rows(state: &TuiState, selected: usize) -> Vec<String> {
+    if !state.has_capability(APPROVAL_SCOPES_CAPABILITY) {
+        return vec![super::i18n::translate(
+            state,
+            "approval.standing.unavailable",
+            &[("capability", APPROVAL_SCOPES_CAPABILITY)],
+        )];
+    }
+    if state.runtime.standing_approvals.is_empty() {
+        return vec![super::i18n::text(state, "approval.standing.empty")];
+    }
+    state
+        .runtime
+        .standing_approvals
+        .iter()
+        .enumerate()
+        .map(|(index, rule)| {
+            super::i18n::translate(
+                state,
+                "approval.standing.row",
+                &[
+                    ("marker", if index == selected { ">" } else { " " }),
+                    ("tool", rule.tool_name.as_str()),
+                    ("content", &truncate(&rule.rule_content, 40)),
+                    ("workspace", rule.granted_in_workspace.as_str()),
+                    ("audit", rule.audit_id.as_str()),
+                ],
+            )
+        })
+        .collect()
+}
+
 fn settings_rows(state: &TuiState, panel: &SettingsPanel) -> Vec<String> {
     if !state.has_capability(UI_PREFERENCE_PERSISTENCE_CAPABILITY) {
         return vec![super::i18n::text(state, "settings.unavailable")];
@@ -1594,6 +1642,10 @@ fn focused_approval_rows(state: &TuiState) -> Vec<String> {
             .allowed_scopes
             .iter()
             .any(|scope| matches!(scope, viden_core::ApprovalScope::RepoAllowlist { .. }));
+        let always = approval
+            .allowed_scopes
+            .iter()
+            .any(|scope| matches!(scope, viden_core::ApprovalScope::Always));
         let availability = |available: bool| {
             if available {
                 String::new()
@@ -1618,6 +1670,18 @@ fn focused_approval_rows(state: &TuiState) -> Vec<String> {
         let once_availability = availability(once);
         let session_availability = availability(session);
         let repo_availability = availability(repo);
+        // The standing scope is offered by Core only below `High` risk and
+        // outside plan mode, so the key is shown disabled with the reason
+        // rather than hidden: an operator must be able to see that the rule
+        // exists and that this request is not eligible for it.
+        let always_availability = availability(always);
+        // `editable` is Core's answer about this tool's input shape, and it is
+        // the only thing that makes the revision key live.
+        let edit_availability = if approval.editable {
+            String::new()
+        } else {
+            super::i18n::text(state, "approval.edit.unavailable")
+        };
         // Core's typed rows replace the preview string rather than joining it:
         // the preview is a lossy rendering of the same proposal, and showing
         // both would invite a reader to compare two spellings of one fact.
@@ -1657,7 +1721,17 @@ fn focused_approval_rows(state: &TuiState) -> Vec<String> {
                 "approval.action.allow_repo",
                 &[("availability", repo_availability.as_str())],
             ),
+            super::i18n::translate(
+                state,
+                "approval.action.allow_always",
+                &[("availability", always_availability.as_str())],
+            ),
             super::i18n::text(state, "approval.action.deny"),
+            super::i18n::translate(
+                state,
+                "approval.action.edit",
+                &[("availability", edit_availability.as_str())],
+            ),
             expiry,
             super::i18n::translate(
                 state,
@@ -1665,6 +1739,28 @@ fn focused_approval_rows(state: &TuiState) -> Vec<String> {
                 &[("audit_id", approval.audit_id.as_str())],
             ),
         ]);
+        // A second request produced by an `Edit` replaces the row the operator
+        // was looking at rather than stacking beside it, so it says which
+        // request it revises.
+        if let Some(revised_from) = approval.revised_from.as_deref() {
+            rows.push(super::i18n::translate(
+                state,
+                "approval.revised_from",
+                &[("request_id", revised_from)],
+            ));
+        }
+        if let Some(edit) = state
+            .ui
+            .approval_edit
+            .as_ref()
+            .filter(|edit| edit.request_id == approval.id)
+        {
+            rows.push(super::i18n::text(state, "approval.edit.prompt"));
+            rows.push(format!("› {}", edit.draft));
+            if let Some(notice) = edit.notice.as_deref() {
+                rows.push(super::i18n::text(state, notice));
+            }
+        }
         // Appended last, so it can never shift the index of a row above it.
         // A client without the extension must say that hunk rows are
         // unavailable rather than let the preview text stand for the change.
@@ -1780,6 +1876,7 @@ pub(super) fn interaction_panel_choice_count(state: &TuiState) -> usize {
             AcpPickerPhase::TaskEntry { .. } => 1,
         },
         Some(InteractionPanel::NewLaneTask { .. }) => 1,
+        Some(InteractionPanel::StandingApprovals { .. }) => state.runtime.standing_approvals.len(),
         _ => interaction_rows(state).len(),
     }
 }
@@ -1792,6 +1889,9 @@ pub(super) fn selected_interaction_command(state: &TuiState) -> Option<String> {
     match state.ui.interaction_panel.as_ref()? {
         InteractionPanel::Settings(_) => None,
         InteractionPanel::Setup { .. } => None,
+        // The list revokes directly through Core; it never routes a revocation
+        // through the composer as text.
+        InteractionPanel::StandingApprovals { .. } => None,
         InteractionPanel::ConnectProvider { selected, .. } => state
             .ui
             .provider_catalog
@@ -2179,9 +2279,9 @@ mod tests {
     fn global_jump_windows_rows_to_keep_selected_item_visible() {
         let mut state = TuiState::default();
         let mut overlay = OverlayState::global_jump(None);
-        // One row further down again since `/plan` joined the command
-        // registry (`runtime.plan_documents`, C13).
-        overlay.selected = 15;
+        // Two rows further down since `/plan` and `/approvals` joined the
+        // command registry (C13 and GUI-CORE-019).
+        overlay.selected = 16;
         state.ui.overlay = Some(overlay);
         let mut frame = Frame::new(120, 40);
 
@@ -2403,9 +2503,9 @@ mod tests {
     fn global_jump_window_keeps_default_disabled_tail_selected() {
         let mut state = TuiState::default();
         let mut overlay = OverlayState::global_jump(None);
-        // The disabled FILES tail, one row further down again since `/plan`
-        // joined the command registry (`runtime.plan_documents`, C13).
-        overlay.selected = 17;
+        // The disabled FILES tail, two rows further down since `/plan` and
+        // `/approvals` joined the command registry (C13 and GUI-CORE-019).
+        overlay.selected = 18;
         state.ui.overlay = Some(overlay);
 
         let rows = global_jump_rows(&state, "");

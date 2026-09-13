@@ -7,6 +7,7 @@ use viden_core::{
     TuiColorDepth,
 };
 
+use super::approval_scopes::{APPROVAL_SCOPES_CAPABILITY, revoke_standing_approval_intent};
 use super::audit_panel::AuditPanel;
 use super::client::{PumpOutcome, TuiClientDriver, TuiClientError};
 use super::command_palette::{
@@ -869,15 +870,19 @@ fn apply_pending_approval_intent<C: CoreClient>(
     };
     let approval_selected = approval_overlay.selected;
     let approval_request_id = approval_overlay.selected_id.clone();
-    if state.runtime.pending_approvals.is_empty()
-        || !matches!(
-            intent,
-            InputIntent::MoveSelection(_)
-                | InputIntent::CompleteSelection
-                | InputIntent::CompleteOrSubmit
-                | InputIntent::InsertChar(_)
-        )
-    {
+    // While a revision field is open it also owns `Esc` and `Backspace`: `Esc`
+    // abandons the draft one rung before the overlay, exactly as it does for
+    // the supervision reason line and the plan lens rejection reason.
+    let editing = state.ui.approval_edit.is_some();
+    let owns_intent = matches!(
+        intent,
+        InputIntent::MoveSelection(_)
+            | InputIntent::CompleteSelection
+            | InputIntent::CompleteOrSubmit
+            | InputIntent::InsertChar(_)
+    ) || (editing
+        && matches!(intent, InputIntent::CloseOverlay | InputIntent::Backspace));
+    if state.runtime.pending_approvals.is_empty() || !owns_intent {
         return Ok(None);
     }
 
@@ -1249,6 +1254,32 @@ fn apply_conflict_detail_intent(
         }
         _ => None,
     }
+}
+
+/// Revokes the standing rule the `/approvals` list has selected.
+///
+/// The `rule_id` is the one Core published on the row; nothing is composed
+/// here. Without the capability nothing is sent at all, because a command
+/// this Core never published could not be answered, and the row already says
+/// which extension is missing.
+fn revoke_selected_standing_approval<C: CoreClient>(
+    driver: &mut TuiClientDriver<C>,
+    state: &mut TuiState,
+    selected: usize,
+) -> Result<(), TuiClientError> {
+    if !driver.has_capability(APPROVAL_SCOPES_CAPABILITY) {
+        return Ok(());
+    }
+    let Some(rule_id) = state
+        .runtime
+        .standing_approvals
+        .get(selected)
+        .map(|rule| rule.rule_id.clone())
+    else {
+        return Ok(());
+    };
+    driver.send(revoke_standing_approval_intent(rule_id))?;
+    Ok(())
 }
 
 /// Opens the plan lens over the plan Core already published.
@@ -2099,6 +2130,14 @@ fn open_local_picker_command<C: CoreClient>(
             selected: 0,
             phase: GitPickerPhase::Browse,
         }),
+        // `/approvals` lists the standing rules Core holds
+        // (`runtime.approval_scopes`, GUI-CORE-019) and revokes from that
+        // list. Selector-first like `/git`: opening it sends nothing, and the
+        // rows stay listed without the capability so the surface is visible
+        // and its reason for being inert is stated.
+        "/approvals" | "/approvals standing" => {
+            Some(InteractionPanel::StandingApprovals { selected: 0 })
+        }
         // `/plan` is not a picker either: it is the lens over the plan Core
         // already published. It opens with or without the capability, because
         // a surface that names the missing extension is what keeps "Core does
@@ -2462,7 +2501,11 @@ fn edit_interaction_panel_text(state: &mut TuiState, value: Option<char>) {
                 task.pop();
             }
         },
-        Some(InteractionPanel::ProviderConfig { .. }) | None => {}
+        // Neither panel has a text field: the standing list is a selector and
+        // the provider-config panel routes through the composer.
+        Some(InteractionPanel::StandingApprovals { .. })
+        | Some(InteractionPanel::ProviderConfig { .. })
+        | None => {}
     }
 }
 
@@ -2594,6 +2637,12 @@ fn apply_interaction_panel_selection<C: CoreClient>(
                 state.ui.lens = Lens::Session;
             }
         }
+        return Ok(false);
+    }
+    if let Some(InteractionPanel::StandingApprovals { selected }) =
+        state.ui.interaction_panel.clone()
+    {
+        revoke_selected_standing_approval(driver, state, selected)?;
         return Ok(false);
     }
     if let Some(InteractionPanel::GitPicker { selected, phase }) =
@@ -10102,5 +10151,242 @@ mod tests {
             rows.iter().any(|row| row.label.contains("load_session_id")),
             "switch model must be stated as the two-step flow: {rows:?}"
         );
+    }
+
+    /// A focused approval whose `allowed_scopes` and `editable` are exactly
+    /// what the shared `runtime.approval_scopes` fixture publishes.
+    fn approval_scopes_driver(
+        request: usize,
+    ) -> (
+        TuiClientDriver<FakeCoreClient>,
+        TuiState,
+        Arc<Mutex<Vec<RuntimeCommandEnvelope>>>,
+    ) {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../crates/types/tests/fixtures/frontend-contract-v1/approval-scopes.json"
+        ))
+        .expect("approval scopes fixture");
+        let mut view = RuntimeViewState::new(
+            serde_json::from_value(fixture["initial_snapshot"].clone()).expect("fixture snapshot"),
+        );
+        let mut seen = 0;
+        for raw in fixture["events"].as_array().expect("fixture events") {
+            let envelope: RuntimeEventEnvelope =
+                serde_json::from_value(raw.clone()).expect("fixture event");
+            if let RuntimeWireEvent::Known(event) = envelope.event {
+                let is_request = matches!(event.kind, RuntimeEventKind::ApprovalRequested { .. });
+                view.apply_event(&event);
+                if is_request {
+                    seen += 1;
+                    if seen > request {
+                        break;
+                    }
+                }
+            }
+        }
+        let approval = view
+            .pending_approvals
+            .first_mut()
+            .expect("one pending approval");
+        // The fixture's expiry is a fixed past timestamp; an expired request
+        // is inert by design, and expiry is not this test's subject.
+        approval.expires_at = 0;
+        let client = FakeCoreClient {
+            transport: FakeCoreTransport {
+                view: Some(view),
+                ..FakeCoreTransport::default()
+            },
+            ..FakeCoreClient::default()
+        };
+        let sent = Arc::clone(&client.sent);
+        let mut driver = TuiClientDriver::connect(client).expect("connect");
+        let mut state = TuiState::new(driver.view().clone());
+        state.capabilities = driver.capabilities();
+        state.ui.input_mode = InputMode::Insert;
+        focus_pending_approval(&mut driver, &mut state);
+        (driver, state, sent)
+    }
+
+    #[test]
+    fn the_always_key_sends_the_standing_scope_core_offered_and_no_longer_a_once_off() {
+        let (mut driver, mut state, sent) = approval_scopes_driver(0);
+        assert!(
+            state.runtime.pending_approvals[0]
+                .allowed_scopes
+                .contains(&ApprovalScope::Always),
+            "the fixture's medium-risk request offers the standing scope"
+        );
+
+        handle_ui_event(
+            &mut driver,
+            &mut state,
+            Event::Key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE)),
+            (120, 40),
+        )
+        .expect("allow always");
+
+        assert!(matches!(
+            sent.lock().expect("sent commands").as_slice(),
+            [RuntimeCommandEnvelope {
+                command: RuntimeCommand::RespondToApproval {
+                    response: viden_core::ApprovalResponse {
+                        decision: viden_core::ApprovalDecision::Allow {
+                            scope: ApprovalScope::Always
+                        },
+                        ..
+                    },
+                    ..
+                },
+                ..
+            }]
+        ));
+    }
+
+    #[test]
+    fn a_request_that_does_not_offer_the_standing_scope_answers_nothing() {
+        let (mut driver, mut state, sent) = approval_scopes_driver(0);
+        state.runtime.pending_approvals[0]
+            .allowed_scopes
+            .retain(|scope| !matches!(scope, ApprovalScope::Always));
+
+        handle_ui_event(
+            &mut driver,
+            &mut state,
+            Event::Key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE)),
+            (120, 40),
+        )
+        .expect("allow always where it was not offered");
+
+        assert!(sent.lock().expect("sent commands").is_empty());
+        // The fixture's snapshot resolves the interface to zh-CN, so the
+        // disabled row is asserted in the locale it actually renders in: a
+        // control that only says why it is inert in English is inert and
+        // unexplained for half its operators.
+        let rows =
+            super::super::modal::overlay_rows_for_test(&state, OverlayKind::Approval).join("\n");
+        assert!(rows.contains("a 始终允许 · 不可用"), "{rows}");
+    }
+
+    #[test]
+    fn the_edit_key_opens_a_revision_field_and_sends_the_decoded_tool_input() {
+        let (mut driver, mut state, sent) = approval_scopes_driver(0);
+        assert!(state.runtime.pending_approvals[0].editable);
+
+        for key in [
+            KeyCode::Char('e'),
+            KeyCode::Char('c'),
+            KeyCode::Char('='),
+            KeyCode::Char('x'),
+            KeyCode::Enter,
+        ] {
+            handle_ui_event(
+                &mut driver,
+                &mut state,
+                Event::Key(KeyEvent::new(key, KeyModifiers::NONE)),
+                (120, 40),
+            )
+            .expect("revise the input");
+        }
+
+        assert!(state.ui.approval_edit.is_none());
+        let commands = sent.lock().expect("sent commands");
+        assert!(
+            matches!(
+                &commands[..],
+                [RuntimeCommandEnvelope {
+                    command: RuntimeCommand::RespondToApproval {
+                        response: viden_core::ApprovalResponse {
+                            decision: viden_core::ApprovalDecision::Edit { revised_input },
+                            ..
+                        },
+                        ..
+                    },
+                    ..
+                }] if revised_input.get("c").map(String::as_str) == Some("x")
+            ),
+            "{commands:?}"
+        );
+    }
+
+    #[test]
+    fn a_request_core_marks_not_editable_never_opens_a_revision_field() {
+        let (mut driver, mut state, sent) = approval_scopes_driver(0);
+        state.runtime.pending_approvals[0].editable = false;
+
+        handle_ui_event(
+            &mut driver,
+            &mut state,
+            Event::Key(KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE)),
+            (120, 40),
+        )
+        .expect("edit where Core accepts none");
+
+        assert!(state.ui.approval_edit.is_none());
+        assert!(sent.lock().expect("sent commands").is_empty());
+        let rows =
+            super::super::modal::overlay_rows_for_test(&state, OverlayKind::Approval).join("\n");
+        assert!(
+            rows.contains("e 修改输入 · Core 标记该输入不可修改"),
+            "{rows}"
+        );
+    }
+
+    #[test]
+    fn a_follow_up_request_says_which_request_it_revises() {
+        let (_driver, mut state, _sent) = approval_scopes_driver(0);
+        state.runtime.pending_approvals[0].revised_from = Some("approval_scopes_wide".to_string());
+
+        let rows =
+            super::super::modal::overlay_rows_for_test(&state, OverlayKind::Approval).join("\n");
+
+        assert!(rows.contains("approval_scopes_wide"), "{rows}");
+    }
+
+    #[test]
+    fn the_standing_list_revokes_the_rule_id_core_published() {
+        let client = FakeCoreClient::default();
+        let sent = Arc::clone(&client.sent);
+        let mut driver = TuiClientDriver::connect(client).expect("connect");
+        let mut state = TuiState::new(driver.view().clone());
+        state.capabilities = driver.capabilities();
+        state.runtime.standing_approvals = vec![viden_types::StandingApprovalView {
+            rule_id: "rule_approval_scopes".to_string(),
+            tool_name: "shell".to_string(),
+            rule_content: "command=cargo fmt --all -- --check".to_string(),
+            granted_at: 1_700_004_002,
+            granted_in_workspace: "workspace_contract_v1".to_string(),
+            audit_id: "audit_approval_scopes_always".to_string(),
+        }];
+        state.ui.input_mode = InputMode::Insert;
+        state.ui.input = "/approvals".into();
+
+        handle_ui_event(
+            &mut driver,
+            &mut state,
+            Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+            (120, 40),
+        )
+        .expect("open the standing list");
+        assert!(sent.lock().expect("sent commands").is_empty());
+        assert!(
+            super::super::render::render_frame(&state, 120, 40).contains("cargo fmt"),
+            "the list renders Core's own rule content"
+        );
+
+        handle_ui_event(
+            &mut driver,
+            &mut state,
+            Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+            (120, 40),
+        )
+        .expect("revoke the selected rule");
+
+        assert!(matches!(
+            sent.lock().expect("sent commands").as_slice(),
+            [RuntimeCommandEnvelope {
+                command: RuntimeCommand::RevokeStandingApproval { rule_id },
+                ..
+            }] if rule_id == "rule_approval_scopes"
+        ));
     }
 }

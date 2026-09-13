@@ -1,4 +1,5 @@
 mod app;
+mod approval_scopes;
 mod audit_panel;
 mod canvas;
 mod client;

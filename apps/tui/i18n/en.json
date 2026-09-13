@@ -446,5 +446,15 @@
   "session.control.refused": "Core refused {action} for session {session} · {reason}",
   "session.control.sent": "Core accepted {action} for session {session}. The session's own facts follow.",
   "session.control.switch_model": "Switch model = {kill} then a new session with the model and load_session_id; Core publishes no switch command.",
-  "session.control.no_session": "Select an Agent session row before using a session control key."
+  "session.control.no_session": "Select an Agent session row before using a session control key.",
+  "approval.action.allow_always": "a Allow always{availability}",
+  "approval.action.edit": "e Edit input{availability}",
+  "approval.edit.unavailable": " · Core marks this input not editable",
+  "approval.edit.prompt": "Revision · key=value, tab-separated · Enter sends · Esc discards · Core publishes no typed input to pre-fill",
+  "approval.edit.undecodable": "A revision is key=value pairs. Nothing was sent.",
+  "approval.revised_from": "REVISES {request_id}",
+  "approval.standing.unavailable": "Standing approvals unavailable · {capability}",
+  "approval.standing.empty": "No standing approvals. Core holds no rule that outlives this session.",
+  "approval.standing.row": "{marker} {tool}  {content} · granted in {workspace} · audit {audit}",
+  "interaction.standing_approvals": "STANDING APPROVALS · Enter revokes · Esc closes"
 }

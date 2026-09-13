@@ -52,6 +52,12 @@ const COMMANDS: &[CommandDefinition] = &[
         capability: None,
     },
     CommandDefinition {
+        command: "/approvals",
+        summary: "List and revoke standing approvals",
+        keywords: "approval standing always rule revoke permission",
+        capability: Some(super::approval_scopes::APPROVAL_SCOPES_CAPABILITY),
+    },
+    CommandDefinition {
         command: "/plan",
         summary: "Read and decide the Core plan document",
         keywords: "plan accept reject hand off steps",
@@ -226,6 +232,7 @@ fn is_exact_command(state: &TuiState) -> bool {
             | "/git"
             | "/evidence"
             | "/plan"
+            | "/approvals"
     ) || state
         .runtime
         .lanes

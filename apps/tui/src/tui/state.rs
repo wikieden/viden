@@ -13,9 +13,9 @@ pub(super) use super::operator_git::OperatorGitMachine;
 pub(super) use super::pending::SupervisionMachine;
 pub(super) use super::session_control::SessionControlMachine;
 pub(super) use super::ui_state::{
-    AcpPickerPhase, ConflictDetailTarget, FocusedConversation, GitPickerPhase, InteractionPanel,
-    Lens, OverlayState, PendingAcpStart, PendingNativeLane, ProviderAuthMode, ProviderOption,
-    SupervisionInput, SupervisionPanel, TuiEntry, TuiUiState,
+    AcpPickerPhase, ApprovalEdit, ConflictDetailTarget, FocusedConversation, GitPickerPhase,
+    InteractionPanel, Lens, OverlayState, PendingAcpStart, PendingNativeLane, ProviderAuthMode,
+    ProviderOption, SupervisionInput, SupervisionPanel, TuiEntry, TuiUiState,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]

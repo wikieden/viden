@@ -224,7 +224,14 @@ pub(super) enum ApprovalChoice {
     AllowOnce,
     AllowSession,
     AddRepoAllowlist,
+    /// The standing grant (`runtime.approval_scopes`, GUI-CORE-019): a rule
+    /// that outlives the process, offered only where Core offered it.
+    AllowAlways,
     Deny,
+    /// `ApprovalDecision::Edit` — not an allow. Offered only when the request
+    /// says `editable`, and projected separately from every scope because a
+    /// revision is re-decided rather than permitted.
+    Edit,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -253,16 +260,21 @@ impl ApprovalProjection {
                 ApprovalScope::Once => ApprovalChoice::AllowOnce,
                 ApprovalScope::Session { .. } => ApprovalChoice::AllowSession,
                 ApprovalScope::RepoAllowlist { .. } => ApprovalChoice::AddRepoAllowlist,
-                // `runtime.approval_scopes` (GUI-CORE-019). Core offers the
-                // standing scope; the decision modal that sends it is TUI
-                // batch T4, so until then the choice is projected as the
-                // once-off it degrades to rather than drawn as a control that
-                // does nothing.
-                ApprovalScope::Always => ApprovalChoice::AllowOnce,
+                // `runtime.approval_scopes` (GUI-CORE-019). The standing scope
+                // is its own choice: projecting it as `AllowOnce` said the
+                // operator was granting one call when Core was offering a rule
+                // that outlives every session and every workspace, which is
+                // the opposite of an informed decision.
+                ApprovalScope::Always => ApprovalChoice::AllowAlways,
             })
             .collect::<Vec<_>>();
         choices.dedup();
         choices.push(ApprovalChoice::Deny);
+        // Appended after `Deny` so adding it can never shift the index of a
+        // scope, and only when the request itself says Core accepts a revision.
+        if approval.editable {
+            choices.push(ApprovalChoice::Edit);
+        }
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|duration| duration.as_secs())
