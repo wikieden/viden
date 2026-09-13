@@ -73,7 +73,10 @@ const SHORTCUTS: Partial<Record<PermissionChoice, string>> = {
 const BLOCK_COPY: Partial<Record<string, MessageKey>> = {
   scope_not_offered: "d1.permission.scopeNotOffered",
   not_editable: "d1.permission.notEditable",
-  "GUI-CORE-036": "d1.permission.editUnavailable",
+  // Client-local: Core marks `editable` and publishes `input` together (C16),
+  // so a request carrying one without the other is a contract violation this
+  // client names rather than a capability it is still owed.
+  "D1-EDIT-NO-INPUT": "d1.permission.editUnavailable",
 };
 
 const RISK_COPY = {

@@ -1450,14 +1450,18 @@ gui-icons.jsx` 中已注册的字形，紧随 `lanes` 之后，这是 `D-PLANBOA
 常驻规则。在这种请求上，「始终」画成禁用并带上 Core 自己的拒绝名
 `scope_not_offered`，发送在本地就被拒绝，而不是发一条 Core 只会驳回的命令。
 
-**是否可编辑由 Core 回答，字段则以 fail-closed 的方式还原。**
-`ApprovalRequestView` 发布 `editable` 和一份已渲染的 `input_preview`，但没有结
-构化的工具输入。投影层精确解析 Core 自己的 `  key: value` 渲染；一旦出现任何偏
-差就返回空，撤回「编辑」控件，并在阻塞原因里写出
-[GUI-CORE-036](contract-requests.zh-CN.md)，而不是拿猜出来的内容去构造修订。发
-送时每个键都会回传，包括你没有动过的那些，因为 Core 评估的是完整输入。Core 批次
-C16 随后已在每条可编辑请求上发布 `input: Option<ToolInput>`（036 当天在 Core 侧
-关闭）；解析器只保留到 G9 后续批次采纳该字段并删掉它为止。
+**「编辑」两件事都由 Core 回答：是否接受修订，以及修订的是什么。**
+`ApprovalRequestView` 发布 `editable`，并且自 Core 批次 C16 起发布
+`input: Option<ToolInput>`，恰好在它标记为可编辑的请求上填充。该字段直接填充内联
+编辑器，因此没有任何地方去解析 `input_preview`——Core 对这些键值对自己的渲染：
+Core 会把修订与原输入逐字节比较，对完全相同的修订以 `revision_unchanged` 拒绝，而
+那正是渲染无法替代值的那一次比较。发送时每个键都会回传，包括你没有动过的那些，因
+为 Core 评估的是完整输入。
+
+可编辑却不带输入的请求意味着 Core 的不变量已经被打破，而不是一份可以退而求其次的
+预览。控件以客户端本地编码 `D1-EDIT-NO-INPUT` 渲染为禁用，什么都不发送——这个编码
+不带 `GUI-CORE-` 前缀，因为它点名的是 Core 已经发布之物被违反，而不是本客户端仍被
+亏欠的能力。
 
 **修订是被链接起来的，不是被堆叠起来的。** Core 从一次「编辑」产生的请求带有
 `revised_from`；权限坞把这条链接直接印在它所修订的那份输入下面，好让操作者能分
@@ -1469,19 +1473,28 @@ C16 随后已在每条可编辑请求上发布 `input: Option<ToolInput>`（036 
 确认），以及按授予时写下的审计 id 指向 D14 轨迹的链接。空列表和能力缺失是两句
 不同的话：前者说没有安装规则，后者说这个 Core 答不上来。
 
-## D4 Agent 绑定（G9）
+## D4 Agent 绑定（G9b）
 
-计划行 G9 要求 D4 第 2 步发送 agent 绑定、第 4 步展示回执里的会话结果。**这一项
-被停下并写明原因。**
+D4 第 2 步把选择送出去，第 4 步说明它的结果
+（`runtime.starter_lane_agent`，[GUI-CORE-030](contract-requests.zh-CN.md)）。
 
-C15 给 `StarterLaneRequest` 加了 `agent` 字段（`runtime.starter_lane_agent`），
-但 `viden-core` 既没有重导出 `StarterLaneAgentBinding`，也没有重导出
-`StarterLaneSessionOutcome`，而 GUI 只能依赖 `viden-core`
-（`apps/gui/AGENTS.md`）。没有访问器，也没有可以绕行的 `impl`，因此这个选择仍然
-无法上路，回执里的结果也读不到。
+**这个选择是一次绑定，而「不启动 agent」也是选项之一。** 第 2 步的行是一个覆盖
+Core 已发布适配器的单选组；选中其中之一，就把
+`StarterLaneAgentBinding { agent_id, model, task }` 放到 `StarterLaneRequest` 上，
+并在新建 Lane 弹层带了任务时一并带上它。旁边那一行创建 Lane 但不启动 agent——不带
+绑定的请求就是 Core 保留的两步流程，与该字段出现之前逐字节一致，因此它是一个选择
+而不是选择的缺席。绑定属于已评审请求的一部分：预览之后改动它会让该预览失效，与改
+动分支完全一样。
 
-于是第 2 步记录这个选择并写明接下来会发生什么——Lane 建好之后，agent 从驾驶舱启
-动——同时指向 [GUI-CORE-037](contract-requests.zh-CN.md)，它请求补上那两个重导
-出。没有交付任何到不了 Core 的行：一个看起来能用、实际不能用的步骤，代价比一个
-说明自己为何不能用的步骤更大。Core 批次 C16 当天补上了两个重导出（037 在 Core 侧
-关闭）；接线在 G9 后续批次落地，在此之前第 2 步继续写明这个选择尚未上路。
+**这一步画回来的是 Core 的回声。** 渲染的是 `StarterLanePreview.agent`，绝不是本
+客户端对自己所发内容的副本，并且把 `starter_lane.agent_unknown` 诊断印在旁边：
+Core 对自己不认识的 `agent_id` 是回显而不是丢弃，预览仍然可创建，随后回执会说会话
+被拒绝。在那里读本客户端自己的副本，恰好会把这件事藏起来。
+
+**第 4 步停在回执上，并给出三种回答。** `StarterLaneReceipt.session` 是
+`Started { session_id }`、`Refused { reason }`，或者缺失，三者被画成三种：会话 id
+连同通往 Agent 看板的链接、原样带上 Core 的拒绝理由，以及——当 Core 完全没有发布结
+果时——那句话本身，而绝不是「没有 agent」。因此带绑定的创建会停在第 4 步而不是离开
+去驾驶舱：操作者没看见的拒绝，会变成一条他以为里面有 Agent 的 Lane；「继续」把队列
+交接下去。不带绑定的创建仍与从前一样直接跳转。已评审预览槽被清空之后，门禁各行从
+回执读出，因为 Core 对同一份请求的解析两边一致。

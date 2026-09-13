@@ -308,17 +308,28 @@ impl RuntimeProjection {
             .map(|approval| {
                 let blocked_by_plan =
                     approval.is_mutating && view.snapshot.work_mode == WorkMode::Plan;
-                // What this client can do with an `Edit`: Core says whether the
-                // request is editable, and the preview parse says whether the
-                // fields can be presented exactly. Both are required, and a
-                // failed parse withdraws the control rather than offering a
-                // revision built from a guess (GUI-CORE-036).
-                let input_fields = parse_permission_input_fields(&approval.input_preview);
-                let edit_block = match (approval.editable, input_fields.is_some()) {
-                    (true, false) => Some("GUI-CORE-036"),
+                // What this client can do with an `Edit` is entirely Core's
+                // answer: `editable` says whether a revision is accepted and
+                // `input` carries the exact bytes Core compares one against
+                // (`runtime.approval_scopes`). They travel together, so an editable
+                // request with no input is a contract violation rather than
+                // something to recover — and re-deriving it from
+                // `input_preview`, Core's own rendering, would reconstruct the
+                // bytes of the very comparison the revision has to survive.
+                // The control is withdrawn under a client-local code instead.
+                let edit_block = match (approval.editable, approval.input.is_some()) {
+                    (true, false) => Some(crate::EDIT_WITHOUT_INPUT_CODE),
                     _ => None,
                 };
-                let input_fields = input_fields.unwrap_or_default();
+                let input_fields = approval
+                    .input
+                    .iter()
+                    .flatten()
+                    .map(|(key, value)| crate::PermissionInputFieldProjection {
+                        key: key.clone(),
+                        value: value.clone(),
+                    })
+                    .collect::<Vec<_>>();
                 let edit_available = approval.editable && edit_block.is_none() && !blocked_by_plan;
                 let mut actions = approval
                     .allowed_scopes
@@ -2651,44 +2662,6 @@ fn agent_board_switch_block(
         return Some(crate::D16_NO_MODEL_CODE.to_string());
     }
     None
-}
-
-/// Parses Core's `input_preview` back into the `ToolInput` pairs an `Edit`
-/// decision has to send.
-///
-/// Core publishes the *rendering* of the tool input (`viden-permissions`,
-/// `render_prompt_input`: one `  key: value` line per entry) and no structured
-/// map, so a client that offers Edit has to recover the pairs from it. That is
-/// display-text parsing, and it is done here rather than in the view, once,
-/// strictly, and fail-closed: any line that is not exactly two spaces, a key
-/// with no colon in it, `": "`, and the rest of the line returns `None` and the
-/// Edit control is withdrawn with `GUI-CORE-036`. A value that contains a
-/// newline fails this check by construction, which is the point — a revision
-/// built from a half-parsed preview would send Core an input the operator never
-/// wrote. The register entry asks Core to publish the map itself.
-fn parse_permission_input_fields(
-    preview: &str,
-) -> Option<Vec<crate::PermissionInputFieldProjection>> {
-    // `render_prompt_input`'s own sentinel for a tool called with no input.
-    if preview.trim() == "<no input>" {
-        return Some(Vec::new());
-    }
-    if preview.is_empty() {
-        return Some(Vec::new());
-    }
-    let mut fields = Vec::new();
-    for line in preview.split('\n') {
-        let body = line.strip_prefix("  ")?;
-        let (key, value) = body.split_once(": ")?;
-        if key.is_empty() || key.contains(':') || key.trim() != key {
-            return None;
-        }
-        fields.push(crate::PermissionInputFieldProjection {
-            key: key.to_string(),
-            value: value.to_string(),
-        });
-    }
-    Some(fields)
 }
 
 /// Whether one plan belongs to the owner this view is scoped to.

@@ -1259,9 +1259,9 @@ async function d13Fleet(): Promise<D13FleetWorkflowProjection> {
 /// reviewed-preview slot rather than in `RuntimeViewState`, so
 /// `tests/capture_projections.rs` has nothing to project it from.
 const D4_SEEDS: readonly D4StarterSeed[] = [
-  { laneId: "starter-coder", preset: "coder", branch: null, worktreePath: null },
-  { laneId: "starter-reviewer", preset: "reviewer", branch: null, worktreePath: null },
-  { laneId: "starter-tester", preset: "tester", branch: null, worktreePath: null },
+  { laneId: "starter-coder", preset: "coder", branch: null, worktreePath: null, agent: null },
+  { laneId: "starter-reviewer", preset: "reviewer", branch: null, worktreePath: null, agent: null },
+  { laneId: "starter-tester", preset: "tester", branch: null, worktreePath: null, agent: null },
 ];
 
 const D4_PROJECTION: D4LaneCreateProjection = {
@@ -1301,11 +1301,52 @@ const D4_PROJECTION: D4LaneCreateProjection = {
     worktreePath: "/workspace/.worktrees/starter-coder",
     baseRevision: "b".repeat(40),
     diagnostics: [],
+    agent: null,
   },
   receipt: null,
   pendingApproval: null,
   outcome: { state: "idle", reason: null, requiresRepreview: false },
+  receiptSession: null,
   navigationLaneId: null,
+};
+
+/**
+ * The two starter-Lane receipts, as `tests/capture_projections.rs` drives them
+ * over `starter-lane-agent.json`'s own stream.
+ */
+async function d4Receipt(name: string): Promise<D4LaneCreateProjection> {
+  const response = await fetch(`../gui-screen-restore/projections/${name}.json`);
+  return (await response.json()) as D4LaneCreateProjection;
+}
+
+/**
+ * The request each receipt answers, which is the fixture's own
+ * `preview_starter_lane` payload.
+ *
+ * Hand-written delta, and a bounded one: the receipt says what became of the
+ * session, not what was asked for, so the wizard's draft has to carry the
+ * binding the fixture's command recorded for step 4 to be the step the
+ * operator would be standing on.
+ */
+const D4_BOUND_SEEDS: Record<string, D4StarterSeed> = {
+  "lane-starter-agent": {
+    laneId: "lane-starter-agent",
+    preset: "coder",
+    branch: "codex/lane-starter-agent",
+    worktreePath: "workspace/.worktrees/lane-starter-agent",
+    agent: {
+      agentId: "claude-code",
+      model: "claude-sonnet",
+      task: "wire the starter Lane binding",
+    },
+  },
+  "lane-starter-unknown": {
+    laneId: "lane-starter-unknown",
+    preset: "coder",
+    branch: "codex/lane-starter-unknown",
+    worktreePath: "workspace/.worktrees/lane-starter-unknown",
+    agent: { agentId: "agent-that-is-not-installed", model: null, task: null },
+  },
 };
 
 async function d10Monitor(): Promise<D10LaneMonitorProjection> {
@@ -2803,8 +2844,8 @@ async function renderState(): Promise<void> {
     case "d4-from-popover": {
       // "Full setup…" as it now arrives: the wizard seeded with the popover's
       // draft, on the agent step. The capture must show the Lane named after
-      // the task, the agent the operator picked marked, and the sentence
-      // saying why the pick still cannot travel (GUI-CORE-037).
+      // the task and the agent the operator picked both marked as the
+      // popover's pick and selected as the binding the request will carry.
       renderD4LaneCreate(
         root!,
         { projection: D4_PROJECTION, pendingCommandId: null, pendingIntent: null },
@@ -3596,34 +3637,39 @@ async function renderState(): Promise<void> {
       return;
     }
 
-    case "d4-agent-binding-blocked": {
-      // Plan row G9 item 3, stopped and stated. C15 gave
-      // `StarterLaneRequest` an `agent`, but `viden-core` re-exports neither
-      // `StarterLaneAgentBinding` nor `StarterLaneSessionOutcome`, so the pick
-      // still cannot travel; the step names the request to watch rather than
-      // offering rows that cannot reach Core (GUI-CORE-037). Same frame as
-      // `d4-from-popover`; what the capture is for is the sentence.
+    case "d4-agent-binding-started":
+    case "d4-agent-binding-refused": {
+      // The two `StarterLaneSessionOutcome` arms Core stamps on the receipt.
+      // The projection is `capture_projections.rs` driving the D4 wizard over
+      // `starter-lane-agent.json`, so the session id and the refusal reason
+      // are Core's own bytes; the wizard holds on step 4 because the request
+      // carried a binding, which is the whole point of stopping there.
+      const started = state === "d4-agent-binding-started";
+      const projection = await d4Receipt(
+        started ? "d4-agent-started" : "d4-agent-refused",
+      );
+      const seed =
+        D4_BOUND_SEEDS[started ? "lane-starter-agent" : "lane-starter-unknown"]!;
       renderD4LaneCreate(
         root!,
-        { projection: D4_PROJECTION, pendingCommandId: null, pendingIntent: null },
+        { projection, pendingCommandId: null, pendingIntent: null },
         never<D4IntentResult>,
         never<D4IntentResult>,
         locale,
         {
-          queue: [],
+          queue: [seed],
           queueIndex: 0,
           completedLaneIds: [],
-          seed: { agentId: "codex-acp", task: "Refactor the config loader" },
           agents: [
-            { agentId: "codex-acp", displayName: "Codex", startability: "ready" },
-            { agentId: "claude-acp", displayName: "Claude", startability: "probe_required" },
+            { agentId: "claude-code", displayName: "Claude Code", startability: "ready" },
+            { agentId: "codex-acp", displayName: "Codex", startability: "probe_required" },
           ],
           onCancel: () => undefined,
           onNavigateToD1: () => undefined,
+          onNavigateToAgentBoard: () => undefined,
         },
       );
-      click('[data-d4-step="1"]');
-      await waitFor("[data-d4-agent-note]");
+      await waitFor("[data-d4-session]");
       return;
     }
 

@@ -180,6 +180,38 @@ still records `[contract_requests] open_count = 10`: it is the frozen
 `manifests/0.1.0-rc.5.toml`, so the count moves at the next GUI version bump,
 not here — the same rule H3 recorded on 2026-09-13.
 
+Status note 2026-09-13 (G9b): 030, 036 and 037 are adopted on the GUI client
+side, and 019 is re-read against the integration branch.
+
+030 closes on **both** sides. The GUI's D4 wizard sends
+`StarterLaneRequest.agent` and renders `StarterLaneReceipt.session` as started /
+refused / no outcome published; TUI batch T4 had already made `/lanes` creation
+two steps with a "No Agent" first row, which is the other half this entry
+stated. 037 closes on both sides with it: C16 re-exported both types and this
+client constructs and matches on them through `viden-core` alone, rebuilding
+neither from a wire form.
+
+036 closes on the **Core and GUI** sides and stays OPEN as a *TUI* adoption
+item. `parse_permission_input_fields` is deleted and the dock's revision field
+is seeded from `ApprovalRequestView.input`; an editable request carrying no
+input renders disabled under the client-local `D1-EDIT-NO-INPUT` rather than
+falling back to parsing the preview. The TUI shipped its revision field before
+C16 landed and still starts the draft empty, so the entry keeps a stated closing
+condition on that side.
+
+019 closes fully. The G9 note left it open as a TUI adoption item "until T4
+lands `a` and `e`"; T4 is on this integration branch and landed both, so the
+condition this entry stated is met on both client sides and it is closed here
+rather than carried forward as a stale item.
+
+The open register is therefore 013, 018, 021, 023, 026, 031, 032, 033 and 036 —
+nine entries — with 029 still reserved for the D5 gallery review and not yet
+written. `apps/gui/release-manifest.toml` still records
+`[contract_requests] open_count = 10`: it is the frozen `0.1.0-rc.5` manifest
+and is asserted byte-identical to `manifests/0.1.0-rc.5.toml`, so the count
+moves at the rc.6 bump, not here — the same rule H3 and G9 recorded on
+2026-09-13.
+
 ## GUI-CORE-008: Selected-Lane context scope — CLOSED
 
 History: Core `0.3.5` exposed `RuntimeViewState.context_budgets`, but the
@@ -614,7 +646,7 @@ plan — `docs/release-0.3.5-plan.md` Scope Decisions, 2026-09-13. The entry
 stays OPEN and the closing condition above is unchanged; re-dating is not
 closure.
 
-## GUI-CORE-019: Always approval scope and Edit decision — CLOSED (Core 2026-09-13)
+## GUI-CORE-019: Always approval scope and Edit decision — CLOSED (both sides 2026-09-13)
 
 `ApprovalScope` models `Once`, `Session`, and `RepoAllowlist`. The permission
 dock's design also offers "Always" and "Edit": Always is a standing decision
@@ -665,8 +697,13 @@ carrying `revised_from` renders linked to the request it replaces. The standing
 rules are listed in the settings panel's permission card, each with a Revoke
 (`RevokeStandingApproval`) and a D14 link by the grant's own audit id.
 
-This entry stays OPEN as a TUI adoption item until batch T4 lands `a` and `e`
-in the decision modal.
+Client side closed for the TUI 2026-09-13 by batch T4, which is the condition
+this entry stated. `ApprovalChoice` gains `AllowAlways` and `Edit`, the
+`Always → AllowOnce` projection is retired, `a` sends `Allow { scope: Always }`
+only where `allowed_scopes` carried it and is shown disabled with Core's reason
+where it did not, `e` opens an inline revision field only where the request says
+`editable`, and a request carrying `revised_from` names the request it revises.
+Both clients have now adopted it, so the entry is closed.
 
 ## GUI-CORE-020: Operator-initiated git actions — CLOSED
 
@@ -1276,7 +1313,7 @@ Adjudicated 2026-09-13 (H3): re-dated to `0.3.6`. Reason: not in the `0.3.5`
 plan — `docs/release-0.3.5-plan.md` Scope Decisions, 2026-09-13. The gap the D5
 gallery review finds will be written here when that review runs.
 
-## GUI-CORE-030: Agent binding on the starter-Lane request — CLOSED (Core 2026-09-13)
+## GUI-CORE-030: Agent binding on the starter-Lane request — CLOSED (both sides 2026-09-13)
 
 Opened 2026-09-12 by batch G7, which numbered a request batch G4 wrote as prose
 in the D4 wizard's own copy rather than as a register entry (the register was
@@ -1319,9 +1356,30 @@ Client side stays open, and G9 could not close it. `viden-core` re-exports
 new fields are made of, and `apps/gui/AGENTS.md` allows this client only
 `viden-core`. So the binding cannot be constructed and the receipt's `session`
 outcome cannot be matched on, and the wizard's rows stay unselectable. That
-re-export is filed as GUI-CORE-036; D4 step 2 and step 4 land in a later GUI
-batch once it exists, and `/lanes` creation takes an optional agent in TUI
-batch T4. This entry is closed on the Core side only.
+re-export was filed as GUI-CORE-037 (renumbered at integration; G9's report said
+036).
+
+**Client side closed 2026-09-13 on both sides.** TUI batch T4 made `/lanes`
+creation two steps, with "No Agent" as the first row and one row per model Core
+published, and renders Core's echo from the preview rather than from its memory
+of the pick. GUI batch G9b did the same on D4: step 2's rows became a radio
+group whose pick becomes `StarterLaneRequest.agent`
+(`apps/gui/src-tauri/src/d4.rs:650`, `core_request`;
+`apps/gui/src/screens/d4_lane_create.ts:525`, `bindTo`), beside a row that
+creates the Lane without starting an agent — the unbound request is the
+two-step flow, not a missing value. The step draws Core's own
+`StarterLanePreview.agent` echo and the `starter_lane.agent_unknown`
+diagnostic beside it, never the client's copy. Step 4 holds on the receipt for
+a bound creation and renders `StarterLaneReceipt.session` as three separate
+answers — started with the session id and a link to the Agent Board, refused
+with Core's reason verbatim, and no outcome at all, which is stated as Core
+publishing none and never as "no agent"
+(`apps/gui/src/screens/d4_lane_create.ts:653`,
+`appendSessionOutcome`). An unbound creation navigates straight through exactly
+as it did before the field existed. Evidence:
+`apps/gui/evidence/main-window-interactions/`, `d4-agent-binding-started` and
+`d4-agent-binding-refused`, both projected by `capture_projections.rs` driving
+the production adapter over `starter-lane-agent.json`.
 
 ## GUI-CORE-031: Skill packs and context injection
 
@@ -1527,19 +1585,27 @@ or event-shape change.
 
 Batch G9 met the same gap independently on the GUI side the same day (its
 report numbered it 035; the number was folded into this entry at integration,
-since 035 is H4's probe finding). What the GUI does until it adopts the field,
-and why it is the least-bad version of a bad choice: the parse lives in
-`apps/gui/src-tauri/src/projection.rs` (`parse_permission_input_fields`), once,
-in the layer that already holds Core types, and it is exact — two spaces, a key
-with no colon in it, `": "`, and the rest of the line; anything else returns
-`None`, the Edit control renders disabled carrying this entry's code, and
-nothing is sent. A value containing a newline fails by construction, which is
-the point: a revision assembled from a half-parsed preview would put an input
-the operator never wrote under their name in an audit row. The G9 follow-up
-reads `input` and deletes the parser and the code with it; until then this
-entry is closed on the Core side and open as a GUI adoption item.
+since 035 is H4's probe finding). It parsed `input_preview` back into pairs,
+once, in the layer that already holds Core types, exactly and fail-closed.
 
-## GUI-CORE-037: `viden-core` re-exports neither starter-Lane agent type — CLOSED (Core 2026-09-13)
+**Client side closed for the GUI 2026-09-13 by batch G9b.**
+`parse_permission_input_fields` is deleted; the dock's revision field is seeded
+from `ApprovalRequestView.input` (`apps/gui/src-tauri/src/projection.rs:324`),
+and the two flags are read together — an editable request carrying no input is a
+Core invariant already broken, so the control renders disabled under the
+client-local `D1-EDIT-NO-INPUT`
+(`apps/gui/src-tauri/src/permission.rs:9`) and the preview is not parsed. That
+code carries no `GUI-CORE-` prefix deliberately: it names a violation of
+something Core already publishes, not a capability this client is still owed.
+
+This entry stays OPEN as a **TUI** adoption item. T4 opened it and shipped the
+revision field before C16 landed, so `begin_approval_edit`
+(`apps/tui/src/tui/input.rs:165`) still starts the draft empty and
+`apps/tui/src/tui/ui_state.rs:287` still says `ApprovalRequestView` carries no
+typed `ToolInput`. That sentence stopped being true the same day; the entry
+closes when the TUI seeds its draft from the field.
+
+## GUI-CORE-037: `viden-core` re-exports neither starter-Lane agent type — CLOSED (both sides 2026-09-13)
 
 Opened 2026-09-13 by batch G9, which could not deliver plan row G9 item 3
 because of it (G9's report numbered it 036; renumbered at integration). This is
@@ -1563,8 +1629,15 @@ field, that this client cannot build one, and which request to watch.
 
 What a client needs: `pub use viden_types::{StarterLaneAgentBinding,
 StarterLaneSessionOutcome};` in `crates/core/src/lib.rs`, beside the three
-starter-Lane types already there. GUI-CORE-030 then closes on the client side in
-the next GUI batch.
+starter-Lane types already there.
+
+**Closed on both sides 2026-09-13.** Core batch C16 re-exports both
+(`crates/core/src/lib.rs:62`, `:64`), and batch G9b consumes them: the GUI's D4
+adapter constructs a `StarterLaneAgentBinding` from the wizard's pick and
+matches on `StarterLaneSessionOutcome` to render the receipt
+(`apps/gui/src-tauri/src/d4.rs:650`, `:302`). Nothing was rebuilt from a wire
+form and nothing reaches past `viden-core`, which is what this entry asked for.
+GUI-CORE-030 closes with it.
 
 ## Retired pre-register codes
 
@@ -1598,3 +1671,4 @@ prefix, so a reader can tell a contract request from a local rule at a glance.
 | `D1-OWNER-CARDINALITY` | `apps/gui/src-tauri/src/d1.rs`, applied in the D1 cockpit projection | The selected Lane carries more than one exact runtime owner binding. Core's reducer keeps at most one per Lane, so this is a view the client refuses to render — it enters snapshot/replay recovery instead of choosing an owner — not a fact Core still owes it. |
 | `D2-REVIEW-SETTLED` | `apps/gui/src-tauri/src/d2.rs` | Core already recorded this review's verdict; `DecideReview` settles a `Pending` review once. |
 | `D2-NO-REVIEWER-ACTOR` | `apps/gui/src-tauri/src/d2.rs` | No actor `validate_review_decider` would accept is derivable from the published facts for this review. |
+| `D1-EDIT-NO-INPUT` | `apps/gui/src-tauri/src/permission.rs`, applied in the permission dock projection | Core marked the approval `editable` and published no `input` for it. C16 populates the field on exactly the requests it marks editable, so this is a Core invariant already broken rather than a capability still owed — the Edit control is withdrawn and `input_preview`, Core's rendering, is not parsed in its place. |

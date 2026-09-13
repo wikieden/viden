@@ -202,10 +202,11 @@ URL 与尺寸，不在该运行时之外调用浏览器自动化。
 | `board-killed-retry` | `…/qa.html?state=board-killed-retry` | 同一个会话的终结态：状态 `killed`，诊断为 `killed by owner`，暂停 / 恢复 / 终止 / 停止 / 换模型全部禁用并标注，**重试是唯一仍然可用的控件**，对话列表里是被清空的暂存输入 |
 | `board-switch-model-two-step` | `…/qa.html?state=board-switch-model-two-step` | 换模型按它真实的样子画出：`换模型` 读作「两步」，下方面板分别写明第一步（结束会话）与第二步（`StartAgentSession { model, load_session_id }`）是两次独立发送。没有单个按钮，也没有契约并不具备的原子性宣称 |
 | `board-no-lane` | `…/qa.html?state=board-no-lane` | 是缺失，不是空看板：没有 Lane 的工作区直接这么说，说明看板不会凭空造一个，并重申会话永远显示在拥有它的 Lane 之下。详情面板保持为空，而不是画一个占位 agent |
-| `dock-always-edit` | `…/qa.html?state=dock-always-edit` | `C15` / G9：权限坞完整的档位列表——`Y · 一次`、`A · 本会话`、`Shift+A · 始终`、`E · 编辑`、`N · 拒绝`，恰好是 `D-PERM` 的 `y · a · ⇧A · e · n`——内联修订编辑器打开在投影从 Core 自己的预览里还原出的 `command` 字段上，并写明所有键都会回传，因为 Core 评估的是完整输入而不是补丁 |
+| `dock-always-edit` | `…/qa.html?state=dock-always-edit` | `C15` / G9：权限坞完整的档位列表——`Y · 一次`、`A · 本会话`、`Shift+A · 始终`、`E · 编辑`、`N · 拒绝`，恰好是 `D-PERM` 的 `y · a · ⇧A · e · n`——内联修订编辑器打开在 `command` 字段上，取自 Core 自己的 `ApprovalRequestView.input`，并写明所有键都会回传，因为 Core 评估的是完整输入而不是补丁 |
 | `dock-edit-revised-from` | `…/qa.html?state=dock-edit-revised-from` | Core 从那次「编辑」产生的请求：预览里是收窄后的输入，紧接其下是那行金色文字，把它链接到它所替代的 `approval_scopes_wide`，而不是在第一条之上再堆一条不相干的提示 |
 | `standing-approvals-revoke` | `…/qa.html?state=standing-approvals-revoke` | 设置面板的权限卡片列出 Core 自己的常驻规则：`shell · command=cargo fmt --all -- --check`，带授予时所在的工作区与时间，旁边是**撤销**，以及按授予时写下的审计 id 指向 D14 的**打开审计轨迹** |
-| `d4-agent-binding-blocked` | `…/qa.html?state=d4-agent-binding-blocked` | 计划行 G9 第 3 项，停下并写明：D4 第 2 步列出 Core 的适配器并标记 popover 的选择，说明文字写出 C15 给了 `StarterLaneRequest` 一个 agent，但 `viden-core` 没有重导出本客户端构造它所需的两个类型，因此这个选择仍然上不了路，agent 在 Lane 建好之后从驾驶舱启动——`GUI-CORE-037` |
+| `d4-agent-binding-started` | `…/qa.html?state=d4-agent-binding-started` | `C15` / G9b：绑定已经上路。第 4 步停在回执上而不是直接离开去驾驶舱，`Agent 会话` 读作 `Core 已启动 Agent 会话 agent-session-starter。`——Core 自己的 `StarterLaneSessionOutcome::Started`——旁边是**打开 Agent 看板**；路由、门禁、目标、工作树、基线版本与变更策略都从回执读出，而不是从已被清空的预览 |
+| `d4-agent-binding-refused` | `…/qa.html?state=d4-agent-binding-refused` | 另一个分支，来自绑定里写了 Core 并不拥有的适配器的那条 Lane：Lane 确实建成了，区块用错误色画出并原样带上 Core 自己的理由——``agent adapter `agent-that-is-not-installed` is not known``——因为会话没起来从不会让创建失败 |
 
 `mode=dark|light` 与 `locale=en|zh-CN` 每个状态都接受，并统一走共享的
 `resolveTheme`，harness 不携带第二套配色。`mode=light` 同时选用 `ice` 皮肤，
@@ -812,7 +813,7 @@ fixture 并列注明：
 | `centre-lane-tabs`（light/zh-CN） | 新增文案的语言证明：标签条的可访问名称、创建入口的标签与模式词都会翻译，而 Lane id、分支名与 agent id 保持 Core 发布时的原样 |
 | `centre-tool-diff` | 转录内联承载证据。改动块展示设计稿的头部——展开箭头、Core 发布的改动类别、路径、`+1 −1`——之上是共享 hunk 渲染器，带 Git 自己的 `@@` 头与逐侧行号；检查块展示命令、`Failed` 芯片与三条 `.testrow`，含 Core 报告的失败位置。此处特意展开了 diff 块：折叠才是它的默认值，而截图必须展示展开后的内容 |
 | `centre-focus-mode` | `D-SIDEBAR` 的覆盖条款确实是**两侧强制 hover 浮窗**。主体只剩两条轨道——活动 rail 与转录——该状态起始时的 pinned Lane 列已让出，上下文坞离开网格、退到右缘热区之后，标题栏的 `IFocus` 控件读作已按下。请与 `lane-rail` 对读，那是同一驾驶舱保留该列的样子 |
-| `d4-from-popover` | 「完整设置…」保留 draft 并说明差距。Lane 依弹层携带的任务命名为 `refactor-the-config-loader`，agent 步骤列出 Core 的适配器并把 `Codex` 标为弹层中的选择，该步还用自己的话说明 `StarterLaneRequest` 不携带 agent 绑定——因此向导绝不暗示它会启动会话 |
+| `d4-from-popover` | 「完整设置…」保留 draft 并把它送出去。Lane 依弹层携带的任务命名为 `refactor-the-config-loader`，agent 步骤列出 Core 的适配器，`Codex` 既标为弹层中的选择，也被选中为请求将要携带的绑定：`StarterLaneRequest.agent` 会带上它，因此向导展示的就是它真正会做的事。旁边那一行是「只创建 Lane，不启动 agent」 |
 
 本目录中每一张带驾驶舱的截图都在同一批次内重拍，见下文重拍小节。
 
@@ -1232,11 +1233,11 @@ server），随后由作者逐张查看 —— 全部七张。
 `plan-stale-revision` 的拒绝文本就是 fixture 自己的第 9 条事件负载，经生产发送路径派发，
 因此告警、code chip 与重新载入控件全都是出厂渲染，而不是 harness 的临摹。
 
-## Agent 看板、批准范围与 D4 的停下（G9）
+## Agent 看板与批准范围（G9）
 
 2026-09-13 用无头 Chrome 捕获（`--headless --disable-gpu --hide-scrollbars
 --window-size=<w>,<h> --virtual-time-budget=6000`，对着 4183 端口的 vite dev
-server），随后由作者逐张查看 —— 全部十二张，一张一张地看。
+server），随后由作者逐张查看 —— 全部十一张，一张一张地看。
 
 | 文件 | 状态 | 视口 | 模式 | Locale |
 | --- | --- | --- | --- | --- |
@@ -1250,10 +1251,9 @@ server），随后由作者逐张查看 —— 全部十二张，一张一张地
 | [dock-always-edit-1440x1180-light-zh-CN.png](dock-always-edit-1440x1180-light-zh-CN.png) | dock-always-edit | 1440x1180 | 浅色 | zh-CN |
 | [dock-edit-revised-from-1440x1180-dark-en.png](dock-edit-revised-from-1440x1180-dark-en.png) | dock-edit-revised-from | 1440x1180 | 深色 | en |
 | [standing-approvals-revoke-1440x1180-dark-en.png](standing-approvals-revoke-1440x1180-dark-en.png) | standing-approvals-revoke | 1440x1180 | 深色 | en |
-| [d4-agent-binding-blocked-1440x1180-dark-en.png](d4-agent-binding-blocked-1440x1180-dark-en.png) | d4-agent-binding-blocked | 1440x1180 | 深色 | en |
 | [d10-actions-1440x900-dark-en.png](d10-actions-1440x900-dark-en.png) | d10-actions | 1440x900 | 深色 | en |
 
-十一个新状态的视口是 **1440x1180**，理由与 G8 相同：看板与权限坞都是驾驶舱内部
+十个新状态的视口是 **1440x1180**，理由与 G8 相同：看板与权限坞都是驾驶舱内部
 的双列面板，900px 下动作行和它下面的原因会一起掉到折线以下，同时裁掉两者的截图
 对哪一个都不构成证据。`d10-actions` 保留原有的 **1440x900**，因为它是既有行的重
 拍，改变取景会让它无法与本就用来对照的 `d10-blind` 相比。
@@ -1280,16 +1280,52 @@ Agent 看板所用的同一组发送器上，于是本批次之前提交的那�
 2. **`board-switch-model-two-step` 是一次点击，不是一个状态。** 面板是通过出厂控
    件上的生产监听器打开的；没有为了预先展开它而改动 projection 的任何字段。
 
-**`d4-agent-binding-blocked` 取代了计划行要求的那两个状态。** 计划行要求
-`d4-agent-binding-started` 与 `d4-agent-binding-refused` —— 回执里
-`StarterLaneSessionOutcome` 的两个分支。两者都无法诚实地拍出来：`viden-core` 既
-没有重导出 `StarterLaneAgentBinding`，也没有重导出
-`StarterLaneSessionOutcome`，因此 GUI 既发不出绑定，也读不到结果，拍出任何一个都
-会是 harness 的临摹而不是出厂渲染。唯一为真的状态就是这个阻塞本身，它写明了
-`GUI-CORE-037`。
+**本批次拍下的那张 D4 停下已经不在了。** G9 之所以拍那张阻塞态，是因为
+`viden-core` 两个 starter Lane agent 类型都没有重导出；C16 补上了两者，G9b 把绑定
+送了出去，计划行原本要求的那两个状态就在下面。那张 PNG 与它的表行被删除而不是留作
+历史：证据表记录的是客户端此刻的行为。
 
 **捕获配方。** 在这台宿主上，Chrome 写完 PNG 之后不会退出；而复用同一个
 `--user-data-dir` 会让第二次调用附着到第一个实例上，从而拍不出图。因此每一张都用
 一个新的 `mktemp -d` 配置目录，在后台运行，待文件落地后回收；只杀脚本自己启动的那
-个 PID，按 PID 杀，绝不按名字杀。本表中没有任何 PNG 小于 30 KB —— 最小的是 80,616
-字节的 `d4-agent-binding-blocked`，那是深色底上的 D4 向导，本来就是最稀疏的一帧。
+个 PID，按 PID 杀，绝不按名字杀。本表中没有任何 PNG 小于 30 KB —— 最小的是 162,282
+字节的 `board-no-lane`。
+
+## D4 agent 绑定（G9b）
+
+2026-09-13 用同一套无头配方捕获（`--headless=new --disable-gpu --hide-scrollbars
+--window-size=1440,1180 --virtual-time-budget=6000`，对着 4186 端口的 vite dev
+server），随后由作者逐张查看 —— 全部三张，一张一张地看。
+
+| 文件 | 状态 | 视口 | 模式 | Locale |
+| --- | --- | --- | --- | --- |
+| [d4-agent-binding-started-1440x1180-dark-en.png](d4-agent-binding-started-1440x1180-dark-en.png) | d4-agent-binding-started | 1440x1180 | 深色 | en |
+| [d4-agent-binding-started-1440x1180-light-zh-CN.png](d4-agent-binding-started-1440x1180-light-zh-CN.png) | d4-agent-binding-started | 1440x1180 | 浅色 | zh-CN |
+| [d4-agent-binding-refused-1440x1180-dark-en.png](d4-agent-binding-refused-1440x1180-dark-en.png) | d4-agent-binding-refused | 1440x1180 | 深色 | en |
+
+**两个 projection 是驱动出来的，不是写出来的。** D4 的状态存在适配器的已评审预览
+槽与回执槽里，而不在 `RuntimeViewState` 中，因此 `tests/capture_projections.rs`
+无法从重放的视图里读出来：它驱动生产适配器跑完 `starter-lane-agent.json` 自己的事
+件流，再把向导随后渲染的内容序列化下来。预览与回执都是 fixture 的信封原样重放，所
+以会话 id、拒绝理由与解析出的门禁事实都是 Core 的字节。
+
+在 fixture 之上有两处增量，都在发生处写明：
+
+1. **两条 `CommandAccepted` 事实。** fixture 只记录了第一次预览的那一条；适配器会
+   关联它发出的每条命令，因此创建——以及第二条 Lane 的预览——需要各自的那条。每条
+   都是运行时为适配器实际发出的那条命令所发布的同一种类型化记录。
+2. **向导持有的请求。** 回执说的是会话的结果，而不是当初请求了什么，因此 `qa.ts`
+   用 fixture 自己的 `preview_starter_lane` 负载里那个绑定给草稿播种。没有它，向导
+   根本不会停在第 4 步上，而那正是这些截图要说明的状态。
+
+**为什么第 4 步会停住。** 带绑定的创建停在回执上而不是离开去驾驶舱：操作者没看见
+的拒绝，会变成一条他以为里面有 Agent 的 Lane。不带绑定的创建仍然是绑定出现之前的
+两步流程，直接跳转，这一点由
+`an unbound creation still navigates straight to the cockpit` 这条测试钉住。
+
+预览槽被清空之后，门禁各行从回执读出。Core 对同一份已评审请求的解析两边一致，因此
+停在第 4 步的向导展示的是 Core 的事实，而不是关于一条确实存在的 Lane 的破折号。
+
+这里没有任何 PNG 小于 30 KB —— 最小的是 90,037 字节的
+`d4-agent-binding-started`（深色、en），那是深色底上的 D4 向导，本来就是最稀疏的
+一帧。

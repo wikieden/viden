@@ -169,7 +169,7 @@ All URLs share the prefix
 | `dock-files` | `…/qa.html?state=dock-files` | the Files tab with `apps/` opened: three directories that exist only because `apps/` was asked for as its own Core page, Core's truncation sentence where its page stopped, and the inspector on a selected file with Open disabled and `runtime.workspace_file_reads` written out on screen |
 | `dock-diff` | `…/qa.html?state=dock-diff` | the Diff tab: one entry per changed file, the first expanded over the shared `diff_rows` body with Git's own `@@` header and per-side numbers, the second left collapsed with its real `+1284 −0`, and the inspector's File / Diff / "Open in review" beside a disabled Stage and Revert |
 | `dock-unavailable` | `…/qa.html?state=dock-unavailable` | the same panel on a host with no diff read and no operator git bound: Changes says no host is bound, Commit or push is disabled with its reason **on screen** rather than only in a tooltip, and PR status keeps its own absence sentence. Four absences, four sentences |
-| `d4-from-popover` | `…/qa.html?state=d4-from-popover` | the D4 wizard entered from "Full setup…": the Lane named after the popover's task, the agent step listing Core's adapters with the popover's pick marked, and the sentence stating that the create command carries no agent binding |
+| `d4-from-popover` | `…/qa.html?state=d4-from-popover` | the D4 wizard entered from "Full setup…": the Lane named after the popover's task, and the agent step listing Core's adapters with the popover's pick both marked and selected as the binding the request will carry, beside the row that creates the Lane without starting an agent |
 | `lane-rail` | `…/qa.html?state=lane-rail` | `D-SIDEBAR` **pinned** mode: the sidebar as a real layout column at the design's 218px, pushing the work surface rather than covering it, with the activity rail's pin marked pressed. It shows the one `.wsroot` project group named `viden` with its `▾` collapse, its Lane count, the per-group `＋`, the Lane nested beneath it, and the `＋ Add project…` footer — and no second group and no "Global" section |
 | `project-picker` | `…/qa.html?state=project-picker` | the picker open under the titlebar `▾` selector with all three columns visible at once: `Add directory…` enabled beside the two disabled rows naming `GUI-CORE-023`, the single "In workspace" row for the open project with its lane count, and one Recent row with its relative age |
 | `project-switch-confirm` | `…/qa.html?state=project-switch-confirm` | the same picker after choosing the recent project, showing the inline confirmation: the target root, the replacement sentence naming `GUI-CORE-023`, the running-work counts, and Cancel beside Switch workspace |
@@ -228,10 +228,11 @@ All URLs share the prefix
 | `board-killed-retry` | `…/qa.html?state=board-killed-retry` | the terminal end of the same session: status `killed`, the diagnostic `killed by owner`, Pause / Resume / Kill / Stop / Switch model all disabled and labelled, **Retry the one control still live**, and the drained held-input messages in the conversation list |
 | `board-switch-model-two-step` | `…/qa.html?state=board-switch-model-two-step` | the switch drawn as what it is: `Switch model` reading `two steps`, and the panel below naming step 1 (end the session) and step 2 (`StartAgentSession { model, load_session_id }`) as two separate sends. No single button and no claim of atomicity the contract does not have |
 | `board-no-lane` | `…/qa.html?state=board-no-lane` | absence, not an empty board: a workspace with no Lane says so, says the board never invents one, and repeats the rule that sessions are always shown under the Lane that owns them. The detail pane stays empty rather than drawing a placeholder agent |
-| `dock-always-edit` | `…/qa.html?state=dock-always-edit` | `C15` / G9: the permission dock's complete tier list — `Y · Once`, `A · Session`, `Shift+A · Always`, `E · Edit`, `N · Deny`, which is exactly `D-PERM`'s `y · a · ⇧A · e · n` — with the inline revision editor open on the `command` field the projection recovered from Core's own preview, and the sentence saying every key travels because Core evaluates the whole input, not a patch of it |
+| `dock-always-edit` | `…/qa.html?state=dock-always-edit` | `C15` / G9: the permission dock's complete tier list — `Y · Once`, `A · Session`, `Shift+A · Always`, `E · Edit`, `N · Deny`, which is exactly `D-PERM`'s `y · a · ⇧A · e · n` — with the inline revision editor open on the `command` field, seeded from Core's own `ApprovalRequestView.input`, and the sentence saying every key travels because Core evaluates the whole input, not a patch of it |
 | `dock-edit-revised-from` | `…/qa.html?state=dock-edit-revised-from` | the request Core produced from the `Edit`: the narrowed input in the preview and, directly under it, the gold line linking it to `approval_scopes_wide` — the request it replaces — rather than a second unrelated prompt stacked on the first |
 | `standing-approvals-revoke` | `…/qa.html?state=standing-approvals-revoke` | the settings panel's permission card listing Core's own standing rule: `shell · command=cargo fmt --all -- --check` with the workspace and time of the grant, a **Revoke** beside it, and **Open the audit trail** pointing at D14 by the audit id the grant wrote |
-| `d4-agent-binding-blocked` | `…/qa.html?state=d4-agent-binding-blocked` | plan row G9 item 3, stopped and stated: D4's step 2 lists Core's adapters with the popover's pick marked, and the note says C15 gave `StarterLaneRequest` an agent but `viden-core` re-exports neither type this client needs to build one, so the pick still cannot travel and the agent is started from the cockpit once the Lane exists — `GUI-CORE-037` |
+| `d4-agent-binding-started` | `…/qa.html?state=d4-agent-binding-started` | `C15` / G9b: the binding travelled. Step 4 holds on the receipt instead of leaving for the cockpit, and `Agent session` reads `Core started the Agent session agent-session-starter.` — Core's own `StarterLaneSessionOutcome::Started` — with **Open the Agent Board** beside it and the Core-resolved route, gate, target, worktree, base revision and mutation policy read off the receipt rather than the cleared preview |
+| `d4-agent-binding-refused` | `…/qa.html?state=d4-agent-binding-refused` | the other arm, on the Lane whose binding named an adapter Core does not have: the Lane exists, and the block is drawn in the error colour carrying Core's own reason verbatim — ``agent adapter `agent-that-is-not-installed` is not known`` — because creation never fails for a session that did not start |
 
 `mode=dark|light` and `locale=en|zh-CN` are accepted on every state and resolve
 through the shared `resolveTheme` path, so the harness never ships a second
@@ -935,7 +936,7 @@ Each image exists to make one claim falsifiable:
 | `centre-lane-tabs` (light/zh-CN) | the locale proof for the added copy: the strip's accessible names, the create affordance's label and the mode word translate, while Lane ids, branch names and agent ids stay exactly as Core published them |
 | `centre-tool-diff` | the transcript carries the evidence inline. The change block shows the design's header — disclosure caret, the change kind Core published, the path, `+1 −1` — over the shared hunk renderer with Git's own `@@` header and per-side line numbers; the check block shows the command, the `Failed` chip, and the three `.testrow`s including the failing location Core reported. The diff block is opened here on purpose: collapsed is its default, and the capture has to show what the disclosure reveals |
 | `centre-focus-mode` | `D-SIDEBAR`'s override really is **两侧强制 hover 浮窗**. The body is two tracks — activity rail and transcript — the pinned Lane column this state started in is gone, the context dock is off the grid behind its right-edge hot zone, and the titlebar's `IFocus` control reads pressed. Read it against `lane-rail`, which is the same cockpit with the column present |
-| `d4-from-popover` | "Full setup…" keeps the draft and states the gap. The Lane is named `refactor-the-config-loader` after the task the popover carried, the agent step lists Core's adapters with `Codex` marked as the popover's pick, and the step says in its own words that `StarterLaneRequest` carries no agent binding — so the wizard never implies it will start the session |
+| `d4-from-popover` | "Full setup…" keeps the draft and sends it. The Lane is named `refactor-the-config-loader` after the task the popover carried, and the agent step lists Core's adapters with `Codex` marked as the popover's pick and selected as the binding: `StarterLaneRequest.agent` carries it, so the wizard means what the step shows. `Create the Lane without starting an agent` is the row beside it |
 
 Every cockpit-bearing capture in this directory was re-taken in the same batch;
 see the recapture section below.
@@ -1407,12 +1408,12 @@ The `plan-stale-revision` refusal text is the fixture's own event 9 payload,
 dispatched through the production send path, so the alert, the code chip and the
 reload control are all the shipped rendering rather than a harness drawing.
 
-## Agent Board, approval scopes, and the D4 stop (G9)
+## Agent Board and approval scopes (G9)
 
 Captured 2026-09-13 with headless Chrome
 (`--headless --disable-gpu --hide-scrollbars --window-size=<w>,<h>
 --virtual-time-budget=6000`) against the vite dev server on port 4183, then
-viewed by the author — all twelve, one at a time.
+viewed by the author — all eleven, one at a time.
 
 | File | State | Viewport | Mode | Locale |
 | --- | --- | --- | --- | --- |
@@ -1426,10 +1427,9 @@ viewed by the author — all twelve, one at a time.
 | [dock-always-edit-1440x1180-light-zh-CN.png](dock-always-edit-1440x1180-light-zh-CN.png) | dock-always-edit | 1440x1180 | light | zh-CN |
 | [dock-edit-revised-from-1440x1180-dark-en.png](dock-edit-revised-from-1440x1180-dark-en.png) | dock-edit-revised-from | 1440x1180 | dark | en |
 | [standing-approvals-revoke-1440x1180-dark-en.png](standing-approvals-revoke-1440x1180-dark-en.png) | standing-approvals-revoke | 1440x1180 | dark | en |
-| [d4-agent-binding-blocked-1440x1180-dark-en.png](d4-agent-binding-blocked-1440x1180-dark-en.png) | d4-agent-binding-blocked | 1440x1180 | dark | en |
 | [d10-actions-1440x900-dark-en.png](d10-actions-1440x900-dark-en.png) | d10-actions | 1440x900 | dark | en |
 
-The viewport is **1440x1180** for the eleven new states, for the reason G8 gave:
+The viewport is **1440x1180** for the ten new states, for the reason G8 gave:
 the board and the dock are both two-column panes inside the cockpit, and at
 900px the action row and the reason under it fall below the fold together — a
 capture that cut both would be evidence for neither. `d10-actions` keeps its
@@ -1464,20 +1464,62 @@ installed. Two hand-written deltas, both named in `qa.ts`:
    opened through the production listener on the shipped control; nothing about
    the projection is edited to pre-open it.
 
-**`d4-agent-binding-blocked` replaces the two states the plan row asked for.**
-The row asked for `d4-agent-binding-started` and `d4-agent-binding-refused` —
-the two `StarterLaneSessionOutcome` arms in the receipt. Neither can be captured
-honestly: `viden-core` re-exports neither `StarterLaneAgentBinding` nor
-`StarterLaneSessionOutcome`, so the GUI can neither send the binding nor read
-the outcome, and a capture of either would be a harness drawing rather than a
-shipped rendering. The one state that is true is the block itself, and it names
-`GUI-CORE-037`.
+**The D4 stop this batch captured is gone.** G9 shipped a blocked frame because
+`viden-core` re-exported neither starter-Lane agent type; C16 added both, G9b
+sent the binding, and the two states the plan row originally asked for are
+captured below. That PNG and its row are deleted rather than kept as history:
+an evidence table is what the client does now.
 
 **The capture recipe.** Chrome writes the PNG and then does not exit on this
 host, and reusing one `--user-data-dir` makes a second invocation attach to the
 first instance instead of capturing. Each shot therefore gets a fresh `mktemp -d`
 profile, runs in the background, and is reaped once the file lands; only the PID
 this script started is killed, by that PID and never by name. No PNG in this
-table is under 30 KB — the smallest is `d4-agent-binding-blocked` at 80,616
-bytes, which is the D4 wizard on a dark ground and legitimately the sparsest
-frame.
+table is under 30 KB — the smallest is `board-no-lane` at 162,282 bytes.
+
+## D4 agent binding (G9b)
+
+Captured 2026-09-13 with the same headless recipe (`--headless=new --disable-gpu
+--hide-scrollbars --window-size=1440,1180 --virtual-time-budget=6000`) against
+the vite dev server on port 4186, then viewed by the author — all three, one at
+a time.
+
+| File | State | Viewport | Mode | Locale |
+| --- | --- | --- | --- | --- |
+| [d4-agent-binding-started-1440x1180-dark-en.png](d4-agent-binding-started-1440x1180-dark-en.png) | d4-agent-binding-started | 1440x1180 | dark | en |
+| [d4-agent-binding-started-1440x1180-light-zh-CN.png](d4-agent-binding-started-1440x1180-light-zh-CN.png) | d4-agent-binding-started | 1440x1180 | light | zh-CN |
+| [d4-agent-binding-refused-1440x1180-dark-en.png](d4-agent-binding-refused-1440x1180-dark-en.png) | d4-agent-binding-refused | 1440x1180 | dark | en |
+
+**Both projections are driven, not written.** D4's state lives in the adapter's
+reviewed-preview and receipt slots rather than in `RuntimeViewState`, so
+`tests/capture_projections.rs` cannot read it off a replayed view: it drives the
+production adapter over `starter-lane-agent.json`'s own stream and serializes
+what the wizard then renders. The preview and the receipt are the fixture's
+envelopes replayed verbatim, which is why the session id, the refusal reason and
+the resolved gate facts are Core's bytes.
+
+Two additions on top of the fixture, both named where they are made:
+
+1. **Two `CommandAccepted` facts.** The fixture records one, for the first
+   preview; the adapter correlates every command it sends, so the create — and
+   the second Lane's preview — need theirs. Each is the same typed record the
+   runtime publishes for the command the adapter actually sent.
+2. **The request the wizard holds.** A receipt says what became of the session,
+   not what was asked for, so `qa.ts` seeds the draft with the binding the
+   fixture's own `preview_starter_lane` payload carried. Without it the wizard
+   would not be standing on step 4 at all, which is the state these captures
+   are for.
+
+**Why step 4 holds.** A bound creation stops on the receipt instead of leaving
+for the cockpit: a refusal the operator never saw is a Lane they believe has an
+Agent in it. An unbound creation is the two-step flow that existed before the
+binding and still navigates straight through, which the
+`an unbound creation still navigates straight to the cockpit` test pins.
+
+The resolved gate rows are read from the receipt once the preview slot is
+cleared. Core resolves the same reviewed request either way, so a wizard holding
+on step 4 shows Core's facts rather than em-dashes about a Lane that exists.
+
+No PNG here is under 30 KB — the smallest is `d4-agent-binding-started` (dark,
+en) at 90,037 bytes, which is the D4 wizard on a dark ground and legitimately
+the sparsest frame.

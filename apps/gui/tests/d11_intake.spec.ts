@@ -232,9 +232,15 @@ describe("D11 project intake", () => {
 
     expect(send).not.toHaveBeenCalled();
     expect(reviewStarterQueue).toHaveBeenCalledWith([
-      { laneId: "starter-coder", preset: "coder", branch: null, worktreePath: null },
-      { laneId: "starter-reviewer", preset: "reviewer", branch: null, worktreePath: null },
-      { laneId: "starter-tester", preset: "tester", branch: null, worktreePath: null },
+      { laneId: "starter-coder", preset: "coder", branch: null, worktreePath: null, agent: null },
+      {
+        laneId: "starter-reviewer",
+        preset: "reviewer",
+        branch: null,
+        worktreePath: null,
+        agent: null,
+      },
+      { laneId: "starter-tester", preset: "tester", branch: null, worktreePath: null, agent: null },
     ]);
   });
 

@@ -57,8 +57,9 @@ pub use d2::{
     D2UnavailableProjection,
 };
 pub use d4::{
-    D4_STARTER_LANE_CAPABILITY, D4ApprovalIntent, D4Intent, D4IntentResult, D4LaneCreateProjection,
-    D4LaneRequest, D4Preset,
+    D4_STARTER_LANE_CAPABILITY, D4AgentBinding, D4AgentBindingProjection, D4ApprovalIntent,
+    D4Intent, D4IntentResult, D4LaneCreateProjection, D4LaneRequest, D4Preset,
+    D4SessionOutcomeProjection,
 };
 pub use d6::{
     D6ActionProjection, D6ConnectionState, D6Intent, D6IntentResult, D6RecoveryProjection, D6State,
@@ -98,10 +99,11 @@ pub use operator_git::{
     OperatorGitResultProjection,
 };
 pub use permission::{
-    PermissionActionProjection, PermissionChoice, PermissionDockProjection,
-    PermissionInputFieldProjection, PermissionIntent, PermissionIntentResult,
-    PermissionOutcomeProjection, PermissionRequestProjection, PermissionTargetProjection,
-    StandingApprovalIntentResult, StandingApprovalProjection, StandingApprovalsProjection,
+    EDIT_WITHOUT_INPUT_CODE, PermissionActionProjection, PermissionChoice,
+    PermissionDockProjection, PermissionInputFieldProjection, PermissionIntent,
+    PermissionIntentResult, PermissionOutcomeProjection, PermissionRequestProjection,
+    PermissionTargetProjection, StandingApprovalIntentResult, StandingApprovalProjection,
+    StandingApprovalsProjection,
 };
 
 /// The Core capability that carries the standing `Always` scope and the `Edit`

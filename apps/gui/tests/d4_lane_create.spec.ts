@@ -12,9 +12,14 @@ import {
 } from "../src/screens/d4_lane_create";
 
 const SEEDS: readonly D4StarterSeed[] = [
-  { laneId: "starter-coder", preset: "coder", branch: null, worktreePath: null },
-  { laneId: "starter-reviewer", preset: "reviewer", branch: null, worktreePath: null },
-  { laneId: "starter-tester", preset: "tester", branch: null, worktreePath: null },
+  { laneId: "starter-coder", preset: "coder", branch: null, worktreePath: null, agent: null },
+  { laneId: "starter-reviewer", preset: "reviewer", branch: null, worktreePath: null, agent: null },
+  { laneId: "starter-tester", preset: "tester", branch: null, worktreePath: null, agent: null },
+];
+
+const ADAPTERS = [
+  { agentId: "codex-acp", displayName: "Codex", startability: "ready" },
+  { agentId: "claude-acp", displayName: "Claude", startability: "probe_required" },
 ];
 
 const EMPTY_PROJECTION: D4LaneCreateProjection = {
@@ -29,6 +34,7 @@ const EMPTY_PROJECTION: D4LaneCreateProjection = {
   receipt: null,
   pendingApproval: null,
   outcome: { state: "idle", reason: null, requiresRepreview: false },
+  receiptSession: null,
   navigationLaneId: null,
 };
 
@@ -65,6 +71,7 @@ const PREVIEW = {
   worktreePath: "/workspace/.worktrees/starter-coder",
   baseRevision: "b".repeat(40),
   diagnostics: [],
+  agent: null,
 };
 
 function result(
@@ -340,10 +347,7 @@ describe("D4 design steps", () => {
   test("lists the agents Core published and marks the one the popover chose", () => {
     const { root } = setup(result(), SEEDS, 0, {
       seed: { agentId: "codex-acp", task: "Refactor the config loader" },
-      agents: [
-        { agentId: "codex-acp", displayName: "Codex", startability: "ready" },
-        { agentId: "claude-acp", displayName: "Claude", startability: "probe_required" },
-      ],
+      agents: ADAPTERS,
     });
     root.querySelector<HTMLButtonElement>('[data-d4-step="1"]')!.click();
 
@@ -351,12 +355,67 @@ describe("D4 design steps", () => {
     expect(rows.map((row) => row.dataset.d4Agent)).toEqual(["codex-acp", "claude-acp"]);
     expect(rows[0]!.dataset.d4AgentChosen).toBe("true");
     expect(rows[1]!.dataset.d4AgentChosen).toBeUndefined();
-    // The step says plainly why the pick still cannot travel: Core added the
-    // field in C15, and `viden-core` does not re-export the two types this
-    // client needs to build one (GUI-CORE-037). The reason moved; the honesty
-    // did not.
-    expect(root.querySelector("[data-d4-agent-note]")?.textContent).toContain(
+    // The popover's pick is also the draft's binding, so the step opens on the
+    // row the operator already chose rather than on nothing.
+    expect(rows[0]!.getAttribute("aria-checked")).toBe("true");
+    expect(rows[1]!.getAttribute("aria-checked")).toBe("false");
+    expect(root.querySelector("[data-d4-agent-note]")?.textContent).not.toContain(
       "GUI-CORE-037",
+    );
+  });
+
+  test("the pick becomes the binding the preview command carries", () => {
+    const { root, send, controller } = setup(result(), SEEDS, 0, {
+      seed: { agentId: "codex-acp", task: "Refactor the config loader" },
+      agents: ADAPTERS,
+    });
+    root.querySelector<HTMLButtonElement>('[data-d4-step="1"]')!.click();
+    root.querySelector<HTMLButtonElement>('[data-d4-agent="claude-acp"]')!.click();
+
+    expect(controller.state.draft.agent).toEqual({
+      agentId: "claude-acp",
+      model: null,
+      task: "Refactor the config loader",
+    });
+    root.querySelector<HTMLButtonElement>("[data-preview-starter-lane]")!.click();
+    expect(send).toHaveBeenCalledWith({
+      type: "preview",
+      request: expect.objectContaining({
+        agent: { agentId: "claude-acp", model: null, task: "Refactor the config loader" },
+      }),
+    });
+  });
+
+  test("offers the unbound two-step flow as its own row", () => {
+    const { root, controller } = setup(result(), SEEDS, 0, {
+      seed: { agentId: "codex-acp", task: "Refactor the config loader" },
+      agents: ADAPTERS,
+    });
+    root.querySelector<HTMLButtonElement>('[data-d4-step="1"]')!.click();
+    root.querySelector<HTMLButtonElement>("[data-d4-agent-none]")!.click();
+
+    expect(controller.state.draft.agent).toBeNull();
+    expect(
+      root.querySelector<HTMLElement>("[data-d4-agent-none]")!.getAttribute("aria-checked"),
+    ).toBe("true");
+  });
+
+  test("draws Core's own echo of the binding, never the client's copy", () => {
+    const echoed = {
+      ...PREVIEW,
+      agent: { agentId: "claude-code", model: "claude-sonnet", task: "wire it" },
+      diagnostics: ["starter_lane.agent_unknown:claude-code"],
+    };
+    const { root } = setup(result({ ...EMPTY_PROJECTION, preview: echoed }), SEEDS, 0, {
+      seed: { agentId: "codex-acp", task: "Refactor the config loader" },
+      agents: ADAPTERS,
+    });
+    root.querySelector<HTMLButtonElement>('[data-d4-step="1"]')!.click();
+
+    // The draft holds `codex-acp`; the echo row holds what Core answered with.
+    expect(root.querySelector("[data-d4-agent-echo]")?.textContent).toContain("claude-code");
+    expect(root.querySelector("[data-d4-agent-diagnostic]")?.textContent).toContain(
+      "starter_lane.agent_unknown:claude-code",
     );
   });
 
@@ -393,9 +452,88 @@ describe("D4 design steps", () => {
     expect(root.querySelector("[data-seed-task]")?.textContent).toBe(
       "Refactor the config loader",
     );
-    // The create command cannot carry the task; the step says so.
+    // The task now has a place on the request: it is the bound Agent's task.
     expect(root.querySelector("[data-seed-note]")?.textContent).toContain(
-      "not part of the create command",
+      "bound Agent's task",
     );
+  });
+});
+
+// Step 4 answers the one question a bound creation raises: what became of the
+// Agent session Core was asked to start. Started, refused, and "Core published
+// no outcome" are three different sentences and are drawn as three.
+describe("D4 receipt session outcome", () => {
+  const BOUND = {
+    agentId: "claude-code",
+    model: null,
+    task: "wire the starter Lane binding",
+  };
+
+  function created(
+    receiptSession: D4LaneCreateProjection["receiptSession"],
+  ): D4LaneCreateProjection {
+    return {
+      ...EMPTY_PROJECTION,
+      receipt: PREVIEW,
+      receiptSession,
+      navigationLaneId: "starter-coder",
+    };
+  }
+
+  function boundSetup(
+    receiptSession: D4LaneCreateProjection["receiptSession"],
+    extras: Partial<D4QueueState> = {},
+  ) {
+    return setup(result(created(receiptSession)), [{ ...SEEDS[0]!, agent: BOUND }], 0, extras);
+  }
+
+  test("a started session names the id and opens the board it runs on", () => {
+    const onNavigateToAgentBoard = vi.fn<(laneId: string) => void>();
+    const { root, onNavigateToD1 } = boundSetup(
+      { state: "started", sessionId: "agent-session-starter" },
+      { onNavigateToAgentBoard },
+    );
+
+    // The wizard holds on the receipt instead of navigating past it.
+    expect(onNavigateToD1).not.toHaveBeenCalled();
+    const block = root.querySelector<HTMLElement>("[data-d4-session]")!;
+    expect(block.dataset.d4Session).toBe("started");
+    expect(block.textContent).toContain("agent-session-starter");
+    root.querySelector<HTMLButtonElement>("[data-d4-open-agent-board]")!.click();
+    expect(onNavigateToAgentBoard).toHaveBeenCalledWith("starter-coder");
+  });
+
+  test("a refused session prints Core's reason verbatim", () => {
+    const { root } = boundSetup({
+      state: "refused",
+      reason: "agent adapter `claude-code` is not known",
+    });
+    const block = root.querySelector<HTMLElement>("[data-d4-session]")!;
+    expect(block.dataset.d4Session).toBe("refused");
+    expect(root.querySelector("[data-d4-session-reason]")?.textContent).toBe(
+      "agent adapter `claude-code` is not known",
+    );
+  });
+
+  test("no outcome is stated as Core publishing none, never as no agent", () => {
+    const { root } = boundSetup(null);
+    const block = root.querySelector<HTMLElement>("[data-d4-session]")!;
+    expect(block.dataset.d4Session).toBe("absent");
+    expect(block.textContent).toContain("published no session outcome");
+    expect(block.textContent).not.toContain("No agent");
+  });
+
+  test("an unbound creation still navigates straight to the cockpit", () => {
+    const { onNavigateToD1 } = setup(result(created(null)), [SEEDS[0]!], 0, {});
+    expect(onNavigateToD1).toHaveBeenCalledWith("starter-coder");
+  });
+
+  test("the held receipt hands the queue on when the operator continues", () => {
+    const { root, onNavigateToD1 } = boundSetup({
+      state: "started",
+      sessionId: "agent-session-starter",
+    });
+    root.querySelector<HTMLButtonElement>("[data-d4-receipt-continue]")!.click();
+    expect(onNavigateToD1).toHaveBeenCalledWith("starter-coder");
   });
 });

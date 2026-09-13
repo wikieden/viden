@@ -1,5 +1,13 @@
 use serde::{Deserialize, Serialize};
 
+/// Edit is withheld although Core marked the request editable.
+///
+/// Client-local, and deliberately not a `GUI-CORE-` code: C16 publishes
+/// `ApprovalRequestView.input` on exactly the requests it marks editable, so a
+/// request carrying one without the other is a Core invariant already stated
+/// rather than a capability this client is still owed.
+pub const EDIT_WITHOUT_INPUT_CODE: &str = "D1-EDIT-NO-INPUT";
+
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PermissionChoice {
@@ -58,10 +66,11 @@ pub struct PermissionActionProjection {
 
 /// One key/value of the tool input an `Edit` decision may revise.
 ///
-/// Core publishes `input_preview` — its own rendering of the `ToolInput` map —
-/// and no structured map, so these pairs are parsed from that rendering by the
-/// projection, fail-closed, and the Edit control is withdrawn when the parse is
-/// not exact. See `contract-requests.md` GUI-CORE-036.
+/// Core's own `ApprovalRequestView.input` (`ToolInput`,
+/// `runtime.approval_scopes`), in the order the map holds it. Core compares a
+/// revision against these exact bytes and refuses an identical one as
+/// `revision_unchanged`, which is why the rendering in `input_preview` cannot
+/// stand in for them.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PermissionInputFieldProjection {
@@ -102,12 +111,12 @@ pub struct PermissionRequestProjection {
     /// The dock renders the revision linked to its original rather than as a
     /// second unrelated prompt, which is what the field exists for.
     pub revised_from: Option<String>,
-    /// The editable key/value pairs, or empty when the preview could not be
-    /// parsed exactly. Empty with `editable` true is why `edit_block` exists.
+    /// Core's typed tool input, and empty for every request Core published
+    /// none for. Empty with `editable` true is why `edit_block` exists.
     pub input_fields: Vec<PermissionInputFieldProjection>,
-    /// Why Edit is not offered, when Core says it is editable but this client
-    /// cannot present the fields. `None` when Edit is available or when Core
-    /// itself does not offer it.
+    /// Why Edit is not offered, when Core marked the request editable and
+    /// published no input for it ([`EDIT_WITHOUT_INPUT_CODE`]). `None` when
+    /// Edit is available or when Core itself does not offer it.
     pub edit_block: Option<&'static str>,
     pub actions: Vec<PermissionActionProjection>,
 }

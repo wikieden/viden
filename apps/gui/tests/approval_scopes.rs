@@ -97,8 +97,9 @@ fn a_request_without_the_scope_names_core_s_own_refusal() {
     assert_eq!(always.code, Some("scope_not_offered"));
 }
 
-/// Editability is Core's answer, and the fields are recovered from Core's own
-/// preview rendering. `apply_patch` is never editable; `shell` is.
+/// Editability is Core's answer, and so is the input: C16 publishes
+/// `ApprovalRequestView.input` on exactly the requests an `Edit` may revise.
+/// `apply_patch` is never editable; `shell` is.
 #[test]
 fn edit_is_offered_only_where_core_marked_the_request_editable() {
     let dock = connected(replay(13)).permission_dock().expect("dock");
@@ -117,10 +118,10 @@ fn edit_is_offered_only_where_core_marked_the_request_editable() {
     assert!(request.edit_block.is_none());
 }
 
-/// A preview this client cannot parse exactly withdraws the control and names
-/// the register entry rather than offering a revision built from a guess.
+/// The fields are Core's bytes, not Core's rendering. A preview the deleted
+/// parser could never have read changes nothing, because nothing reads it.
 #[test]
-fn an_unparseable_preview_withdraws_edit_with_its_own_code() {
+fn the_edit_fields_come_from_the_typed_input_and_not_the_preview() {
     let mut view = replay(13);
     let approval = view
         .pending_approvals
@@ -131,12 +132,40 @@ fn an_unparseable_preview_withdraws_edit_with_its_own_code() {
 
     let dock = connected(view).permission_dock().expect("dock");
     let request = dock.request.expect("one pending approval");
+    assert_eq!(
+        request
+            .input_fields
+            .iter()
+            .map(|field| (field.key.as_str(), field.value.as_str()))
+            .collect::<Vec<_>>(),
+        vec![("command", "rm -rf target")]
+    );
+    assert!(request.edit_block.is_none());
+    assert!(action(&request, "edit").available);
+}
+
+/// An editable request carrying no `input` is a Core contract violation, and
+/// the client says so in its own words: C16 populates the field on exactly the
+/// requests it marks editable, so there is nothing left to recover it from and
+/// nothing that would make re-parsing the preview correct.
+#[test]
+fn an_editable_request_without_the_typed_input_withdraws_edit() {
+    let mut view = replay(13);
+    let approval = view
+        .pending_approvals
+        .iter_mut()
+        .find(|request| request.id == "approval_scopes_wide")
+        .expect("the editable request");
+    approval.input = None;
+
+    let dock = connected(view).permission_dock().expect("dock");
+    let request = dock.request.expect("one pending approval");
     assert!(request.editable);
     assert!(request.input_fields.is_empty());
-    assert_eq!(request.edit_block, Some("GUI-CORE-036"));
+    assert_eq!(request.edit_block, Some("D1-EDIT-NO-INPUT"));
     let edit = action(&request, "edit");
     assert!(!edit.available);
-    assert_eq!(edit.code, Some("GUI-CORE-036"));
+    assert_eq!(edit.code, Some("D1-EDIT-NO-INPUT"));
 }
 
 /// Prefix 15: the request Core produced from the `Edit`, carrying the request

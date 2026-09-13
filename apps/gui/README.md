@@ -1888,16 +1888,21 @@ standing rule above medium risk. On such a request Always is drawn disabled
 carrying Core's own refusal name, `scope_not_offered`, and the send is refused
 locally rather than issued as a command Core would only reject.
 
-**Edit is Core's answer about editability, and the fields are recovered
-fail-closed.** `ApprovalRequestView` publishes `editable` and a rendered
-`input_preview`, but no structured tool input. The projection parses Core's own
-`  key: value` rendering exactly; on any deviation it returns nothing, the Edit
-control is withdrawn, and the block names [GUI-CORE-036](contract-requests.md)
-rather than offering a revision built from a guess. Every key travels back on
-send, including the ones left alone, because Core re-evaluates the whole input.
-Core batch C16 has since published `input: Option<ToolInput>` on every
-editable request (036 closed on the Core side the same day); the parser stays
-only until the G9 follow-up adopts the field and deletes it.
+**Edit is Core's answer twice over: whether a revision is accepted, and what
+it revises.** `ApprovalRequestView` publishes `editable` and — since Core batch
+C16 — `input: Option<ToolInput>`, populated on exactly the requests it marks
+editable. The field seeds the inline editor directly, so nothing parses
+`input_preview`, Core's own rendering of those pairs: Core compares a revision
+byte-for-byte against the original and refuses an identical one as
+`revision_unchanged`, which is the one comparison a rendering cannot stand in
+for. Every key travels back on send, including the ones left alone, because
+Core re-evaluates the whole input.
+
+An editable request carrying no input is a Core invariant already broken, not a
+preview to fall back on. The control renders disabled under the client-local
+`D1-EDIT-NO-INPUT` and nothing is sent — the code has no `GUI-CORE-` prefix
+because it names a violation of something Core already publishes rather than a
+capability this client is still owed.
 
 **A revision is linked, not stacked.** The request Core produces from an Edit
 carries `revised_from`; the dock prints the link directly under the input it
@@ -1912,21 +1917,35 @@ and a link to the D14 trail by the audit id the grant wrote. An empty list and
 an absent capability are two different sentences: the first says no rule is
 installed, the second says this Core cannot answer.
 
-## D4 agent binding (G9)
+## D4 agent binding (G9b)
 
-Plan row G9 asked D4's step 2 to send the agent binding and step 4 to show the
-receipt's session outcome. **It is stopped and stated instead.**
+D4's step 2 sends the pick, and step 4 says what became of it
+(`runtime.starter_lane_agent`, [GUI-CORE-030](contract-requests.md)).
 
-C15 gave `StarterLaneRequest` an `agent` field (`runtime.starter_lane_agent`),
-but `viden-core` re-exports neither `StarterLaneAgentBinding` nor
-`StarterLaneSessionOutcome`, and the GUI may depend only on `viden-core`
-(`apps/gui/AGENTS.md`). There is no accessor and no `impl` to route around it,
-so the pick still cannot travel and the receipt's outcome cannot be read.
+**The pick is a binding, and "no agent" is one of the choices.** Step 2's rows
+are a radio group over the adapters Core published; choosing one puts
+`StarterLaneAgentBinding { agent_id, model, task }` on `StarterLaneRequest`,
+carrying the task the New Lane popover held when there was one. Beside them is a
+row that creates the Lane without starting an agent — an unbound request is the
+two-step flow Core kept and serializes to exactly the bytes it did before the
+field existed, so it is a choice rather than the absence of one. The binding is
+part of the reviewed request, so changing it after a preview invalidates that
+preview exactly as changing the branch does.
 
-Step 2 therefore records the choice and names what happens next — the agent is
-started from the cockpit once the Lane exists — and points at
-[GUI-CORE-037](contract-requests.md), which asks for the two re-exports. No row
-was shipped that cannot reach Core: a step that looked live and was not would
-cost more than a step that says why it is not. Core batch C16 added both
-re-exports the same day (037 closed on the Core side); the wiring lands in the
-G9 follow-up, and until then step 2 keeps saying the pick does not travel.
+**What the step draws back is Core's echo.** `StarterLanePreview.agent` is
+rendered, never the client's copy of what it sent, and the
+`starter_lane.agent_unknown` diagnostic is printed beside it: Core echoes an
+`agent_id` it does not know rather than dropping it, the preview stays
+creatable, and the receipt then says the session was refused. Reading the
+client's own copy there would hide exactly that.
+
+**Step 4 holds on the receipt, and answers three ways.**
+`StarterLaneReceipt.session` is `Started { session_id }`, `Refused { reason }`,
+or absent, and the three are drawn as three: the session id with a link to the
+Agent Board, Core's refusal reason verbatim, and — when Core published no
+outcome at all — that sentence, never "no agent". A bound creation therefore
+stops on step 4 instead of leaving for the cockpit, because a refusal the
+operator never saw is a Lane they believe has an Agent in it; Continue hands the
+queue on. An unbound creation navigates straight through as before. The resolved
+gate rows read the receipt once the reviewed preview slot is cleared, since Core
+resolves the same request either way.

@@ -78,6 +78,7 @@ export const D4_RESULT: D4IntentResult = {
     receipt: null,
     pendingApproval: null,
     outcome: { state: "idle", reason: null, requiresRepreview: false },
+    receiptSession: null,
     navigationLaneId: null,
   },
   pendingCommandId: null,

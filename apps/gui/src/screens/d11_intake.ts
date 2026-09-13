@@ -372,6 +372,9 @@ export function renderD11Intake(
         preset,
         branch: null,
         worktreePath: null,
+        // First-run intake has no agent step; D4 owns the binding, and a
+        // queue entry that pre-picked one would be this screen choosing.
+        agent: null,
       }));
     reviewStarterQueue?.(queue);
   });

@@ -137,6 +137,31 @@ G9 后续批次删掉解析器。
 `manifests/0.1.0-rc.5.toml` 逐字节相同，因此计数在下一次 GUI 版本号提升时才移动，不在
 这里 —— 与 H3 在 2026-09-13 记录的规则相同。
 
+2026-09-13（G9b）状态说明：030、036 与 037 在 GUI 客户端侧完成采纳，019 按集成分支
+重新核对。
+
+030 在**两侧**关闭。GUI 的 D4 向导发送 `StarterLaneRequest.agent`，并把
+`StarterLaneReceipt.session` 渲染为已启动 / 被拒绝 / Core 未发布结果；TUI 批次 T4 早已
+把 `/lanes` 创建改为两步、第一行为「No Agent」，那正是本条目所述的另一半。037 随之在
+两侧关闭：C16 重导出了两个类型，本客户端仅经由 `viden-core` 构造并匹配它们，没有从线
+格式重建任何一个。
+
+036 在 **Core 与 GUI** 两侧关闭，作为 *TUI* 采纳项保持开放。
+`parse_permission_input_fields` 已删除，权限坞的修订字段取自
+`ApprovalRequestView.input`；可编辑却不带输入的请求以客户端本地编码
+`D1-EDIT-NO-INPUT` 渲染为禁用，而不是退回去解析预览。TUI 在 C16 落地之前就交付了它
+的修订字段，至今仍以空 draft 起步，因此本条目在那一侧仍保留一个明确的关闭条件。
+
+019 完全关闭。G9 的说明把它留作 TUI 采纳项，「直到 T4 落地 `a` 与 `e`」；T4 就在本集成
+分支上并且两者都已落地，因此本条目所述的条件在两侧客户端均已满足，在此关闭，而不是
+作为过期项继续携带。
+
+因此开放登记为 013、018、021、023、026、031、032、033 与 036 —— 共九条 —— 029 仍为 D5
+画廊评审保留且尚未写出。`apps/gui/release-manifest.toml` 仍记录
+`[contract_requests] open_count = 10`：它是冻结的 `0.1.0-rc.5` manifest，并被断言与
+`manifests/0.1.0-rc.5.toml` 逐字节相同，因此计数在 rc.6 版本号提升时才移动，不在这里
+—— 与 H3 和 G9 在 2026-09-13 记录的规则相同。
+
 ## GUI-CORE-008：所选 Lane 的上下文作用域 — 已关闭
 
 历史：Core `0.3.5` 已暴露 `RuntimeViewState.context_budgets`，但 frontend-neutral
@@ -466,7 +491,7 @@ GUI 将其投影为 `available: false`、code 为 `GUI-CORE-003`，且不挂载�
 `docs/release-0.3.5-plan.md` 的「Scope Decisions」，2026-09-13。该条目仍为开放，
 上文的关闭条件不变；改期不等于关闭。
 
-## GUI-CORE-019：Always 审批作用域与 Edit 决定 — 已关闭（Core 2026-09-13）
+## GUI-CORE-019：Always 审批作用域与 Edit 决定 — 已关闭（两侧 2026-09-13）
 
 `ApprovalScope` 只建模了 `Once`、`Session` 与 `RepoAllowlist`。权限坞的设计还提供
 「Always」与「Edit」：Always 是跨会话、跨仓库的长期决定，Edit 则返回一条经修改的
@@ -505,7 +530,11 @@ Edit 在工具输入的键值对上打开内联字段，并连同未改动的键
 相链接。常驻规则列在设置面板的权限卡片中，每条带 Revoke（`RevokeStandingApproval`）
 与按授予自身 audit id 的 D14 链接。
 
-本条目作为 TUI 采纳项仍为开放，直到 T4 批次在决策模态中落地 `a` 与 `e`。
+TUI 客户端侧于 2026-09-13 由批次 T4 关闭，这正是本条目所述的条件。`ApprovalChoice`
+新增 `AllowAlways` 与 `Edit`，`Always → AllowOnce` 的投影被退役；`a` 仅在
+`allowed_scopes` 携带该作用域时发送 `Allow { scope: Always }`，Core 未提供时该行禁用
+并带上 Core 自己的理由而不是隐藏；`e` 仅在请求标记 `editable` 时打开内联修订字段；
+携带 `revised_from` 的请求会写明它改写的是哪一条。两侧客户端都已采纳，本条目关闭。
 
 ## GUI-CORE-020：面向操作者的 git 动作 — 已关闭
 
@@ -974,7 +1003,7 @@ Core 解析好的 diff 行交给共享渲染器（`apps/gui/tests/evidence_reads
 `docs/release-0.3.5-plan.md` 的「Scope Decisions」，2026-09-13。D5 画廊评审发现的
 缺口将在该评审执行时写在这里。
 
-## GUI-CORE-030：starter-Lane 请求上的 Agent 绑定 — 已关闭（Core 2026-09-13）
+## GUI-CORE-030：starter-Lane 请求上的 Agent 绑定 — 已关闭（两侧 2026-09-13）
 
 2026-09-12 由 G7 批次开立：把 G4 批次写在 D4 向导自身文案里、而非登记册中的一条请求
 正式编号（`0.3.4` 在途期间登记册处于冻结状态）。未排期；除已发布的那句说明之外，
@@ -1008,9 +1037,24 @@ Core 侧已于 2026-09-13 由 C15 批次关闭，能力 `runtime.starter_lane_ag
 `StarterLanePreview` 与 `StarterLaneReceipt`，却没有重导出 `StarterLaneAgentBinding`
 与 `StarterLaneSessionOutcome` —— 它们新字段所使用的那两个类型 —— 而
 `apps/gui/AGENTS.md` 只允许本客户端使用 `viden-core`。因此绑定无法构造，回执的
-`session` 结果也无法匹配，向导里的行仍不可选。该重导出记为 GUI-CORE-036；D4 第 2 步与
-第 4 步在它存在之后的某个 GUI 批次落地，`/lanes` 创建接受可选 agent 在 TUI 的 T4 批次中
-完成。本条目仅在 Core 侧关闭。
+`session` 结果也无法匹配，向导里的行仍不可选。该重导出记为 GUI-CORE-037（集成时重新编号；
+G9 的报告写作 036）。
+
+**2026-09-13 两侧关闭。** TUI 批次 T4 把 `/lanes` 创建改为两步，第一行是「No Agent」，
+Core 发布的每个适配器再贡献一个默认行与每个模型一行，并且从预览渲染 Core 的回声，而
+不是从本客户端对选择的记忆。GUI 批次 G9b 在 D4 上做了同一件事：第 2 步的行变成一个
+单选组，选中项成为 `StarterLaneRequest.agent`（`apps/gui/src-tauri/src/d4.rs:650` 的
+`core_request`；`apps/gui/src/screens/d4_lane_create.ts:525` 的 `bindTo`），旁边是
+「只创建 Lane，不启动 agent」的那一行——不带绑定的请求是两步流程，不是缺值。该步绘制
+Core 自己的 `StarterLanePreview.agent` 回声以及旁边的 `starter_lane.agent_unknown`
+诊断，绝不用本客户端的副本。带绑定的创建会让第 4 步停在回执上，并把
+`StarterLaneReceipt.session` 渲染成三种彼此分开的回答——已启动（会话 id 与通往 Agent
+看板的链接）、被拒绝（原样带上 Core 的理由）、以及完全没有结果，后者写作「Core 没有
+发布任何会话结果」而绝不是「没有 agent」（`apps/gui/src/screens/d4_lane_create.ts:653`
+的 `appendSessionOutcome`）。不带绑定的创建仍与该字段出现之前完全一样直接跳转。证据：
+`apps/gui/evidence/main-window-interactions/` 的 `d4-agent-binding-started` 与
+`d4-agent-binding-refused`，两者都由 `capture_projections.rs` 驱动生产适配器跑完
+`starter-lane-agent.json` 得到。
 
 ## GUI-CORE-031：技能包与上下文注入
 
@@ -1172,16 +1216,23 @@ base fixture 都逐字节不变；`approval-scopes` extension fixture 确实发�
 事件形状变化。
 
 G9 批次同日在 GUI 侧独立遇到了同一个缺口（其报告编为 035；集成时并入本条，因为
-035 是 H4 的探测发现）。GUI 在采纳该字段之前的做法，以及为什么这是坏选项里最不坏
-的那个：解析位于 `apps/gui/src-tauri/src/projection.rs`
-（`parse_permission_input_fields`），只有一处，在本就持有 Core 类型的那一层，而且
-是精确的——两个空格、一个不含冒号的键、`": "`、以及该行其余部分；其它任何形式都返
-回 `None`，Edit 控件渲染为禁用并携带本条目的编码，且什么都不发送。含换行的值按构
-造必然解析失败，这正是重点：用半解析的预览拼出的修订，会把操作者从未写过的输入以
-他们的名义写进审计行。G9 后续批次改读 `input` 并删掉解析器连同这个编码；在此之前
-本条在 Core 侧已关闭，作为 GUI 采纳项保持开放。
+035 是 H4 的探测发现）。它把 `input_preview` 反解成键值对，只有一处，在本就持有
+Core 类型的那一层，精确且 fail-closed。
 
-## GUI-CORE-037：`viden-core` 未重导出 starter-Lane 的两个 agent 类型 —— 已关闭（Core 2026-09-13）
+**GUI 客户端侧于 2026-09-13 由批次 G9b 关闭。** `parse_permission_input_fields`
+已删除；权限坞的修订字段取自 `ApprovalRequestView.input`
+（`apps/gui/src-tauri/src/projection.rs:324`），并且两个标记一起读——可编辑却不带
+输入的请求意味着 Core 的不变量已经被打破，因此控件以客户端本地编码
+`D1-EDIT-NO-INPUT`（`apps/gui/src-tauri/src/permission.rs:9`）渲染为禁用，也不再去
+解析预览。该编码刻意不带 `GUI-CORE-` 前缀：它点名的是 Core 已经发布之物被违反，而
+不是本客户端仍被亏欠的能力。
+
+本条目作为 **TUI** 采纳项仍为开放。T4 开立本条并在 C16 落地之前就交付了修订字段，
+因此 `begin_approval_edit`（`apps/tui/src/tui/input.rs:165`）仍以空 draft 起步，
+`apps/tui/src/tui/ui_state.rs:287` 仍写着 `ApprovalRequestView` 不携带类型化的
+`ToolInput`。那句话在同一天就不再为真；当 TUI 用该字段填充其 draft 时本条关闭。
+
+## GUI-CORE-037：`viden-core` 未重导出 starter-Lane 的两个 agent 类型 —— 已关闭（两侧 2026-09-13）
 
 2026-09-13 由 G9 批次开立 —— 正是因为它，计划表 G9 行第 3 项无法交付（G9 的报告编为
 036；集成时重新编号）。这是重导出，不是新事实。
@@ -1202,10 +1253,11 @@ C15 在 Core 侧关闭了 GUI-CORE-030：`StarterLaneRequest` 与 `StarterLanePr
 加上 `pub use viden_types::{StarterLaneAgentBinding, StarterLaneSessionOutcome};`。
 GUI-CORE-030 随即在下一个 GUI 批次于客户端侧关闭。
 
-**2026-09-13 由 Core 批次 C16 关闭**：`crates/core/src/lib.rs` 重导出了两个类型
-（`StarterLaneAgentBinding` 在 `:62`，`StarterLaneSessionOutcome` 在 `:64`）。GUI
-侧——从 D4 第 2 步发送绑定、渲染回执结果、退役 `d4-agent-binding-blocked` 状态——在
-G9 后续批次落地，同时在客户端侧关闭 GUI-CORE-030；在此之前本条是 GUI 采纳项。
+**2026-09-13 两侧关闭。** Core 批次 C16 重导出了两个类型
+（`crates/core/src/lib.rs:62`、`:64`），批次 G9b 消费了它们：GUI 的 D4 适配器用向导
+的选择构造 `StarterLaneAgentBinding`，并匹配 `StarterLaneSessionOutcome` 来渲染回执
+（`apps/gui/src-tauri/src/d4.rs:650`、`:302`）。没有从线格式重建任何类型，也没有越过
+`viden-core`，这正是本条目所要求的。GUI-CORE-030 随之关闭。
 
 ## 已退役的前登记编码
 
@@ -1236,3 +1288,4 @@ GUI-CORE-019 中：这两条条目点名它为「动作背后的能力缺失期�
 | `D1-OWNER-CARDINALITY` | `apps/gui/src-tauri/src/d1.rs`，在 D1 驾驶舱投影中使用 | 选中 Lane 携带了多于一个精确 runtime owner binding。Core 的 reducer 对每个 Lane 最多保留一个，因此这是客户端拒绝渲染的视图——它转入 snapshot/replay 恢复而不是挑一个 owner——而不是 Core 尚欠的事实。 |
 | `D2-REVIEW-SETTLED` | `apps/gui/src-tauri/src/d2.rs` | Core 已记录该评审的裁决；`DecideReview` 只对 `Pending` 评审裁决一次。 |
 | `D2-NO-REVIEWER-ACTOR` | `apps/gui/src-tauri/src/d2.rs` | 从该评审的已发布事实中，推导不出 `validate_review_decider` 会接受的 actor。 |
+| `D1-EDIT-NO-INPUT` | `apps/gui/src-tauri/src/permission.rs`，在权限坞投影中应用 | Core 把该审批标记为 `editable`，却没有为它发布 `input`。C16 恰好在它标记为可编辑的请求上填充该字段，因此这是 Core 的不变量已被打破，而不是仍被亏欠的能力——Edit 控件被撤下，也不会拿 Core 的渲染 `input_preview` 来顶替。 |

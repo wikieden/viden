@@ -4,8 +4,9 @@ use serde::{Deserialize, Serialize};
 use viden_core::{
     AgentLaneRecord, AgentRole, ApprovalDecision, ApprovalRequestView, ApprovalResponse,
     ApprovalRisk, FRONTEND_SCHEMA_V1, RuntimeCommand, RuntimeCommandEnvelope, RuntimeEventEnvelope,
-    RuntimeEventKind, RuntimeOwner, RuntimeWireEvent, StarterLanePreset, StarterLanePreview,
-    StarterLanePreviewInvalidationReason, StarterLaneReceipt, StarterLaneRequest, WorkMode,
+    RuntimeEventKind, RuntimeOwner, RuntimeWireEvent, StarterLaneAgentBinding, StarterLanePreset,
+    StarterLanePreview, StarterLanePreviewInvalidationReason, StarterLaneReceipt,
+    StarterLaneRequest, StarterLaneSessionOutcome, WorkMode,
 };
 
 use crate::GuiCoreAdapter;
@@ -20,6 +21,20 @@ pub enum D4Preset {
     Tester,
 }
 
+/// The Agent the wizard's step 2 picked, as it travels to Core
+/// (`runtime.starter_lane_agent`, GUI-CORE-030).
+///
+/// Absent is the two-step flow the wizard had before the binding existed: the
+/// Lane is created and a session is started from the cockpit afterwards. It is
+/// a real request shape, not a missing value, so the step offers it explicitly.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct D4AgentBinding {
+    pub agent_id: String,
+    pub model: Option<String>,
+    pub task: Option<String>,
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct D4LaneRequest {
@@ -27,6 +42,11 @@ pub struct D4LaneRequest {
     pub preset: D4Preset,
     pub branch: Option<String>,
     pub worktree_path: Option<String>,
+    /// Part of the reviewed request, which is why it is compared on create:
+    /// changing the pick after a preview invalidates it exactly as changing
+    /// the branch does.
+    #[serde(default)]
+    pub agent: Option<D4AgentBinding>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -99,6 +119,31 @@ pub struct D4ResolvedLaneProjection {
     pub summary: String,
 }
 
+/// The binding as Core published it back.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct D4AgentBindingProjection {
+    pub agent_id: String,
+    pub model: Option<String>,
+    pub task: Option<String>,
+}
+
+/// What `CreateStarterLane` made of the binding (`StarterLaneSessionOutcome`).
+///
+/// Absent on the projection is a third answer and not a variant here: Core
+/// published no outcome for this Lane. The Lane still exists either way —
+/// creation never fails because a session did not start.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(
+    tag = "state",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase"
+)]
+pub enum D4SessionOutcomeProjection {
+    Started { session_id: String },
+    Refused { reason: String },
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct D4PreviewProjection {
@@ -110,6 +155,11 @@ pub struct D4PreviewProjection {
     pub worktree_path: String,
     pub base_revision: String,
     pub diagnostics: Vec<String>,
+    /// Core's own echo of the binding on a preview, and always `None` on a
+    /// receipt: `StarterLaneReceipt` carries the session outcome instead of
+    /// repeating the binding, and repeating the client's copy there would be
+    /// this client answering for Core.
+    pub agent: Option<D4AgentBindingProjection>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -165,6 +215,9 @@ pub struct D4LaneCreateProjection {
     pub receipt: Option<D4PreviewProjection>,
     pub pending_approval: Option<D4ApprovalProjection>,
     pub outcome: D4OutcomeProjection,
+    /// `StarterLaneReceipt.session`, kept beside the receipt rather than on it
+    /// so "Core published no outcome" stays distinguishable from "no receipt".
+    pub receipt_session: Option<D4SessionOutcomeProjection>,
     pub navigation_lane_id: Option<String>,
 }
 
@@ -246,6 +299,11 @@ impl GuiCoreAdapter {
             receipt: self.d4_receipt.as_ref().map(receipt_projection),
             pending_approval: pending_approval.map(approval_projection),
             outcome: self.d4_outcome.clone(),
+            receipt_session: self
+                .d4_receipt
+                .as_ref()
+                .and_then(|receipt| receipt.session.as_ref())
+                .map(session_outcome_projection),
             navigation_lane_id: self
                 .d4_receipt
                 .as_ref()
@@ -587,8 +645,9 @@ impl GuiCoreAdapter {
 
 fn core_request(request: &D4LaneRequest) -> StarterLaneRequest {
     StarterLaneRequest {
-        // `runtime.starter_lane_agent` (GUI-CORE-030); the pick travels in G9.
-        agent: None,
+        // `runtime.starter_lane_agent` (GUI-CORE-030): the operator's pick
+        // travels with the request instead of being dropped at this boundary.
+        agent: request.agent.as_ref().map(core_binding),
         lane_id: request.lane_id.clone(),
         preset: match request.preset {
             D4Preset::Coder => StarterLanePreset::Coder,
@@ -703,6 +762,7 @@ fn preview_projection(preview: &StarterLanePreview) -> D4PreviewProjection {
         worktree_path: preview.worktree_path.clone(),
         base_revision: preview.base_revision.clone(),
         diagnostics: preview.diagnostics.clone(),
+        agent: preview.agent.as_ref().map(binding_projection),
     }
 }
 
@@ -716,6 +776,36 @@ fn receipt_projection(receipt: &StarterLaneReceipt) -> D4PreviewProjection {
         worktree_path: receipt.worktree_path.clone(),
         base_revision: receipt.base_revision.clone(),
         diagnostics: Vec::new(),
+        // The receipt has no binding field; its answer about the Agent is the
+        // session outcome, which the projection carries separately.
+        agent: None,
+    }
+}
+
+fn core_binding(binding: &D4AgentBinding) -> StarterLaneAgentBinding {
+    StarterLaneAgentBinding {
+        agent_id: binding.agent_id.clone(),
+        model: binding.model.clone(),
+        task: binding.task.clone(),
+    }
+}
+
+fn binding_projection(binding: &StarterLaneAgentBinding) -> D4AgentBindingProjection {
+    D4AgentBindingProjection {
+        agent_id: binding.agent_id.clone(),
+        model: binding.model.clone(),
+        task: binding.task.clone(),
+    }
+}
+
+fn session_outcome_projection(outcome: &StarterLaneSessionOutcome) -> D4SessionOutcomeProjection {
+    match outcome {
+        StarterLaneSessionOutcome::Started { session_id } => D4SessionOutcomeProjection::Started {
+            session_id: session_id.clone(),
+        },
+        StarterLaneSessionOutcome::Refused { reason } => D4SessionOutcomeProjection::Refused {
+            reason: reason.clone(),
+        },
     }
 }
 

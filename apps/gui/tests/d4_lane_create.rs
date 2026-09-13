@@ -5,12 +5,14 @@ use viden_core::{
     AgentLaneRecord, AgentRole, AgentRoute, ApprovalDecision, ApprovalDefaultAction,
     ApprovalRequestView, ApprovalRisk, ApprovalScope, ApprovalTarget, DataEgressPolicy,
     ExecutionTarget, GateStrength, LaneBudget, LaneStatus, MutationPolicy, RuntimeCommand,
-    RuntimeEventKind, RuntimeOwner, RuntimeSnapshot, RuntimeViewState, StarterLanePreset,
-    StarterLanePreview, StarterLanePreviewInvalidationReason, StarterLaneReceipt,
-    StarterLaneRequest, WorkMode, local_core_handshake,
+    RuntimeEventKind, RuntimeOwner, RuntimeSnapshot, RuntimeViewState, StarterLaneAgentBinding,
+    StarterLanePreset, StarterLanePreview, StarterLanePreviewInvalidationReason,
+    StarterLaneReceipt, StarterLaneRequest, StarterLaneSessionOutcome, WorkMode,
+    local_core_handshake,
 };
 use viden_gui::{
-    D4_STARTER_LANE_CAPABILITY, D4ApprovalIntent, D4Intent, D4LaneRequest, D4Preset, GuiCoreAdapter,
+    D4_STARTER_LANE_CAPABILITY, D4AgentBinding, D4ApprovalIntent, D4Intent, D4LaneRequest,
+    D4Preset, D4SessionOutcomeProjection, GuiCoreAdapter,
 };
 
 mod support;
@@ -61,6 +63,19 @@ fn request(lane_id: &str, preset: D4Preset) -> D4LaneRequest {
         preset,
         branch: None,
         worktree_path: None,
+        agent: None,
+    }
+}
+
+/// The same request with the wizard's step-2 pick attached.
+fn bound_request(lane_id: &str, preset: D4Preset, agent_id: &str) -> D4LaneRequest {
+    D4LaneRequest {
+        agent: Some(D4AgentBinding {
+            agent_id: agent_id.into(),
+            model: Some("claude-sonnet".into()),
+            task: Some("wire the starter Lane binding".into()),
+        }),
+        ..request(lane_id, preset)
     }
 }
 
@@ -74,7 +89,14 @@ fn core_request(request: &D4LaneRequest) -> StarterLaneRequest {
         },
         branch: request.branch.clone(),
         worktree_path: request.worktree_path.clone(),
-        agent: None,
+        agent: request
+            .agent
+            .as_ref()
+            .map(|binding| StarterLaneAgentBinding {
+                agent_id: binding.agent_id.clone(),
+                model: binding.model.clone(),
+                task: binding.task.clone(),
+            }),
     }
 }
 
@@ -115,7 +137,9 @@ fn preview_for(request: &D4LaneRequest, owner: RuntimeOwner) -> StarterLanePrevi
         base_revision: "b".repeat(40),
         diagnostics: Vec::new(),
         lane,
-        agent: None,
+        // Core's own echo of the binding it was sent. The wizard renders this
+        // copy, never the one it holds locally.
+        agent: core_request(request).agent,
     }
 }
 
@@ -131,6 +155,16 @@ fn receipt_for(preview: &StarterLanePreview) -> StarterLaneReceipt {
         base_revision: preview.base_revision.clone(),
         owner: preview.owner.clone(),
         session: None,
+    }
+}
+
+fn receipt_with_session(
+    preview: &StarterLanePreview,
+    session: StarterLaneSessionOutcome,
+) -> StarterLaneReceipt {
+    StarterLaneReceipt {
+        session: Some(session),
+        ..receipt_for(preview)
     }
 }
 
@@ -627,4 +661,152 @@ fn mismatched_preview_or_receipt_owner_never_completes_pending_command() {
     assert_eq!(result.pending_command_id.as_deref(), Some("preview-owner"));
     assert!(result.projection.preview.is_none());
     assert_eq!(result.projection.navigation_lane_id, None);
+}
+
+/// Drives one bound request from preview to receipt and answers with the
+/// projection the wizard renders.
+fn create_with_binding(
+    request: &D4LaneRequest,
+    session: Option<StarterLaneSessionOutcome>,
+) -> (
+    viden_gui::D4LaneCreateProjection,
+    viden_gui::D4LaneCreateProjection,
+    Vec<viden_core::RuntimeCommandEnvelope>,
+) {
+    let owner = owner(&request.lane_id);
+    let preview = preview_for(request, owner.clone());
+    let receipt = match session {
+        Some(outcome) => receipt_with_session(&preview, outcome),
+        None => receipt_for(&preview),
+    };
+    let sent = Arc::new(Mutex::new(Vec::new()));
+    let client = enabled_client(d4_view(WorkMode::Build), Arc::clone(&sent))
+        .with_owned_event(
+            test_owner(&owner),
+            accepted(
+                "preview-bound",
+                RuntimeCommand::PreviewStarterLane {
+                    request: core_request(request),
+                },
+            ),
+        )
+        .with_owned_event(
+            test_owner(&owner),
+            RuntimeEventKind::StarterLanePreviewed {
+                preview: preview.clone(),
+            },
+        )
+        .with_owned_event(
+            test_owner(&owner),
+            lane_accepted(
+                "create-bound",
+                RuntimeCommand::CreateStarterLane {
+                    request: core_request(request),
+                    preview_id: preview.preview_id.clone(),
+                    content_sha256: preview.content_sha256.clone(),
+                },
+            ),
+        )
+        .with_owned_event(
+            test_owner(&owner),
+            RuntimeEventKind::StarterLaneCreated { receipt },
+        );
+    let mut adapter = GuiCoreAdapter::new(Box::new(client));
+    adapter.connect().expect("connect D4 fake");
+    let previewed = adapter
+        .send_d4_intent_and_wait(
+            "preview-bound",
+            D4Intent::Preview {
+                request: request.clone(),
+            },
+            Duration::ZERO,
+        )
+        .expect("preview the bound request");
+    let created = adapter
+        .send_d4_intent_and_wait(
+            "create-bound",
+            D4Intent::Create {
+                request: request.clone(),
+            },
+            Duration::ZERO,
+        )
+        .expect("create the bound Lane");
+    let commands = sent.lock().expect("sent lock").clone();
+    (previewed.projection, created.projection, commands)
+}
+
+/// The pick travels on `StarterLaneRequest.agent`, and what the wizard draws
+/// back is Core's own `StarterLanePreview.agent` echo rather than the client's
+/// copy of what it sent (`runtime.starter_lane_agent`, GUI-CORE-030).
+#[test]
+fn the_agent_pick_travels_and_the_preview_shows_core_s_own_echo() {
+    let request = bound_request("starter-bound", D4Preset::Coder, "claude-code");
+    let (previewed, _, commands) = create_with_binding(&request, None);
+
+    let RuntimeCommand::PreviewStarterLane { request: sent } = &commands[0].command else {
+        panic!("the first command must be the preview");
+    };
+    assert_eq!(
+        sent.agent,
+        Some(StarterLaneAgentBinding {
+            agent_id: "claude-code".into(),
+            model: Some("claude-sonnet".into()),
+            task: Some("wire the starter Lane binding".into()),
+        })
+    );
+    let RuntimeCommand::CreateStarterLane { request: sent, .. } = &commands[1].command else {
+        panic!("the second command must be the create");
+    };
+    assert_eq!(
+        sent.agent.as_ref().map(|agent| agent.agent_id.as_str()),
+        Some("claude-code")
+    );
+
+    let echo = previewed
+        .preview
+        .expect("the reviewed preview")
+        .agent
+        .expect("Core echoed the binding");
+    assert_eq!(echo.agent_id, "claude-code");
+    assert_eq!(echo.model.as_deref(), Some("claude-sonnet"));
+    assert_eq!(echo.task.as_deref(), Some("wire the starter Lane binding"));
+}
+
+/// The receipt's three answers, kept apart: a started session, Core's own
+/// refusal reason, and a Core that published no outcome at all.
+#[test]
+fn the_receipt_publishes_started_refused_or_nothing() {
+    let request = bound_request("starter-bound", D4Preset::Coder, "claude-code");
+
+    let (_, started, _) = create_with_binding(
+        &request,
+        Some(StarterLaneSessionOutcome::Started {
+            session_id: "agent-session-starter".into(),
+        }),
+    );
+    assert_eq!(
+        started.receipt_session,
+        Some(D4SessionOutcomeProjection::Started {
+            session_id: "agent-session-starter".into(),
+        })
+    );
+
+    let (_, refused, _) = create_with_binding(
+        &request,
+        Some(StarterLaneSessionOutcome::Refused {
+            reason: "agent adapter `claude-code` is not known".into(),
+        }),
+    );
+    assert_eq!(
+        refused.receipt_session,
+        Some(D4SessionOutcomeProjection::Refused {
+            reason: "agent adapter `claude-code` is not known".into(),
+        })
+    );
+
+    // Absent is not "no agent": the Lane exists and Core published no outcome
+    // for it, which the wizard states rather than filling in.
+    let (_, absent, _) = create_with_binding(&request, None);
+    assert!(absent.receipt.is_some());
+    assert_eq!(absent.receipt_session, None);
 }

@@ -82,6 +82,129 @@ fn load(name: &str) -> RuntimeViewState {
     view
 }
 
+/// Reads a fixture's ordered envelopes exactly as it published them.
+fn fixture_envelopes(name: &str) -> Vec<RuntimeEventEnvelope> {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join(FIXTURE_ROOT)
+        .join(name);
+    let fixture: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    fixture["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|event| serde_json::from_value(event.clone()).unwrap())
+        .collect()
+}
+
+/// Drives the D4 wizard over one Lane of `starter-lane-agent.json`.
+///
+/// D4's state lives in the adapter's reviewed-preview and receipt slots rather
+/// than in `RuntimeViewState`, so the projection cannot be read off a replayed
+/// view: the wizard has to be driven. The preview and the receipt are the
+/// fixture's own envelopes, replayed verbatim; the two `CommandAccepted`
+/// facts are added here because the fixture records only one of them, and each
+/// is the typed record the runtime publishes for the command the adapter sent.
+fn d4_starter_lane(lane: &str) -> viden_gui::D4LaneCreateProjection {
+    let envelopes = fixture_envelopes("starter-lane-agent.json");
+    let known = |envelope: &RuntimeEventEnvelope| match &envelope.event {
+        RuntimeWireEvent::Known(event) => Some(event.kind.clone()),
+        RuntimeWireEvent::Unknown { .. } => None,
+    };
+    let previewed = envelopes
+        .iter()
+        .find(|envelope| {
+            matches!(known(envelope), Some(RuntimeEventKind::StarterLanePreviewed { preview }) if preview.lane.id == lane)
+        })
+        .expect("the fixture previews this Lane")
+        .clone();
+    let created = envelopes
+        .iter()
+        .find(|envelope| {
+            matches!(known(envelope), Some(RuntimeEventKind::StarterLaneCreated { receipt }) if receipt.lane.id == lane)
+        })
+        .expect("the fixture creates this Lane")
+        .clone();
+    let Some(RuntimeEventKind::StarterLanePreviewed { preview }) = known(&previewed) else {
+        unreachable!("filtered above")
+    };
+
+    let request = viden_gui::D4LaneRequest {
+        lane_id: preview.lane.id.clone(),
+        preset: viden_gui::D4Preset::Coder,
+        branch: Some(preview.branch.clone()),
+        worktree_path: Some(preview.worktree_path.clone()),
+        agent: preview
+            .agent
+            .as_ref()
+            .map(|binding| viden_gui::D4AgentBinding {
+                agent_id: binding.agent_id.clone(),
+                model: binding.model.clone(),
+                task: binding.task.clone(),
+            }),
+    };
+    let core_request = viden_core::StarterLaneRequest {
+        lane_id: request.lane_id.clone(),
+        preset: viden_core::StarterLanePreset::Coder,
+        branch: request.branch.clone(),
+        worktree_path: request.worktree_path.clone(),
+        agent: preview.agent.clone(),
+    };
+    let accepted = |command_id: &str, command: viden_core::RuntimeCommand| RuntimeEventEnvelope {
+        schema_version: FRONTEND_SCHEMA_V1,
+        owner: preview.owner.clone(),
+        cursor: EventCursor {
+            stream_id: "capture:starter-lane-agent".to_string(),
+            sequence: 0,
+        },
+        event: RuntimeWireEvent::Known(RuntimeEvent::new(
+            0,
+            RuntimeEventKind::CommandAccepted {
+                command_id: command_id.to_string(),
+                command,
+            },
+        )),
+    };
+
+    let view = RuntimeViewState::new(load("starter-lane-agent.json").snapshot.clone());
+    let client = TestCoreClient::new(view, Arc::new(Mutex::new(Vec::new())))
+        .with_envelope(accepted(
+            "capture-preview",
+            viden_core::RuntimeCommand::PreviewStarterLane {
+                request: core_request.clone(),
+            },
+        ))
+        .with_envelope(previewed)
+        .with_envelope(accepted(
+            "capture-create",
+            viden_core::RuntimeCommand::CreateStarterLane {
+                request: core_request,
+                preview_id: preview.preview_id.clone(),
+                content_sha256: preview.content_sha256.clone(),
+            },
+        ))
+        .with_envelope(created);
+    let mut adapter = GuiCoreAdapter::new(Box::new(client));
+    adapter.connect().unwrap();
+    adapter
+        .send_d4_intent_and_wait(
+            "capture-preview",
+            viden_gui::D4Intent::Preview {
+                request: request.clone(),
+            },
+            std::time::Duration::ZERO,
+        )
+        .unwrap();
+    adapter
+        .send_d4_intent_and_wait(
+            "capture-create",
+            viden_gui::D4Intent::Create { request },
+            std::time::Duration::ZERO,
+        )
+        .unwrap()
+        .projection
+}
+
 /// Reads the approval exactly as the fixture's event payload published it.
 fn approval_from_fixture(name: &str) -> viden_core::ApprovalRequestView {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -501,6 +624,12 @@ fn emit_capture_projections() {
         "standing-approvals",
         &connected(load_prefix("approval-scopes.json", 3)).standing_approvals(),
     );
+
+    // D4: the two `StarterLaneSessionOutcome` arms, from `starter-lane-agent`'s
+    // own stream — the Lane whose bound session started, and the Lane whose
+    // binding named an adapter Core does not have.
+    write("d4-agent-started", &d4_starter_lane("lane-starter-agent"));
+    write("d4-agent-refused", &d4_starter_lane("lane-starter-unknown"));
 
     // D14: the replay contract has no fixture, so the batch is built from
     // typed Core events and served through the same replay path.
