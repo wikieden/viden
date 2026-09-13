@@ -2328,6 +2328,192 @@ fn default_starter_lane_creates_in_non_git_workspace_without_worktree() {
     assert_eq!(effects.calls.lock().unwrap().as_slice(), [preview.lane.id]);
 }
 
+/// The exact native GUI creation path (E3b defect 22): the `⌘L` popover's
+/// `PreviewDefaultStarterLane` in a real Git workspace, the real
+/// `LocalLaneEffectExecutor`, and a `lane_create` approval decided with
+/// allow-once. The receipt the host's pending creation settles on must arrive
+/// after the Lane's own `LaneUpdated`, and no invalidation may precede it.
+#[test]
+fn default_starter_lane_in_real_git_workspace_settles_its_creation_receipt() {
+    let repo = starter_lane_repo("default_starter_lane_real_git_repo");
+    let home = temp_dir("default_starter_lane_real_git_home");
+    let provider: Box<dyn ModelProvider> = Box::new(SequenceProvider::new(vec![]));
+    let engine = SessionEngine::new_with_home(&repo, provider, Some(home)).unwrap();
+    let supervisor = RuntimeSupervisor::start_with_lane_effects_for_test(
+        engine,
+        Arc::new(LocalLaneEffectExecutor::default()) as Arc<dyn LaneEffectExecutor>,
+    );
+    let workspace_owner = RuntimeOwner {
+        workspace_id: "workspace-starter".to_string(),
+        project_id: "project-starter".to_string(),
+        ..RuntimeOwner::default()
+    };
+
+    supervisor
+        .send_command_from_owner(
+            workspace_owner,
+            "gui-d1-preview-default",
+            RuntimeCommand::PreviewDefaultStarterLane {
+                preset: StarterLanePreset::Coder,
+            },
+        )
+        .unwrap();
+    let preview_events = collect_starter_envelopes_until(&supervisor, |events| {
+        events.iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::StarterLanePreviewed { .. },
+                    ..
+                })
+            )
+        })
+    });
+    let preview = preview_events
+        .iter()
+        .find_map(|envelope| match &envelope.event {
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::StarterLanePreviewed { preview },
+                ..
+            }) => Some(preview.clone()),
+            _ => None,
+        })
+        .unwrap();
+    assert!(preview.lane.branch.is_some(), "real Git workspace previews a branch");
+
+    // Byte-identical to what `GuiCoreAdapter` rebuilds from the published
+    // projection before it sends `CreateStarterLane` (adapter.rs:4726).
+    let request = StarterLaneRequest {
+        lane_id: preview.lane.id.clone(),
+        preset: StarterLanePreset::Coder,
+        branch: preview.lane.branch.clone(),
+        worktree_path: None,
+        agent: None,
+    };
+    supervisor
+        .send_command_from_owner(
+            preview.owner.clone(),
+            "gui-d1-create-default",
+            RuntimeCommand::CreateStarterLane {
+                request,
+                preview_id: preview.preview_id.clone(),
+                content_sha256: preview.content_sha256.clone(),
+            },
+        )
+        .unwrap();
+    let approval_events = collect_starter_envelopes_until(&supervisor, |events| {
+        events.iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::ApprovalRequested { approval },
+                    ..
+                }) if approval.tool_name == "lane_create"
+            )
+        })
+    });
+    let approval_id = approval_events
+        .iter()
+        .find_map(|envelope| match &envelope.event {
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::ApprovalRequested { approval },
+                ..
+            }) => Some(approval.id.clone()),
+            _ => None,
+        })
+        .unwrap();
+    supervisor
+        .send_command_from_owner(
+            preview.owner.clone(),
+            "gui-d1-approve-default",
+            RuntimeCommand::RespondToApproval {
+                request_id: approval_id,
+                response: ApprovalResponse::allow_once(None),
+            },
+        )
+        .unwrap();
+
+    let mut after_approval = Vec::new();
+    let started = Instant::now();
+    while started.elapsed() < Duration::from_secs(10) {
+        let Some(envelope) = supervisor.recv_event_envelope_timeout(Duration::from_millis(50))
+        else {
+            continue;
+        };
+        let created = matches!(
+            &envelope.event,
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::StarterLaneCreated { .. },
+                ..
+            })
+        );
+        after_approval.push(envelope);
+        if created {
+            break;
+        }
+    }
+    let names: Vec<&str> = after_approval
+        .iter()
+        .map(|envelope| match &envelope.event {
+            RuntimeWireEvent::Known(event) => match &event.kind {
+                RuntimeEventKind::LaneUpdated { .. } => "LaneUpdated",
+                RuntimeEventKind::LaneOutputAppended { .. } => "LaneOutputAppended",
+                RuntimeEventKind::LaneRuntimeOwnerBound { .. } => "LaneRuntimeOwnerBound",
+                RuntimeEventKind::StarterLaneCreated { .. } => "StarterLaneCreated",
+                RuntimeEventKind::StarterLanePreviewInvalidated { .. } => {
+                    "StarterLanePreviewInvalidated"
+                }
+                RuntimeEventKind::CommandRejected { .. } => "CommandRejected",
+                RuntimeEventKind::Error { .. } => "Error",
+                RuntimeEventKind::LaneRecoveryRequired { .. } => "LaneRecoveryRequired",
+                RuntimeEventKind::ApprovalResolved { .. } => "ApprovalResolved",
+                RuntimeEventKind::SnapshotUpdated { .. } => "SnapshotUpdated",
+                _ => "other",
+            },
+            RuntimeWireEvent::Unknown { .. } => "unknown",
+        })
+        .collect();
+
+    let lane_updated_at = names.iter().position(|name| *name == "LaneUpdated");
+    let created_at = names
+        .iter()
+        .position(|name| *name == "StarterLaneCreated")
+        .unwrap_or_else(|| {
+            panic!(
+                "no StarterLaneCreated receipt after the allow-once; \
+                 the host's creation pending can never settle. ordered stream: {names:?}"
+            )
+        });
+    let lane_updated_at = lane_updated_at.expect("the created Lane publishes LaneUpdated");
+    assert!(
+        lane_updated_at < created_at,
+        "the receipt must follow the Lane fact: {names:?}"
+    );
+    assert!(
+        !names[..created_at].contains(&"StarterLanePreviewInvalidated"),
+        "a created Lane must never be preceded by an invalidation: {names:?}"
+    );
+
+    let receipt = after_approval
+        .iter()
+        .find_map(|envelope| match &envelope.event {
+            RuntimeWireEvent::Known(RuntimeEvent {
+                kind: RuntimeEventKind::StarterLaneCreated { receipt },
+                ..
+            }) => Some(receipt.clone()),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(receipt.preview_id, preview.preview_id);
+    assert_eq!(receipt.content_sha256, preview.content_sha256);
+    assert_eq!(receipt.owner, preview.owner);
+    assert_eq!(receipt.lane.id, preview.lane.id);
+    // The popover's TASK field never reaches Core on this path: the default
+    // preview carries no agent binding, so no session is started with it.
+    assert!(preview.agent.is_none());
+    assert!(receipt.session.is_none());
+}
+
 #[test]
 fn starter_lane_create_waits_for_permission_and_emits_exact_owner_receipt() {
     let repo = starter_lane_repo("starter_lane_create_repo");

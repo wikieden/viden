@@ -6926,6 +6926,99 @@ mod tests {
         std::fs::remove_dir_all(project).expect("remove temporary project");
     }
 
+    /// E3b defect 22, at the transport: the desktop shell runs
+    /// `spawn_core_event_pump`, which drains ordered Core events off the UI
+    /// thread and only then wakes the webview. The receipt that settles a D1
+    /// command is therefore almost always consumed by the pump, never by the
+    /// screen's own `poll_d1`. Interposing one pump drain between the
+    /// allow-once and the screen's poll reproduces the native run exactly.
+    #[test]
+    fn desktop_event_pump_settles_the_lane_creation_it_drains() {
+        let session_home = temp_dir("pump-create-session-home");
+        let project = temp_dir("pump-create-project");
+        initialize_git_repository(&project);
+        let host = LocalCoreHost::with_session_home(&session_home);
+        let mut adapter = open_workspace_with_host(&host, &project).expect("open local workspace");
+
+        let preview = adapter
+            .send_d1_intent_and_wait(
+                "pump-create-preview",
+                crate::D1Intent::PreviewDefaultLane {
+                    preset: "coder".to_string(),
+                },
+                Duration::from_millis(250),
+            )
+            .expect("preview default Lane through live Core")
+            .projection
+            .starter_lane_previews
+            .into_iter()
+            .next()
+            .expect("Core publishes a starter Lane preview");
+
+        let create = adapter
+            .send_d1_intent_and_wait(
+                "pump-create-lane",
+                crate::D1Intent::CreateStarterLane {
+                    lane_id: preview.lane_id.clone(),
+                    preset: "coder".to_string(),
+                    branch: preview.branch.clone(),
+                    preview_id: preview.preview_id.clone(),
+                    content_sha256: preview.content_sha256.clone(),
+                },
+                Duration::from_millis(250),
+            )
+            .expect("request starter Lane creation through live Core");
+        let request_id = create
+            .projection
+            .permission_dock
+            .request
+            .expect("Core requests approval before creating a worktree")
+            .id;
+        adapter
+            .send_permission_intent_and_wait(
+                "pump-create-allow-once",
+                PermissionIntent::Respond {
+                    request_id,
+                    choice: PermissionChoice::Once,
+                    feedback: None,
+                    revised_input: None,
+                },
+                Duration::from_millis(250),
+            )
+            .expect("allow starter Lane creation once");
+
+        // The background pump wins the recv race in the shipped desktop shell:
+        // it is the thread sitting in the bounded receive while the webview is
+        // waiting for the wake the pump itself emits.
+        for _ in 0..8 {
+            if !adapter.pump_events(Duration::from_millis(250)) {
+                break;
+            }
+        }
+        let created = adapter
+            .poll_d1(None, Duration::from_millis(250))
+            .expect("observe starter Lane creation after the pump drained it");
+
+        assert!(
+            created
+                .projection
+                .lanes
+                .iter()
+                .any(|lane| lane.id == preview.lane_id),
+            "the Lane is created either way; only its receipt is at issue"
+        );
+        assert_eq!(
+            created.pending_command_id, None,
+            "a receipt drained by the desktop pump must still free the client's one command slot"
+        );
+        assert_eq!(created.outcome.state, "confirmed");
+
+        drop(adapter);
+        drop(host);
+        std::fs::remove_dir_all(session_home).expect("remove temporary session home");
+        std::fs::remove_dir_all(project).expect("remove temporary project");
+    }
+
     #[test]
     fn local_workspace_adapter_reaches_live_core_and_can_probe_project() {
         let session_home = temp_dir("session-home");
