@@ -432,5 +432,19 @@
   "plan.refusal": "Core 拒绝了 {action} · {reason}",
   "plan.sent": "已发送 · 等待 Core（{command_id}）",
   "plan.hint": "Esc 返回 · a 接受 · r 拒绝 · h 交接 · ↑↓ 滚动",
-  "overlay.title.plan": "计划"
+  "overlay.title.plan": "计划",
+  "session.control.pause": "p 暂停{availability}",
+  "session.control.resume": "u 恢复{availability}",
+  "session.control.kill": "k 终止{availability}",
+  "session.control.stop": "s 停止{availability}",
+  "session.control.retry": "r 重试{availability}",
+  "session.control.unavailable": " · 在 {status} 状态下不可用",
+  "session.control.capability": " · {capability}",
+  "session.control.held": " · 暂存 {count}",
+  "session.control.terminated.cancel": " · 已取消",
+  "session.control.terminated.kill": " · 已被所有者终止",
+  "session.control.refused": "Core 拒绝了对会话 {session} 的 {action} · {reason}",
+  "session.control.sent": "Core 已接受对会话 {session} 的 {action}。会话自身的事实随后到达。",
+  "session.control.switch_model": "切换模型 = {kill} 后以新的 model 与 load_session_id 重新开始会话；Core 未发布切换命令。",
+  "session.control.no_session": "使用会话控制键前请先选中一个 Agent 会话行。"
 }

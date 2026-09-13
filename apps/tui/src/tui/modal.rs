@@ -21,10 +21,12 @@ use super::{
     pending::SupervisionOutcome,
     plan_lens::plan_lens_rows,
     preferences::{
-        PreferenceValue, SettingsPanel, UI_PREFERENCE_PERSISTENCE_CAPABILITY,
-        color_depth_label_key, density_label_key, mode_label_key, motion_label_key, skin_label_key,
+        ColorDepth, PreferenceValue, SettingsPanel, TerminalCapabilities,
+        UI_PREFERENCE_PERSISTENCE_CAPABILITY, color_depth_label_key, density_label_key,
+        mode_label_key, motion_label_key, resolve_appearance, skin_label_key,
     },
     projection::CockpitProjection,
+    session_control::{SESSION_CONTROL_CAPABILITY, SessionControl, control_suffix, status_glyph},
     state::{
         AcpPickerPhase, ConflictDetailTarget, GitPickerPhase, InteractionPanel, TuiState,
         has_active_work,
@@ -1255,30 +1257,64 @@ pub(super) fn acp_picker_rows(state: &TuiState) -> Vec<AcpPickerRow> {
             kind: AcpPickerRowKind::Disabled,
         }];
     };
+    let glyphs = resolve_appearance(
+        &state.runtime.snapshot.ui_preferences,
+        ColorDepth::Auto,
+        TerminalCapabilities::default(),
+    )
+    .glyphs;
     let mut rows = state
         .runtime
         .agent_sessions
         .iter()
         .filter(|session| session.lane_id == lane_id)
-        .map(|session| {
-            let retry = matches!(
+        .map(|session| AcpPickerRow {
+            id: format!("session:{}", session.session_id),
+            // The status glyph, the held-input count, and the termination are
+            // Core's own facts (`runtime.agent_session_control`): a paused
+            // session shows what it is holding and a settled one says whether
+            // a cancel or a kill ended it, which the status alone can no
+            // longer tell apart.
+            label: format!(
+                "{} {} · {} · {:?}{}",
+                status_glyph(glyphs, session.status),
+                session.agent_id,
+                session.task,
                 session.status,
-                viden_core::AgentSessionStatus::Failed | viden_core::AgentSessionStatus::Cancelled
-            )
-            .then(|| format!(" · {}", super::i18n::text(state, "acp.retry_hint")))
-            .unwrap_or_default();
-            AcpPickerRow {
-                id: format!("session:{}", session.session_id),
-                label: format!(
-                    "{} · {} · {:?}{retry}",
-                    session.agent_id, session.task, session.status
-                ),
-                kind: AcpPickerRowKind::Session {
-                    session_id: session.session_id.clone(),
-                },
-            }
+                control_suffix(state, session),
+            ),
+            kind: AcpPickerRowKind::Session {
+                session_id: session.session_id.clone(),
+            },
         })
         .collect::<Vec<_>>();
+    // The control row is appended after the sessions and before the adapters,
+    // so it never shifts the index of a session row. It states what every key
+    // sends for the selected session and why a key is inert, including the
+    // switch-model flow Core publishes no command for.
+    if !rows.is_empty() {
+        rows.push(AcpPickerRow {
+            id: "session-control".to_string(),
+            label: session_control_row(state),
+            kind: AcpPickerRowKind::Disabled,
+        });
+        rows.push(AcpPickerRow {
+            id: "session-control-switch-model".to_string(),
+            label: super::i18n::translate(
+                state,
+                "session.control.switch_model",
+                &[(
+                    "kill",
+                    &super::i18n::translate(
+                        state,
+                        SessionControl::Kill.label_key(),
+                        &[("availability", "")],
+                    ),
+                )],
+            ),
+            kind: AcpPickerRowKind::Disabled,
+        });
+    }
     rows.extend(
         state
             .runtime
@@ -1319,6 +1355,88 @@ pub(super) fn acp_picker_rows(state: &TuiState) -> Vec<AcpPickerRow> {
         });
     }
     rows
+}
+
+/// What each session-control key sends for the row the operator has selected.
+///
+/// Every control is listed, always: a key that the session's current status
+/// refuses says which status refused it, and a key this Core does not publish
+/// names the missing capability. Hiding either would make "Core cannot pause"
+/// indistinguishable from "this session cannot be paused".
+pub(super) fn session_control_row(state: &TuiState) -> String {
+    let status = selected_acp_session_status(state);
+    SessionControl::ALL
+        .into_iter()
+        .map(|control| {
+            let availability = if control.needs_capability()
+                && !state.has_capability(SESSION_CONTROL_CAPABILITY)
+            {
+                super::i18n::translate(
+                    state,
+                    "session.control.capability",
+                    &[("capability", SESSION_CONTROL_CAPABILITY)],
+                )
+            } else {
+                match status {
+                    Some(status) if control.applies_to(status) => String::new(),
+                    Some(status) => super::i18n::translate(
+                        state,
+                        "session.control.unavailable",
+                        &[("status", &format!("{status:?}").to_ascii_lowercase())],
+                    ),
+                    None => String::new(),
+                }
+            };
+            super::i18n::translate(
+                state,
+                control.label_key(),
+                &[("availability", availability.as_str())],
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("  ")
+}
+
+/// The status of the Agent session the `/acp` picker has selected.
+///
+/// Read from `RuntimeViewState` through the row list rather than remembered,
+/// so a session that settled since the last frame gates the keys by what it is
+/// now.
+pub(super) fn selected_acp_session_status(
+    state: &TuiState,
+) -> Option<viden_core::AgentSessionStatus> {
+    let session_id = selected_acp_session_id(state)?;
+    state
+        .runtime
+        .agent_sessions
+        .iter()
+        .find(|session| session.session_id == session_id)
+        .map(|session| session.status)
+}
+
+/// The id of the Agent session the `/acp` picker has selected, if the selected
+/// row is a session at all.
+///
+/// Indexed against the same Lane-filtered session list the rows are built
+/// from, rather than against the rendered rows: `acp_picker_rows` asks this
+/// function which session is selected, so reading it back out of those rows
+/// would recurse. Session rows are emitted first, so the index is exact.
+pub(super) fn selected_acp_session_id(state: &TuiState) -> Option<String> {
+    let Some(InteractionPanel::AcpPicker {
+        selected,
+        phase: AcpPickerPhase::Browse,
+    }) = state.ui.interaction_panel.as_ref()
+    else {
+        return None;
+    };
+    let lane_id = state.ui.focused_lane.as_deref()?;
+    state
+        .runtime
+        .agent_sessions
+        .iter()
+        .filter(|session| session.lane_id == lane_id)
+        .nth(*selected)
+        .map(|session| session.session_id.clone())
 }
 
 fn settings_rows(state: &TuiState, panel: &SettingsPanel) -> Vec<String> {
@@ -2006,8 +2124,18 @@ mod tests {
         let rows = acp_picker_rows(&state);
 
         assert_eq!(rows[0].id, "session:acp-1");
-        assert_eq!(rows[1].id, "adapter:claude-acp");
-        assert!(rows[1].label.contains("Authentication required"));
+        // Two inert control rows sit between the sessions and the adapters
+        // since `runtime.agent_session_control`: they state what each key
+        // sends for the selected session, and that switching model is a
+        // two-step flow Core publishes no command for. They are appended after
+        // the sessions so they can never shift a session row's index.
+        assert_eq!(rows[1].id, "session-control");
+        assert!(rows[1].label.contains("p Pause"), "{}", rows[1].label);
+        assert!(rows[1].label.contains("u Resume"), "{}", rows[1].label);
+        assert!(rows[1].label.contains("k Kill"), "{}", rows[1].label);
+        assert_eq!(rows[2].id, "session-control-switch-model");
+        assert_eq!(rows[3].id, "adapter:claude-acp");
+        assert!(rows[3].label.contains("Authentication required"));
     }
 
     #[test]

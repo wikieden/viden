@@ -27,7 +27,8 @@ use super::jump::{JumpIndex, JumpItem, JumpKind};
 use super::keymap::{InputIntent, InputMode, OverlayKind, RuntimeFacts, reduce_input};
 use super::modal::{
     AcpPickerRowKind, DEFAULT_APPROVAL_FOCUS, GitPickerRowKind, acp_picker_rows, git_picker_rows,
-    git_target, interaction_panel_choice_count, selected_interaction_command,
+    git_target, interaction_panel_choice_count, selected_acp_session_id,
+    selected_interaction_command,
 };
 use super::operator_git::{
     OPERATOR_GIT_CAPABILITY, OperatorGitSettlement, action_label_key, collapsed_output,
@@ -41,6 +42,9 @@ use super::preferences::{
     UI_PREFERENCE_PERSISTENCE_CAPABILITY,
 };
 use super::projection::{CancelOwnerProjection, CockpitProjection};
+use super::session_control::{
+    SESSION_CONTROL_CAPABILITY, SessionControl, SessionControlSettlement,
+};
 use super::state::{
     AcpPickerPhase, ConflictDetailTarget, FocusedConversation, GitPickerPhase, InteractionPanel,
     Lens, OverlayState, PendingAcpStart, PendingNativeLane, SupervisionInput, SupervisionPanel,
@@ -479,8 +483,11 @@ fn handle_ui_key<C: CoreClient>(
     key: KeyEvent,
     terminal_size: (u16, u16),
 ) -> Result<UiEventOutcome, TuiError> {
-    if key.code == KeyCode::Char('r')
-        && key.modifiers.is_empty()
+    // The Lane view's session-control keys are intercepted before the input
+    // reducer, exactly as the retry key has been since the `/acp` picker
+    // existed: the picker is a selector, so an unclaimed printable character
+    // would otherwise fall through to the composer.
+    if key.modifiers.is_empty()
         && matches!(
             state.ui.interaction_panel,
             Some(InteractionPanel::AcpPicker {
@@ -488,8 +495,12 @@ fn handle_ui_key<C: CoreClient>(
                 ..
             })
         )
+        && let KeyCode::Char(value) = key.code
+        && let Some(control) = SessionControl::ALL
+            .into_iter()
+            .find(|control| control.key() == value)
     {
-        retry_selected_acp_session(driver, state)?;
+        send_session_control(driver, state, control)?;
         return Ok(UiEventOutcome::Redraw);
     }
     let mode = effective_input_mode(state);
@@ -506,35 +517,102 @@ fn handle_ui_key<C: CoreClient>(
     apply_input_intent(driver, state, key, intent, terminal_size)
 }
 
-fn retry_selected_acp_session<C: CoreClient>(
+/// Sends one session control for the `/acp` row the operator has selected.
+///
+/// Three refusals happen here and send nothing, because in each case there is
+/// no honest command to send:
+///
+/// - no session row selected — the key names no session;
+/// - the control needs `runtime.agent_session_control` and this Core does not
+///   publish it — the command would never be answered;
+/// - the session's *current* status does not accept the control — Core's own
+///   contract says it refuses, and the row already says which status it is.
+///
+/// The status is re-read here rather than taken from the row that was drawn,
+/// so a session that settled between render and keypress is never asked the
+/// question its previous status allowed. Everything else is Core's: the
+/// command is sent under the session's own published owner, exactly as cancel
+/// already was, and the answer is correlated on this client's command id.
+fn send_session_control<C: CoreClient>(
     driver: &mut TuiClientDriver<C>,
-    state: &TuiState,
+    state: &mut TuiState,
+    control: SessionControl,
 ) -> Result<(), TuiClientError> {
-    let Some(InteractionPanel::AcpPicker { selected, .. }) = state.ui.interaction_panel.as_ref()
+    let Some(session_id) = selected_acp_session_id(state) else {
+        return Ok(());
+    };
+    if control.needs_capability() && !driver.has_capability(SESSION_CONTROL_CAPABILITY) {
+        state.ui.entries.push(TuiEntry {
+            label: "system".to_string(),
+            body: super::i18n::translate(
+                state,
+                "session.control.refused",
+                &[
+                    (
+                        "action",
+                        &super::i18n::translate(
+                            state,
+                            control.label_key(),
+                            &[("availability", "")],
+                        ),
+                    ),
+                    ("session", &session_id),
+                    ("reason", SESSION_CONTROL_CAPABILITY),
+                ],
+            ),
+        });
+        return Ok(());
+    }
+    let Some(session) = state
+        .runtime
+        .agent_sessions
+        .iter()
+        .find(|session| session.session_id == session_id)
+        .filter(|session| control.applies_to(session.status))
     else {
         return Ok(());
     };
-    let rows = acp_picker_rows(state);
-    let Some(AcpPickerRowKind::Session { session_id }) = rows.get(*selected).map(|row| &row.kind)
-    else {
-        return Ok(());
-    };
-    let Some(session) = state.runtime.agent_sessions.iter().find(|session| {
-        &session.session_id == session_id
-            && matches!(
-                session.status,
-                viden_core::AgentSessionStatus::Failed | viden_core::AgentSessionStatus::Cancelled
-            )
-    }) else {
-        return Ok(());
-    };
-    driver.send_for_owner(
-        session.owner.clone(),
-        RuntimeCommand::RetryAgentSession {
-            session_id: session.session_id.clone(),
-        },
-    )?;
+    let owner = session.owner.clone();
+    let command_id = driver.send_for_owner(owner, control.command(&session_id))?;
+    state.session_control.begin(command_id, control, session_id);
     Ok(())
+}
+
+/// The transcript sentence for one settled session-control command.
+///
+/// A refusal quotes Core's own reason — `session_status_<current>` among them
+/// — because only Core knows which status refused. An acceptance says exactly
+/// that: it is a receipt, and the session's own facts follow it.
+fn session_control_entry(state: &TuiState, settlement: &SessionControlSettlement) -> TuiEntry {
+    let (control, session, key, reason) = match settlement {
+        SessionControlSettlement::Rejected {
+            control,
+            session_id,
+            reason,
+        } => (
+            *control,
+            session_id.as_str(),
+            "session.control.refused",
+            reason.trim(),
+        ),
+        SessionControlSettlement::Accepted {
+            control,
+            session_id,
+        } => (*control, session_id.as_str(), "session.control.sent", ""),
+    };
+    let action = super::i18n::translate(state, control.label_key(), &[("availability", "")]);
+    TuiEntry {
+        label: "system".to_string(),
+        body: super::i18n::translate(
+            state,
+            key,
+            &[
+                ("action", action.as_str()),
+                ("session", session),
+                ("reason", reason),
+            ],
+        ),
+    }
 }
 
 fn apply_input_intent<C: CoreClient>(
@@ -2690,6 +2768,16 @@ fn observe_driver_events<C: CoreClient>(
         // settle each other and neither can block the other.
         if let Some(settlement) = state.operator_git.observe_event(event) {
             let entry = operator_git_entry(state, &settlement);
+            state.ui.entries.push(entry);
+        }
+        // The session-control slot correlates on its own command id too, so a
+        // pause and a `/git` action never settle each other. Only a refusal is
+        // stated: an acceptance is a receipt, and the session's own status
+        // fact is what says what actually happened.
+        if let Some(settlement) = state.session_control.observe_event(event)
+            && matches!(settlement, SessionControlSettlement::Rejected { .. })
+        {
+            let entry = session_control_entry(state, &settlement);
             state.ui.entries.push(entry);
         }
         // The audit read correlates independently of the supervision slot, so a
@@ -9829,5 +9917,190 @@ mod tests {
                 ..
             }] if reason == "to"
         ));
+    }
+
+    /// The `/acp` Lane view with one Agent session in `status`, and the
+    /// capabilities Core's local handshake advertises.
+    fn session_control_state(
+        status: viden_core::AgentSessionStatus,
+        control: Option<viden_types::AgentSessionControlView>,
+    ) -> (
+        TuiClientDriver<FakeCoreClient>,
+        TuiState,
+        Arc<Mutex<Vec<RuntimeCommandEnvelope>>>,
+        RuntimeOwner,
+    ) {
+        let client = FakeCoreClient::default();
+        let sent = Arc::clone(&client.sent);
+        let driver = TuiClientDriver::connect(client).expect("connect");
+        let mut state = TuiState::new(driver.view().clone());
+        state.capabilities = driver.capabilities();
+        let owner = RuntimeOwner {
+            lane_id: Some("lane-1".to_string()),
+            session_id: Some("acp-1".to_string()),
+            ..RuntimeOwner::default()
+        };
+        state.ui.focus_lane("lane-1".to_string());
+        state
+            .runtime
+            .agent_sessions
+            .push(viden_core::AgentSessionView {
+                session_id: "acp-1".to_string(),
+                lane_id: "lane-1".to_string(),
+                agent_id: "codex-acp".to_string(),
+                model: None,
+                status,
+                owner: owner.clone(),
+                task: "refactor the config loader".to_string(),
+                diagnostic: None,
+                output: None,
+                control,
+            });
+        state.ui.interaction_panel = Some(InteractionPanel::AcpPicker {
+            selected: 0,
+            phase: AcpPickerPhase::Browse,
+        });
+        (driver, state, sent, owner)
+    }
+
+    #[test]
+    fn pause_kill_and_resume_send_the_c14_commands_under_the_sessions_own_owner() {
+        for (key, status, expected) in [
+            (
+                'p',
+                viden_core::AgentSessionStatus::Running,
+                RuntimeCommand::PauseAgentSession {
+                    session_id: "acp-1".to_string(),
+                },
+            ),
+            (
+                'k',
+                viden_core::AgentSessionStatus::Running,
+                RuntimeCommand::KillAgentSession {
+                    session_id: "acp-1".to_string(),
+                },
+            ),
+            (
+                'u',
+                viden_core::AgentSessionStatus::Paused,
+                RuntimeCommand::ResumeAgentSession {
+                    session_id: "acp-1".to_string(),
+                },
+            ),
+            (
+                's',
+                viden_core::AgentSessionStatus::Running,
+                RuntimeCommand::CancelAgentSession {
+                    session_id: "acp-1".to_string(),
+                },
+            ),
+        ] {
+            let (mut driver, mut state, sent, owner) = session_control_state(status, None);
+
+            handle_ui_event(
+                &mut driver,
+                &mut state,
+                Event::Key(KeyEvent::new(KeyCode::Char(key), KeyModifiers::NONE)),
+                (120, 40),
+            )
+            .expect("session control key");
+
+            let commands = sent.lock().expect("sent commands");
+            assert_eq!(commands.len(), 1, "{key} on {status:?}: {commands:?}");
+            assert_eq!(commands[0].command, expected, "{key} on {status:?}");
+            assert_eq!(commands[0].owner, owner, "{key} on {status:?}");
+        }
+    }
+
+    #[test]
+    fn a_control_the_status_refuses_sends_nothing_at_all() {
+        // Core's contract accepts resume from `Paused` only and pause from the
+        // three live statuses. Sending either anyway would ask Core a question
+        // its own contract says it refuses.
+        for (key, status) in [
+            ('u', viden_core::AgentSessionStatus::Running),
+            ('p', viden_core::AgentSessionStatus::Paused),
+            ('k', viden_core::AgentSessionStatus::Completed),
+            ('r', viden_core::AgentSessionStatus::Running),
+        ] {
+            let (mut driver, mut state, sent, _) = session_control_state(status, None);
+
+            handle_ui_event(
+                &mut driver,
+                &mut state,
+                Event::Key(KeyEvent::new(KeyCode::Char(key), KeyModifiers::NONE)),
+                (120, 40),
+            )
+            .expect("session control key");
+
+            assert!(
+                sent.lock().expect("sent commands").is_empty(),
+                "{key} on {status:?} must send nothing"
+            );
+        }
+    }
+
+    #[test]
+    fn a_status_refusal_reaches_the_transcript_as_cores_own_reason() {
+        let (mut driver, mut state, sent, _) =
+            session_control_state(viden_core::AgentSessionStatus::Running, None);
+        handle_ui_event(
+            &mut driver,
+            &mut state,
+            Event::Key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::NONE)),
+            (120, 40),
+        )
+        .expect("pause");
+        let command_id = sent
+            .lock()
+            .expect("sent commands")
+            .first()
+            .expect("one pause command")
+            .command_id
+            .clone();
+
+        if let Some(settlement) = state.session_control.observe_event(&RuntimeEvent {
+            kind: RuntimeEventKind::CommandRejected {
+                command_id,
+                reason: "session_status_completed".to_string(),
+            },
+            sequence: 2,
+            timestamp: Some(0),
+        }) {
+            let entry = session_control_entry(&state, &settlement);
+            state.ui.entries.push(entry);
+        }
+
+        assert!(
+            state
+                .ui
+                .entries
+                .iter()
+                .any(|entry| entry.body.contains("session_status_completed")),
+            "{:?}",
+            state.ui.entries
+        );
+    }
+
+    #[test]
+    fn a_paused_session_row_shows_its_glyph_its_held_inputs_and_its_termination() {
+        let (_driver, state, _sent, _) = session_control_state(
+            viden_core::AgentSessionStatus::Paused,
+            Some(viden_types::AgentSessionControlView {
+                paused_at: Some(1_700_006_010),
+                resumed_at: None,
+                terminated_by: None,
+                held_input_count: 2,
+            }),
+        );
+
+        let rows = acp_picker_rows(&state);
+
+        assert!(rows[0].label.starts_with('⏸'), "{}", rows[0].label);
+        assert!(rows[0].label.contains("held 2"), "{}", rows[0].label);
+        assert!(
+            rows.iter().any(|row| row.label.contains("load_session_id")),
+            "switch model must be stated as the two-step flow: {rows:?}"
+        );
     }
 }

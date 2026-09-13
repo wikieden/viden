@@ -432,5 +432,19 @@
   "plan.refusal": "Core refused {action} · {reason}",
   "plan.sent": "Sent · awaiting Core ({command_id})",
   "plan.hint": "Esc back · a accept · r reject · h hand off · ↑↓ scroll",
-  "overlay.title.plan": "PLAN"
+  "overlay.title.plan": "PLAN",
+  "session.control.pause": "p Pause{availability}",
+  "session.control.resume": "u Resume{availability}",
+  "session.control.kill": "k Kill{availability}",
+  "session.control.stop": "s Stop{availability}",
+  "session.control.retry": "r Retry{availability}",
+  "session.control.unavailable": " · unavailable in {status}",
+  "session.control.capability": " · {capability}",
+  "session.control.held": " · held {count}",
+  "session.control.terminated.cancel": " · cancelled",
+  "session.control.terminated.kill": " · killed by owner",
+  "session.control.refused": "Core refused {action} for session {session} · {reason}",
+  "session.control.sent": "Core accepted {action} for session {session}. The session's own facts follow.",
+  "session.control.switch_model": "Switch model = {kill} then a new session with the model and load_session_id; Core publishes no switch command.",
+  "session.control.no_session": "Select an Agent session row before using a session control key."
 }

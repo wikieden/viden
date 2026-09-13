@@ -39,6 +39,7 @@ mod render;
 mod right_rail;
 #[allow(dead_code)]
 mod screen;
+mod session_control;
 mod side_screen;
 // Task 3 removes the remaining legacy persistence/read helpers. They are not
 // called from the production CoreClient loop in Tasks 1-2.

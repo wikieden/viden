@@ -11,6 +11,7 @@ use viden_types::{AgentNextAction, CapabilityId};
 
 pub(super) use super::operator_git::OperatorGitMachine;
 pub(super) use super::pending::SupervisionMachine;
+pub(super) use super::session_control::SessionControlMachine;
 pub(super) use super::ui_state::{
     AcpPickerPhase, ConflictDetailTarget, FocusedConversation, GitPickerPhase, InteractionPanel,
     Lens, OverlayState, PendingAcpStart, PendingNativeLane, ProviderAuthMode, ProviderOption,
@@ -32,6 +33,10 @@ pub(super) struct TuiState {
     /// It is a separate slot because a `/git` action and a merge-gate decision
     /// answer different questions and must not block each other.
     pub(super) operator_git: OperatorGitMachine,
+    /// And again for one in-flight Agent session control command
+    /// (`runtime.agent_session_control`): a pause and a merge-gate decision
+    /// answer different questions and must not block each other either.
+    pub(super) session_control: SessionControlMachine,
 }
 
 impl TuiState {
@@ -42,6 +47,7 @@ impl TuiState {
             capabilities: BTreeSet::new(),
             supervision: SupervisionMachine::default(),
             operator_git: OperatorGitMachine::default(),
+            session_control: SessionControlMachine::default(),
         }
     }
 
