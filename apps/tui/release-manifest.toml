@@ -93,7 +93,7 @@ mouse_capture = false
 
 [source_revisions]
 algorithm = "sha256"
-tokens_css = "826826ee6ddab845897472701add67ee9f55aff25af539651e6089553b7e6398"
+tokens_css = "2d80baa92bc7b83a188257a08dec27cb1fc143fc27237a02dfdbb61eee8b941a"
 catalog_en = "69318c10bdde24f6dd7f1b5c77afd4cd45608927f2839d2c7adb9e08ce42af64"
 catalog_zh_cn = "90a9c8215de22161008f50ab2fe0df7d0a336076bb7c139bcee8a97c9d7f2263"
 

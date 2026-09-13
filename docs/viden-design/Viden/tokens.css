@@ -110,7 +110,10 @@
    · 每套含：背景 6 档 · 前景 4 档 · 强调（accent + gold）· on-accent 反相墨 ·
             语义 4 色 · builtin · 边框 3 · 页面 chrome 6
    · 对比护栏（逐套已校 WCAG）：fg-muted≥4.5(正文) · fg-faint≥3(仅非正文) ·
-            accent/gold≥4.5 · on-accent 压所有填充色≥4.5
+            accent/gold≥4.5 · on-accent 压所有填充色≥4.5 ·
+            accent-bright 在 kit 里是**墨**(.tbtbtn/.actbtn/.lseg .sg/.wslane .nm/
+            .gperm-opt/.fchip 的 .on 态文字)，故同样≥4.5：dark 下靠「比 accent 更亮」达成，
+            light 下必须**比 accent 更深**，且压自家 bg-base/panel/sel/elev 四面(.on 态坐 bg-sel)
    ============================================================ */
 
 /* ========== AURORA（青·默认）========== */
@@ -135,7 +138,7 @@
   --bg-void:#dde6ec;   --bg-base:#f5f8fb;  --bg-panel:#ebf1f6; --bg-topbar:#e6eef4;
   --bg-elev:#ffffff;   --bg-sel:#d2e7f2;
   --fg-primary:#14242f; --fg-secondary:#41606f; --fg-muted:#5b707b; --fg-faint:#738e9f;
-  --accent:#0b7791;    --accent-bright:#0aa6c6; --accent-dim:#9cc4d2;
+  --accent:#0b7791;    --accent-bright:#076f85; --accent-dim:#9cc4d2; /* light 下 bright = 更深的同相青:kit 的 .on 态拿它当墨 */
   --on-accent:#f4f8fb; /* light 下填充面用近白墨 */
   --gold:#92650d;      --gold-bright:#c08a18;
   --success:#298141;   --warning:#926a10; --error:#c0403a; --progress:#1c76b4;
@@ -166,7 +169,7 @@
   --bg-void:#f3f7fc;   --bg-base:#f3f7fc;  --bg-panel:#e7eff8; --bg-topbar:#e0eaf5;
   --bg-elev:#ffffff;   --bg-sel:#d4e4f8;
   --fg-primary:#16222e; --fg-secondary:#3b5566; --fg-muted:#5a6d80; --fg-faint:#6e89a7;
-  --accent:#2d65d2;    --accent-bright:#5a8af0; --accent-dim:#b3c7ee;
+  --accent:#2d65d2;    --accent-bright:#1558e7; --accent-dim:#b3c7ee; /* light 下 bright = 更深的同相蓝:kit 的 .on 态拿它当墨 */
   --on-accent:#f3f7fc;
   --gold:#5d6a8f;      --gold-bright:#7e8aac;
   --success:#288040;   --warning:#916910; --error:#c0403a; --progress:#1b75b2;
@@ -197,7 +200,7 @@
   --bg-void:#f6f7f8;   --bg-base:#f6f7f8;  --bg-panel:#ecedef; --bg-topbar:#e6e8ea;
   --bg-elev:#ffffff;   --bg-sel:#dde0e3;
   --fg-primary:#181c20; --fg-secondary:#454d54; --fg-muted:#636b73; --fg-faint:#7f8790;
-  --accent:#0b748d;    --accent-bright:#0a96b4; --accent-dim:#a8cdd6;
+  --accent:#0b748d;    --accent-bright:#076d82; --accent-dim:#a8cdd6; /* light 下 bright = 更深的同相青:kit 的 .on 态拿它当墨 */
   --on-accent:#f6f7f8;
   --gold:#746952;      --gold-bright:#8f8164;
   --success:#288040;   --warning:#926a10; --error:#c0403a; --progress:#1c76b4;

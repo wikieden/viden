@@ -9381,7 +9381,7 @@ mod tests {
         assert_eq!(env!("CARGO_PKG_VERSION"), "0.3.5");
         assert!(manifest.contains("version = \"0.3.5\""));
         assert!(manifest.contains(
-            "tokens_css = \"826826ee6ddab845897472701add67ee9f55aff25af539651e6089553b7e6398\""
+            "tokens_css = \"2d80baa92bc7b83a188257a08dec27cb1fc143fc27237a02dfdbb61eee8b941a\""
         ));
         // The catalogs are pinned by *recomputation*, not by a literal: a
         // literal has to be edited by hand every time a string is added, which

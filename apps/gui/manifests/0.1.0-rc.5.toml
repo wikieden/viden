@@ -106,7 +106,7 @@ valid_skin_mode_pairs = [
 densities = ["compact", "regular", "comfy"]
 motion = ["system", "reduced", "full"]
 token_source = "docs/viden-design/Viden/tokens.css"
-token_revision_sha256 = "826826ee6ddab845897472701add67ee9f55aff25af539651e6089553b7e6398"
+token_revision_sha256 = "2d80baa92bc7b83a188257a08dec27cb1fc143fc27237a02dfdbb61eee8b941a"
 
 [design]
 hierarchy = [

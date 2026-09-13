@@ -48,7 +48,11 @@ D-BACKEND lane 后端三分(TUI/GUI 同契约·后端 chip 铁律·颜色跨轨�
           · tmux=--gold 金(附着已有 tmux pane/session)。TUI chip = .vbe.acp/.builtin/.tmux(格式 <类型>:<agent>)；
           GUI lane = .viab(色 = VIA_COLOR[via])。⚠ GUI 曾误把 built-in 映成金·已改回紫、tmux 归金(D1 VIA_COLOR + D4 AGENTS 补齐)。O-A3 收口。2026-07-01。
 D-A11Y    对比护栏(6 套皮肤逐套满足 WCAG):fg-primary≥7 · fg-secondary≥4.5 · fg-muted≥4.5(正文)
-          · fg-faint≥3(仅大字/UI描边、非正文) · accent/gold≥4.5 · on-accent 压所有填充色≥4.5。
+          · fg-faint≥3(仅大字/UI描边、非正文) · accent/gold≥4.5 · on-accent 压所有填充色≥4.5
+          · accent-bright 在 kit 里是 .on 态的墨(.tbtbtn/.actbtn/.lseg .sg/.wslane .nm/.gperm-opt/.fchip),
+          故同样≥4.5,且要压自家 bg-base/panel/sel/elev 四面(.on 态坐 bg-sel):dark 靠更亮达成,
+          **light 下必须比 accent 更深**(DS2 2026-09-13 定:aurora #0aa6c6→#076f85 · ice #5a8af0→#1558e7
+          · mono #0a96b4→#076d82;旧值 2.26–3.48:1,新值 4.50–5.97:1)。
 D-TYPE    UI/正文 = Inter + Noto Sans SC；代码/终端 = JetBrains Mono；终端态全程等宽对齐。
           CJK 正文行高 1.55–1.7；等宽态中文宽字符占两格。
 D-PLAT    桌面 · 高密度 cockpit(多栏)。TUI = 方硬(圆角 ~3px)/无阴影/box-drawing 边框/对齐等宽单元格；
