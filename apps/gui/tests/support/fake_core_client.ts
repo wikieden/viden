@@ -142,6 +142,7 @@ export function fakeCoreClient(overrides: Partial<CoreClient> = {}): CoreClient 
       pendingCommandId: null,
       outcome: { state: "idle", reason: null },
     }),
+    d1AbandonProbe: unreachable("d1_abandon_probe"),
     d1Poll: async () => ({
       projection: D1_PROJECTION,
       pendingCommandId: null,

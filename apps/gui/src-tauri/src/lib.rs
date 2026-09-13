@@ -846,6 +846,22 @@ fn d1_send_intent(
         .send_d1_intent_and_wait(&command_id, intent, Duration::from_millis(250))
 }
 
+/// Releases the one D1 command slot from an unanswered adapter probe.
+///
+/// Defects 14 and 15 (E3a). Only `ProbeAgentAdapter` may be abandoned, and the
+/// adapter enforces that: a probe is a read with no effect to lose, while any
+/// other pending command's answer is the only record of whether it ran.
+#[tauri::command]
+fn d1_abandon_probe(state: tauri::State<'_, DesktopState>) -> Result<D1IntentResult, String> {
+    state
+        .adapter
+        .lock()
+        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?
+        .as_mut()
+        .ok_or_else(|| "Core adapter is not connected".to_string())?
+        .abandon_pending_probe(Duration::from_millis(250))
+}
+
 #[tauri::command]
 fn d1_poll(
     selected_lane_id: Option<String>,
@@ -1263,6 +1279,7 @@ pub fn run_with_adapter(adapter: Option<GuiCoreAdapter>) {
             d4_poll,
             d1_cockpit,
             d1_send_intent,
+            d1_abandon_probe,
             d1_poll,
             set_work_mode,
             set_permission_level,

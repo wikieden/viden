@@ -2475,7 +2475,11 @@ describe("D1 canonical streaming cockpit", () => {
     expect(root.querySelector("[data-agent-discovery-error]")).toBeNull();
   });
 
-  test("blocks a native direct-workspace Lane until ACP discovery completes", async () => {
+  // Defect 14 (E3a). Discovery no longer *blocks* the built-in runtime: it
+  // only occupies Core's one command slot, so the click is queued behind the
+  // adapter query rather than ignored, and the creation leaves the moment the
+  // slot is free.
+  test("queues a native direct-workspace Lane behind the ACP adapter query", async () => {
     document.body.innerHTML = '<main id="app"></main>';
     const root = document.querySelector<HTMLElement>("#app")!;
     const sent: D1Intent[] = [];
@@ -2549,7 +2553,12 @@ describe("D1 canonical streaming cockpit", () => {
     const task = root.querySelector<HTMLTextAreaElement>("[data-lane-task]")!;
     task.value = "Inspect README without modifying files";
     task.dispatchEvent(new InputEvent("input", { bubbles: true }));
-    root.querySelector<HTMLButtonElement>("[data-lane-task-submit]")?.click();
+    const create = root.querySelector<HTMLButtonElement>("[data-lane-task-submit]")!;
+    // Enabled during discovery, because the built-in runtime needs no probe.
+    expect(create.disabled).toBe(false);
+    create.click();
+    // Nothing leaves yet: Core answers one command at a time and the adapter
+    // query has the slot.
     expect(sent).toEqual([{ type: "query_agent_adapters" }]);
 
     resolveQuery({
@@ -2557,10 +2566,6 @@ describe("D1 canonical streaming cockpit", () => {
       pendingCommandId: null,
       outcome: { state: "confirmed", reason: null },
     });
-    await vi.waitFor(() =>
-      expect(root.querySelector('[data-new-lane-popover]')?.getAttribute("aria-busy")).toBe("false"),
-    );
-    root.querySelector<HTMLButtonElement>("[data-lane-task-submit]")?.click();
 
     await vi.waitFor(() => {
       expect(sent).toEqual([

@@ -294,6 +294,15 @@ export interface CoreClient {
   d1Cockpit(selectedLaneId: string | null): Promise<D1CockpitProjection | null>;
   d1SendIntent(commandId: string, intent: D1Intent): Promise<D1IntentResult>;
   d1Poll(selectedLaneId: string | null, waitForEvent: boolean): Promise<D1IntentResult>;
+  /**
+   * Stops waiting for an unanswered `ProbeAgentAdapter` and frees Core's one
+   * command slot (defects 14, 15).
+   *
+   * Its own entry point rather than a flag on `d1SendIntent`, because it is
+   * the only command this client ever abandons and it may do so only because a
+   * probe has no effect to lose. The host refuses anything else.
+   */
+  d1AbandonProbe(): Promise<D1IntentResult>;
 
   /**
    * Composer controls. Each sends its exact Core command and resolves with

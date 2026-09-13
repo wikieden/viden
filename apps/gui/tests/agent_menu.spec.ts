@@ -64,8 +64,23 @@ describe("compact agent menu", () => {
     expect(create.textContent).toContain("Create lane");
   });
 
-  test("blocks Lane creation throughout Agent discovery", () => {
-    const { controller } = setup({ ...MODEL, probing: true });
+  // Defect 14 (E3a): discovery used to gate *every* creation path, including
+  // the built-in runtime that needs no probe at all. The gate is now the
+  // selected adapter's own startability, so ACP discovery blocks only ACP.
+  test("blocks an ACP Lane, never the built-in one, throughout Agent discovery", () => {
+    const { controller } = setup({
+      ...MODEL,
+      probing: true,
+      adapters: [
+        {
+          agentId: "codex-acp",
+          displayName: "Codex",
+          startability: "probe_required",
+          diagnostics: [],
+          probe: "checking",
+        },
+      ],
+    });
     const task = controller.root.querySelector<HTMLTextAreaElement>("[data-lane-task]")!;
     const create = controller.root.querySelector<HTMLButtonElement>("[data-lane-task-submit]")!;
 
@@ -73,7 +88,10 @@ describe("compact agent menu", () => {
     task.value = "Use the native Agent";
     task.dispatchEvent(new InputEvent("input", { bubbles: true }));
 
-    expect(create.disabled).toBe(true);
+    expect(create.disabled).toBe(false);
+    expect(
+      controller.root.querySelector('[data-agent-id="codex-acp"]')?.getAttribute("aria-disabled"),
+    ).toBe("true");
   });
 
   test("presents built-in ACP adapters in the stable product order", () => {

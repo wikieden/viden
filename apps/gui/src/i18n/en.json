@@ -683,5 +683,10 @@
   "d1.dock.file.unknownBody": "Core published a body shape this build cannot draw: {body}.",
   "d1.palette.files.open": "reads into the dock inspector",
   "d1.dock.inspector.stageElsewhere": "Staging is sent from the review's own file rows; this panel carries no action port.",
-  "d1.dock.inspector.revertUnavailable": "Core publishes no per-file revert command, so this stays disabled."
+  "d1.dock.inspector.revertUnavailable": "Core publishes no per-file revert command, so this stays disabled.",
+  "d1.agentMenu.probingBounded": "Checking ACP agents\u2026 each probe is given up to {seconds}s.",
+  "d1.agentMenu.probeTimedOut": "Probe did not answer within {seconds}s.",
+  "d1.agentMenu.notStartable": "Core reports this agent as {startability}.",
+  "d1.dock.changes.sample.diff": "From the diff page Core last answered.",
+  "d1.dock.changes.sample.workspace": "From Core's workspace sample."
 }

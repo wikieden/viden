@@ -4,6 +4,31 @@ import "./agent_menu.css";
 
 export type AgentMenuSelection = { kind: "native" } | { kind: "acp"; agentId: string };
 
+/**
+ * How far this adapter's own `ProbeAgentAdapter` has got.
+ *
+ * `idle` is the honest default: Core answered the adapter query and no probe
+ * is out for it. `checking` is one probe in flight, `timed_out` is a probe the
+ * client stopped waiting for at [`AGENT_PROBE_TIMEOUT_MS`]. The three are kept
+ * apart because they need three different sentences — and because the built-in
+ * runtime has none of them, which is the whole point of defect 14.
+ */
+export type AgentProbeState = "idle" | "checking" | "timed_out";
+
+/**
+ * How long the client waits for one `AgentAdapterProbed` before it says the
+ * probe did not answer.
+ *
+ * Core's own ACP handshake bound is 30 s for a local command and 90 s for a
+ * registry package it may have to fetch first (`DEFAULT_LOCAL_/
+ * DEFAULT_REGISTRY_ACP_HANDSHAKE_TIMEOUT_SECS`), and Core runs that probe on
+ * its single command worker. The client therefore states a bound of its own
+ * and stops *waiting* at it: the New Lane popover must never sit on
+ * "Checking ACP agents…" with no end, which is exactly what E3a watched it do
+ * for more than six minutes.
+ */
+export const AGENT_PROBE_TIMEOUT_MS = 15_000;
+
 export interface AgentMenuModel {
   locale: Locale;
   canCreateLane: boolean;
@@ -19,6 +44,8 @@ export interface AgentMenuModel {
     displayName: string;
     startability: string;
     diagnostics: string[];
+    /** Absent means `idle`: a Core that never needed a probe for this adapter. */
+    probe?: AgentProbeState;
   }>;
 }
 
@@ -45,6 +72,49 @@ export function orderedAgentAdapters<T extends { agentId: string }>(
       return leftRank - rightRank || left.index - right.index;
     })
     .map(({ adapter }) => adapter);
+}
+
+/** The bound stated on screen, in whole seconds. */
+const PROBE_BOUND_SECONDS = String(Math.round(AGENT_PROBE_TIMEOUT_MS / 1000));
+
+type AgentMenuAdapter = AgentMenuModel["adapters"][number];
+
+function adapterProbeState(adapter: AgentMenuAdapter): AgentProbeState {
+  return adapter.probe ?? "idle";
+}
+
+/**
+ * Whether this ACP adapter may own a new Lane right now.
+ *
+ * Core's own `startability` is the authority; the probe state only ever
+ * subtracts. A `ready` adapter whose probe the client gave up on is *not*
+ * offered, because the readiness on screen would then be older than the
+ * question the operator just asked.
+ */
+function adapterSelectable(model: AgentMenuModel, agentId: string): boolean {
+  if (!model.canCreateLane || model.discoveryDiagnostic !== null) return false;
+  const adapter = model.adapters.find((candidate) => candidate.agentId === agentId);
+  if (!adapter) return false;
+  return adapter.startability === "ready" && adapterProbeState(adapter) === "idle";
+}
+
+/** Why the selected ACP adapter cannot own a Lane, in one sentence. */
+function selectedAcpDiagnostic(model: AgentMenuModel, agentId: string): string {
+  const adapter = model.adapters.find((candidate) => candidate.agentId === agentId);
+  if (!adapter) return translate(model.locale, "d1.agentMenu.empty", {});
+  const probe = adapterProbeState(adapter);
+  if (probe === "checking") {
+    return translate(model.locale, "d1.agentMenu.probingBounded", { seconds: PROBE_BOUND_SECONDS });
+  }
+  if (probe === "timed_out") {
+    return translate(model.locale, "d1.agentMenu.probeTimedOut", { seconds: PROBE_BOUND_SECONDS });
+  }
+  return (
+    adapter.diagnostics[0] ??
+    translate(model.locale, "d1.agentMenu.notStartable", {
+      startability: adapter.startability.replaceAll("_", " "),
+    })
+  );
 }
 
 function selectionKey(selection: AgentMenuSelection): string {
@@ -136,6 +206,7 @@ export function renderAgentMenu(
     selection: AgentMenuSelection,
     logoKind: AgentLogoKind | null,
     badge: string,
+    probe: AgentProbeState | null = null,
   ): HTMLButtonElement => {
     const button = document.createElement("button");
     button.type = "button";
@@ -147,6 +218,7 @@ export function renderAgentMenu(
     button.setAttribute("aria-pressed", "false");
     if (selection.kind === "acp") button.dataset.agentId = selection.agentId;
     if (selection.kind === "native") button.dataset.nativeAgent = "true";
+    if (probe) button.dataset.agentProbe = probe;
     button.dataset.selectionKey = selectionKey(selection);
     const primary = document.createElement("span");
     primary.className = "agent-menu-primary";
@@ -183,23 +255,24 @@ export function renderAgentMenu(
     ),
   );
   for (const adapter of orderedAgentAdapters(model.adapters)) {
+    const probe = adapterProbeState(adapter);
     const status =
-      model.probing
+      probe === "checking"
         ? translate(model.locale, "d1.agentMenu.probing", {})
-        : adapter.startability === "ready"
-        ? null
-        : adapter.diagnostics[0] ?? adapter.startability.replaceAll("_", " ");
+        : probe === "timed_out"
+          ? translate(model.locale, "d1.agentMenu.probeTimedOut", { seconds: PROBE_BOUND_SECONDS })
+          : adapter.startability === "ready"
+            ? null
+            : (adapter.diagnostics[0] ?? adapter.startability.replaceAll("_", " "));
     agentGrid.append(
       item(
         adapter.displayName,
         status,
-        model.canCreateLane &&
-          !model.probing &&
-          model.discoveryDiagnostic === null &&
-          adapter.startability === "ready",
+        adapterSelectable(model, adapter.agentId),
         { kind: "acp", agentId: adapter.agentId },
         resolveAgentLogoKind(adapter.agentId, adapter.displayName),
         "ACP",
+        probe,
       ),
     );
   }
@@ -274,17 +347,29 @@ export function renderAgentMenu(
       branch.textContent = translate(model.locale, "d1.task.directWorkspaceHint", {});
       isolation.textContent = translate(model.locale, "d1.agentMenu.isolationDirect", {});
     }
+    // Defect 14. The gate is the *selected* adapter's own startability, never
+    // the state of a discovery walk that belongs to the other adapters: the
+    // built-in runtime needs no probe at all, so an outstanding ACP probe can
+    // no longer close the only creation path the cockpit has.
+    const acpBlocked =
+      selected?.kind === "acp" ? !adapterSelectable(model, selected.agentId) : false;
     create.disabled =
       model.submitting === true ||
-      model.probing ||
-      (selected?.kind === "acp" && model.discoveryDiagnostic !== null) ||
       selected === undefined ||
+      (selected.kind === "native" && !model.canCreateLane) ||
+      acpBlocked ||
       taskDraft.trim().length === 0;
     create.textContent = translate(model.locale, "d1.task.submit", {});
     diagnostic.textContent =
       model.discoveryDiagnostic ??
       model.eligibilityDiagnostic ??
-      (model.probing ? translate(model.locale, "d1.agentMenu.probing", {}) : "");
+      (acpBlocked && selected?.kind === "acp"
+        ? selectedAcpDiagnostic(model, selected.agentId)
+        : model.probing
+          ? translate(model.locale, "d1.agentMenu.probingBounded", {
+              seconds: PROBE_BOUND_SECONDS,
+            })
+          : "");
     if (model.discoveryDiagnostic) diagnostic.dataset.agentDiscoveryError = "true";
     else delete diagnostic.dataset.agentDiscoveryError;
     diagnostic.setAttribute("role", model.discoveryDiagnostic ? "alert" : "status");

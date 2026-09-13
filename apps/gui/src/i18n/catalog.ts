@@ -693,6 +693,12 @@ export const MESSAGE_ARGUMENT_NAMES = {
   "d1.palette.files.open": [],
   "d1.dock.inspector.stageElsewhere": [],
   "d1.dock.inspector.revertUnavailable": [],
+  // H4 native defects
+  "d1.agentMenu.probingBounded": ["seconds"],
+  "d1.agentMenu.probeTimedOut": ["seconds"],
+  "d1.agentMenu.notStartable": ["startability"],
+  "d1.dock.changes.sample.diff": [],
+  "d1.dock.changes.sample.workspace": [],
 } as const;
 
 export type MessageKey = keyof typeof MESSAGE_ARGUMENT_NAMES;

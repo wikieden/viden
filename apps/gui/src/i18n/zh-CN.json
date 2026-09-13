@@ -683,5 +683,10 @@
   "d1.dock.file.unknownBody": "Core 发布了本版本无法绘制的内容形态：{body}。",
   "d1.palette.files.open": "读入侧边检查器",
   "d1.dock.inspector.stageElsewhere": "暂存由评审自身的文件行发出；该面板不带动作端口。",
-  "d1.dock.inspector.revertUnavailable": "Core 未发布按文件回退的命令，因此此处保持禁用。"
+  "d1.dock.inspector.revertUnavailable": "Core 未发布按文件回退的命令，因此此处保持禁用。",
+  "d1.agentMenu.probingBounded": "\u6b63\u5728\u68c0\u67e5 ACP Agent\u2026\u6bcf\u9879\u68c0\u6d4b\u6700\u591a\u7b49\u5f85 {seconds} \u79d2\u3002",
+  "d1.agentMenu.probeTimedOut": "\u68c0\u6d4b\u5728 {seconds} \u79d2\u5185\u672a\u5e94\u7b54\u3002",
+  "d1.agentMenu.notStartable": "Core \u62a5\u544a\u8be5 Agent \u4e3a {startability}\u3002",
+  "d1.dock.changes.sample.diff": "\u6765\u81ea Core \u6700\u8fd1\u5e94\u7b54\u7684 diff \u9875\u3002",
+  "d1.dock.changes.sample.workspace": "\u6765\u81ea Core \u7684\u5de5\u4f5c\u533a\u91c7\u6837\u3002"
 }
