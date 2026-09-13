@@ -519,6 +519,11 @@ export async function hydrateShellFromCore(
             // re-reads the canonical view before it renders or sends.
             void showD1(laneId);
           },
+          // A receipt whose session started opens on the board that session
+          // runs in, which is where it can be paused, killed, or retried.
+          onNavigateToAgentBoard: (laneId) => {
+            void showD1(laneId).then((cockpit) => cockpit?.openCenterView("d16"));
+          },
         });
       };
 

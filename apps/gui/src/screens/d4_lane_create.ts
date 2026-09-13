@@ -3,12 +3,32 @@ import "./d4_lane_create.css";
 
 export type D4Preset = "coder" | "reviewer" | "tester";
 
+/**
+ * The Agent a starter Lane should begin its first session with
+ * (`runtime.starter_lane_agent`, GUI-CORE-030).
+ *
+ * `null` on a seed is the two-step flow Core kept: the Lane is created and a
+ * session is started from the cockpit afterwards. It is a request shape, not a
+ * missing value, which is why step 2 offers it as its own row.
+ */
+export interface D4AgentBinding {
+  agentId: string;
+  model: string | null;
+  task: string | null;
+}
+
 export interface D4StarterSeed {
   laneId: string;
   preset: D4Preset;
   branch: string | null;
   worktreePath: string | null;
+  agent: D4AgentBinding | null;
 }
+
+/** `StarterLaneReceipt.session`, as the host projects it. */
+export type D4SessionOutcome =
+  | { state: "started"; sessionId: string }
+  | { state: "refused"; reason: string };
 
 interface D4ResolvedLane {
   id: string;
@@ -45,6 +65,13 @@ export interface D4Preview {
   worktreePath: string;
   baseRevision: string;
   diagnostics: string[];
+  /**
+   * Core's own echo of the binding on a preview, and always `null` on a
+   * receipt. The wizard draws this rather than the draft it holds: the echo is
+   * what Core resolved the request to, and an unknown adapter comes back
+   * echoed with a `starter_lane.agent_unknown` diagnostic beside it.
+   */
+  agent: D4AgentBinding | null;
 }
 
 export interface D4LaneCreateProjection {
@@ -55,6 +82,11 @@ export interface D4LaneCreateProjection {
   receipt: D4Preview | null;
   pendingApproval: { id: string; title: string; risk: string; target: string } | null;
   outcome: { state: string; reason: string | null; requiresRepreview: boolean };
+  /**
+   * What `CreateStarterLane` made of the binding. `null` beside a receipt is
+   * its own answer — Core published no outcome — and never "no agent".
+   */
+  receiptSession: D4SessionOutcome | null;
   navigationLaneId: string | null;
 }
 
@@ -76,16 +108,13 @@ export interface D4IntentResult {
 /**
  * What the New Lane popover was holding when the operator chose "Full setup…".
  *
- * **Contract gap, stated rather than papered over.** `StarterLaneRequest`
- * (`crates/types/src/frontend_services.rs`) carries `lane_id`, `preset`,
- * `branch` and `worktree_path` — and nothing else. There is no agent binding
- * and no task on it, so D4 cannot create the Lane the popover's quick path
- * creates: the popover sends `create_starter_lane` and *then* a separate
- * `submit` / `start_agent_session`. Here the seed is therefore presentation:
- * it names the Lane and branch after the task the operator typed, marks the
- * agent they picked on the agent step, and says plainly what the wizard's own
- * Create does and does not carry. Closing the gap is a Core request, not a
- * client workaround.
+ * Both halves now reach Core. `StarterLaneRequest.agent`
+ * (`runtime.starter_lane_agent`) carries the adapter the operator picked and
+ * the task they typed, so the wizard opens on that pick and sends it; the task
+ * travels as the bound Agent's objective rather than only as the Lane's name.
+ * Without a pick the seed is still presentation: it names the Lane and branch,
+ * and the task becomes the first message once the Lane is open, which is what
+ * the popover's own quick path does.
  */
 export interface D4Seed {
   agentId: string | null;
@@ -100,6 +129,13 @@ export interface D4QueueState {
   onNavigateToD1: (laneId: string) => void;
   /** The New Lane popover's draft, when the wizard was entered from it. */
   seed?: D4Seed;
+  /**
+   * Opens the Agent Board on the Lane a started session runs in.
+   *
+   * Absent leaves the started session a fact rather than a dead control: a
+   * caller that cannot host D16 must not draw a link that goes nowhere.
+   */
+  onNavigateToAgentBoard?: (laneId: string) => void;
   /**
    * The agent adapters Core published, for the agent step. Absent while the
    * shell bound none, which states the step as unavailable rather than drawing
@@ -128,7 +164,7 @@ function action(label: string, marker: string): HTMLButtonElement {
 }
 
 function cloneSeed(seed: D4StarterSeed): D4StarterSeed {
-  return { ...seed };
+  return { ...seed, agent: seed.agent ? { ...seed.agent } : null };
 }
 
 function requestKey(seed: D4StarterSeed): string {
@@ -167,26 +203,41 @@ export function renderD4LaneCreate(
   // `vd/<slug>` the popover previews. Without a seed the wizard keeps its own
   // starter defaults.
   const seedSlug = queueState.seed ? laneSlug(queueState.seed.task) : null;
-  const firstSeed = queueState.queue[queueIndex] ??
-    (seedSlug
+  // The popover's pick opens the wizard already bound, and its task becomes the
+  // bound Agent's objective. Both travel on `StarterLaneRequest.agent`.
+  const seedBinding: D4AgentBinding | null = queueState.seed?.agentId
+    ? { agentId: queueState.seed.agentId, model: null, task: queueState.seed.task }
+    : null;
+  const queued = queueState.queue[queueIndex];
+  const firstSeed: D4StarterSeed = queued
+    ? // A queued seed names the Lane; the popover's pick is still the pick, so
+      // it fills a binding the queue does not carry rather than being dropped.
+      { ...queued, agent: queued.agent ?? seedBinding }
+    : (seedSlug
       ? {
           laneId: seedSlug,
           preset: "coder" as const,
           branch: `vd/${seedSlug}`,
           worktreePath: null,
+          agent: seedBinding,
         }
       : {
           laneId: "starter-coder",
           preset: "coder" as const,
           branch: null,
           worktreePath: null,
+          agent: seedBinding,
         });
   const state = { draft: cloneSeed(firstSeed), step: 0 };
   let reviewedRequestKey = projection.preview ? requestKey(state.draft) : null;
   let sending = false;
   let pollTimer: number | null = null;
 
-  const advanceReceipt = (): boolean => {
+  /**
+   * Hands the receipt on: records the Lane, then either opens the next queued
+   * seed or leaves for the cockpit.
+   */
+  const completeReceipt = (): boolean => {
     const laneId = projection.navigationLaneId;
     if (!laneId || completedLaneIds.includes(laneId)) return false;
     completedLaneIds.push(laneId);
@@ -210,6 +261,23 @@ export function renderD4LaneCreate(
     pendingCommandId = null;
     pendingIntent = null;
     return false;
+  };
+
+  /**
+   * A bound creation stops on step 4 instead of leaving for the cockpit.
+   *
+   * Core answers a binding with a session outcome, and navigating past the
+   * receipt would swallow it — a refusal the operator never saw is a Lane they
+   * believe has an Agent in it. An unbound creation is the two-step flow that
+   * existed before the binding and still navigates straight through.
+   */
+  const advanceReceipt = (): boolean => {
+    if (!projection.navigationLaneId) return false;
+    if (state.draft.agent && !completedLaneIds.includes(projection.navigationLaneId)) {
+      state.step = 3;
+      return false;
+    }
+    return completeReceipt();
   };
 
   const controller: D4Controller = {
@@ -404,6 +472,11 @@ export function renderD4LaneCreate(
     };
 
     const EM_DASH = "—";
+    // Core's resolution of the reviewed request. The preview slot is cleared
+    // the moment the receipt lands, and the receipt resolves the same request,
+    // so a wizard holding on step 4 reads Core's facts rather than em-dashes
+    // about a Lane that exists.
+    const resolvedFacts = projection.preview ?? projection.receipt;
 
     if (state.step === 0) {
       // Step 1 — Role & workstation. The preset is the only editable role
@@ -431,27 +504,37 @@ export function renderD4LaneCreate(
       readOnlyRow(
         section,
         translate(locale, "d4.worktree", {}),
-        projection.preview?.worktreePath ?? translate(locale, "d4.auto", {}),
+        resolvedFacts?.worktreePath ?? translate(locale, "d4.auto", {}),
         "autoWorktree",
       );
       readOnlyRow(
         section,
         translate(locale, "d4.base", {}),
-        projection.preview?.baseRevision ?? translate(locale, "d4.auto", {}),
+        resolvedFacts?.baseRevision ?? translate(locale, "d4.auto", {}),
         "autoBase",
       );
       form.append(section);
     } else if (state.step === 1) {
-      // Step 2 — Choose agent. The list is Core's published adapters; the
-      // popover's pick is marked. Nothing here is selectable yet, and the
-      // reason moved rather than went away: C15 gave `StarterLaneRequest` an
-      // `agent` field, but `viden-core` re-exports neither
-      // `StarterLaneAgentBinding` nor `StarterLaneSessionOutcome`, and this
-      // client may import only `viden-core`. So the binding still cannot be
-      // constructed and the rows stay unselectable rather than becoming a
-      // control that cannot reach Core (GUI-CORE-037).
+      // Step 2 — Choose agent. The list is Core's published adapters and the
+      // pick is a real binding: it travels on `StarterLaneRequest.agent`
+      // (`runtime.starter_lane_agent`) and Core starts the session after the
+      // Lane exists. "No agent" is a row of its own rather than the absence of
+      // a pick, because an unbound request is the two-step flow Core kept.
       const section = stepSection("agent", translate(locale, "d4.step.agent.lead", {}));
       const agents = queueState.agents ?? [];
+      const bindTo = (binding: D4AgentBinding | null): void => {
+        state.draft.agent = binding;
+        render();
+        root
+          .querySelector<HTMLElement>(
+            binding ? `[data-d4-agent="${binding.agentId}"]` : "[data-d4-agent-none]",
+          )
+          ?.focus();
+      };
+      const choiceGroup = document.createElement("div");
+      choiceGroup.className = "d4-agent-list";
+      choiceGroup.setAttribute("role", "radiogroup");
+      choiceGroup.setAttribute("aria-label", translate(locale, "d4.step.agent", {}));
       if (agents.length === 0) {
         const empty = document.createElement("p");
         empty.dataset.d4Unavailable = "agent";
@@ -459,32 +542,76 @@ export function renderD4LaneCreate(
         empty.textContent = translate(locale, "d4.agent.none", {});
         section.append(empty);
       } else {
-        const list = document.createElement("ul");
-        list.className = "d4-agent-list";
         for (const adapter of agents) {
-          const item = document.createElement("li");
-          item.className = "d4-agent";
+          const item = document.createElement("button");
+          item.type = "button";
+          item.className = "gbtn d4-agent";
+          item.setAttribute("role", "radio");
           item.dataset.d4Agent = adapter.agentId;
-          const chosen = queueState.seed?.agentId === adapter.agentId;
-          if (chosen) item.dataset.d4AgentChosen = "true";
+          const selected = state.draft.agent?.agentId === adapter.agentId;
+          item.setAttribute("aria-checked", String(selected));
+          item.tabIndex = selected ? 0 : -1;
+          // The popover's own pick stays marked even after the operator moves
+          // the binding elsewhere: "what I chose in New Lane" and "what this
+          // request will carry" are two different facts.
+          if (queueState.seed?.agentId === adapter.agentId) {
+            item.dataset.d4AgentChosen = "true";
+          }
           const name = document.createElement("strong");
           name.textContent = adapter.displayName;
           const status = document.createElement("small");
           status.textContent = adapter.startability.replaceAll("_", " ");
           item.append(name, status);
-          if (chosen) {
+          if (queueState.seed?.agentId === adapter.agentId) {
             const pick = document.createElement("em");
             pick.textContent = translate(locale, "d4.agent.chosen", {});
             item.append(pick);
           }
-          list.append(item);
+          item.addEventListener("click", () =>
+            bindTo({
+              agentId: adapter.agentId,
+              // Core resolves the adapter's own model; the wizard has no model
+              // picker and must not invent one.
+              model: null,
+              task: queueState.seed?.task ?? null,
+            }),
+          );
+          choiceGroup.append(item);
         }
-        section.append(list);
+        const none = document.createElement("button");
+        none.type = "button";
+        none.className = "gbtn d4-agent";
+        none.setAttribute("role", "radio");
+        none.dataset.d4AgentNone = "true";
+        none.setAttribute("aria-checked", String(state.draft.agent === null));
+        none.tabIndex = state.draft.agent === null ? 0 : -1;
+        none.textContent = translate(locale, "d4.agent.unbound", {});
+        none.addEventListener("click", () => bindTo(null));
+        choiceGroup.append(none);
+        section.append(choiceGroup);
+      }
+      // Core's own echo, never the draft: an adapter Core does not know is
+      // echoed back with a `starter_lane.agent_unknown` diagnostic and the
+      // preview stays creatable, so the two rows have to be read together.
+      readOnlyRow(
+        section,
+        translate(locale, "d4.agent.echo", {}),
+        projection.preview?.agent?.agentId ?? EM_DASH,
+        "d4AgentEcho",
+      );
+      for (const diagnostic of projection.preview?.diagnostics ?? []) {
+        if (!diagnostic.startsWith("starter_lane.agent")) continue;
+        const row = document.createElement("p");
+        row.className = "d4-step-note";
+        row.dataset.d4AgentDiagnostic = "true";
+        row.setAttribute("role", "status");
+        row.textContent = diagnostic;
+        section.append(row);
       }
       readOnlyRow(
         section,
         translate(locale, "d4.route", {}),
-        projection.preview?.lane.route ?? EM_DASH,
+        resolvedFacts?.lane.route ?? EM_DASH,
         "agentRoute",
       );
       const note = document.createElement("p");
@@ -514,6 +641,57 @@ export function renderD4LaneCreate(
       form.append(section);
     }
 
+    /**
+     * What `CreateStarterLane` made of the binding, once a receipt exists.
+     *
+     * Three answers, kept apart. A started session names the id Core minted
+     * and links to the board it runs on; a refusal prints Core's own reason
+     * without softening it; and no outcome at all says exactly that — the Lane
+     * was created and Core published nothing about a session — rather than
+     * "no agent", which would be this client answering for Core.
+     */
+    const appendSessionOutcome = (host: HTMLElement): void => {
+      const outcome = projection.receiptSession;
+      const block = document.createElement("section");
+      block.className = "d4-session";
+      block.dataset.d4Session = outcome?.state ?? "absent";
+      block.setAttribute("role", "status");
+      const heading = document.createElement("h3");
+      heading.textContent = translate(locale, "d4.session.title", {});
+      block.append(heading);
+      const body = document.createElement("p");
+      if (outcome?.state === "started") {
+        body.textContent = translate(locale, "d4.session.started", {
+          session: outcome.sessionId,
+        });
+      } else if (outcome?.state === "refused") {
+        body.textContent = translate(locale, "d4.session.refused", {});
+        const reason = document.createElement("p");
+        reason.className = "d4-session-reason";
+        reason.dataset.d4SessionReason = "true";
+        reason.textContent = outcome.reason;
+        block.append(body, reason);
+      } else {
+        body.textContent = translate(locale, "d4.session.absent", {});
+      }
+      if (!block.contains(body)) block.append(body);
+      const laneId = projection.navigationLaneId;
+      if (outcome?.state === "started" && laneId && queueState.onNavigateToAgentBoard) {
+        const open = action(translate(locale, "d4.session.open", {}), "d4OpenAgentBoard");
+        open.addEventListener("click", () => queueState.onNavigateToAgentBoard!(laneId));
+        block.append(open);
+      }
+      if (laneId) {
+        const carry = action(translate(locale, "d4.receipt.continue", {}), "d4ReceiptContinue");
+        carry.classList.add("primary");
+        carry.addEventListener("click", () => {
+          if (!completeReceipt()) render();
+        });
+        block.append(carry);
+      }
+      host.append(block);
+    };
+
     const resolved = document.createElement("dl");
     resolved.className = "d4-resolved";
     const addResolved = (key: string, value: string, marker: string) => {
@@ -524,15 +702,15 @@ export function renderD4LaneCreate(
       detail.dataset[marker] = "true";
       resolved.append(term, detail);
     };
-    addResolved(translate(locale, "d4.route", {}), projection.preview?.lane.route ?? "—", "resolvedRoute");
-    addResolved(translate(locale, "d4.gate", {}), projection.preview?.lane.gateStrength ?? "—", "resolvedGate");
-    addResolved(translate(locale, "d4.target", {}), projection.preview?.lane.target ?? "—", "resolvedTarget");
+    addResolved(translate(locale, "d4.route", {}), resolvedFacts?.lane.route ?? EM_DASH, "resolvedRoute");
+    addResolved(translate(locale, "d4.gate", {}), resolvedFacts?.lane.gateStrength ?? EM_DASH, "resolvedGate");
+    addResolved(translate(locale, "d4.target", {}), resolvedFacts?.lane.target ?? EM_DASH, "resolvedTarget");
     addResolved(translate(locale, "d4.budget.default", {}), translate(locale, "d4.budget.default", {}), "resolvedBudget");
-    addResolved(translate(locale, "d4.worktree", {}), projection.preview?.worktreePath ?? "—", "resolvedWorktree");
-    addResolved(translate(locale, "d4.base", {}), projection.preview?.baseRevision ?? "—", "resolvedBase");
+    addResolved(translate(locale, "d4.worktree", {}), resolvedFacts?.worktreePath ?? EM_DASH, "resolvedWorktree");
+    addResolved(translate(locale, "d4.base", {}), resolvedFacts?.baseRevision ?? EM_DASH, "resolvedBase");
     addResolved(
       translate(locale, "d4.mutationPolicy", {}),
-      projection.preview?.lane.mutationPolicy ?? "—",
+      resolvedFacts?.lane.mutationPolicy ?? EM_DASH,
       "resolvedMutationPolicy",
     );
     if (state.step === 3) {
@@ -548,6 +726,7 @@ export function renderD4LaneCreate(
       target.dataset.d4TargetNote = "true";
       target.textContent = translate(locale, "d4.target.localOnly", {});
       gates.append(target);
+      if (projection.receipt) appendSessionOutcome(gates);
     }
 
     const rail = document.createElement("aside");
@@ -555,7 +734,7 @@ export function renderD4LaneCreate(
     const summaryTitle = document.createElement("h2");
     summaryTitle.textContent = state.draft.laneId;
     const summary = document.createElement("p");
-    summary.textContent = projection.preview?.lane.summary ?? translate(locale, "d4.preview", {});
+    summary.textContent = resolvedFacts?.lane.summary ?? translate(locale, "d4.preview", {});
     rail.append(summaryTitle, summary);
 
     if (!projection.availability.available) {

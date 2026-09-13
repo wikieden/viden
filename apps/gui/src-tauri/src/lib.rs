@@ -57,8 +57,9 @@ pub use d2::{
     D2UnavailableProjection,
 };
 pub use d4::{
-    D4_STARTER_LANE_CAPABILITY, D4ApprovalIntent, D4Intent, D4IntentResult, D4LaneCreateProjection,
-    D4LaneRequest, D4Preset,
+    D4_STARTER_LANE_CAPABILITY, D4AgentBinding, D4AgentBindingProjection, D4ApprovalIntent,
+    D4Intent, D4IntentResult, D4LaneCreateProjection, D4LaneRequest, D4Preset,
+    D4SessionOutcomeProjection,
 };
 pub use d6::{
     D6ActionProjection, D6ConnectionState, D6Intent, D6IntentResult, D6RecoveryProjection, D6State,

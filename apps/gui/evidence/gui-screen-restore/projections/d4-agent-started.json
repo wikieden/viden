@@ -1,0 +1,56 @@
+{
+  "availability": {
+    "available": true,
+    "capability": "runtime.starter_lane_preview",
+    "message": "Reviewed starter Lane creation is available."
+  },
+  "workMode": "build",
+  "canCreate": false,
+  "preview": null,
+  "receipt": {
+    "previewId": "preview-starter-agent",
+    "contentSha256": "1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a",
+    "owner": {
+      "workspaceId": "workspace_contract_v1",
+      "projectId": "project_viden",
+      "laneId": "lane-starter-agent",
+      "sessionId": null,
+      "taskId": null,
+      "turnId": null
+    },
+    "lane": {
+      "id": "lane-starter-agent",
+      "role": "coder",
+      "route": "built_in",
+      "gateStrength": "full",
+      "mutationPolicy": "propose_only",
+      "worktree": "workspace/.worktrees/lane-starter-agent",
+      "branch": "codex/lane-starter-agent",
+      "target": "local",
+      "dataEgress": "deny",
+      "status": "running",
+      "budget": {
+        "tokenLimit": null,
+        "costLimitMicroUsd": null,
+        "wallTimeLimitSecs": null
+      },
+      "summary": "coder starter lane"
+    },
+    "branch": "codex/lane-starter-agent",
+    "worktreePath": "workspace/.worktrees/lane-starter-agent",
+    "baseRevision": "2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b",
+    "diagnostics": [],
+    "agent": null
+  },
+  "pendingApproval": null,
+  "outcome": {
+    "state": "created",
+    "reason": null,
+    "requiresRepreview": false
+  },
+  "receiptSession": {
+    "state": "started",
+    "sessionId": "agent-session-starter"
+  },
+  "navigationLaneId": "lane-starter-agent"
+}

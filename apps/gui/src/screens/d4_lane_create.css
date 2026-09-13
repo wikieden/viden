@@ -218,7 +218,13 @@
   font-family: var(--font-mono);
 }
 
+/* The New Lane popover's pick, which stays marked after the binding moves. */
 .d4-agent[data-d4-agent-chosen="true"] {
+  border-color: var(--accent);
+}
+
+/* The binding this request will actually carry. */
+.d4-agent[aria-checked="true"] {
   border-color: var(--accent);
   background: var(--bg-sel);
 }
@@ -277,4 +283,38 @@
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
   }
+}
+
+/* Step 4's answer about the bound Agent's session, once a receipt exists. */
+.d4-session {
+  display: grid;
+  gap: var(--sp-2);
+  margin-block-start: var(--sp-4);
+  padding: var(--sp-4);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--bg-panel);
+}
+
+.d4-session h3 {
+  margin: 0;
+  font-size: var(--fs-sm);
+}
+
+.d4-session p {
+  margin: 0;
+}
+
+.d4-session[data-d4-session="refused"] {
+  border-color: var(--error);
+}
+
+.d4-session[data-d4-session="absent"] {
+  border-style: dashed;
+}
+
+.d4-session-reason {
+  font-family: var(--font-mono);
+  color: var(--fg-muted);
+  overflow-wrap: anywhere;
 }
