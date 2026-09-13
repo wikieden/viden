@@ -32,6 +32,7 @@ pub const FRONTEND_V1_EXTENSION_CAPABILITIES: &[&str] = &[
     "runtime.agent_adapters",
     "runtime.agent_conversation",
     "runtime.agent_permission_bridge",
+    "runtime.agent_session_control",
     "runtime.agent_session_input",
     "runtime.agent_sessions",
     "runtime.audit",
@@ -145,7 +146,8 @@ impl RuntimeEventEnvelope {
         if let crate::RuntimeEventKind::AgentSessionStarted { session }
         | crate::RuntimeEventKind::AgentSessionUpdated { session }
         | crate::RuntimeEventKind::AgentSessionCompleted { session }
-        | crate::RuntimeEventKind::AgentSessionFailed { session } = &event.kind
+        | crate::RuntimeEventKind::AgentSessionFailed { session }
+        | crate::RuntimeEventKind::AgentSessionKilled { session } = &event.kind
             && (session.owner.lane_id.as_deref() != Some(session.lane_id.as_str())
                 || session.owner.session_id.as_deref() != Some(session.session_id.as_str()))
         {
@@ -163,7 +165,8 @@ impl RuntimeEventEnvelope {
             crate::RuntimeEventKind::AgentSessionStarted { session }
             | crate::RuntimeEventKind::AgentSessionUpdated { session }
             | crate::RuntimeEventKind::AgentSessionCompleted { session }
-            | crate::RuntimeEventKind::AgentSessionFailed { session } => Some(&session.owner),
+            | crate::RuntimeEventKind::AgentSessionFailed { session }
+            | crate::RuntimeEventKind::AgentSessionKilled { session } => Some(&session.owner),
             _ => None,
         };
         if payload_owner.is_none_or(|owner| owner == &self.owner) {

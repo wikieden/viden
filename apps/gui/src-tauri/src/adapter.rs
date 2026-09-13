@@ -5789,6 +5789,7 @@ mod tests {
             task: "reply".to_string(),
             diagnostic: None,
             output: Some("done".to_string()),
+            control: None,
         }];
 
         assert!(pending.is_satisfied_by_agent_sessions(&sessions));

@@ -155,6 +155,58 @@ pub enum AgentSessionStatus {
     Completed,
     Failed,
     Cancelled,
+    /// Alive, with no prompt in flight and no input forwarded until resumed
+    /// (`runtime.agent_session_control`).
+    ///
+    /// Neither ACP nor the Codex app-server has a pause verb, so this is a
+    /// Core-side state over the session's input path: the in-flight prompt was
+    /// cancelled, but the resident session and its resume handle are kept.
+    Paused,
+    /// Terminated without a cancel grace; terminal, and retryable like
+    /// [`AgentSessionStatus::Failed`].
+    Killed,
+}
+
+impl AgentSessionStatus {
+    /// Whether no further work runs under this status without an explicit
+    /// restart.
+    ///
+    /// The honesty rule for the two 0.3.5 statuses lives here so no exhaustive
+    /// match has to re-decide it: a paused session is alive and still holds its
+    /// adapter, and a killed one is settled exactly as a cancelled one is.
+    pub fn is_terminal(self) -> bool {
+        match self {
+            Self::Completed | Self::Failed | Self::Cancelled | Self::Killed => true,
+            Self::Starting | Self::Running | Self::WaitingApproval | Self::Paused => false,
+        }
+    }
+}
+
+/// Why a terminal Agent session stopped (`runtime.agent_session_control`).
+///
+/// Cancel and kill both end a session, but they are not the same operator act:
+/// cancel gave the adapter its cooperative grace, kill did not. A client that
+/// cannot tell them apart cannot explain what happened to the work.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentSessionTermination {
+    Cancelled,
+    Killed,
+}
+
+/// The control history of one Agent session.
+///
+/// Published only once a session has actually been paused, resumed, or
+/// terminated by the operator, so a session that was never controlled still
+/// encodes to the bytes it did before this capability.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct AgentSessionControlView {
+    pub paused_at: Option<u64>,
+    pub resumed_at: Option<u64>,
+    pub terminated_by: Option<AgentSessionTermination>,
+    /// Inputs accepted while paused and held; forwarded in order on resume,
+    /// discarded and named in the diagnostic on kill.
+    pub held_input_count: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -356,6 +408,12 @@ pub struct AgentSessionView {
     /// Older frontend-contract-v1 snapshots omit it and decode as unavailable.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output: Option<String>,
+    /// Operator control history (`runtime.agent_session_control`).
+    ///
+    /// Absent until the session is first paused, resumed, or terminated, so an
+    /// older snapshot and an uncontrolled session encode identically.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub control: Option<AgentSessionControlView>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

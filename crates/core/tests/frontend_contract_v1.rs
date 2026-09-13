@@ -3336,6 +3336,7 @@ fn streamed_turn_fixture() -> FrontendContractFixtureOut {
         task: "task.streamed_turn.investigate".to_string(),
         diagnostic: None,
         output: None,
+        control: None,
     };
 
     let mut kinds = vec![RuntimeEventKind::AgentSessionStarted {
@@ -3395,6 +3396,7 @@ fn message_parts_fixture() -> FrontendContractFixtureOut {
         task: "task.message_parts.render_chart".to_string(),
         diagnostic: None,
         output: None,
+        control: None,
     };
     let follow_up = "Nothing else changed.";
     let delta = |message_id: &str, content: &str| RuntimeEventKind::AssistantDelta {
@@ -5363,6 +5365,7 @@ fn interaction_closed_loop_fixture() -> FrontendContractFixtureOut {
         task: "task.loop.preflight".to_string(),
         diagnostic: None,
         output: None,
+        control: None,
     };
     let acp_session = AgentSessionView {
         session_id: "session-loop-acp".to_string(),
@@ -5374,6 +5377,7 @@ fn interaction_closed_loop_fixture() -> FrontendContractFixtureOut {
         task: "task.loop.implement".to_string(),
         diagnostic: None,
         output: None,
+        control: None,
     };
     let mut approval = approval("approval-loop-tool", "approval.tool.execute", true);
     approval.owner = acp_owner.clone();

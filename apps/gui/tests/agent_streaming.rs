@@ -70,6 +70,7 @@ fn running_session_view() -> RuntimeViewState {
                 task: "draw a cat".into(),
                 diagnostic: None,
                 output: None,
+                control: None,
             },
         },
     ));

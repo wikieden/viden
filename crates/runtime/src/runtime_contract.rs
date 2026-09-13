@@ -588,7 +588,10 @@ impl SessionEngine {
             RuntimeCommand::StartAgentSession { .. }
             | RuntimeCommand::SendAgentSessionInput { .. }
             | RuntimeCommand::RetryAgentSession { .. }
-            | RuntimeCommand::CancelAgentSession { .. } => {
+            | RuntimeCommand::CancelAgentSession { .. }
+            | RuntimeCommand::PauseAgentSession { .. }
+            | RuntimeCommand::ResumeAgentSession { .. }
+            | RuntimeCommand::KillAgentSession { .. } => {
                 return Ok(vec![command_rejected(
                     command_id,
                     "typed agent session execution must be handled by the runtime supervisor"
@@ -6123,6 +6126,15 @@ pub(crate) fn redacted_runtime_command_for_event(command: &RuntimeCommand) -> Ru
             session_id: redact_identifier_for_event(session_id),
         },
         RuntimeCommand::CancelAgentSession { session_id } => RuntimeCommand::CancelAgentSession {
+            session_id: redact_identifier_for_event(session_id),
+        },
+        RuntimeCommand::PauseAgentSession { session_id } => RuntimeCommand::PauseAgentSession {
+            session_id: redact_identifier_for_event(session_id),
+        },
+        RuntimeCommand::ResumeAgentSession { session_id } => RuntimeCommand::ResumeAgentSession {
+            session_id: redact_identifier_for_event(session_id),
+        },
+        RuntimeCommand::KillAgentSession { session_id } => RuntimeCommand::KillAgentSession {
             session_id: redact_identifier_for_event(session_id),
         },
         RuntimeCommand::ProbeProject => RuntimeCommand::ProbeProject,

@@ -873,6 +873,7 @@ fn d1_acp_follow_up_preserves_exact_session_and_owner() {
         task: "review".into(),
         diagnostic: None,
         output: None,
+        control: None,
     });
     let sent = Arc::new(Mutex::new(Vec::new()));
     let mut adapter = connected(view, Arc::clone(&sent));
@@ -917,6 +918,7 @@ fn restored_completed_acp_session_accepts_follow_up_without_a_live_lane_binding(
         task: "review".into(),
         diagnostic: None,
         output: Some("finished the previous turn".into()),
+        control: None,
     });
     let sent = Arc::new(Mutex::new(Vec::new()));
     let mut adapter = connected(view, Arc::clone(&sent));
@@ -962,6 +964,7 @@ fn reactivated_restored_acp_session_stays_visible_while_running() {
         task: "previous turn".into(),
         diagnostic: None,
         output: Some("finished".into()),
+        control: None,
     };
     view.agent_sessions.push(session.clone());
     view.apply_event(&RuntimeEvent::new(
@@ -1026,6 +1029,7 @@ fn acp_input_rejects_a_malformed_duplicate_lane_binding_without_transport() {
         task: "review".into(),
         diagnostic: None,
         output: None,
+        control: None,
     });
     let sent = Arc::new(Mutex::new(Vec::new()));
     let mut adapter = connected(view, Arc::clone(&sent));
@@ -1065,6 +1069,7 @@ fn busy_acp_follow_up_queues_through_the_selected_exact_owner() {
         task: "review".into(),
         diagnostic: None,
         output: None,
+        control: None,
     });
     let sent = Arc::new(Mutex::new(Vec::new()));
     let mut adapter = connected(view, Arc::clone(&sent));

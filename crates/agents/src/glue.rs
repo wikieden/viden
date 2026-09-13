@@ -444,6 +444,7 @@ pub fn tracked_agent_job_sessions(cwd: &Path) -> Vec<AgentSessionView> {
                 output: (status == AgentSessionStatus::Completed)
                     .then(|| read_acp_session_output(&job.result_path))
                     .flatten(),
+                control: None,
             })
         })
         .collect()
@@ -728,6 +729,7 @@ pub(super) fn start_typed_agent_session_attempt(
         task: request.task,
         diagnostic: None,
         output: None,
+        control: None,
     };
     let mut start_events = Vec::new();
     if let Some(input_id) = accepted_input_id {

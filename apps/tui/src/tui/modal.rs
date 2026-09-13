@@ -1958,6 +1958,7 @@ mod tests {
                 task: "work".to_string(),
                 diagnostic: None,
                 output: None,
+                control: None,
             };
         state.runtime.agent_sessions.push(session(
             "session-live",
