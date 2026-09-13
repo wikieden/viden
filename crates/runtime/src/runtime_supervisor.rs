@@ -2219,7 +2219,6 @@ impl Drop for RuntimeSupervisor {
 }
 
 #[allow(clippy::too_many_arguments)]
-#[allow(clippy::too_many_arguments)]
 fn run_supervisor_worker(
     mut engine: SessionEngine,
     command_receiver: Receiver<SupervisorMessage>,
