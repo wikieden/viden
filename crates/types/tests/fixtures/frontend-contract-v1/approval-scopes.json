@@ -87,7 +87,10 @@
               "expires_at": 1700004300,
               "default_action": "deny",
               "audit_id": "audit_approval_scopes_always",
-              "editable": true
+              "editable": true,
+              "input": {
+                "command": "cargo fmt --all -- --check"
+              }
             }
           }
         }
@@ -446,7 +449,10 @@
               "expires_at": 1700004300,
               "default_action": "deny",
               "audit_id": "audit_approval_scopes_after_revoke",
-              "editable": true
+              "editable": true,
+              "input": {
+                "command": "cargo fmt --all -- --check"
+              }
             }
           }
         }
@@ -542,7 +548,10 @@
               "expires_at": 1700004300,
               "default_action": "deny",
               "audit_id": "audit_approval_scopes_wide",
-              "editable": true
+              "editable": true,
+              "input": {
+                "command": "rm -rf target"
+              }
             }
           }
         }
@@ -645,7 +654,10 @@
               "default_action": "deny",
               "audit_id": "audit_approval_scopes_revised",
               "revised_from": "approval_scopes_wide",
-              "editable": true
+              "editable": true,
+              "input": {
+                "command": "rm -rf target/debug"
+              }
             }
           }
         }
@@ -966,7 +978,10 @@
               "expires_at": 1700004300,
               "default_action": "deny",
               "audit_id": "audit_approval_scopes_plan",
-              "editable": true
+              "editable": true,
+              "input": {
+                "command": "cargo build"
+              }
             }
           }
         }
