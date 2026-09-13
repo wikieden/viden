@@ -87,6 +87,7 @@ fn session(session_id: &str, status: AgentSessionStatus) -> AgentSessionView {
         task: "merge the lane".to_string(),
         diagnostic: None,
         output: None,
+        control: None,
     }
 }
 
