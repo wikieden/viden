@@ -407,7 +407,7 @@ Fixture 文件位于 `crates/types/tests/fixtures/frontend-contract-v1/`。下�
 | Fixture id | 扩展场景 | 最终 view SHA-256 | Canonical fixture bytes SHA-256 |
 | --- | --- | --- | --- |
 | `frontend-host-services` | UI 偏好持久化、安全 recent work、reviewed starter-Lane preview/create/invalidation、精确 live Lane owner，以及一个可容忍的未来 optional event | `b118534bb0a568a6a1e781171cecf0512c7d987736c06e4f84d51b5835022a0e` | `96dd5fde9f1241eb50f9d8978cf478d0ac5d3327448dc6ccde9d0e5018ce1580` |
-| `interaction-closed-loop` | 文件夹绑定但不隐式配置、reviewed Lane 创建、built-in 与 ACP adapter/session、共享审批、evidence/gate、apply conflict、typed recovery、重连 replay 与完成态 | `c43d9fe304c28a50349e441c643837a9899cccab79566f9c193838248df2da1d` | `a6f1c436a15f7c77a5410c3563d8c3f67c5a5a3864692de61db61623f93ed891` |
+| `interaction-closed-loop` | 文件夹绑定但不隐式配置、reviewed Lane 创建、built-in 与 ACP adapter/session、共享审批、evidence/gate、apply conflict、typed recovery、重连 replay 与完成态 | `c43d9fe304c28a50349e441c643837a9899cccab79566f9c193838248df2da1d` | `c2ea4647a7c639e761695185129d0d96ef676fb587da7fbc54e0fdfaa8cb578c` |
 | `review-decision` | 独立评审结论：`ReviewRequestStatus` 由 `Pending` 迁移到 `Accepted`，携带 reviewer feedback 与被打戳的 gate validator，同时 gate 决定仍然独立 | `38f81bbc1966fbf5742b0087bdd9e871eb11d58cdee747628ed3f4ca1323713c` | `b8e0b5389c3f21be4b4f28cfeba8d902917a304c6b9252cf9911dcccb6146a2b` |
 | `context-budgets` | 两条并发 Lane 各自携带精确绑定的 owner 与互不相同的 task-scoped budget，一条处于软压力、一条越过硬上限 | `1b251b312b05ef950cdfc8190347e848a38d92bdaf26fe7d196e1ba053fc667b` | `7fcbde9edc5aa1a40a5cd41b0a8442403c6424903cc754cbe64d45980389029f` |
 | `streamed-turn` | 同一 session 与 message id 下的有序 `AssistantDelta` chunk 恰好重建最终回复，作为终止标记的完成事实不会重复追加 | `2567d9709e6ec96d621fa281acc205ba5a8fe0b8a08f5868b70ca386f70e3a7d` | `3b1129fb57860aa337c571a9f70be2eacca432c4419bfbb1f4c2943dd371b8e2` |
@@ -1163,6 +1163,17 @@ implementation checkpoint，但不授权创建 tag。
 Final-view digest 是对 `RuntimeViewState` 递归排序所有 object key 后的 compact JSON 计算
 SHA-256。Array 顺序保留，因为它具有语义。测试会把生成的 64 字符小写十六进制 digest
 与 fixture 和本清单比较。
+
+Corpus digest 刷新 2026-09-13（C12，兼容性后续项 13）。`interaction-closed-loop`
+扩展 fixture 已由其生成器重新生成 —— 提交 `2d88628e` 曾为生成器新增三个 capability
+名称却没有刷新已提交文件。只有 `required_capabilities` 发生变化，因此 canonical
+fixture 字节从 `a6f1c436a15f7c77a5410c3563d8c3f67c5a5a3864692de61db61623f93ed891`
+变为 `c2ea4647a7c639e761695185129d0d96ef676fb587da7fbc54e0fdfaa8cb578c`，而记录的
+final-view digest 仍为
+`c43d9fe304c28a50349e441c643837a9899cccab79566f9c193838248df2da1d`。九个冻结的
+base fixture 与其余每个扩展 fixture 与 `git show edcc7b3d:<path>` 逐字节一致。新
+字节已同步到 `crates/core/release-manifest.toml`、
+`crates/core/frontend-contract-extensions.toml` 与上方的 corpus 表。
 
 ## Migration Gate 与顺序
 

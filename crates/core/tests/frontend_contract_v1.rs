@@ -287,7 +287,7 @@ fn frontend_host_capabilities_are_schema_one_core_0_3_6_and_additive() {
         "extension_fixture_sha256 = \"96dd5fde9f1241eb50f9d8978cf478d0ac5d3327448dc6ccde9d0e5018ce1580\""
     ));
     assert!(extension_manifest.contains(
-        "interaction_fixture_sha256 = \"a6f1c436a15f7c77a5410c3563d8c3f67c5a5a3864692de61db61623f93ed891\""
+        "interaction_fixture_sha256 = \"c2ea4647a7c639e761695185129d0d96ef676fb587da7fbc54e0fdfaa8cb578c\""
     ));
 }
 
@@ -373,7 +373,7 @@ fn interaction_closed_loop_fixture_replays_identically_after_a_gap() {
     let fixture_bytes = fs::read(root.join(name)).expect("read interaction fixture bytes");
     assert_eq!(
         format!("{:x}", Sha256::digest(&fixture_bytes)),
-        "a6f1c436a15f7c77a5410c3563d8c3f67c5a5a3864692de61db61623f93ed891"
+        "c2ea4647a7c639e761695185129d0d96ef676fb587da7fbc54e0fdfaa8cb578c"
     );
     let fixture = read_fixture(&root, name);
     assert_fixture_identity(name, &fixture);

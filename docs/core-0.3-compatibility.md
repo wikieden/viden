@@ -536,7 +536,7 @@ registered schema-1 extension fixtures are:
 | Fixture id | Extension scenario | Expected final view SHA-256 | Canonical fixture bytes SHA-256 |
 | --- | --- | --- | --- |
 | `frontend-host-services` | UI preference persistence, safe recent work, reviewed starter-Lane preview/create/invalidation, exact live Lane owner, and one tolerated future optional event | `b118534bb0a568a6a1e781171cecf0512c7d987736c06e4f84d51b5835022a0e` | `96dd5fde9f1241eb50f9d8978cf478d0ac5d3327448dc6ccde9d0e5018ce1580` |
-| `interaction-closed-loop` | Folder binding without implicit setup, reviewed Lane creation, built-in and ACP adapters/sessions, shared approval, evidence/gate, apply conflict, typed recovery, reconnect replay, and completion | `c43d9fe304c28a50349e441c643837a9899cccab79566f9c193838248df2da1d` | `a6f1c436a15f7c77a5410c3563d8c3f67c5a5a3864692de61db61623f93ed891` |
+| `interaction-closed-loop` | Folder binding without implicit setup, reviewed Lane creation, built-in and ACP adapters/sessions, shared approval, evidence/gate, apply conflict, typed recovery, reconnect replay, and completion | `c43d9fe304c28a50349e441c643837a9899cccab79566f9c193838248df2da1d` | `c2ea4647a7c639e761695185129d0d96ef676fb587da7fbc54e0fdfaa8cb578c` |
 | `review-decision` | Independent review verdict: `ReviewRequestStatus` `Pending -> Accepted` with reviewer feedback and the stamped gate validator, while the gate decision stays separate | `38f81bbc1966fbf5742b0087bdd9e871eb11d58cdee747628ed3f4ca1323713c` | `b8e0b5389c3f21be4b4f28cfeba8d902917a304c6b9252cf9911dcccb6146a2b` |
 | `context-budgets` | Two concurrent Lanes with their exact bound owners and distinct task-scoped budgets, one under soft pressure and one over its hard limit | `1b251b312b05ef950cdfc8190347e848a38d92bdaf26fe7d196e1ba053fc667b` | `7fcbde9edc5aa1a40a5cd41b0a8442403c6424903cc754cbe64d45980389029f` |
 | `streamed-turn` | Ordered `AssistantDelta` chunks under one session and message id reconstruct exactly the final reply, and the terminal completion fact does not duplicate it | `2567d9709e6ec96d621fa281acc205ba5a8fe0b8a08f5868b70ca386f70e3a7d` | `3b1129fb57860aa337c571a9f70be2eacca432c4419bfbb1f4c2943dd371b8e2` |
@@ -1527,6 +1527,20 @@ The final-view digest is SHA-256 over compact JSON for `RuntimeViewState` after
 recursively sorting every object key. Array order is preserved because it is
 semantic. The test compares the generated lowercase 64-character hex digest
 with the fixture and this manifest.
+
+Corpus digest refresh 2026-09-13 (C12, compatibility follow-up 13). The
+`interaction-closed-loop` extension fixture was regenerated from its own
+generator, which commit `2d88628e` had extended by three capability names
+without refreshing the committed file. Only `required_capabilities` moved, so
+the canonical fixture bytes went
+`a6f1c436a15f7c77a5410c3563d8c3f67c5a5a3864692de61db61623f93ed891` ->
+`c2ea4647a7c639e761695185129d0d96ef676fb587da7fbc54e0fdfaa8cb578c` while the
+recorded final-view digest stayed
+`c43d9fe304c28a50349e441c643837a9899cccab79566f9c193838248df2da1d`. The nine
+frozen base fixtures and every other extension fixture are byte-identical to
+`git show edcc7b3d:<path>`. The new bytes are reflected in
+`crates/core/release-manifest.toml`,
+`crates/core/frontend-contract-extensions.toml`, and the corpus table above.
 
 ## Migration Gate And Order
 

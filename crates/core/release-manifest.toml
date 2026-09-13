@@ -24,7 +24,7 @@ view_sha256 = "b118534bb0a568a6a1e781171cecf0512c7d987736c06e4f84d51b5835022a0e"
 
 [fixtures.interaction_closed_loop]
 path = "../types/tests/fixtures/frontend-contract-v1/interaction-closed-loop.json"
-payload_sha256 = "a6f1c436a15f7c77a5410c3563d8c3f67c5a5a3864692de61db61623f93ed891"
+payload_sha256 = "c2ea4647a7c639e761695185129d0d96ef676fb587da7fbc54e0fdfaa8cb578c"
 view_sha256 = "c43d9fe304c28a50349e441c643837a9899cccab79566f9c193838248df2da1d"
 final_cursor = 22
 
