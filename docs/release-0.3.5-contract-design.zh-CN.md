@@ -462,6 +462,8 @@ Agent Board（覆盖 Lane/会话层级的中央面板视图）：
 偏离通过评审，则记录于此。上文正文保持原样；本节是第 1 节实际交付的内容。C14 与 C15
 追加各自的条目。
 
+### C13 `runtime.plan_documents`（评审通过，2026-09-13）
+
 - **`PlanDocumentId` 是 `plan_<纳秒 token>`，不是 ULID。** 没有任何 ULID crate 是依赖，
   本批次也未被授权添加；`fresh_id` 是既有助手，`project_id` 在 `0.3.4` 做过同样的修订。
   前缀与形状与设计一致。
@@ -514,7 +516,7 @@ Agent Board（覆盖 Lane/会话层级的中央面板视图）：
   而每个轮次的投影都会重新发布该前缀，因此一个同时折入了 `update_plan` 调用的轮次，会在
   前缀里发布一次记录，又作为有序事实再发布一次。`AgentDagUpdated` 自 `0.3.0` 起就有这个
   性质；归约器按 plan id 做 upsert，因此客户端两种情况下看到的都是一份计划。
-## 实现修订（2026-09-13）
+### C14 `runtime.agent_session_control`（评审通过，2026-09-13）
 
 由批次 C14 按本文档自身的规则记录：批次只能在其报告中给出理由的前提下偏离，
 并在该偏离通过评审后记入此处。上文正文保持原样；本节是第 2 节
@@ -567,3 +569,27 @@ Agent Board（覆盖 Lane/会话层级的中央面板视图）：
   `agent_session_status` 投影是一个穷尽匹配，必须指名 `paused` 与 `killed`，而不是
   把它们折叠掉。没有触碰任何客户端行为、布局或动作行；实时的 Pause/Resume/Kill 表面
   仍属于 G9 与 T4。
+
+### C15 `runtime.approval_scopes` 与 `runtime.starter_lane_agent`（评审通过，2026-09-13）
+
+由派发者依据 C15 的报告记录；该批次未自行撰写修订小节。
+
+- **常设审批文件是 `$VIDEN_HOME/settings.toml`**，而不是平台配置目录：平台路径只能从进程
+  环境解析，在临时 home 下运行的 runtime 会写到操作者的真实文件。`[[permissions.standing]]`
+  表与 `viden-config` 的所有权按设计不变；`viden_config::user_settings_path_in_home` 从引擎
+  持有的 home 解析它。
+- **`editable` 为 false 时 `skip_serializing_if`**，而不是裸 `#[serde(default)]`，因为字面
+  写法会给每个 `ApprovalRequestView` 增加一个键并移动九个冻结基线 fixture。
+- **Always 与 Edit 只在到达 `PermissionEngine::apply_approval` 的三个交互门上提供**
+  （原生轮次、agent 任务、agent 会话）。项目变更与上下文检索的审批在引擎之外解决，在那里
+  授予的规则永远不会被查询。
+- **基于规则拒绝的修订把原请求解决为 `Edit`** 并作为工具拒绝到达模型；只有 plan 模式的
+  拒绝在请求上执行并把原请求解决为 `Deny`。supervisor 线程不拥有权限引擎，无法在转发修订
+  前预先计算规则裁定。
+- **`ToolCallView` 上没有 `user_modified`。** 原生工具调用视图由引擎的文本事件投影；修订后
+  的字节就是 `input_preview` 显示的内容，`user_modified` 记录在权限记录条目与
+  `approval.edit` 审计行中。
+- **`scope_not_offered` 重命名了既有的未提供范围拒绝**（`scope is not allowed`）；行为不变。
+- **starter-Lane 的会话 id 在创建路径上铸造**并由 worker 采用
+  （`SupervisorMessage::StartStarterLaneSession`、`reserved_session_id`），以便回执能指名它；
+  `LaneSupervisor::with_starter_lane_agent_policy` 是 builder，不是新的构造参数。

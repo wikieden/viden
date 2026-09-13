@@ -539,6 +539,8 @@ deviate only with the reason in its report and, if the deviation survives
 review, here. The body above is left as written; this section is what
 shipped for section 1. C14 and C15 append their own entries.
 
+### C13 `runtime.plan_documents` (accepted on review, 2026-09-13)
+
 - **`PlanDocumentId` is `plan_<nanosecond token>`, not a ULID.** No ULID
   crate is a dependency and the batch was not authorized to add one;
   `fresh_id` is the existing helper and `project_id` took the same
@@ -618,6 +620,8 @@ shipped for section 1. C14 and C15 append their own entries.
   prefix and again as the ordered fact. `AgentDagUpdated` has had this
   property since `0.3.0`; the reducer upserts by plan id, so a client sees
   one plan either way.
+### C14 `runtime.agent_session_control` (accepted on review, 2026-09-13)
+
 Recorded by batch C14 as this document's own rules require: a batch may
 deviate only with the reason in its report and, if the deviation survives
 review, here. The body above is left as written; this section is what
@@ -688,3 +692,38 @@ shipped for section 2, `runtime.agent_session_control`.
   match that must name `paused` and `killed` rather than collapse them. No
   client behavior, layout, or action row was touched; the live Pause/Resume/
   Kill surfaces remain G9's and T4's.
+
+### C15 `runtime.approval_scopes` and `runtime.starter_lane_agent` (accepted on review, 2026-09-13)
+
+Recorded by the dispatcher from C15's report; the batch shipped no
+amendments subsection of its own.
+
+- **The standing-approval file is `$VIDEN_HOME/settings.toml`**, not the
+  platform config directory: the platform path resolves only from process
+  environment, so a runtime under a scratch home would have written the
+  operator's real file. The `[[permissions.standing]]` table and the
+  `viden-config` ownership are as designed; `viden_config::user_settings_path_in_home`
+  resolves it from the home the engine holds.
+- **`editable` is `skip_serializing_if` when false**, not a bare
+  `#[serde(default)]`, because the literal spelling would add a key to
+  every `ApprovalRequestView` and move the nine frozen base fixtures.
+- **Always and Edit are offered only on the three interactive gates** that
+  reach `PermissionEngine::apply_approval` (native turn, agent task, agent
+  session). Project-mutation and context-retrieval approvals resolve
+  outside the engine, so a rule granted there would never be consulted.
+- **A rule-based deny of a revision resolves the original as `Edit`** and
+  reaches the model as the tool refusal; only the plan-mode deny is
+  enforced on the request and resolves the original as `Deny`. The
+  supervisor thread does not own the permission engine, so it cannot
+  pre-compute a rule verdict before forwarding the revision.
+- **No `user_modified` on `ToolCallView`.** The native tool-call view is
+  projected from the engine's text event; the revised bytes are what
+  `input_preview` shows, and `user_modified` is recorded in the permission
+  transcript entry and the `approval.edit` audit row.
+- **`scope_not_offered` renamed the existing unadvertised-scope refusal**
+  (`scope is not allowed`); behavior unchanged.
+- **The starter-Lane session id is minted on the creation path** and
+  adopted by the worker (`SupervisorMessage::StartStarterLaneSession`,
+  `reserved_session_id`), so the receipt can name it;
+  `LaneSupervisor::with_starter_lane_agent_policy` is a builder, not a new
+  constructor parameter.
