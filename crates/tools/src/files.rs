@@ -134,6 +134,17 @@ fn resolve_required_path(ctx: &ToolExecutionContext, input: &ToolInput) -> Resul
     Ok(resolve_path(&ctx.cwd, raw))
 }
 
+/// The `---` path [`render_diff`] writes when it has no path to write.
+///
+/// Named rather than spelled twice because the readers of that output have to
+/// recognize the placeholder to stamp the path they actually resolved over it
+/// (`decision_context.rs`, `evidence_reads.rs`). A drift between producer and
+/// reader would republish an in-place edit as a rename.
+pub const RENDERED_DIFF_OLD_PATH: &str = "before";
+
+/// The `+++` path [`render_diff`] writes. See [`RENDERED_DIFF_OLD_PATH`].
+pub const RENDERED_DIFF_NEW_PATH: &str = "after";
+
 /// Renders the header-only preview `write_file` and `edit_file` publish as
 /// their tool-result diff.
 ///
@@ -145,7 +156,7 @@ fn resolve_required_path(ctx: &ToolExecutionContext, input: &ToolInput) -> Resul
 pub fn render_diff(before: &str, after: &str) -> String {
     let before_lines: Vec<_> = before.lines().collect();
     let after_lines: Vec<_> = after.lines().collect();
-    let mut output = String::from("--- before\n+++ after\n");
+    let mut output = format!("--- {RENDERED_DIFF_OLD_PATH}\n+++ {RENDERED_DIFF_NEW_PATH}\n");
     let max = before_lines.len().max(after_lines.len());
     for index in 0..max {
         match (before_lines.get(index), after_lines.get(index)) {

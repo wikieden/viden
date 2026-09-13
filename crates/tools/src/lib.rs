@@ -19,8 +19,8 @@ pub use capability::{
     FilesystemCapability, InteractiveInvocation, InteractiveProcess, InteractiveProcessControl,
     LocalFilesystem, LocalProcess, ProcessCapability, ProcessInvocation, ProcessOutput,
 };
-pub use files::render_diff;
 use files::{EditFileTool, ReadFileTool, WriteFileTool};
+pub use files::{RENDERED_DIFF_NEW_PATH, RENDERED_DIFF_OLD_PATH, render_diff};
 use git::{
     GitAddTool, GitBranchTool, GitCommitTool, GitDiffTool, GitFetchTool, GitPushTool,
     GitRestoreTool, GitStashDropTool, GitStashListTool, GitStashPopTool, GitStashPushTool,
