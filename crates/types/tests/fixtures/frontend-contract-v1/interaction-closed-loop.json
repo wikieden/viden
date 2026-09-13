@@ -4,7 +4,9 @@
   "required_capabilities": [
     "core.workspace_host",
     "runtime.agent_adapters",
+    "runtime.agent_conversation",
     "runtime.agent_permission_bridge",
+    "runtime.agent_session_input",
     "runtime.agent_sessions",
     "runtime.approvals",
     "runtime.events",
@@ -15,7 +17,8 @@
     "runtime.replay",
     "runtime.snapshot",
     "runtime.starter_lane_preview",
-    "runtime.typed_lanes"
+    "runtime.typed_lanes",
+    "runtime.workspace_eligibility"
   ],
   "initial_snapshot": {
     "cwd": "workspace/viden",

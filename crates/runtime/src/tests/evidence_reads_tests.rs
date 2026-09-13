@@ -69,6 +69,17 @@ fn record_evidence(
     kind: &str,
     bytes: Option<&[u8]>,
 ) {
+    record_evidence_at(cwd, engine, evidence_id, kind, bytes, None);
+}
+
+fn record_evidence_at(
+    cwd: &std::path::Path,
+    engine: &mut SessionEngine,
+    evidence_id: &str,
+    kind: &str,
+    bytes: Option<&[u8]>,
+    path: Option<&str>,
+) {
     let mut allow = |_prompt| ApprovalResponse::allow_once(None);
     let canonical = bytes.map(|bytes| {
         let mut store = ContextEngine::open(cwd.join(".viden/context-engine")).unwrap();
@@ -109,7 +120,7 @@ fn record_evidence(
                 evidence_id: Some(evidence_id.to_string()),
                 kind: kind.to_string(),
                 summary: format!("{kind} evidence"),
-                path: None,
+                path: path.map(str::to_string),
                 source: Some("lane-origin".to_string()),
                 canonical,
             },
@@ -553,4 +564,71 @@ fn an_archive_page_never_rewrites_the_recent_evidence_window() {
         before,
         "a query answer must not reach the view state"
     );
+}
+
+/// Compatibility follow-up 14: an archived patch whose canonical bytes came
+/// from `render_diff` is published as the file it actually changed.
+///
+/// `render_diff` writes placeholder `--- before` / `+++ after` headers and no
+/// `@@` line, so the parser reads an in-place edit as a rename from `before` to
+/// `after` and every client drew `after  Renamed` / `renamed from before` for a
+/// file that was modified where it stands (E2 defect 10). The entry's own
+/// `PATH`, the canonical hash, and the verification verdict were all correct;
+/// only the derived per-file label was wrong.
+#[test]
+fn an_archived_in_place_edit_is_published_as_one_modified_path() {
+    let (cwd, mut engine) = engine_with_gate("evidence_rendered_diff");
+    let rendered = viden_tools::render_diff("alpha\nbeta\n", "alpha\nBETA\n");
+    record_evidence_at(
+        &cwd,
+        &mut engine,
+        "evidence-rendered",
+        "patch",
+        Some(rendered.as_bytes()),
+        Some("README.md"),
+    );
+
+    let EvidenceContent::Diff { document, .. } =
+        read_content(&mut engine, "content-rendered", "evidence-rendered")
+    else {
+        panic!("patch evidence must answer with a parsed diff document");
+    };
+    assert_eq!(document.files.len(), 1, "{document:?}");
+    let file = &document.files[0];
+    assert_eq!(
+        file.path, "README.md",
+        "the archived row's own path is the authority, not the rendered header"
+    );
+    assert_eq!(file.old_path, None, "nothing was renamed");
+    assert_eq!(
+        file.kind,
+        viden_types::WorkspaceChangeKind::Modified,
+        "an in-place edit is a modification"
+    );
+}
+
+/// The same stamp must not touch a real unified diff. An agent-reported or
+/// merge patch carries its own paths, and overwriting them with the row's
+/// single `path` would mislabel every file after the first.
+#[test]
+fn an_archived_git_patch_keeps_the_paths_its_own_headers_name() {
+    let (cwd, mut engine) = engine_with_gate("evidence_git_patch_paths");
+    let patch = b"diff --git a/src/one.rs b/src/one.rs\n--- a/src/one.rs\n+++ b/src/one.rs\n@@ -1 +1 @@\n-old\n+new\ndiff --git a/src/two.rs b/src/two.rs\n--- a/src/two.rs\n+++ b/src/two.rs\n@@ -1 +1 @@\n-old\n+new\n";
+    record_evidence_at(
+        &cwd,
+        &mut engine,
+        "evidence-git-patch",
+        "patch",
+        Some(patch),
+        Some("src/one.rs"),
+    );
+
+    let EvidenceContent::Diff { document, .. } =
+        read_content(&mut engine, "content-git-patch", "evidence-git-patch")
+    else {
+        panic!("patch evidence must answer with a parsed diff document");
+    };
+    assert_eq!(document.files.len(), 2, "{document:?}");
+    assert_eq!(document.files[0].path, "src/one.rs");
+    assert_eq!(document.files[1].path, "src/two.rs");
 }

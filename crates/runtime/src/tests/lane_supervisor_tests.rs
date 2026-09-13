@@ -4723,3 +4723,203 @@ fn a_lane_apply_conflict_publishes_the_lines_that_collided() {
     assert_eq!(hunk.theirs, vec!["new\n"]);
     assert_eq!(hunk.base.as_deref(), Some(["old\n".to_string()].as_slice()));
 }
+
+/// Compatibility follow-up 15: an approval the lane supervisor owns leaves the
+/// same durable audit row a runtime-owned one does, under the id the request
+/// already showed the operator.
+///
+/// `RespondToApproval` returned on the lane branch before
+/// `ApprovalAuditLog::record_decision`, so an operator who followed the
+/// `audit_id` printed beside a `lane_create` approval found nothing (E2 defect
+/// 11, the other half of E1 defect 4).
+#[test]
+fn lane_supervisor_allowed_approval_is_a_durable_audit_row_under_its_published_id() {
+    let cwd = temp_dir("lane_approval_audit_allow_cwd");
+    let home = temp_dir("lane_approval_audit_allow_home");
+    let provider: Box<dyn ModelProvider> = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    engine
+        .set_permission_mode(viden_types::PermissionMode::BypassPermissions)
+        .unwrap();
+    let effects = Arc::new(RecordingLaneEffects::default());
+    let supervisor = RuntimeSupervisor::start_with_lane_effects_for_test(
+        engine,
+        effects.clone() as Arc<dyn LaneEffectExecutor>,
+    );
+    let lane_owner = owner("lane-audit-allow");
+    supervisor
+        .send_command_from_owner(
+            lane_owner.clone(),
+            "create_audited_lane",
+            RuntimeCommand::CreateLane {
+                lane: lane("lane-audit-allow"),
+            },
+        )
+        .unwrap();
+    let approval = lane_approval_request(&supervisor, "lane_create");
+    supervisor
+        .send_command_from_owner(
+            lane_owner,
+            "respond_audited_lane",
+            RuntimeCommand::RespondToApproval {
+                request_id: approval.id.clone(),
+                response: viden_types::ApprovalResponse::allow_once(None),
+            },
+        )
+        .unwrap();
+    collect_envelopes_until(&supervisor, |events| {
+        events.iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::ApprovalResolved { audit_id, .. },
+                    ..
+                }) if audit_id == &approval.audit_id
+            )
+        })
+    });
+
+    let record = lane_audit_record(&home, &cwd, &approval.audit_id);
+    assert_eq!(record.action, "approval.allow_once");
+    assert_eq!(record.actor, viden_types::AuditActor::Operator);
+    assert_eq!(record.outcome, viden_types::AuditOutcome::Success);
+    assert_eq!(
+        record.args.get("scope").map(String::as_str),
+        Some("allow_once")
+    );
+    assert!(
+        record
+            .objects
+            .iter()
+            .any(|object| object.kind == "permission" && object.id == approval.id),
+        "the row names the approval request it decided, got {:?}",
+        record.objects
+    );
+    assert!(
+        record
+            .objects
+            .iter()
+            .any(|object| object.kind == "tool" && object.id == "lane_create"),
+        "the row names what was allowed, got {:?}",
+        record.objects
+    );
+    assert!(
+        record
+            .objects
+            .iter()
+            .any(|object| object.kind == "lane" && object.id == "lane-audit-allow"),
+        "the row names the lane the decision released, got {:?}",
+        record.objects
+    );
+}
+
+/// The denial half of follow-up 15: a refused lane approval is a decision that
+/// was carried out and is audited exactly like an allowed one.
+#[test]
+fn lane_supervisor_denied_approval_is_a_durable_audit_row_under_its_published_id() {
+    let cwd = temp_dir("lane_approval_audit_deny_cwd");
+    let home = temp_dir("lane_approval_audit_deny_home");
+    let provider: Box<dyn ModelProvider> = Box::new(SequenceProvider::new(vec![]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home.clone())).unwrap();
+    engine
+        .set_permission_mode(viden_types::PermissionMode::BypassPermissions)
+        .unwrap();
+    let effects = Arc::new(RecordingLaneEffects::default());
+    let supervisor = RuntimeSupervisor::start_with_lane_effects_for_test(
+        engine,
+        effects.clone() as Arc<dyn LaneEffectExecutor>,
+    );
+    let lane_owner = owner("lane-audit-deny");
+    supervisor
+        .send_command_from_owner(
+            lane_owner.clone(),
+            "create_denied_lane",
+            RuntimeCommand::CreateLane {
+                lane: lane("lane-audit-deny"),
+            },
+        )
+        .unwrap();
+    let approval = lane_approval_request(&supervisor, "lane_create");
+    supervisor
+        .send_command_from_owner(
+            lane_owner,
+            "respond_denied_lane",
+            RuntimeCommand::RespondToApproval {
+                request_id: approval.id.clone(),
+                response: viden_types::ApprovalResponse::deny(None),
+            },
+        )
+        .unwrap();
+    collect_envelopes_until(&supervisor, |events| {
+        events.iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::ApprovalResolved { audit_id, .. },
+                    ..
+                }) if audit_id == &approval.audit_id
+            )
+        })
+    });
+
+    let record = lane_audit_record(&home, &cwd, &approval.audit_id);
+    assert_eq!(record.action, "approval.deny");
+    assert_eq!(
+        record.outcome,
+        viden_types::AuditOutcome::Success,
+        "a denial is a decision that was applied, not an action that failed"
+    );
+    assert_eq!(record.args.get("scope").map(String::as_str), Some("deny"));
+}
+
+/// The `ApprovalRequestView` for the first pending approval of `tool_name`.
+fn lane_approval_request(
+    supervisor: &RuntimeSupervisor,
+    tool_name: &str,
+) -> viden_types::ApprovalRequestView {
+    collect_envelopes_until(supervisor, |events| {
+        events.iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::ApprovalRequested { approval },
+                    ..
+                }) if approval.tool_name == tool_name
+            )
+        })
+    })
+    .iter()
+    .find_map(|envelope| match &envelope.event {
+        RuntimeWireEvent::Known(RuntimeEvent {
+            kind: RuntimeEventKind::ApprovalRequested { approval },
+            ..
+        }) if approval.tool_name == tool_name => Some(approval.clone()),
+        _ => None,
+    })
+    .expect("the lane approval was requested")
+}
+
+/// The durable audit row written under `audit_id`, read back from the store.
+fn lane_audit_record(
+    home: &std::path::Path,
+    cwd: &std::path::Path,
+    audit_id: &str,
+) -> viden_types::AuditRecord {
+    let store = WorkflowStore::new(home.to_path_buf(), cwd).unwrap();
+    let page = store
+        .query_audit(&viden_types::AuditQuery {
+            limit: 100,
+            ..viden_types::AuditQuery::default()
+        })
+        .unwrap();
+    page.records
+        .iter()
+        .find(|record| record.audit_id == audit_id)
+        .cloned()
+        .unwrap_or_else(|| {
+            panic!(
+                "the lane approval's published audit id `{audit_id}` must name a durable row; got {:?}",
+                page.records
+            )
+        })
+}

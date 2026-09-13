@@ -304,11 +304,11 @@ flowchart LR
 | 用户意图 | 前端发送 | Core 负责 |
 | --- | --- | --- |
 | 启动普通 turn | `SubmitUserInput` | provider loop、context bundle、tools、transcript |
-| 工作运行时追加输入 | `QueueFollowUp` | queue ordering，以及一次已完成回合之后的排空：先 `InputDequeued`，再为它单独发布 `TurnStarted { QueuedInput }` |
+| 工作运行时追加输入 | `QueueFollowUp` | queue ordering，以及一次已完成回合之后的排空：先 `InputDequeued`，再为它单独发布 `TurnStarted { QueuedInput }`。自 Core `0.3.8` 起，会话作用域的追加提示在命令被*受理*时就得到确认，而不是等 worker 处理到它：条目在正在运行的回合仍在运行时就已进入 `RuntimeViewState.queued_inputs` 并发布 `InputQueued`，因此两条事实不再共享同一瞬间 |
 | 取消当前工作 | 携带所选 Lane 精确 bound envelope owner 的 `CancelActiveTurn`，或 `CancelAgentTask` | 精确 owner 校验、request cancellation、task/Lane state，以及一条不释放其后任何排队项的 `TurnFinished { Cancelled }` |
 | 启动受监督 workflow | `StartAgentDag` 然后 `StartAgentTask` | DAG validation、dependencies、workflow events |
 | 修改 mode/permissions | `SetWorkMode`、`SetPermissionLevel` | permission mode mapping 和 policy enforcement |
-| 批准或拒绝 tool | `RespondToApproval` | decision recording 和 gated execution，外加该决定的持久 `AuditRecord`：写在 `ApprovalResolved` 之前，使用请求早已公布的那个 `audit_id`（`runtime.durable_work_evidence`） |
+| 批准或拒绝 tool | `RespondToApproval` | decision recording 和 gated execution，外加该决定的持久 `AuditRecord`：写在 `ApprovalResolved` 之前，使用请求早已公布的那个 `audit_id`（`runtime.durable_work_evidence`）。自 Core `0.3.8` 起两条审批路径都会写审计：由 lane supervisor 持有的审批会在同一个预铸 id 下留下同样的 `approval.<decision>` 行并指名其 lane，因此客户端展示的收据无论由哪条路径决定都能查到 |
 | 记录 gate evidence | `RecordAgentEvidence` | evidence validation、`EvidenceRecorded`、gate reducer、workflow event |
 | 归档回合已应用的工作 | 无；这些事实随回合发布 | 一次被应用的 `write_file`/`edit_file` 产出的 `patch` 行、它的 canonical ContextStore 字节与 `source_hash`、合并闸门检查的 producer 与审批凭据、适配器上报补丁的规范化，以及每个受监督回合批次被吸收进的持久投影（`runtime.durable_work_evidence`） |
 | 审核 merge gate | merge/artifact commands | gate state、workflow events、patch application |

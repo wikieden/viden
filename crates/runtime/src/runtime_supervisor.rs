@@ -426,6 +426,15 @@ enum SupervisorMessage {
         request_id: String,
         response: ApprovalResponse,
     },
+    /// A session follow-up the accept path already pushed and announced.
+    ///
+    /// It carries no content: the entry is in Core's queue before this message
+    /// is sent (compatibility follow-up 16). The worker only has to decide
+    /// whether the drain was already armed by a completed turn, which is the
+    /// one thing the intake side cannot know.
+    SessionFollowUpQueued {
+        owner: RuntimeOwner,
+    },
     Snapshot {
         response: Sender<Result<RuntimeSnapshotEnvelope, String>>,
     },
@@ -471,6 +480,27 @@ impl ApprovalAuditLog {
         job_id: Option<&str>,
         decision: &ApprovalDecision,
     ) -> Result<(), String> {
+        self.record_decision_for(
+            audit_id, owner, request_id, tool_name, job_id, None, decision,
+        )
+    }
+
+    /// [`Self::record_decision`] with the lane the decision released.
+    ///
+    /// Only the lane branch names one: a runtime-owned approval's objects are
+    /// the request, the tool, and the job, and adding a lane object there
+    /// would move rows every recorded fixture already holds.
+    #[allow(clippy::too_many_arguments)]
+    fn record_decision_for(
+        &self,
+        audit_id: &str,
+        owner: &RuntimeOwner,
+        request_id: &str,
+        tool_name: &str,
+        job_id: Option<&str>,
+        lane_id: Option<&str>,
+        decision: &ApprovalDecision,
+    ) -> Result<(), String> {
         let mut objects = vec![
             AuditObjectRef::new(AuditObjectRef::KIND_PERMISSION, request_id),
             AuditObjectRef::new("tool", tool_name),
@@ -480,6 +510,9 @@ impl ApprovalAuditLog {
         // the decision released rather than only to the prompt.
         if let Some(job_id) = job_id.filter(|id| !id.is_empty()) {
             objects.push(AuditObjectRef::new("job", job_id));
+        }
+        if let Some(lane_id) = lane_id.filter(|id| !id.is_empty()) {
+            objects.push(AuditObjectRef::new(AuditObjectRef::KIND_LANE, lane_id));
         }
         let mut args = BTreeMap::new();
         args.insert(
@@ -532,6 +565,10 @@ pub struct RuntimeSupervisor {
     lane_supervisor: Arc<LaneSupervisor>,
     permission_control: Arc<Mutex<PermissionControlState>>,
     approval_audit: ApprovalAuditLog,
+    /// Core's session follow-up queue, shared with the engine on the worker
+    /// thread so the accept path can acknowledge an entry while a turn runs
+    /// (compatibility follow-up 16).
+    session_queue: crate::runtime_contract::SessionInputQueue,
     worker_alive: Arc<AtomicBool>,
     worker: Option<JoinHandle<()>>,
 }
@@ -583,6 +620,9 @@ impl RuntimeSupervisor {
         let approval_audit = ApprovalAuditLog {
             workflows: engine.workflow_store(),
         };
+        // Same rule, same reason: taken before the move so the intake side of
+        // the channel writes into the one queue the drain reads from.
+        let session_queue = engine.session_input_queue();
         let mut lane_agent_hydration_error = None;
         let mut lane_agent_bindings = match lane_agent_store.load_lane_agent_bindings() {
             Ok(bindings) => bindings
@@ -763,6 +803,7 @@ impl RuntimeSupervisor {
             lane_supervisor,
             permission_control,
             approval_audit,
+            session_queue,
             worker_alive,
             worker: Some(worker),
         }
@@ -971,6 +1012,40 @@ impl RuntimeSupervisor {
                 .map_err(|err| format!("runtime supervisor stopped: {err}"));
         }
         let result = match command {
+            // Compatibility follow-up 16. The supervisor is one worker, so a
+            // follow-up sent while a turn runs used to sit in that worker's
+            // channel: `queued_inputs` stayed empty for the whole wait and
+            // `InputQueued` and `InputDequeued` arrived in the same instant,
+            // which is what left the composer showing "working" instead of
+            // "queued". The entry is now pushed onto Core's queue and announced
+            // here, on the accept path, and the worker is told only that it may
+            // need to drain.
+            //
+            // Session scope only. A Lane's follow-ups are held and drained by
+            // its own worker, and `drain_session_queue` refuses a Lane owner
+            // for exactly that reason.
+            RuntimeCommand::QueueFollowUp { content } if owner.lane_id.is_none() => {
+                let input = self.session_queue.push(content.clone());
+                emit_event(
+                    &self.event_bus,
+                    owner.clone(),
+                    RuntimeEventKind::CommandAccepted {
+                        command_id,
+                        command: redacted_runtime_command_for_event(
+                            &RuntimeCommand::QueueFollowUp { content },
+                        ),
+                    },
+                );
+                emit_event(
+                    &self.event_bus,
+                    owner.clone(),
+                    RuntimeEventKind::InputQueued { input },
+                );
+                return self
+                    .commands
+                    .send(SupervisorMessage::SessionFollowUpQueued { owner })
+                    .map_err(|err| format!("runtime supervisor stopped: {err}"));
+            }
             RuntimeCommand::StartAgentSession { ref request }
                 if owner.lane_id.as_deref() != Some(request.lane_id.as_str()) =>
             {
@@ -1135,10 +1210,10 @@ impl RuntimeSupervisor {
                 request_id,
                 response,
             } => {
-                if let Some(pending_owner) =
-                    self.lane_supervisor.pending_approval_owner(&request_id)?
+                if let Some((pending, lane_permission_epoch)) =
+                    self.lane_supervisor.pending_approval(&request_id)?
                 {
-                    if pending_owner != owner {
+                    if pending.owner != owner {
                         emit_event(
                             &self.event_bus,
                             owner,
@@ -1148,6 +1223,55 @@ impl RuntimeSupervisor {
                             },
                         );
                         return Ok(());
+                    }
+                    // Compatibility follow-up 15. Before this, the lane branch
+                    // returned here and never reached `record_decision` below,
+                    // so a `lane_create` approval published an `audit_id` the
+                    // durable timeline had no row for. The row is written on
+                    // the runtime branch — audit stays runtime-owned policy and
+                    // `crates/lanes` gains no writer — and it is written
+                    // *before* the response is forwarded, because the worker
+                    // emits `ApprovalResolved` carrying this id as soon as it
+                    // picks the message up.
+                    //
+                    // The decision recorded is the lane worker's own intake
+                    // verdict for this answer, read through the same rule the
+                    // worker applies, plus the runtime's mutation block: an
+                    // expired, stale-epoch, or out-of-scope "allow" is enforced
+                    // as a denial and is recorded as one. What can still
+                    // diverge is the worker's injected permission-gate
+                    // re-check, which runs on its own thread after this point;
+                    // that refusal is published as `ApprovalResolved { Deny }`
+                    // and is not re-recorded here, because a second row under
+                    // one pre-minted id would break the receipt join.
+                    let blocks_mutation = self
+                        .permission_control
+                        .lock()
+                        .map_err(|_| "permission control state poisoned".to_string())?
+                        .blocks_mutation();
+                    let intake = pending.intake(&response, now_timestamp(), lane_permission_epoch);
+                    let decision = if intake.is_allowed() && !blocks_mutation {
+                        response.decision.clone()
+                    } else {
+                        ApprovalDecision::Deny
+                    };
+                    if let Err(error) = self.approval_audit.record_decision_for(
+                        &pending.audit_id,
+                        &pending.owner,
+                        &request_id,
+                        &pending.tool_name,
+                        Some(pending.command_id.as_str()),
+                        Some(pending.lane_id.as_str()),
+                        &decision,
+                    ) {
+                        // Fail-open on the decision, not on the audit, exactly
+                        // as the runtime-owned path does: an operator's answer
+                        // is still delivered, and the failure is visible.
+                        emit_error(
+                            &self.event_bus,
+                            pending.owner.clone(),
+                            format!("approval decision was applied but not audited: {error}"),
+                        );
                     }
                     self.commands
                         .send(SupervisorMessage::LaneApprovalResponse {
@@ -1434,6 +1558,21 @@ impl RuntimeSupervisor {
         result
     }
 
+    /// The live reduced view, read without going through the command channel.
+    ///
+    /// `snapshot_envelope` is answered by the worker, so it cannot be used to
+    /// observe state *while* a turn occupies that worker — which is exactly
+    /// what compatibility follow-up 16 is about.
+    #[cfg(test)]
+    pub(crate) fn live_view_for_test(&self) -> RuntimeViewState {
+        self.event_bus
+            .state
+            .lock()
+            .expect("runtime event state")
+            .live_view
+            .clone()
+    }
+
     pub fn recv_event_timeout(&self, timeout: Duration) -> Option<RuntimeEvent> {
         self.recv_event_envelope_timeout(timeout)
             .and_then(|envelope| match envelope.event {
@@ -1623,8 +1762,6 @@ fn run_supervisor_worker(
                 // workspace identity is folded in here, once, rather than at
                 // each producer.
                 let owner = stamp_workspace_identity(&engine, owner, &command);
-                let queued_follow_up = matches!(command, RuntimeCommand::QueueFollowUp { .. });
-                let queue_owner = owner.clone();
                 before_supervisor_command_for_test(&command_id);
                 if LaneSupervisor::handles(&command) {
                     if let Err(error) =
@@ -1821,14 +1958,23 @@ fn run_supervisor_worker(
                         }
                     }
                 }
-                // Checked only after a `QueueFollowUp`, never after an
-                // unrelated command: the queue is released by a completed turn
-                // and by a new entry landing while it is still draining, not by
-                // whatever else the operator happened to do next.
-                if queued_follow_up && session_queue_draining && queue_owner.lane_id.is_none() {
+                if let Err(error) =
+                    sync_lane_permissions(&lane_supervisor, &engine, applied_permission_epoch)
+                {
+                    emit_error(&event_bus, RuntimeOwner::default(), error);
+                }
+            }
+            // The accept path already pushed the entry and published
+            // `InputQueued`; the only decision left is whether a completed turn
+            // had armed the drain, which is worker-local state. Released here
+            // rather than after an unrelated command: the queue is released by
+            // a completed turn and by a new entry landing while it is still
+            // draining, not by whatever else the operator happened to do next.
+            SupervisorMessage::SessionFollowUpQueued { owner } => {
+                if session_queue_draining && owner.lane_id.is_none() {
                     session_queue_draining = drain_session_queue(
                         &mut engine,
-                        &queue_owner,
+                        &owner,
                         SupervisorShared {
                             event_bus: &event_bus,
                             active_control: &active_control,
@@ -1840,14 +1986,9 @@ fn run_supervisor_worker(
                     );
                     emit_frontend_status_events_if_changed(
                         &event_bus,
-                        queue_owner,
+                        owner,
                         engine.frontend_status_lifecycle_events(),
                     );
-                }
-                if let Err(error) =
-                    sync_lane_permissions(&lane_supervisor, &engine, applied_permission_epoch)
-                {
-                    emit_error(&event_bus, RuntimeOwner::default(), error);
                 }
             }
             SupervisorMessage::LaneApprovalResponse {
@@ -2914,6 +3055,7 @@ fn run_supervised_agent_session(
         session_id.clone(),
         active_control,
         engine.context_engine_root().to_path_buf(),
+        engine.cwd().to_path_buf(),
     );
 
     if let Err(error) = start_typed_agent_session(
@@ -3036,12 +3178,53 @@ fn supervised_agent_session_sink(
     session_id: String,
     active_control: &ActiveControlRegistry,
     context_engine_root: PathBuf,
+    workspace_root: PathBuf,
 ) -> RuntimeEventSink {
     let sink_bus = event_bus.clone();
     let sink_active = Arc::clone(active_control);
+    // The artifact this session's *current* turn is persisted to.
+    //
+    // `viden-agents` names a turn's runtime-event artifact after the turn id it
+    // publishes on `TurnStarted`, and a follow-up turn gets a fresh one, so the
+    // durable target is read from the bracket that comes through this same sink
+    // rather than assumed to be the session id. The first turn's artifact *is*
+    // the session id, which is the honest starting value.
+    let sink_turn_id = Arc::new(Mutex::new(session_id.clone()));
     Arc::new(move |events: Vec<RuntimeEvent>| {
         let mut events = events;
-        crate::work_evidence::canonicalize_agent_patch_evidence(&context_engine_root, &mut events);
+        if let Some(turn_id) = events.iter().rev().find_map(|event| match &event.kind {
+            RuntimeEventKind::TurnStarted { turn } => Some(turn.turn_id.clone()),
+            _ => None,
+        }) && let Ok(mut current) = sink_turn_id.lock()
+        {
+            *current = turn_id;
+        }
+        let completed = crate::work_evidence::canonicalize_agent_patch_evidence(
+            &context_engine_root,
+            &mut events,
+        );
+        // Compatibility follow-up 10. The adapter persisted its own patch fact
+        // before this ran, with `canonical: None`, because it owns no store;
+        // the completed row is written back to the same append-only artifact so
+        // a restart rebuilds the archive from what Core published rather than
+        // from the incomplete fact. Only the rows this ingestion changed are
+        // appended, and a failure is surfaced rather than swallowed: the live
+        // facts are already correct, so this is a durability warning, not a
+        // reason to drop the batch.
+        if !completed.is_empty()
+            && let Ok(turn_id) = sink_turn_id.lock()
+            && let Err(error) = viden_agents::append_agent_turn_runtime_events(
+                &workspace_root,
+                &turn_id,
+                &completed,
+            )
+        {
+            emit_error(
+                &sink_bus,
+                owner.clone(),
+                format!("an agent patch was canonicalized but not persisted: {error}"),
+            );
+        }
         let terminal = events.iter().any(|event| {
             matches!(
                 event.kind,
@@ -3200,6 +3383,7 @@ fn run_supervised_agent_session_continuation(
         session_id.clone(),
         active_control,
         engine.context_engine_root().to_path_buf(),
+        engine.cwd().to_path_buf(),
     );
     let result = if let Some(content) = content {
         resume_typed_agent_session(

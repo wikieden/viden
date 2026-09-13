@@ -1231,6 +1231,37 @@ pub(super) fn write_acp_runtime_events(path: &Path, events: &[RuntimeEvent]) -> 
     fs::write(path, content).map_err(|err| format!("failed to write {}: {err}", path.display()))
 }
 
+/// Appends runtime events to one agent turn's durable artifact.
+///
+/// The seam compatibility follow-up 10 names: the runtime's ingestion owns the
+/// artifact write, this crate owns where the artifact lives.
+///
+/// `viden-agents` has no ContextStore, so it publishes an agent-reported patch
+/// with `canonical: None` and the diff in the fact's metadata, and it persists
+/// that incomplete row here before the runtime's sink has seen it. The runtime
+/// completes the row — it is the only side that may store canonical bytes — and
+/// calls this so the durable artifact holds the fact Core actually published.
+/// The dependency direction is unchanged: the events arrive as data, exactly as
+/// they do through [`crate::RuntimeEventSink`] in the other direction.
+///
+/// The log stays append-only and nothing on disk is rewritten. The reader
+/// upserts an evidence row by id, so the completed fact recorded after the
+/// adapter's incomplete one is the one a rebuilt archive keeps. An artifact
+/// that does not exist is left alone rather than created: a turn that persisted
+/// nothing has no record to complete, and inventing one would put a file in
+/// `.viden/agents` that no agent run produced.
+pub fn append_agent_turn_runtime_events(
+    cwd: &Path,
+    turn_id: &str,
+    events: &[RuntimeEvent],
+) -> Result<(), String> {
+    let path = acp_job_runtime_events_path(cwd, turn_id);
+    if !path.exists() {
+        return Ok(());
+    }
+    append_acp_runtime_events(&path, events)
+}
+
 pub(super) fn append_acp_runtime_events(
     path: &Path,
     events: &[RuntimeEvent],

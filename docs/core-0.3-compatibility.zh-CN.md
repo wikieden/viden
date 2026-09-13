@@ -407,7 +407,7 @@ Fixture 文件位于 `crates/types/tests/fixtures/frontend-contract-v1/`。下�
 | Fixture id | 扩展场景 | 最终 view SHA-256 | Canonical fixture bytes SHA-256 |
 | --- | --- | --- | --- |
 | `frontend-host-services` | UI 偏好持久化、安全 recent work、reviewed starter-Lane preview/create/invalidation、精确 live Lane owner，以及一个可容忍的未来 optional event | `b118534bb0a568a6a1e781171cecf0512c7d987736c06e4f84d51b5835022a0e` | `96dd5fde9f1241eb50f9d8978cf478d0ac5d3327448dc6ccde9d0e5018ce1580` |
-| `interaction-closed-loop` | 文件夹绑定但不隐式配置、reviewed Lane 创建、built-in 与 ACP adapter/session、共享审批、evidence/gate、apply conflict、typed recovery、重连 replay 与完成态 | `c43d9fe304c28a50349e441c643837a9899cccab79566f9c193838248df2da1d` | `a6f1c436a15f7c77a5410c3563d8c3f67c5a5a3864692de61db61623f93ed891` |
+| `interaction-closed-loop` | 文件夹绑定但不隐式配置、reviewed Lane 创建、built-in 与 ACP adapter/session、共享审批、evidence/gate、apply conflict、typed recovery、重连 replay 与完成态 | `c43d9fe304c28a50349e441c643837a9899cccab79566f9c193838248df2da1d` | `c2ea4647a7c639e761695185129d0d96ef676fb587da7fbc54e0fdfaa8cb578c` |
 | `review-decision` | 独立评审结论：`ReviewRequestStatus` 由 `Pending` 迁移到 `Accepted`，携带 reviewer feedback 与被打戳的 gate validator，同时 gate 决定仍然独立 | `38f81bbc1966fbf5742b0087bdd9e871eb11d58cdee747628ed3f4ca1323713c` | `b8e0b5389c3f21be4b4f28cfeba8d902917a304c6b9252cf9911dcccb6146a2b` |
 | `context-budgets` | 两条并发 Lane 各自携带精确绑定的 owner 与互不相同的 task-scoped budget，一条处于软压力、一条越过硬上限 | `1b251b312b05ef950cdfc8190347e848a38d92bdaf26fe7d196e1ba053fc667b` | `7fcbde9edc5aa1a40a5cd41b0a8442403c6424903cc754cbe64d45980389029f` |
 | `streamed-turn` | 同一 session 与 message id 下的有序 `AssistantDelta` chunk 恰好重建最终回复，作为终止标记的完成事实不会重复追加 | `2567d9709e6ec96d621fa281acc205ba5a8fe0b8a08f5868b70ca386f70e3a7d` | `3b1129fb57860aa337c571a9f70be2eacca432c4419bfbb1f4c2943dd371b8e2` |
@@ -990,6 +990,21 @@ Homebrew。
    `EvidenceCanonicalized` 到达实时总线与 fixture。原生路径已完全持久化，这正是
    GUI-CORE-028 与 E2 所依赖的。封闭此项需要由摄取方拥有该产物写入，或把一个持久
    追加句柄穿过 agent 汇；这是 ACP 产物接缝所有者的后续项，而不是客户端的。
+   **已于 2026-09-13 由 C12 关闭。** 选用的是其中第一条接缝：由摄取方拥有该产物
+   写入。`viden_agents::append_agent_turn_runtime_events`
+   （`crates/agents/src/glue.rs:1253`）把产物布局留在它该在的 crate，并以数据形式
+   接收补全后的行，因此依赖方向不变 —— 事件经 `RuntimeEventSink` 由 adapter 流向
+   runtime，经此函数由 runtime 流向 adapter，`viden-agents` 仍然不拥有任何
+   ContextStore。`supervised_agent_session_sink`
+   （`crates/runtime/src/runtime_supervisor.rs:3192`）从同一个汇里流过的
+   `TurnStarted` 成对事实读取本轮的产物 id，因此补全的是后续轮次自己的产物而不是
+   会话首轮的那个，并且只追加 `canonicalize_agent_patch_evidence` 真正改动过的行。
+   日志保持只追加，磁盘上没有任何内容被重写：读取方按 id 对 evidence 行做 upsert，
+   因此写在 adapter 那条不完整事实之后的补全事实，才是重建归档时保留的那条。不存在
+   的产物会被放过而不是被创建。持久化失败会以 `Error` 发布而不是被吞掉，因为实时
+   事实本来就是正确的。测试：
+   `crates/runtime/src/tests/runtime_supervisor_tests.rs:7875` 把一条真实的 ACP
+   patch 驱动过 supervisor 并把产物读回。没有 capability、计数或 fixture 变化。
 11. **CLI 引导路径从不绑定工作区 owner**（Core 或 CLI，T2 期间发现，
    2026-09-12）。**已于 2026-09-12 由 C10 关闭。** 铸造与绑定从 host 中移出，
    下移到每个前端入口都会汇聚的那一条引导路径：`bind_workspace_owner_at_root`
@@ -1042,6 +1057,19 @@ Homebrew。
    `runtime.workspace_eligibility`）却未刷新已提交文件，因此被忽略的刷新测试会重写它
    （`a6f1c436…` → `c2ea4647…`），而对文件做哈希的重放测试仍然通过。0.3.4 以已提交
    字节为准；刷新它与语料摘要是 0.3.5 的簿记项，由决定而非在修复批次内顺手完成。
+   **已于 2026-09-13 由 C12 关闭**，并单独成一个簿记提交。fixture 由
+   `crates/core/tests/frontend_contract_v1.rs:2406`
+   （`refresh_interaction_closed_loop_extension_fixture`）重新生成。只有
+   `required_capabilities` 发生变化，因此 canonical fixture 字节从
+   `a6f1c436a15f7c77a5410c3563d8c3f67c5a5a3864692de61db61623f93ed891` 变为
+   `c2ea4647a7c639e761695185129d0d96ef676fb587da7fbc54e0fdfaa8cb578c`，而记录的
+   final-view digest 仍为
+   `c43d9fe304c28a50349e441c643837a9899cccab79566f9c193838248df2da1d`。新字节已写入
+   `crates/core/release-manifest.toml:27`、
+   `crates/core/frontend-contract-extensions.toml:10`、
+   `crates/core/tests/frontend_contract_v1.rs:290` 与 `:376`、上方的语料表以及
+   「Canonical Digest」一节。九个冻结的 base fixture 与其余每个扩展 fixture 与
+   `git show edcc7b3d:<path>` 逐字节一致。
 
 2026-09-12 由 E2 发布证据运行新增的未决跟进项。该运行用 `fallback` provider 对着一个
 临时 Git 仓库，通过 TUI 把一个真实任务端到端走通。每一条都已复现并定位到源码；E2 没有
@@ -1061,6 +1089,18 @@ Homebrew。
    `renamed from before`。条目自己的 `PATH`、规范哈希与验证结论全部正确；只有派生出的
    单文件标注是错的。闭环方式是在 `evidence_reads.rs` 中把条目的路径与
    `WorkspaceChangeKind` 盖到文档上。`0.3.5`。
+   **已于 2026-09-13 由 C12 关闭。** `stamp_rendered_placeholder_file`
+   （`crates/runtime/src/evidence_reads.rs:183`）把归档行自己的 `path` 盖到占位符
+   之上，并从整文件 hunk 推导变更类型（`:201`）：只有新增行、既无上下文行也无删除行
+   的是新增，其镜像是删除，其余一切 —— 也就是每一次原地修改 —— 是修改，因为归档本身
+   并不记录 `WorkspaceChangeKind`。只有占位形状会被盖写，并且只在该行指名了路径时：
+   adapter 上报或合并用的 patch 带有自己头部的真实 unified diff，用该行唯一的 `path`
+   覆盖它们会给第一个之后的每个文件贴错标签
+   （`crates/runtime/src/tests/evidence_reads_tests.rs:614` 固定了这一点）。占位符的
+   写法现在是具名的 `viden_tools::RENDERED_DIFF_OLD_PATH` /
+   `RENDERED_DIFF_NEW_PATH`（`crates/tools/src/files.rs:130`），因此生产方与读取方
+   不可能漂移。测试：`crates/runtime/src/tests/evidence_reads_tests.rs:579`。没有
+   event、capability 或 fixture 变化；规范字节与其哈希未被触碰。
 15. **Lane 生命周期审批的决策不写持久审计行**（Core，对审计完整性而言是阻塞级，
    E2 期间发现，2026-09-12）。这是跟进项 8 / E1 缺陷 4 在两条审批路径中的另一条上
    越过了 C7。`RespondToApproval` 先检查
@@ -1074,6 +1114,23 @@ Homebrew。
    而持久时间线持有四条 `approval.allow_once` 行；缺的那条就是 `lane_create`。闭环
    方式是在 lane 分支上同样写审计，使用同一个预先铸造的 id，并在宣告它的那条事实之前
    写入。`0.3.5`。
+   **已于 2026-09-13 由 C12 关闭。** 该行写在 runtime 分支上，位于
+   `crates/runtime/src/runtime_supervisor.rs:1227`，在转发响应之前 —— lane worker
+   一拿到该消息就会发出携带这个 `audit_id` 的 `ApprovalResolved`，因此若在其后才记录，
+   就会在行存在之前先发布收据。`ApprovalAuditLog::record_decision_for`（`:494`）是
+   `record_decision` 再加上该决策所释放的 lane，因此 lane 路径的行指名请求、工具、
+   它解锁的命令与其 lane；runtime 自有路径的行不变，这正是让每个已记录 fixture 的审计
+   行维持原样的原因。审计仍是 runtime 拥有的策略：`crates/lanes` 只新增了只读的
+   `LanePendingApproval` 记录以及 worker 本来就在用的 `LaneApprovalIntake` 规则
+   （`crates/lanes/src/lane_worker.rs:320`，经
+   `LaneSupervisor::pending_approval` 读取，`crates/lanes/src/lane_supervisor.rs:659`），
+   并且依然不写任何审计。记录*受理*结论而不是原始答复是刻意的：已过期、epoch 已陈旧
+   或作用域不被允许的「允许」会被当作拒绝执行，也就被当作拒绝记录，且用的是 worker
+   自己那条规则。已陈述的限制：worker 注入式权限门的再次校验发生在它自己的线程上、在
+   该行写入之后，因此来自那次校验的拒绝会以 `ApprovalResolved { Deny }` 发布而不会
+   重复记录 —— 同一个预铸 id 下写第二行会破坏收据关联。测试：
+   `crates/runtime/src/tests/lane_supervisor_tests.rs:4736`（允许）与 `:4819`（拒绝）。
+   没有 capability、计数或 fixture 变化。
 16. **在一次轮次进行中排队的会话追加提示，其「待排队」状态永远不可观察**
    （Core/TUI 接缝，产品缺口，E2 期间发现，2026-09-12）。屏幕上没有任何虚假陈述，
    这也正是它是缺口而不是破裂的原因。supervisor 是单个 worker，所以客户端在一次轮次
@@ -1087,6 +1144,19 @@ Homebrew。
    两个客户端基于 C6 建起来的 `queued_inputs` 界面，因此在原生路径的会话作用域上不可
    达。闭环方式是让 Core 在接受该命令时就确认队列条目，而不是等到 worker 处理它时。
    `0.3.5`。
+   **已于 2026-09-13 由 C12 关闭。** 会话队列现在是共享的 `SessionInputQueue`
+   （`crates/runtime/src/runtime_contract.rs:87`），而不再是 worker 独占的 `Vec`，
+   因此 channel 的*受理*侧可以推入排空方所消费的同一个队列。会话作用域的
+   `RuntimeCommand::QueueFollowUp` 在受理路径上被回答
+   （`crates/runtime/src/runtime_supervisor.rs:1027`）：条目被推入，`CommandAccepted`
+   与 `InputQueued` 立刻发布，而此时轮次仍在运行。`InputDequeued` 仍属于启动该轮次的
+   排空动作，因此两者不再共享同一瞬间。worker 只被告知它可能需要排空，通过
+   `SupervisorMessage::SessionFollowUpQueued`（`:1973`），武装排空的规则原地未动；
+   supervisor 仍是单个 worker。Lane 作用域未被触碰 —— Lane 的追加提示由它自己的
+   worker 持有并排空 —— 直接契约路径仍然自己完成整个确认，因此冻结的
+   `queued-follow-up` fixture 逐字节一致。测试：
+   `crates/runtime/src/tests/turn_lifecycle_tests.rs:657`。没有 capability、计数或
+   事件形状变化。
 
 E2 的第四项发现属于客户端侧，记录在它该在的地方而不是这里：`/git` 选择器把
 `set_upstream: false` 写死（`apps/tui/src/tui/modal.rs:1163-1167`），因此本文自身契约
@@ -1163,6 +1233,17 @@ implementation checkpoint，但不授权创建 tag。
 Final-view digest 是对 `RuntimeViewState` 递归排序所有 object key 后的 compact JSON 计算
 SHA-256。Array 顺序保留，因为它具有语义。测试会把生成的 64 字符小写十六进制 digest
 与 fixture 和本清单比较。
+
+Corpus digest 刷新 2026-09-13（C12，兼容性后续项 13）。`interaction-closed-loop`
+扩展 fixture 已由其生成器重新生成 —— 提交 `2d88628e` 曾为生成器新增三个 capability
+名称却没有刷新已提交文件。只有 `required_capabilities` 发生变化，因此 canonical
+fixture 字节从 `a6f1c436a15f7c77a5410c3563d8c3f67c5a5a3864692de61db61623f93ed891`
+变为 `c2ea4647a7c639e761695185129d0d96ef676fb587da7fbc54e0fdfaa8cb578c`，而记录的
+final-view digest 仍为
+`c43d9fe304c28a50349e441c643837a9899cccab79566f9c193838248df2da1d`。九个冻结的
+base fixture 与其余每个扩展 fixture 与 `git show edcc7b3d:<path>` 逐字节一致。新
+字节已同步到 `crates/core/release-manifest.toml`、
+`crates/core/frontend-contract-extensions.toml` 与上方的 corpus 表。
 
 ## Migration Gate 与顺序
 

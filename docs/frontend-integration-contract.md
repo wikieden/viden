@@ -351,11 +351,11 @@ a contract change, not a refactor.
 | User intent | Frontend sends | Core owns |
 | --- | --- | --- |
 | Start a normal turn | `SubmitUserInput` | provider loop, context bundle, tools, transcript |
-| Add input while work runs | `QueueFollowUp` | queue ordering, and the drain behind a completed turn: `InputDequeued` then a `TurnStarted { QueuedInput }` of its own |
+| Add input while work runs | `QueueFollowUp` | queue ordering, and the drain behind a completed turn: `InputDequeued` then a `TurnStarted { QueuedInput }` of its own. Since Core `0.3.8`, a session-scoped follow-up is acknowledged when the command is accepted, not when the worker reaches it: the entry is in `RuntimeViewState.queued_inputs` and `InputQueued` is published while the running turn is still running, so the two facts no longer share an instant |
 | Cancel current work | `CancelActiveTurn` with the selected Lane's exact bound envelope owner, or `CancelAgentTask` | exact owner validation, request cancellation, task/Lane state, and a `TurnFinished { Cancelled }` that releases nothing queued behind it |
 | Start supervised workflow | `StartAgentDag` then `StartAgentTask` | DAG validation, dependencies, workflow events |
 | Change mode/permissions | `SetWorkMode`, `SetPermissionLevel` | permission mode mapping and policy enforcement |
-| Approve or deny a tool | `RespondToApproval` | decision recording and gated execution, plus the durable `AuditRecord` for the decision, written before `ApprovalResolved` under the `audit_id` the request already published (`runtime.durable_work_evidence`) |
+| Approve or deny a tool | `RespondToApproval` | decision recording and gated execution, plus the durable `AuditRecord` for the decision, written before `ApprovalResolved` under the `audit_id` the request already published (`runtime.durable_work_evidence`). Since Core `0.3.8` both approval paths audit: an approval the lane supervisor owns leaves the same `approval.<decision>` row under the same pre-minted id, naming its lane, so a receipt a client shows resolves whichever path decided it |
 | Record evidence for a gate | `RecordAgentEvidence` | evidence validation, `EvidenceRecorded`, gate reducer, workflow event |
 | Archive the work a turn applied | none; the facts ride the turn | the `patch` row an applied `write_file`/`edit_file` produces, its canonical ContextStore bytes and `source_hash`, the producer and approval receipt a merge gate checks, the canonicalization of an adapter-reported patch, and the durable projection every supervised turn batch is absorbed into (`runtime.durable_work_evidence`) |
 | Review a merge gate | merge/artifact commands | gate state, workflow events, patch application |

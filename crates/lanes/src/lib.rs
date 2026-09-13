@@ -37,4 +37,6 @@ pub use lane_supervisor::{
     LaneCommandRedactor, LanePersistence, LaneSupervisor, WorkflowLanePersistence,
     workspace_eligibility,
 };
-pub use lane_worker::{LaneApprovalResolver, LaneEventSink};
+pub use lane_worker::{
+    LaneApprovalIntake, LaneApprovalResolver, LaneEventSink, LanePendingApproval,
+};

@@ -26,7 +26,8 @@ use crate::lane_runtime::{
     LaneEffectExecutor, LaneEffectRequest, LaneEffectResult, resolve_lane_target,
 };
 use crate::lane_worker::{
-    LaneApprovalResolver, LaneEventSink, LaneTerminalKind, LaneWorkerHandle, LaneWorkerMessage,
+    LaneApprovalResolver, LaneEventSink, LanePendingApproval, LaneTerminalKind, LaneWorkerHandle,
+    LaneWorkerMessage,
 };
 
 /// Redacts a `RuntimeCommand` before the lane supervisor publishes it on a
@@ -648,14 +649,32 @@ impl LaneSupervisor {
         Ok(Some(true))
     }
 
-    pub fn pending_approval_owner(&self, request_id: &str) -> Result<Option<RuntimeOwner>, String> {
-        Ok(self
+    /// The pending approval this supervisor owns for `request_id`, with the
+    /// live permission epoch its worker would re-check the answer against.
+    ///
+    /// Read-only. It exists so the runtime can audit a lane-path decision
+    /// under the pre-minted id before it forwards the response
+    /// (compatibility follow-up 15); `crates/lanes` still writes no audit row,
+    /// because audit is runtime-owned policy that is injected into it.
+    pub fn pending_approval(
+        &self,
+        request_id: &str,
+    ) -> Result<Option<(LanePendingApproval, u64)>, String> {
+        let lanes = self
             .lanes
             .lock()
-            .map_err(|_| "lane registry poisoned".to_string())?
+            .map_err(|_| "lane registry poisoned".to_string())?;
+        let Some(worker) = lanes
             .values()
             .find(|worker| worker.owns_pending_approval(request_id))
-            .map(|worker| worker.owner.clone()))
+        else {
+            return Ok(None);
+        };
+        let Some(pending) = worker.pending_approval(request_id) else {
+            return Ok(None);
+        };
+        let (_, permission_epoch) = worker.permission_snapshot()?;
+        Ok(Some((pending, permission_epoch)))
     }
 
     pub fn cancel(&self, owner: &RuntimeOwner, command_id: String) -> Result<bool, String> {

@@ -643,3 +643,89 @@ fn a_cancelled_supervised_turn_closes_as_cancelled_and_keeps_the_queue() {
         "the queued prompt is still a published fact"
     );
 }
+
+/// Compatibility follow-up 16: a session follow-up queued *while* a turn runs
+/// is acknowledged when the command is accepted, not when the worker reaches
+/// it.
+///
+/// E2 reproduced the gap: the prompt waited about 39 seconds, ran as its own
+/// bracketed turn, and `RuntimeViewState.queued_inputs` was empty for the whole
+/// wait, so the composer rendered `composer.active` and the operator saw no
+/// sign their prompt was in line. `InputQueued` and `InputDequeued` were
+/// emitted in the same instant.
+#[test]
+fn a_follow_up_queued_during_a_turn_is_acknowledged_before_that_turn_ends() {
+    let cwd = temp_dir("turn_lifecycle_queue_during_turn_cwd");
+    let home = temp_dir("turn_lifecycle_queue_during_turn_home");
+    let entered = Arc::new(AtomicBool::new(false));
+    let engine = SessionEngine::new_with_home(
+        &cwd,
+        Box::new(BlockingProvider {
+            model: "test-model".to_string(),
+            entered: Arc::clone(&entered),
+        }),
+        Some(home),
+    )
+    .unwrap();
+    let supervisor = RuntimeSupervisor::start(engine);
+
+    supervisor
+        .send_command(
+            "cmd_input",
+            RuntimeCommand::SubmitUserInput {
+                content: "typed one".to_string(),
+            },
+        )
+        .unwrap();
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while !entered.load(Ordering::SeqCst) && std::time::Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(entered.load(Ordering::SeqCst), "the turn must be running");
+
+    supervisor
+        .send_command(
+            "cmd_queue",
+            RuntimeCommand::QueueFollowUp {
+                content: "queued during the turn".to_string(),
+            },
+        )
+        .unwrap();
+
+    // The turn is still parked in the provider, so everything below is
+    // observed strictly before it ends.
+    let queued = collect_until(&supervisor, Duration::from_secs(5), |events| {
+        events
+            .iter()
+            .any(|event| matches!(&event.kind, RuntimeEventKind::InputQueued { .. }))
+    });
+    assert!(
+        finished_turns(&queued).is_empty(),
+        "the acknowledgement must arrive while the turn is still running, got {:?}",
+        finished_turns(&queued)
+    );
+    assert!(
+        queued.iter().any(|event| matches!(
+            &event.kind,
+            RuntimeEventKind::InputQueued { input }
+                if input.content_preview == "queued during the turn"
+        )),
+        "`InputQueued` must be published at accept, got {queued:#?}"
+    );
+    assert!(
+        dequeued_ids(&queued).is_empty(),
+        "`InputDequeued` belongs to the drain, not to the acknowledgement"
+    );
+
+    let view = supervisor.live_view_for_test();
+    assert_eq!(
+        view.queued_inputs.len(),
+        1,
+        "the view state must show the prompt as queued while the turn runs, got {:?}",
+        view.queued_inputs
+    );
+    assert_eq!(
+        view.queued_inputs[0].content_preview,
+        "queued during the turn"
+    );
+}

@@ -378,7 +378,15 @@ pub struct SessionEngine {
     confirmed_project_config: Option<viden_types::ProjectConfigPreview>,
     credential_handles: Vec<viden_types::CredentialHandle>,
     credential_backend: Arc<dyn CredentialBackend>,
-    queued_runtime_inputs: Vec<runtime_contract::QueuedRuntimeInput>,
+    /// Core's session follow-up queue (`runtime.turn_lifecycle`).
+    ///
+    /// Shared rather than owned because the acknowledgement and the drain live
+    /// on different threads: `RuntimeSupervisor` pushes an entry on the
+    /// *accept* path, on the caller's thread, while this engine is owned by the
+    /// worker running the turn the entry is queued behind (compatibility
+    /// follow-up 16). The drain still consumes from here, so there is exactly
+    /// one queue.
+    queued_runtime_inputs: runtime_contract::SessionInputQueue,
     /// The native turn currently running, when one is
     /// (`runtime.durable_work_evidence`). It carries the owner an applied
     /// mutation's archived `patch` row is attributed to and the slot the
@@ -548,7 +556,7 @@ impl SessionEngine {
             confirmed_project_config: None,
             credential_handles: Vec::new(),
             credential_backend: Arc::new(project_runtime::UnavailableCredentialBackend),
-            queued_runtime_inputs: Vec::new(),
+            queued_runtime_inputs: runtime_contract::SessionInputQueue::default(),
             active_native_turn: None,
             runtime_event_sink: None,
             provider_telemetry: ProviderTelemetry::default(),

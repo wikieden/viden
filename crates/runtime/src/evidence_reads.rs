@@ -25,10 +25,11 @@
 use std::path::Path;
 
 use viden_context::{ContextEngine, ContextError, store::ContextError as ContextStoreError};
-use viden_tools::patch::parse_diff_document;
+use viden_tools::{RENDERED_DIFF_NEW_PATH, RENDERED_DIFF_OLD_PATH, patch::parse_diff_document};
 use viden_types::{
-    EvidenceContent, EvidenceCursor, EvidencePage, EvidenceQuery, EvidenceUnavailableReason,
-    EvidenceView, MAX_EVIDENCE_CONTENT_BYTES,
+    DiffDocument, DiffFile, DiffLineKind, EvidenceContent, EvidenceCursor, EvidencePage,
+    EvidenceQuery, EvidenceUnavailableReason, EvidenceView, MAX_EVIDENCE_CONTENT_BYTES,
+    WorkspaceChangeKind,
 };
 
 use crate::work_evidence::PATCH_EVIDENCE_KIND;
@@ -143,10 +144,9 @@ pub(crate) fn resolve_evidence_content(
         // The same parser the structured diff capability uses, so an evidence
         // patch and a workspace diff render through identical rows and the
         // byte bound is enforced in one place.
-        return EvidenceContent::Diff {
-            document: parse_diff_document(&text, MAX_EVIDENCE_CONTENT_BYTES),
-            sha256,
-        };
+        let mut document = parse_diff_document(&text, MAX_EVIDENCE_CONTENT_BYTES);
+        stamp_rendered_placeholder_file(&mut document, entry);
+        return EvidenceContent::Diff { document, sha256 };
     }
 
     let (text, truncated) = bound_evidence_text(text);
@@ -154,6 +154,61 @@ pub(crate) fn resolve_evidence_content(
         text,
         truncated,
         sha256,
+    }
+}
+
+/// Stamps the archived row's own path and change kind over `render_diff`'s
+/// placeholder headers (compatibility follow-up 14, E2 defect 10).
+///
+/// [`viden_tools::render_diff`] writes `--- before` / `+++ after` and no `@@`
+/// line — it is a whole-file preview, not a Git patch — so a file that was
+/// modified in place parses as a rename from `before` to `after`, and every
+/// client drew `after  Renamed` for a change that renamed nothing. The two
+/// other readers of that output already stamp the path they resolved:
+/// `decision_context.rs`, whose comment states the rule ("the tool input is the
+/// authoritative source for both; the rendered header is not"), and
+/// `frontend_services.rs`. This is the third, and its authoritative source is
+/// the archived entry's own `path`.
+///
+/// Only the placeholder shape is stamped, and only when the row names a path.
+/// An adapter-reported or merge patch carries a real unified diff with its own
+/// headers; overwriting those with the row's single `path` would mislabel every
+/// file after the first.
+///
+/// The kind is derived from the rows because the archive records no
+/// [`WorkspaceChangeKind`]: the placeholder renderer emits one whole-file hunk,
+/// so a body of additions with no context and no deletions is an addition, its
+/// mirror is a deletion, and everything else — which is every in-place edit —
+/// is a modification.
+fn stamp_rendered_placeholder_file(document: &mut DiffDocument, entry: &EvidenceView) {
+    let Some(path) = entry.path.as_deref().filter(|path| !path.is_empty()) else {
+        return;
+    };
+    let [file] = document.files.as_mut_slice() else {
+        return;
+    };
+    if file.path != RENDERED_DIFF_NEW_PATH
+        || file.old_path.as_deref() != Some(RENDERED_DIFF_OLD_PATH)
+    {
+        return;
+    }
+    file.kind = rendered_placeholder_kind(file);
+    file.path = path.to_string();
+    file.old_path = None;
+}
+
+/// The change kind a placeholder-rendered whole-file hunk describes.
+fn rendered_placeholder_kind(file: &DiffFile) -> WorkspaceChangeKind {
+    let context_rows = file
+        .hunks
+        .iter()
+        .flat_map(|hunk| hunk.lines.iter())
+        .any(|line| matches!(line.kind, DiffLineKind::Context));
+    match (file.additions, file.deletions) {
+        (0, 0) => WorkspaceChangeKind::Modified,
+        (_, 0) if !context_rows => WorkspaceChangeKind::Added,
+        (0, _) if !context_rows => WorkspaceChangeKind::Deleted,
+        _ => WorkspaceChangeKind::Modified,
     }
 }
 

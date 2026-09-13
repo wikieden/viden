@@ -731,6 +731,7 @@ declared.
     the derived per-file label is wrong. Closing it means stamping the entry's
     path onto the document in `evidence_reads.rs`, the way the approval path
     already does.
+    **Closed by C12 07d5afe5** (compatibility follow-up 14).
 11. **A lane-lifecycle approval decision writes no durable audit row** (Core,
     blocking for audit completeness). This is E1 defect 4's exact shape,
     surviving C7 on the other of the two approval paths. `RespondToApproval`
@@ -746,6 +747,7 @@ declared.
     screen, five approvals were allowed in this session, and the durable
     timeline holds four `approval.allow_once` rows — the missing one is
     `lane_create`. An operator who follows that receipt finds nothing.
+    **Closed by C12 da3dd5d0** (compatibility follow-up 15).
 12. **The `NoUpstream` recovery has no TUI control** (TUI). Core's refusal says
     "push again with set upstream", and the contract states the same recovery
     (`crates/types/src/source_control.rs:225`: "`NoUpstream` -> offer
@@ -772,6 +774,7 @@ declared.
     Core published, but the `queued_inputs` surface both clients built on C6 is
     unreachable for the session scope on the native path. This is reported as a
     product gap, not as a contract break.
+    **Closed by C12 8972b0da** (compatibility follow-up 16).
 
 Two harness notes, which are about the driver and not about the client. Three
 `USER` rows read `i/lanes`, `i/evidence` and `iconfirm the push outcome`,
