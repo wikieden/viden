@@ -83,6 +83,7 @@ runtime.evidence_reads
 runtime.lane_lifecycle
 runtime.lane_owner_projection
 runtime.operator_git
+runtime.plan_documents
 runtime.project_onboarding
 runtime.recent_work
 runtime.starter_lane_preview
@@ -426,6 +427,7 @@ Fixture 文件位于 `crates/types/tests/fixtures/frontend-contract-v1/`。下�
 | `workspace-file-reads` | 同一个会话作用域 owner 下的七次单文件读取：两次同时在途且乱序作答；一次完整文本；一次在字符边界上被截断，旁边仍带着整个文件的长度与摘要；一次 Lane 目标下的二进制、不带任何载荷；一次路径并不存在；一次是目录；另有一次离开目标的路径与一条 `read_file` deny 规则，以 `CommandRejected` 作答且完全不发布 body | `1b5ffcffebfeabecf9c79967ca7d84b912d510e7c9f2003012a1e48d0184304e` | `98bd938eb1f2fe6cffe106b1e5d5bbeaa1106663592b1aa5e0dfbd069654255f` |
 | `durable-work-evidence` | 一次被批准的 `edit_file`：该决定成为一条持久审计行，其 id 正是请求已经公布的那一个；随后被应用的变更留下一条归档 `patch` 行，带有规范字节，与描述同一次改动的实时工作区变更并列；归档分页与内容读取都用该行公布的哈希回答它；最后是一条外部 Agent 适配器的补丁事实，由运行时的摄取补全 —— 因为适配器自身没有存储 | `b2719e73785bc9e3a71b459e3eb83ae3a551ac62aa61f8a7c3807e2f883c6f45` | `457c0879ad5e7475b3d79c29dd47af4feaa84d8f95f3317c4335cb04d38a27b5` |
 | `transcript-rows` | 在同一份持久转录之上的三次所有者作用域转录读取，同时在途且被乱序回答：两个 Lane 与会话编辑器各得到自己的一页，没有任何一行出现在两页之上；其中一个 Lane 的一页被 limit 截断，并通过它自己公布的那个不透明 `older` 游标续读，使边界行只落在一侧；每一种行变体各出现一次；一条 assistant 正文承载真实的 8 KiB 截断并指名仍完整保存它的规范证据；一条 tool result 指名属于它自己那次工具调用的归档 `patch` 行；一条作用域放行的权限行承认它不知道审计行从未存下的那个决定；而一个本构建从未签发的游标以 `CommandRejected` 回答，完全不带任何分页 | `2fa91b16aff8c0d896ae2b6cd7843acea86be1cf04ddf2c69394b86d5fa2ad13` | `f17c3e7fad2baf3d5670cf320ec172f50a9048baa3aedbe09c8cd38456ff4ea8` |
+| `plan-documents` | 一份计划的完整一生，且发生在它被写下的 plan 模式里：`update_plan` 提出修订 1；第二次调用做出修订，并在发布修订 2 之前把修订 1 重新发布为 `Superseded`；一次指名操作者**当时正在读**的那个修订的接受被以 `plan_revision_stale` 拒绝且不落定任何东西；被钉住的接受发布已决定的记录，以及一条与之共享 `audit_id` 的 `PlanDocumentDecided`；规划期间的移交被以 `plan_mode` 拒绝；而在 `SetWorkMode Build` 之后，同一次移交在计划声称自己变成工作**之前**发布了带映射步骤依赖的两任务 DAG | `4bb38df5fb986239ff02422f0aaa518327eec9bfb903fcfae0bbf93f1bc5a13b` | `c476eba39b579b9ff41231b55dba9d918104cdeac0003e8a3cb32c270e512112` |
 
 2026-09-07 语义修正（评审发现 4）：`RuntimeViewState.assistant_stream` 此前没有生命
 周期——它在整个 view 生命期内只追加，因此启动重放会把每个历史会话的回复串接成一整块
@@ -807,6 +809,81 @@ check run 是它自己的一行，而不是套了标签的 tool result，并且�
 计数，因为 C8 是该增量的最后一个 Core 批次 —— 并新增语料表中列出的 `transcript-rows`
 fixture；九个冻结基线 fixture 的字节未变，`scripts/tui-regression.sh` 中的能力计数门
 由 28 移到 29。两个客户端都尚未采纳：GUI 的有序转录行属于 G7，TUI 的转录透镜属于 T2。
+
+`runtime.plan_documents`（C13）给了 Core 一个 plan 模式从未拥有过的事实。plan 模式
+本就拒绝一切会变更的工具 —— `crates/permissions/src/lib.rs` 与冻结的 `plan-denial`
+fixture —— 但规划者的产出只是转录散文：没有任何东西说明计划**是什么**、操作者是否接受
+了它，或它变成了什么工作；另一个看着同一会话的客户端则根本看不到任何计划。两个参考架构
+都把计划留在对话里：Codex 的 `update_plan` 与 DeepSeek-TUI 的只读 plan 模式。Viden 在
+此分歧，一如它在 `0.3.0` 已经做过的选择：计划是 Core 拥有的持久事实，带一次操作者决定，
+绝不是客户端状态 —— 活在某个客户端内存里的计划无法被决定、被审计，也无法被移交。
+
+`PlanDocumentRecord` 承载所有者、标题与目标、状态、从 1 起算的 `revision`、
+`content_sha256`、若干 section、若干 step、作者，以及落定之后的 `decided_at`、
+`decision_audit_id` 与 `handoff`。它通过 `RuntimeViewState.plan_documents` 到达客户端；
+该字段为空时被省略，因此不承载任何计划的视图编码出的字节与该字段存在之前**完全一致**，
+九个冻结基线 fixture 因而未变。
+
+每个所有者只有一份**打开的**计划，打开指 `Drafting`、`Proposed` 或 `Accepted`。此处的
+所有者相等是工作区、项目与 Lane —— 没有 Lane 时则是会话 —— 并且刻意**不**包含 turn：
+turn id 每一轮都变，按 turn 相等会让每一轮开出一份新计划，「每个所有者一份打开的计划」
+也就毫无意义。针对一份打开的计划提出提案会递增 `revision`，并在发布新修订**之前**把它
+所替换的那个修订重新发布为 `Superseded`。这次重新发布正是要点：没有它，客户端会继续把
+Core 已不再认可的接受渲染为有效，而 Core 已不再认可的接受比根本没有接受更糟。记录承载
+最新修订；持久日志保留每一个修订，包括被取代的那些。
+
+决定是被钉住的。`AcceptPlanDocument`、`RejectPlanDocument` 与 `HandOffPlanDocument`
+都指名操作者所读到的 `revision` 与 `content_sha256`；不匹配即以 `plan_revision_stale`
+开头的理由被 `CommandRejected`，且不落定任何东西。针对「计划现在说什么」的决定，会让模型
+在操作者阅读期间提出的修订被他们的点击接受掉。`content_sha256` 通过一份由生产者、读取
+方与 fixture 共享的、带长度前缀的规范源覆盖标题、目标、section 与 step，因此日后向记录
+新增字段，不会悄悄移动一份被决定内容并未改变的计划的摘要。一个本构建从未铸造过的
+plan id 会被作为**不存在**而非**过期**拒绝：「计划变了」与「没有这份计划」是不同的事实，
+客户端为两者提供的恢复路径也不同。
+
+`proposed_by` 是**到达路径**的属性，绝不是线上的一个字段。`ProposePlanDocument` 永远
+记录 `Operator`；`update_plan` 工具永远记录 `Assistant`，并带上它运行所在的 session 与
+turn。因此客户端无法把自己的文本归档为模型写下的东西。
+
+内建的 `update_plan` 原样保留 Codex 的形状 —— `explanation` 加上一列
+`{ step, status }` —— 并以 `title`、`goal`、`sections` 以及每个 step 的 `role`、
+`file_scope`、`dependencies` 加以扩展。它是 `ToolSpec { is_mutating: false }`，因此权限
+引擎既有的「安全读」分支放行它，它在 plan 模式下仍可调用。它是 plan 模式唯一允许其产生
+效果的工具，因为它的效果是一个关于计划的 Core 事实，而不是工作区、记忆或任务的变更；它
+不会为任何其他工具放宽闸门，权限代码一行未改。该调用走的是普通注册表路径 —— 闸门、
+拦截器、转录条目 —— 计划在其之后被折入。Core 无法解析、或无法归属到已发布的工作区身份
+（`runtime.workspace_owner`）的调用，会让模型读到的那次工具调用失败，而不是报告一份并未
+被记录的计划。超界输入是模型可以纠正的工具错误：64 个 step、每种 section 至多一个且各
+16 KiB、256 字节的计划与 step 标题、4 KiB 的目标、每个 step 64 条工作区相对
+`file_scope` —— 每一项都是拒绝而非截断，因为被截断的计划是操作者去决定、而作者从未写下的
+计划。
+
+移交是唯一的变更，而 plan 模式拒绝它：以 `plan_mode` 开头的理由被 `CommandRejected`，
+与 starter-Lane 预览使用的是同一个理由族，并且发生在审计行之前 —— 因为什么都没有被授权。
+接受一份文档是关于文档的决定，在 Plan 下依然可用；生成工作则不是。成功时 Core 为每个
+step 构造一个 `AgentDagTaskSpec` —— role 默认 `Coder`，objective 取 step 标题，依赖按
+计划自身的 step id 映射，`file_scope` 原样复制，`permission_policy` 取会话自己的变更
+策略 —— 并复用既有的 `start_agent_dag` 路径，因此一份计划的工作与手写 DAG 的工作是同一
+种工作。`AgentDagUpdated` 在 `PlanDocumentHandedOff` **之前**发布，因此顺着计划的
+`handoff.dag_id` 走的客户端，绝不会到达一个 Core 尚未发布的 DAG。
+
+审计顺序与 `runtime.operator_git` 一致：`plan.accepted`、`plan.rejected` 与
+`plan.handed_off` 针对审计对象类别 `plan` 持久追加，承载被决定的 revision 与摘要，且发生
+在宣告该决定的那条事实**之前**；追加失败则中止该决定。没人能审计的计划移交，比没有发生
+的移交更糟。
+
+`PlanDocumentUpdated` 是唯一会归约进 `RuntimeViewState` 的计划事件。两条落定事实宣告的
+是它们之前那条更新已经发布过的记录；把它们也折入，会让同一个真相有两个生产者，并让一条
+乱序到达的决定覆盖一条已经前进了的记录。每一条 `PlanDocumentUpdated`（包括 `Superseded`
+的重新发布）都是持久的 workflow 投影并随快照前缀一同发布，因此重启后回答的是操作者已经
+接受过的那份计划，而不是要求他们再接受一次。
+
+0.3.5 契约增量的 C13 批次已落到 `claude/core-plan-documents-c13`。
+`runtime.plan_documents` 把对外通告的扩展集合由 29 移到 30，并新增语料表中列出的
+`plan-documents` fixture；九个冻结基线 fixture 与每一个 `0.3.4` 扩展 fixture 的字节
+均未变，`scripts/tui-regression.sh` 中的能力计数门由 29 移到 30。两个客户端都尚未采纳：
+GUI 的 Plan View 属于 G8，TUI 的计划透镜属于 T4。在各自落地之前，对应客户端把
+「未提出计划」渲染为缺席，而不是从转录文本推断出一份计划。
 
 ### Core 0.3.7 契约 checkpoint
 

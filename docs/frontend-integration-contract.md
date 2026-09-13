@@ -371,6 +371,9 @@ a contract change, not a refactor.
 | Read the bytes behind one evidence row | `ReadEvidenceContent { command_id, evidence_id }` | canonical ContextStore lookup, `source_hash` verification before anything is served, the typed content or unavailable reason, and the 256 KiB bound |
 | Open one workspace file | `ReadWorkspaceFile { command_id, query }` | target resolution from Core-owned Lane records, path validation that refuses rather than repairs, the real `read_file` permission gate before any byte is read, symlink containment against the resolved root, the binary/text decision, the character-boundary cut, and the whole-file `size` and `sha256` |
 | Page one owner's transcript rows | `QueryTranscriptRows { command_id, query }` | the durable session transcript and audit timeline the rows are derived from, the `turn_owner` bracket that attributes them, the prefix owner scope applied before the page is cut, the stable-under-append ordering, the opaque backwards cursor, the 8 KiB body bound, and the evidence ids a row may name |
+| Record or revise a plan | `ProposePlanDocument { draft }`, or nothing at all — the model calls the built-in `update_plan` and reaches the same producer | plan identity, the 1-based `revision`, the `content_sha256` over title/goal/sections/steps, Core-assigned `step_<n>` ids, the one-open-plan-per-owner rule, the `Superseded` republication of the revision a new proposal voids, the bounds that refuse rather than clamp, and `proposed_by`, which is set by the arrival path and never read off the wire |
+| Decide a plan | `AcceptPlanDocument { plan_id, revision, content_sha256 }`, `RejectPlanDocument { .., reason }` | the pin check that refuses a stale revision or digest with `plan_revision_stale` and settles nothing, the `plan.accepted`/`plan.rejected` audit row written durably before `PlanDocumentDecided`, and the decided record with its `decided_at` and `decision_audit_id` |
+| Turn an accepted plan into work | `HandOffPlanDocument { plan_id, revision, content_sha256 }` | the plan-mode refusal raised before anything is authorized, the `plan.handed_off` audit row, one `AgentDagTaskSpec` per step built with the mapped dependencies and the session's own mutation policy, the existing `start_agent_dag` path, and the ordering that publishes `AgentDagUpdated` before `PlanDocumentHandedOff` |
 | Create a starter Lane | `PreviewStarterLane`, review the result, then `CreateStarterLane` with the unchanged request/id/hash | preset resolution, workspace/isolation checks, permission gate, execution-time recheck, compensation, typed receipt |
 | Arrange the cockpit layout | `SetUiLayoutPreferences { patch }`, `ResetUiLayoutPreferences` | `[ui.layout]` persistence in the user config, bounds on the hidden-segment list, the published record with `persisted` and its diagnostics, and the snapshot-prefix copy |
 
@@ -1232,6 +1235,55 @@ Rules a frontend must honor:
   replaying a cached page, and keep pages keyed on `command_id`, which is
   required, so a client paging two owners never attributes a page by arrival
   order.
+
+### Plan documents (`runtime.plan_documents`)
+
+Requires the `runtime.plan_documents` extension. A client without it shows the
+planning turn's text and states that a decidable plan is unavailable; it must
+not parse a plan out of assistant prose, keep one in client state, or offer an
+Accept control it cannot settle in Core.
+
+`RuntimeViewState.plan_documents` holds `PlanDocumentRecord` values.
+`PlanDocumentUpdated { plan }` carries every revision and every status change;
+`PlanDocumentDecided` and `PlanDocumentHandedOff` are settlement facts that
+announce a record the update before them already published.
+
+Rules a frontend must honor:
+
+- **Absence is "no plan proposed".** An empty `plan_documents` is a real answer.
+  Render it as absence; never render an empty plan, and never synthesize one
+  from the transcript.
+- **Pin every decision.** Send back the exact `revision` and `content_sha256`
+  from the record you rendered. A `CommandRejected` whose reason starts
+  `plan_revision_stale` means the plan moved while the operator was reading:
+  re-read `plan_documents`, show the revision Core now holds, and make them
+  decide again. Do not retry with the current revision on their behalf — that
+  would accept bytes they never saw.
+- **`plan_mode` on a handoff is not a failure to retry.** Accepting stays
+  available in Plan; handing off does not. Offer the Build switch, then the same
+  handoff. Retrying the handoff unchanged will be refused again.
+- **Only a `proposed` plan can be decided, and only an `accepted` one handed
+  off.** The refusal says which status blocked it. A decided plan is replaced by
+  proposing a new revision, not by deciding it twice.
+- **Read the author, do not assume it.** `PlanAuthor::Assistant` means the model
+  wrote this revision through `update_plan`; `PlanAuthor::Operator` means a
+  client forwarded it. A client must not send a draft claiming assistant
+  authorship — the command path always records `Operator`.
+- **A `Superseded` record is history, not a live plan.** It arrives so you can
+  stop rendering a voided acceptance; the revision published after it is the one
+  to show.
+- **Step ids are Core's.** `step_<n>` is assigned by position and referenced by
+  sibling `dependencies`. Do not renumber, invent, or reorder them client-side:
+  the handoff maps those exact ids onto task dependencies.
+- **`PlanDocumentStatus` and `PlanAuthor` are `#[non_exhaustive]`.** A status
+  this client does not know is rendered as an unknown state in place, never as
+  `Proposed` and never as decided.
+- **Follow the handoff, do not race it.** `handoff.dag_id` names a DAG that is
+  already in `agent_dags`, because `AgentDagUpdated` precedes
+  `PlanDocumentHandedOff`. Link into it rather than polling for it.
+- **The settlements are correlation, not state.** Use `PlanDocumentDecided` and
+  `PlanDocumentHandedOff` to settle your own command and to reach the audit row
+  through `audit_id`; take the plan's state from the record.
 
 ## Approval And Permission UI Contract
 
