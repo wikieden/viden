@@ -1041,3 +1041,285 @@ README"）、一个六行的 `README.md`、一个覆盖 `.viden/` 与 `.worktree
 - `startLane` 过去会用 `Core did not publish a creatable Lane preview.` 覆盖宿主自己的
   拒绝原因，把 Core 从未发出的拒绝算在它头上。原生运行正好撞上这一点并丢掉了原因；现在
   发送失败自己的那句话会保留下来。
+
+## 原生 GUI 运行 —— 2026-09-13（0.3.5 候选版 `da4c8a6d`）
+
+这是 E3b：在 `0.3.5` 发布候选版上，通过原生驾驶舱驱动完整真实任务。分支
+`claude/evidence-e3b`，位于 `.worktrees/evidence-e3b`，基线为集成分支
+`claude/int-0.3.5` 的 `da4c8a6d0f7152691d2c9a47bb992cb409656e02` —— 包含直到
+G9 与 C16 的全部 `0.3.5` 批次。取证时 G10 尚未运行，因此包版本仍为
+`0.1.0-rc.5`，D4 的 Agent 绑定也仍处于"选择不会传递"的状态；下文的 Lane 因此
+使用内置 Agent 创建。
+
+主机屏幕处于解锁状态，且在每一批按键与点击之前都读取了
+`CGSessionCopyCurrentDictionary()`；每一次 `CGSSessionScreenIsLocked` 均为
+`0`。本节没有任何内容来自固定装置回放，下文的缺陷一个也没有被修复：这是取证
+步骤。
+
+这仍然是一次**部分**运行，但分界线已经移动。H4 关闭了 Lane 创建，本次运行通过
+驾驶舱在 Core `lane_create` 审批之下创建了三次 Lane，并看到该审批写下了它那条
+持久审计行 —— 正是 `0.3.5` 目标 2 所针对的信任缺口。它**无法**做到的是在已创建
+的 Lane 中启动一个回合：H4 那个未解释的第 5 步精确复现，而下文的诊断发现它根本
+不是一个停滞的回合，而是客户端认为 Core 仍欠它一个应答的命令（缺陷 22）。凡是
+由 Agent 回合把守的一切 —— 工具审批、内联工具差异、检查运行、归档补丁、排队跟进、
+已提出的计划、可暂停或终止的 Agent 会话 —— 均未触及。
+
+### 被测应用
+
+`npm --prefix apps/gui ci --no-audit --no-fund` 在 2 秒内新增 97 个包
+（09:49:07Z）。`npm --prefix apps/gui run tauri -- build --bundles app` 通过 ——
+`Finished \`release\` profile [optimized] target(s) in 1m 07s` —— 并在 09:50:25Z
+产出 `target/release/bundle/macos/Viden.app`：
+
+| 事实 | 值 |
+| --- | --- |
+| `CFBundleShortVersionString` | `0.1.0-rc.5`（G10 尚未运行，`rc.6` 的版本提升归它） |
+| `CFBundleIdentifier` | `dev.viden.gui` |
+| `CFBundleExecutable` | `viden-gui` |
+| 架构 | `Mach-O 64-bit executable arm64` |
+| 可执行文件大小 | 42,746,560 字节 |
+| 包体积 | 41 MB |
+| 签名 | ad-hoc、linker-signed、`TeamIdentifier=not set`、`Sealed Resources=none` |
+
+它从包中启动，从未被安装、用身份签名、公证或分发。每一次启动都将 `VIDEN_HOME`
+指向暂存目录，因此本仓库自身的 `.viden/` 从未被读取或写入。启动的 PID 依次为：
+43643、45136、67729、68885、80397。
+
+### 固定装置
+
+暂存目录下两个全新的临时 Git 仓库，各有一个提交 `2b593e1`（"Add the fixture
+README"）、一个五行的 `README.md`、一个覆盖 `.viden/` 与 `.worktrees/` 的
+`.gitignore`，以及一个选择 `provider = "fallback"` / `model = "test-local"` 的
+`.viden/config.toml`。第二个之所以存在，是因为诊断需要干净的 `VIDEN_HOME` 和
+干净的工作区，才能把"卡住的客户端"与"卡住的 Core"区分开；两者在相关处均具名。
+Core 在两次引导时分别铸出 `.viden/project.toml` `prj_1789293381253952000` 与
+`prj_1789295636864533000`。
+
+### 与脚本任务的两处偏离及其原因
+
+- **工作树改动再次在带外完成**，原因与 E3a 相同但成因不同：composer 的
+  `tool edit_file …` 从未离开客户端（缺陷 22），因此改动是用 `sed` 在 Lane 自己的
+  工作树内做出的，驾驶舱随后在由此产生的脏树上被驱动。改动下游的一切 —— Core
+  的类型化决策上下文、各项审批、结果与审计行 —— 都是真实改动之上真实的、由 GUI
+  驱动的 Core 行为，但改动的*作者身份*仍不属于产品。
+- **`NoUpstream` 未触及，被接受的推送也未触及。** 推送入口仍只有
+  `Commit & Push ⇡` 与标题栏同步芯片。芯片需要 Core 采样到 `ahead > 0`，而这已
+  预设存在上游；`Commit & Push ⇡` 正确地提出了它的 `git_commit` 审批，随后丢失了
+  `git_push` 那一半（缺陷 25）。没有添加裸 `origin`，因为没有可达的推送可以送往
+  它。
+
+### 逐步记录
+
+每一帧都拍摄两次并保留第二帧，列出的每个 PNG 在列出之前都已查看。下文注记中具名
+了一处工具链改动：这些帧是按窗口 id 拍摄的，而非按屏幕矩形。
+
+| # | 步骤 | 是否触及 | 结果／原因 | 帧 |
+| --- | --- | --- | --- | --- |
+| 1 | 欢迎页 | 是 | `No project open`、`Open project ⌘ O`、`Recent projects appear once a project is open.` / `Core adapter is not connected`。活动导轨带有十一个槽位，其中包括 `0.3.5` 新增的两个 —— **`Plan Studio`** 与 **`Agent Board`** —— 在未绑定时全部禁用。状态栏 `MODE — · PERM — · CONTEXT — · EVENTS #0 · LANE — · LATENCY — · TOKENS — · DIAG 0× · REQ —` | [`01`](native-0.3.5/01-welcome.png) |
+| 2 | **`⌘O` 绑定，原生面板路径** | 是 | `⌘O` 打开 `Open project folder` 面板；按工具链注记要求仅用按键驱动（`⌘⇧G`、粘贴路径、`Return`、`Return`）。跳转浮层解析到 `…/e3b/fixture`，面包屑在接受之前予以确认 | [`02`](native-0.3.5/02-open-panel-goto.png) |
+| 3 | **驾驶舱已绑定** | 是 | 停靠栏 Environment `Provider fallback`、`Model test-local`、`Mode build`、`Permission ask`、`Tokens 0`；Changes `Lines +0 −0` / `No changes`；Local `Showing Workspace root`、`Branch main`、固定装置路径作为 `Worktree`、`Ahead 0`、`Behind 0`、`Working tree Clean`；状态栏 `MODE build · PERM ask · EVENTS #7 · LANE — · DIAG 0× · REQ 0 req / 0 err`。带外核验：Core 向暂存 `VIDEN_HOME` 写入了 `session_meta` `canonical_root` = 固定装置路径、`work_mode` `build`、`permission_mode` `default`、`model` `test-local`，并铸出 `.viden/project.toml` `prj_1789293381253952000`。**零 Lane 标签条在上下文停靠栏打开时把 `No Lanes yet`、`＋`、项目路径与 `Build` 各自绘制在自己的空间中 —— 这是缺陷 19，原生验证** | [`03`](native-0.3.5/03-cockpit-bound.png) |
+| 4 | **无 Lane 时工作区所有者可见** | 是 | `LANE —`，停靠栏 `Commit or push` 绘制的 `Open the commit bar` **启用**（`AXEnabled=true`），标题栏芯片读作 `Fetch from the remote (0 behind). Pull is excluded by contract; this client pushes and fetches only.`，同样启用。两者都没有退回 `D1-OPERATOR-GIT-NO-WORKSPACE-OWNER` —— GUI-CORE-027 在 GUI 上依然关闭 | [`03`](native-0.3.5/03-cockpit-bound.png) |
+| 5 | `⌘L` 新建 Lane | 是 | 浮层打开时选中 `Viden Agent built-in`，三个 ACP 适配器在 `Probe did not answer within 15s.` 之下禁用，旁边是 `Retry ACP check`。`Checking ACP agents…` 从未无限期停留 —— **在没有任何 ACP 二进制的主机上，原生验证了缺陷 14 的界限** | [`04`](native-0.3.5/04-new-lane-popover.png) |
+| 6 | **所有 ACP 探测未应答时 `Create lane ↵` 仍可用** | 是 | 输入任务后，`Create lane ↵` 读作 `enabled=true`，派生分支变为 `⌁ vd/edit-the-fixture-readme-he`。**缺陷 14，在候选版上原生验证** | [`05`](native-0.3.5/05-new-lane-create-enabled.png) |
+| 7 | **一次 Core `lane_create` 审批，带 C15 完整层级列表** | 是 | `Approve lane_create · lane_create`、`Medium risk`、`branch: viden/lane_1789293683646574000 path: …/.worktrees/lane_…`、`Reason: lane mutation policy requires approval`、`Audit: audit_1789293687048689000`，操作为 `Y · Once` / `Allow repo paths` / **`Shift+A · Always · scope_not_offered`** / **`E · Edit · not_editable`** / `N · Deny`，并带修订字段及其说明 `Every key travels, including the ones you left alone: Core evaluates the whole input, not a patch of it.` 两个新层级禁用时携带的是 **Core 自己的拒绝名称**，而非 `GUI-CORE-003` —— **登记项 019 在 GUI 上实时关闭**。导轨徽标 `1`，状态栏 `1 awaiting you` | [`06`](native-0.3.5/06-lane-create-approval.png) |
+| 8 | **D2 展示它** | 是 | `Decision Center`、`1 awaiting you`、`GATE APPROVALS · 1`、卡片 `Approve lane_create prj_… · lane_… · pending · medium`、完整详情、`View audit trail`，以及同一组五层操作行 | [`07`](native-0.3.5/07-d2-lane-create-pending.png) |
+| 9 | **D2 作出决定且队列清空** | 是 | `Approve once` 释放了效果，卡片**离开队列**：`0 awaiting you`、`GATE APPROVALS · 0`、`Core is holding no decision for you.` **缺陷 16 的前一半，原生验证。** 带外核验：`.worktrees/lane_1789293683646574000/` 存在，`git branch` 列出 `viden/lane_1789293683646574000` | [`08`](native-0.3.5/08-lane-created-d2-cleared.png) |
+| 10 | **在该审批之下创建的 Lane** | 是 | 标签条 `lane_1789293683646574000 · coder start… · vi…`，状态栏 `LANE lane_1789293683646574000 — draft —`，标题栏 `1 worktree`，停靠栏 Local 切换为 `Showing Lane worktree` 并显示 Lane 自己的分支与工作树，`LANE OUTPUT` 携带 Core 自己的 `HEAD is now at 2b593e1 Add the fixture README` / `Preparing worktree (new branch 'viden/lane_1789293683646574000')` | [`09`](native-0.3.5/09-lane-created-conversation.png) |
+| 11 | **Lane 路径审批写下持久审计行** | 是 | 在暂存 `workflows/projects/*/audit.jsonl` 中逐字节核验：`audit_1789293687048689000`，actor `operator`，action `approval.allow_once`，outcome `success`，objects `permission:lane-approval_1789293687048688000`、`tool:lane_create`、`job:gui-d1-6df9db2e-…`、`lane:lane_1789293683646574000`，`args {"scope":"allow_once"}` —— **正是请求早已在屏幕上显示过的那个 id**。在第二个固定装置中通过 D1 权限停靠栏（而非 D2）复现为 `audit_1789295715906249000`。**兼容性跟进项 15 在 Lane 路径上实时关闭，E1 缺陷 11 随之关闭** | — |
+| 12 | **在该 Lane 中使用 composer `tool edit_file …`** | **否** | composer 可编辑并接受文本，而提交**没有离开**：在两个应用会话中十次尝试，`EVENTS` 固定在 `#25`，屏幕上没有任何消息，composer 也从未清空。见诊断与缺陷 22 | [`10`](native-0.3.5/10-step5-submit-dropped.png) |
+| 13 | D2 两个连续工具审批、内联工具差异、检查运行、EvidenceView 归档补丁、该编辑运行时路径的 D14 `approval.allow_once`、排队跟进排空 | **否** | 六项全部位于第 12 步之后 | — |
+| 14 | **Plan Studio（D15），基于 Core 事实** | 是（为空） | 导轨 `plan` 槽位打开中央窗格视图并保留外框：`PLAN STUDIO`、`BUILD`、`No plan proposed`、`lane_… · no plan record`、`Core holds no plan for this owner. Ask in Plan mode and the planner writes one with update_plan; it appears here the moment the first revision is proposed.`、`Plan mode blocks file, shell, Git, memory and task mutations.`，一条读作 `Core holds no plan record for this owner.` 的 `Plan record` 记录轨（除 `owner` 外每个字段均为 `—`），以及 `STEPS BY ROLE · no role on any step`。**缺席被绘制为缺席，绝不是一个带可用 Accept 的空计划** | [`15`](native-0.3.5/15-plan-studio.png) |
+| 15 | Plan 模式、提出的计划、D15 中的 `update_plan`、Accept、Plan 模式下 Hand off 被拒、Build、Hand off、D13 的 DAG | **否** | 计划修订来自规划器的 `update_plan` 调用，而它需要一个回合。位于第 12 步之后，不可达 | — |
+| 16 | **Agent Board（D16），基于 Core 事实** | 是（为空） | 导轨 `robot` 槽位打开中央窗格视图并保留外框：`AGENT BOARD`、`Agent Board 1 lanes · 0 sessions · 0 awaiting you`，Lane 行 `lane_1789295710755489000 ⎇ viden/lane_… built_in` 下方是 `no session under this Lane yet`，详情窗格为 `No session selected / pick a session under a Lane on the left`，其下是 `With no Lane there is nothing to supervise — the detail pane stays empty rather than showing a placeholder agent.` **看板的规则 1 —— 会话绝不与其 Lane 分离 —— 及其空状态按设计绘制** | [`16`](native-0.3.5/16-agent-board.png) |
+| 17 | Pause → Paused 并保留输入 → Resume → Kill → Killed → Retry | **否** | Agent 会话来自已启动的回合。位于第 12 步之后，不可达 | — |
+| 18 | **在 Lane 脏树之上的 DiffReview** | 是 | `Re-read the workspace diff` 将 Core 的采样刷新为 `1 files · +1 −1`、`README.md`、`@@ -1,4 +1,4 @@`、`-# E3b Fixture` / `+# E3b Edited in the Lane`，并带逐行编号。**停靠栏的 `Changes` 总数、其文件列表与 `Local` 标志现已一致 —— `Lines +1 −1`、`M README.md +1 −1`、`Working tree Dirty` —— 这是缺陷 20，原生验证** | [`11`](native-0.3.5/11-diffreview-lane.png) |
+| 19 | **带 Lane 在 Core 审批之下暂存** | 是 | `Stage all` → `Stage is waiting for approval in the permission dock.` D2 显示 `Approve git_add prj_… · lane_… · pending · low`、`TOOL INPUT PREVIEW all: true`、Core 自己的 `Core exposes an opaque input preview; structured diff rows are unavailable. · GUI-CORE-012`、`EVIDENCE Core published no evidence for this decision.` 以及 `Decision and reason are written to audit audit_1789296485837909000`。`Approve once` 完成暂存：` M README.md` → `M  README.md` | [`12`](native-0.3.5/12-d2-git-add-lane.png) |
+| 20 | **带 Lane 的暂存 `OperatorGitOutcome::Completed`** | 是 | 提交栏渲染 `Stage completed · viden/lane_1789295710755489000 ↑0 ↓0 · uncommitted changes remain`，且一旦键入消息 `Commit` 即刻可用。**缺陷 17，原生验证：在途标志在完成时被清除** | — |
+| 21 | **带 Lane、在 Core 审批之下、带 C1 类型化决策上下文的提交** | 是 | `Approve git_commit prj_… · lane_… · pending · medium`、`TOOL INPUT PREVIEW message: … path: …`，以及 **Core 的类型化 hunk 而非工具输入** —— `README.md`、`@@ -1,4 +1,4 @@`、`-# E3b Fixture` / `+# E3b Edited in the Lane` 并带上下文行。`Approve once` 完成提交。带外核验：`c98308e Edit the fixture README heading in the Lane`，工作树干净。**在 GUI 中于选中 Lane 的情况下实时观察到提交的 `OperatorGitOutcome::Completed`** —— E3a 只在 `LANE —` 下观察到过 | [`13`](native-0.3.5/13-commit-approval-hunks.png) |
+| 22 | 推送被 `NoUpstream` 拒绝、设置上游、推送被接受 | **否** | 第二处改动以同样方式经 `Commit & Push ⇡` 暂存并提交（`1be4d0b Add the push-leg line`），其 `git_commit` 一半被正确审批。随后 `git_push` 一半没有到达任何可决定的界面：提交栏停在 `Push is waiting for approval in the permission dock.` 且 `Commit & Push ⇡` 禁用，D2 读作 `0 awaiting you`，没有出现徽标，审计存储中也从未写入任何 `git_push` 行 —— 轮询 40 秒。见缺陷 25 | [`14`](native-0.3.5/14-push-waiting-no-approval.png) |
+| 23 | **D14 审计时间线** | 是 | `Audit trail 13`、`Outcomes on the loaded page · 13 success 13`，`source.commit operator success … phase=completed` 与其 `phase=authorized tool=git_commit` 成对出现，以及 `approval.allow_once operator success · permission · approval_… · tool · git_commit · job · gui-git-e152f078-… · scope=allow_once`，每一行都携带 `lane · lane_1789295710755489000`。Lane 路径审批的 `tool · lane_create` 行位于同一已加载页。与暂存 `audit.jsonl` 逐字节核验。**跟进项 15 的那一行既在 D14 中可见，也持久落盘** | [`18`](native-0.3.5/18-d14-audit.png) |
+| 24 | EvidenceView 归档补丁、规范化、正确的路径标签（跟进项 14） | **否** | 两个原因，都具名而不合并：C7 为原生*工具*变更归档 `patch`，而没有工具变更可做（第 12 步）；并且一旦客户端命令槽位被占用，Evidence 导轨槽位就不再挂载其窗格 —— 控件有响应，中央区域不变。后者是缺陷 22 的后果 | — |
+| 25 | **专注模式 `⌘.`** | 是 | `Focus mode ⌘.` 控件隐藏了上下文停靠栏并把整窗宽度交给中央区域，标题栏、导轨、composer 与状态栏全部保留；审计行重排为每行一条 | [`20`](native-0.3.5/20-focus-mode.png) |
+| 26 | **`Esc` 返回** | 是 | `Esc` 从审计时间线返回对话视图，外框保留且专注模式仍然开启。标签条在全宽下绘制整洁 | [`21`](native-0.3.5/21-esc-return.png) |
+
+### H4 的第 5 步，已诊断
+
+H4 留下的原文是："创建出的 Lane 带着一个活动回合（屏幕上有 `Cancel active
+turn`、`composer.busy`），提交没有离开：`EVENTS` 停在 `#25`"。其中每一项都复现
+了。但那个解读不成立。
+
+**不存在回合，也没有任何东西在等待审批。** Lane 的持久记录是 `status: draft`、
+`task_id: null`、`active_session_ids: []`（暂存
+`workflows/projects/*/lanes.jsonl`）。整个运行的 session JSONL 只有
+`session_meta` 行，别无其他 —— 两个固定装置中都没有 `TurnStarted`、没有
+`TurnFinished`、没有工具调用。D2 读作 `0 awaiting you`，审计存储中也没有待决
+决定。因此 Lane 的初始任务 —— 浮层的 TASK 字段 —— **从未在 fallback 供应商上
+变成一个回合**，客户端也没有被卡在某个决策中心未能显示的审批之后。
+
+**`composer.busy` 为假。** composer 上方的标签在每一帧中都读作 `Prompt`
+（`d1.composer.prompt`），从未读作 `Queue follow-up`（`d1.composer.queue`），
+而后者正是 `apps/gui/src/screens/d1_cockpit.ts:4872` 在 `busy` 置位时打印的。
+屏幕上的是 `Cancel active turn`，而该控件由 `composer.canCancel` 绘制，其计算为
+`supports_owner && selected_lane.is_active() && exact_binding.is_some()`
+（`apps/gui/src-tauri/src/projection.rs:2163-2165`）—— 一个从不读取 `busy` 或
+`active_turns` 的谓词。因此一个带有 worker 绑定的 `draft` Lane 会宣告一个并不
+存在的回合（缺陷 24）。
+
+**真正发生的是客户端唯一的命令槽位从未被释放。** `sendComposerIntent` 到达
+`sendAndWait`，而后者的第一条语句是
+`if (sending || pendingCommandId) return null;`
+（`apps/gui/src/screens/d1_cockpit.ts:3179`）—— 一次静默返回，没有消息、不清空
+composer、也不发出命令。祸首不是 `composerDispatchQueued`：它会禁用发送控件，而
+`Send message` 全程读作 `enabled=true`。`sending` 不可能卡住，因为
+`sendAndWait` 在 `finally` 中清除它。从渲染出的可访问性状态排除法可知，
+`pendingCommandId` 已置位且保持置位。
+
+是哪个命令：宿主的 `PendingD1Kind::CreateStarterLane` 到达了 `accepted == true`
+—— 这可从屏幕证明，因为把 Lane 创建审批路由进权限停靠栏正是以此为门槛
+（`apps/gui/src-tauri/src/adapter.rs:2023-2032`），而停靠栏确实渲染了它。此后
+唯一能了结它的，是其收据与预览的 `preview_id` 及 `content_sha256` 相匹配的
+`StarterLaneCreated`（`apps/gui/src-tauri/src/adapter.rs:610-615`）；而 Core 正是
+用它匹配过的那份已存预览来构造该收据
+（`crates/lanes/src/lane_supervisor.rs:1088-1099`），因此数值不匹配是不可能的。
+所以该收据并未到达。
+
+四项实验把客户端与 Core 区分开，四项指向同一结论：
+
+- 十次提交与一次 `Cancel active turn`，历时八十余秒，全部被丢弃且 `EVENTS`
+  固定不动 —— 因此不是竞态；
+- 在 **D2** 中决定审批与在 **D1 权限停靠栏**中决定审批，结果相同 —— 因此不是
+  决策界面的问题；
+- 离开驾驶舱进入 DiffReview 再返回（H4 使之成为一次全新的 Core 读取）之后结果
+  相同 —— 因此重新挂载并不能清除它，因为新的控制器会从宿主重新读取待决 id；
+- 在第二个应用会话中、针对第二个固定装置、使用干净的 `VIDEN_HOME` 复现 ——
+  因此不是累积状态。
+
+与此同时 Core 并未卡死：在同一个进程中，`QueryWorkspaceDiff`、
+`QueryWorkspaceFiles`、`QueryAudit` 以及全部四个 operator-git 命令都运行至完成，
+其效果落盘、审计行写入。缺失的是一个命令的收据，而不是 Core 的 worker。
+
+**这属于 Core 侧，因此按本批次的授权在此编号并停止，而不是修复。** 没有编辑任何
+`crates/**` 文件。
+
+### E3b 发现的缺陷与缺口
+
+编号接续上文二十一项。每一项都是复现出来的，不是推断出来的。此处没有修复任何
+一项。
+
+22. **在审批之下创建的 starter Lane 从未了结其创建命令，因而驾驶舱唯一的命令
+    槽位在进程整个生命周期内保持被占用**（Core，阻塞）。Lane 本身创建正确 ——
+    工作树、分支、`LaneRuntimeOwnerBound`、`LaneOutputAppended` 与持久 Lane 行
+    全部到达 —— 但宿主所等待的 `StarterLaneCreated` 收据
+    （`apps/gui/src-tauri/src/adapter.rs:610-615`）没有到达，其发射点位于
+    `crates/lanes/src/lane_supervisor.rs:1068-1101`，在那里该事件仅当所观察的
+    lane 事件携带 `created_lane` **且**待决创建条目仍在注册表中时才会发布。其
+    后果就是整个 Lane 半区：每一次 composer 提交与每一次 `Cancel active turn`
+    都被丢弃（`d1_cockpit.ts:3179`），Evidence 导轨槽位不再挂载其窗格（因为返回
+    它是一次 Core 读取），`Commit & Push ⇡` 的 `git_push` 一半也不再浮现（缺陷
+    25 极可能就是同一个槽位）。它是唯一让真实任务的 Lane 半区在 `0.3.5` 候选版
+    上不可达的缺陷，正如缺陷 14 与 15 之于 `0.3.4`。
+23. **客户端无法发送的 composer 提交被静默丢弃**（GUI，对诊断构成阻塞）。槽位
+    被占用时 `sendAndWait` 返回 `null`
+    （`apps/gui/src/screens/d1_cockpit.ts:3179`）：没有 `role=alert`、没有
+    `data-d1-rejection`、没有状态行，键入的文本被留在 composer 里，就像根本没有
+    人提出过请求。十次按下 `Send message` 得到十次沉默。这正是 H4 无法诊断第 5
+    步、只能把它交出去的原因，也正是客户端自己那条有界等待注释所禁止的失败形状
+    —— "没有界限的等待无法报告"。让拒绝可见并不能解除缺陷 22 的阻塞，但那会把它
+    从一小时的排查变成五分钟的发现。
+24. **`Cancel active turn` 为一个没有回合的 Lane 绘制**（GUI，诚实性）。
+    `composer.canCancel` 从不读取 `busy` 或 `active_turns`
+    （`apps/gui/src-tauri/src/projection.rs:2163-2165`），因此任何带有精确绑定的
+    活动 Lane 都会宣告一个可取消的回合。在一个 session JSONL 中完全没有回合事实
+    的 `draft` Lane 上，该控件是对并不存在的工作所作的断言 —— 而这恰恰是让 H4
+    把此状态读成停滞回合的那条断言。
+25. **`Commit & Push ⇡` 的 `git_push` 一半没有到达任何可决定的界面**（GUI，对
+    推送构成阻塞）。在其 `git_commit` 审批被决定、提交落地之后，提交栏停在
+    `Push is waiting for approval in the permission dock.` 且 `Commit & Push ⇡`
+    禁用，而 D2 读作 `0 awaiting you`，没有出现队列徽标，审计存储中也没有写入
+    任何 `git_push` 行 —— 连一条授权行都没有。跨 D2 与停靠栏轮询 40 秒。这是
+    缺陷 16 在两审批动作的*第二个*审批上残存的形状；H4 关闭了"已决定的卡片仍
+    显示待决"那一半，这一半仍然存在。
+26. **针对已持有已创建 Lane 的 `VIDEN_HOME` 重新启动会留下空白窗口**（GUI，对
+    重启构成阻塞）。在设置了 `VIDEN_GUI_WORKSPACE` 且 home 中带有一个 Lane 时，
+    进程启动、绘制出窗口框架、在 web 区域中不放任何内容 —— 可访问性树中只有窗口
+    及其三个标题栏按钮，没有内容 —— 并以 21–27 % CPU 空转三分钟，直至被终止。
+    同一个包、同一个 home 但没有 Lane 时渲染正常；同一个带 Lane 的 home 在之后
+    通过 `⌘O` 绑定工作区时也渲染正常。区分因素是启动时针对已恢复 Lane 状态的
+    绑定。
+
+### 四项预期分歧，复现与否
+
+`0.3.4` 留下缺陷 10 至 13；E3a 一项也未触及。
+
+- **10 —— 归档补丁渲染出的差异把文件称作重命名。** *未复现；不可达。* 归档为空，
+  因为 C7 为原生工具变更归档 `patch`，而没有工具变更可做。C12 在 Core 侧关闭了
+  它；在 GUI 上仍未取证。
+- **11 —— lane 生命周期审批决定不写持久审计行。** **复现为已修复。** 两次，在两
+  个决策界面上。见第 11 步。
+- **12 —— `NoUpstream` 恢复没有客户端控件。** *未复现；该拒绝从未出现在屏幕上。*
+  E3a 给出的那个更窄的观察依然成立且未改变：两个 GUI 推送入口都不提供设置上游的
+  选项，而芯片只有在 Core 采样到 `ahead > 0` 时才启用，这已预设存在上游。
+- **13 —— 回合进行中排队的会话跟进从不可观察地处于待决。** *未复现；不可达。*
+  没有正在运行的回合可供排队。
+
+### 对缺陷 10–21 的裁定（就触及范围而言）
+
+| # | 在候选版上的裁定 |
+| --- | --- |
+| 10 | 不可达 —— 归档保持为空；C12 的 Core 侧关闭在此未取证 |
+| 11 | **已关闭，原生验证**，在两个决策界面上（第 11 步） |
+| 12 | 不可达；E3a 那个更窄的观察未改变 |
+| 13 | 不可达 —— 没有回合可供排队 |
+| 14 | **已修复，原生确认。** 在没有任何 ACP 二进制的主机上，三个 ACP 探测全部未应答、选中内置 Agent 时 `Create lane ↵` 可用 |
+| 15 | **已修复，原生确认。** 有界探测报告 `Probe did not answer within 15s.` 并在旁边给出 `Retry ACP check`；创建从未以它为门槛。Core 自身的 worker 界限（`GUI-CORE-035`）未被触及 |
+| 16 | **修复一半，原生确认。** 已决定的审批离开队列且总数变动（第 9 步）。两审批动作的*下一个*审批仍然从不浮现 —— 见缺陷 25 |
+| 17 | **已修复，原生确认。** `Stage completed` 在同一会话中使 `Commit` 保持可用（第 20 步） |
+| 18 | **未复现，并多出一项数据。** 没有任何已启动实例自行退出；五个全部由本批次终止。窗口离开可访问性树的形状**复现了六次**，每一次都紧随一次引发驾驶舱整体重绘的点击（中央视图切换、审批决定、Lane 选择），每次都应答 `-1719`，并在 3–10 秒后恢复且进程存活。缺陷 26 是同一族中的第三种形状，也是其中最易处理的一种 |
+| 19 | **已修复，原生确认。** 零 Lane 标签条在停靠栏打开时分开绘制四个部分（第 3 步） |
+| 20 | **已修复，原生确认。** 跨一次重采样后 `Lines`、文件列表与 `Working tree` 一致（第 18 步） |
+| 21 | **已修复，原生确认。** 每次提交完成后，变更文件列表重采样为 `0 files · +0 −0` / `No changes in the working tree` |
+
+### 观察，而非缺陷
+
+- **`⌘V` 到不了 Tauri webview。** 应用没有安装 Edit 菜单，因此 E3a 的输入法注记
+  所规定的剪贴板粘贴在原生打开面板中有效，在窗口内部则处处无效。本次运行的文本
+  录入走的是聚焦字段上的可访问性值设置器，WebKit 会把它转成真实的 DOM input
+  事件 —— 由客户端自身派生状态的反应所证明（任务落下的那一刻，新建 Lane 的分支
+  变成了 `⌁ vd/edit-the-fixture-readme-he`）。下一次原生运行应使用该路径，而不是
+  `keystroke`，也不是 `⌘V`。
+- **为拍摄而把进程置前会使打开面板的跳转浮层失焦。** 本次运行的第一次绑定落到了
+  *上一个*批次的固定装置上，因为在粘贴与 `Return` 之间拍了一帧，焦点被移走，面板
+  接受了它自己记住的路径。规则狭窄而绝对：在向该浮层键入与提交之间不要拍任何帧。
+  这已是该浮层第二次静默接受了与所键入内容不同的东西 —— E3a 见过它截断长路径 ——
+  因此应核验面包屑，然后中间不插入任何动作地按下 `Return`。
+- **这些帧是按窗口 id 拍摄的。** `screencapture -R` 拍到的是占据该矩形的任何窗口，
+  而在运行着其他应用的多显示器主机上，另一个窗口在运行中途盖到了 Viden 的矩形上，
+  有一帧拍到了它。`screencapture -l<window id>` 即使窗口被遮挡也能拍到它；`0.3.3`
+  关于 `-l` 会返回陈旧帧的注记依然成立，因此双次拍摄保留。本批次暂存目录中的
+  `shotw.sh` 是应当沿用的版本。
+- **权限停靠栏的固定面板覆盖了决策中心自己的列表。** 在 D2 中，停靠栏把同一个请求
+  画在它所复制的 `GATE APPROVALS` 卡片之上。没有显示任何虚假内容，两者都可决定；
+  记录于此，以便后续保真度检查决定 D2 是否应抑制那份固定副本。
+
+### 这对计划目标 4 意味着什么，按界面
+
+`docs/release-0.3.3-plan.md` 目标 4，在 `0.3.4` 中作为目标 6 延续 —— "一个真实的
+本地优先开发任务通过 GUI 完成，从接入到一次已提交的改动，并记录审计与证据"：
+
+- **通过 TUI —— 端到端达成**，与 2026-09-12 的记录相同。
+- **通过 `0.3.5` 候选版上的原生 GUI 窗口 —— 比 `0.3.4` 走得更远，仍未走完整个
+  任务。** 接入、Core 发布的工作区所有者、在 Core `lane_create` 审批之下的 Lane
+  创建（带 C15 完整层级列表，并在两个未提供的层级上给出 Core 自己的拒绝名称）、
+  **Lane 路径审批的持久审计行**、决策中心清空一个已决定的审批、一次 Core 采样的
+  Lane 差异、在 Lane 内于各自审批之下带 Core 类型化 hunk 的一次暂存与一次**提交**、
+  把上述每一个决定都读回来的审计时间线、渲染诚实空状态的 Plan Studio 与 Agent
+  Board、专注模式与 `Esc` 返回路径 —— 全部通过驾驶舱驱动完成。
+- **驾驶舱仍然做不到的，是在它刚刚创建的 Lane 中启动一个回合**，随之而来的还有
+  工具审批、内联工具差异、检查运行、归档补丁、排队跟进、已提出的计划，以及任何
+  可暂停、恢复或终止的 Agent 会话。成因是缺陷 22，属于 Core 侧。
+- **诚实的总结：** 目标 4 的源码控制半区在 GUI 上**带 Lane** 与不带 Lane 都已
+  得到证明，而 `0.3.5` 目标 2 所指的信任缺口 —— 在 Lane 路径上决定的审批留下一条
+  持久审计行 —— **已关闭并原生取证**。目标 4 的 Agent 半区仍然在 TUI 上得到证明，
+  在 GUI 上**被阻塞**，阻塞它的是一个与 `0.3.4` 所受阻塞不同、且定位更清楚的缺陷。
+  退出标准 1 就"候选版已被原生驱动"而言已达成；就"完整任务"而言尚未达成，本文档
+  不作任何相反的粉饰。
