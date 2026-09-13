@@ -515,6 +515,110 @@ mod tests {
         assert!(!rendered.contains("MODE Code"));
     }
 
+    /// Compatibility follow-up 16, from this client's side.
+    ///
+    /// Before C12 a session `QueueFollowUp` sent during a turn waited in the
+    /// supervisor's channel, so `RuntimeViewState.queued_inputs` stayed empty
+    /// for the whole wait and this composer honestly rendered
+    /// `composer.active` — an operator saw no sign their prompt was in line
+    /// (E2 defect 13). C12 acknowledges the entry on the accept path, so
+    /// `InputQueued` now arrives *while* the turn is still running. The events
+    /// are pushed through the real reducer rather than assigned to the view, so
+    /// what is asserted is what a client receiving Core's facts in that order
+    /// would render.
+    #[test]
+    fn the_composer_says_queued_as_soon_as_core_acknowledges_the_entry() {
+        let mut state = state_with_input("");
+        let turn = session_turn("turn_c12");
+        let owner = turn.owner.clone();
+        state.runtime.apply_event(&viden_core::RuntimeEvent::new(
+            1,
+            viden_core::RuntimeEventKind::TurnStarted { turn },
+        ));
+
+        let mut frame = Frame::new(120, 40);
+        render_composer(&mut frame, &state, 1);
+        assert!(
+            frame
+                .to_string()
+                .contains("Type next prompt while Viden works"),
+            "nothing is queued yet"
+        );
+
+        // C12's new ordering: `InputQueued` while the turn is still open.
+        state.runtime.apply_event(&viden_core::RuntimeEvent::new(
+            2,
+            viden_core::RuntimeEventKind::InputQueued {
+                input: QueuedInputView {
+                    id: "queue-c12".to_string(),
+                    content_preview: "the queued follow-up".to_string(),
+                    created_at: Some(1_700_000_002),
+                    owner: Some(owner.clone()),
+                },
+            },
+        ));
+
+        assert!(
+            !state.runtime.active_turns.is_empty(),
+            "the turn is still running when the entry is acknowledged"
+        );
+        let mut frame = Frame::new(120, 40);
+        render_composer(&mut frame, &state, 1);
+        let rendered = frame.to_string();
+        assert!(
+            rendered.contains("1 prompt queued; runs after the current turn"),
+            "the count and the promise come from the acknowledged queue: {rendered}"
+        );
+
+        // The drain that starts the queued turn is a separate fact, and it is
+        // what clears the count — not the end of the first turn.
+        state.runtime.apply_event(&viden_core::RuntimeEvent::new(
+            3,
+            viden_core::RuntimeEventKind::InputDequeued {
+                input_id: "queue-c12".to_string(),
+            },
+        ));
+        let mut frame = Frame::new(120, 40);
+        render_composer(&mut frame, &state, 1);
+        assert!(
+            frame
+                .to_string()
+                .contains("Type next prompt while Viden works"),
+            "the dequeue empties the queue copy"
+        );
+    }
+
+    /// The queue copy has exactly one source.
+    ///
+    /// Every other "something is happening" fact — a running turn, a live tool
+    /// call, a streamed reply — is activity, not a queue.
+    /// Reading any of them as "queued" would tell an operator their prompt is
+    /// in line when Core has accepted no entry at all, which is the inverse of
+    /// the defect C12 closed.
+    #[test]
+    fn nothing_but_queued_inputs_makes_the_composer_claim_a_queue() {
+        let mut state = state_with_input("");
+        state.runtime.apply_event(&viden_core::RuntimeEvent::new(
+            1,
+            viden_core::RuntimeEventKind::TurnStarted {
+                turn: session_turn("turn_busy"),
+            },
+        ));
+        mark_active(&mut state);
+        state.runtime.assistant_stream = "still writing".to_string();
+
+        assert!(state.runtime.queued_inputs.is_empty());
+        let mut frame = Frame::new(120, 40);
+        render_composer(&mut frame, &state, 1);
+        let rendered = frame.to_string();
+
+        assert!(
+            rendered.contains("Type next prompt while Viden works"),
+            "{rendered}"
+        );
+        assert!(!rendered.contains("queued"), "{rendered}");
+    }
+
     #[test]
     fn composer_invites_next_prompt_during_active_turn() {
         let mut state = state_with_input("");
