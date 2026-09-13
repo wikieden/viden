@@ -455,3 +455,42 @@ Agent Board（覆盖 Lane/会话层级的中央面板视图）：
 - 即使会话启动被拒，starter Lane 仍被创建。
 - 上界：64 个计划步骤、每段 16 KiB、4 KiB goal；暂停期间持有的输入受现有输入队列上界
   约束。
+
+## 实现修订（2026-09-13）
+
+由批次 C14 按本文档自身的规则记录：批次只能在其报告中给出理由的前提下偏离，
+并在该偏离通过评审后记入此处。上文正文保持原样；本节是第 2 节
+`runtime.agent_session_control` 实际交付的内容。
+
+- **只有在适配器于宽限期内应答时，暂停才保留常驻连接。** 正文无条件地说暂停
+  “保留常驻 session 及其 `load_session_id`”。它做不到总是如此：只要发出过取消，
+  ACP runner 就会杀掉子进程；而不应答 `session/cancel` 的适配器仍然必须由取消
+  今天所用的同一套有界进程终止来停下。实际交付：当作业标记记录的是*暂停*且该轮
+  以协作方式结束时，runner 保留子进程，否则退回到终止。
+  `pause_typed_agent_session` 返回发生的是两者中的哪一种，session 的 diagnostic
+  也会说明，因为悄悄变成重新加载的暂停是操作者无法信任的暂停。无论哪一种，恢复
+  路径都从记录下来的 `load_session_id` 重新加载。
+- **适配器监视线程不为暂停或终止发布任何 session 事实。** 两者都由 runtime 独家
+  发布，因为只有它知道被持有的输入计数与控制记录；第二个写入者会把该记录竞争掉，
+  让一个被暂停的 session 完全不带 `control`。持久作业记录承载 `paused` 与
+  `killed`，因此两者在重启后仍能重建。取消保持不变，仍由监视线程发布，并且现在
+  会盖上 `terminated_by: Cancelled`，使两个写入者不可能互相矛盾。
+- **恢复转发第一条被持有的输入，其余继续被持有。** 正文说“第一条被转发”，没有说
+  其余的去向。在被恢复的那一轮之后排空其余输入需要一个本批次并不拥有的会话作用域
+  队列排空机制，因此其余输入继续被持有、继续计入 `held_input_count`，并在 session
+  的 diagnostic 中被指明。没有任何东西被悄悄丢弃，终止仍然会丢弃并指明它们。已作为
+  已知限制记入 `docs/frontend-integration-contract.zh-CN.md`。
+- **“现有输入队列上界”是 50。** 即 `RUNTIME_VIEW_COLLECTION_LIMIT` 已经用来限制
+  runtime 视图各集合的那个值，因此客户端读到的 `held_input_count` 所对的上界正是
+  视图自身强制的那个。超出它的输入以 `CommandRejected` 回答。
+- **新增了 `AgentSessionStatus::is_terminal()`。** 正文要求 Core 中每一个穷尽匹配
+  都诚实处理两个新状态。让这条规则只住在一个谓词里，任何匹配点都不必重新判断
+  “被暂停的 session 是活的、被终止的已了结”。
+- **能力计数到达 30，而不是 31。** 写 C14 时 C13 的 `runtime.plan_documents` 尚未
+  落地，而一个指名本构建并未公布的能力的计数常量是假的。三个计数位置的注释都指明了
+  0.3.5 剩余的能力以及每一个会把计数带到多少。
+- **两处机械性的 `apps/**` 改动无法避免。** `control` 是 `AgentSessionView` 上的新
+  字段，因此每一个既有字面量都需要 `control: None` 才能编译；而 GUI 的
+  `agent_session_status` 投影是一个穷尽匹配，必须指名 `paused` 与 `killed`，而不是
+  把它们折叠掉。没有触碰任何客户端行为、布局或动作行；实时的 Pause/Resume/Kill 表面
+  仍属于 G9 与 T4。

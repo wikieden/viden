@@ -71,6 +71,7 @@ core.workspace_host
 runtime.agent_adapters
 runtime.agent_conversation
 runtime.agent_permission_bridge
+runtime.agent_session_control
 runtime.agent_session_input
 runtime.agent_sessions
 runtime.audit
@@ -426,6 +427,7 @@ Fixture 文件位于 `crates/types/tests/fixtures/frontend-contract-v1/`。下�
 | `workspace-file-reads` | 同一个会话作用域 owner 下的七次单文件读取：两次同时在途且乱序作答；一次完整文本；一次在字符边界上被截断，旁边仍带着整个文件的长度与摘要；一次 Lane 目标下的二进制、不带任何载荷；一次路径并不存在；一次是目录；另有一次离开目标的路径与一条 `read_file` deny 规则，以 `CommandRejected` 作答且完全不发布 body | `1b5ffcffebfeabecf9c79967ca7d84b912d510e7c9f2003012a1e48d0184304e` | `98bd938eb1f2fe6cffe106b1e5d5bbeaa1106663592b1aa5e0dfbd069654255f` |
 | `durable-work-evidence` | 一次被批准的 `edit_file`：该决定成为一条持久审计行，其 id 正是请求已经公布的那一个；随后被应用的变更留下一条归档 `patch` 行，带有规范字节，与描述同一次改动的实时工作区变更并列；归档分页与内容读取都用该行公布的哈希回答它；最后是一条外部 Agent 适配器的补丁事实，由运行时的摄取补全 —— 因为适配器自身没有存储 | `b2719e73785bc9e3a71b459e3eb83ae3a551ac62aa61f8a7c3807e2f883c6f45` | `457c0879ad5e7475b3d79c29dd47af4feaa84d8f95f3317c4335cb04d38a27b5` |
 | `transcript-rows` | 在同一份持久转录之上的三次所有者作用域转录读取，同时在途且被乱序回答：两个 Lane 与会话编辑器各得到自己的一页，没有任何一行出现在两页之上；其中一个 Lane 的一页被 limit 截断，并通过它自己公布的那个不透明 `older` 游标续读，使边界行只落在一侧；每一种行变体各出现一次；一条 assistant 正文承载真实的 8 KiB 截断并指名仍完整保存它的规范证据；一条 tool result 指名属于它自己那次工具调用的归档 `patch` 行；一条作用域放行的权限行承认它不知道审计行从未存下的那个决定；而一个本构建从未签发的游标以 `CommandRejected` 回答，完全不带任何分页 | `2fa91b16aff8c0d896ae2b6cd7843acea86be1cf04ddf2c69394b86d5fa2ad13` | `f17c3e7fad2baf3d5670cf320ec172f50a9048baa3aedbe09c8cd38456ff4ea8` |
+| `agent-session-control` | 对同一个 Agent 会话的暂停、恢复与终止：被暂停的那一轮所等待的审批由 Core 解析为拒绝，因此没有客户端会为一轮已经不存在的工作留下提示；暂停期间键入的输入被接受并计入 `held_input_count`，而不是被转发；对不允许该命令的状态发出的控制命令在两个方向上都以 `session_status_<current>` 被拒绝；`AgentSessionKilled` 以 `terminated_by: Killed` 了结会话，使终止与取消在事后仍可区分；而被终止的会话在同一个逻辑会话 id 之下被重试 | `7f4dbbc80ac27fe29409d52acc49b6923c836b337cb622f154fee60ba916e18a` | `0ff531b6ec98fd25a0efdea96367b902910871e5345416119f1b239029b43636` |
 
 2026-09-07 语义修正（评审发现 4）：`RuntimeViewState.assistant_stream` 此前没有生命
 周期——它在整个 view 生命期内只追加，因此启动重放会把每个历史会话的回复串接成一整块

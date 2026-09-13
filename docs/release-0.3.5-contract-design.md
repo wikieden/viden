@@ -531,3 +531,55 @@ is dispatched.
 - A starter Lane is created even when its session start is refused.
 - Bounds: 64 plan steps, 16 KiB per section, 4 KiB goal; held inputs while
   paused are bounded by the existing input queue bound.
+
+## Amendments From Implementation (2026-09-13)
+
+Recorded by batch C14 as this document's own rules require: a batch may
+deviate only with the reason in its report and, if the deviation survives
+review, here. The body above is left as written; this section is what
+shipped for section 2, `runtime.agent_session_control`.
+
+- **A pause keeps the resident connection only when the adapter answers
+  inside the grace.** The body says pause "keeps the resident session and its
+  `load_session_id` alive" without qualification. It cannot, always: the ACP
+  runner kills the child whenever a cancel was sent, and an adapter that does
+  not answer `session/cancel` still has to be stopped by the same bounded
+  process termination cancel uses. What shipped: the runner keeps the child
+  when the job's marker records a *pause* and the prompt ended cooperatively,
+  and otherwise falls back to termination. `pause_typed_agent_session` returns
+  which of the two happened and the session's diagnostic says so, because a
+  pause that quietly became a reload is a pause an operator cannot trust. The
+  resume path reloads from the recorded `load_session_id` either way.
+- **The adapter monitor publishes no session fact for a pause or a kill.** The
+  runtime is the sole publisher of both, because only it knows the held-input
+  count and the control record; a second writer would race that record away
+  and leave a paused session showing no `control` at all. The durable job
+  record carries `paused` and `killed`, so both still rebuild after a restart.
+  Cancel is unchanged and still published by the monitor, which now stamps
+  `terminated_by: Cancelled` so the two writers cannot disagree.
+- **Resume forwards the first held input; the rest stay held.** The body says
+  "the first is forwarded" and does not say what becomes of the others.
+  Draining the remainder behind the resumed turn needs a session-scoped queue
+  drain this batch does not own, so the remainder stay held, stay counted in
+  `held_input_count`, and are named in the session's diagnostic. Nothing is
+  silently dropped, and a kill still discards and names them. Recorded as a
+  known limitation in `docs/frontend-integration-contract.md`.
+- **"The existing input queue bound" is 50.** The value
+  `RUNTIME_VIEW_COLLECTION_LIMIT` already caps the runtime view's collections
+  at, so a client reads `held_input_count` against a bound the view itself
+  enforces. An input past it is `CommandRejected`.
+- **`AgentSessionStatus::is_terminal()` was added.** The body requires every
+  exhaustive match in Core to handle the two new statuses honestly. One
+  predicate is where that rule lives, so no match site re-decides that a
+  paused session is alive and a killed one is settled.
+- **The capability count reached 30, not 31.** C13's
+  `runtime.plan_documents` had not landed when C14 was written, and a count
+  constant that named a capability the build does not advertise would be
+  false. The comments at all three count sites name the remaining 0.3.5
+  capabilities and the count each takes it to.
+- **Two mechanical `apps/**` edits were unavoidable.** `control` is a new
+  field on `AgentSessionView`, so every existing literal needs `control: None`
+  to compile, and the GUI's `agent_session_status` projection is an exhaustive
+  match that must name `paused` and `killed` rather than collapse them. No
+  client behavior, layout, or action row was touched; the live Pause/Resume/
+  Kill surfaces remain G9's and T4's.
