@@ -702,3 +702,44 @@ fn core_client_handshake_rejects_missing_required_capability() {
         Err(CoreClientError::Compatibility(_))
     ));
 }
+
+/// Every view a frontend has to name is reachable through the facade.
+///
+/// `viden-core` is the stable multi-frontend boundary: a frontend that has to
+/// reach into `viden-types` for a type Core publishes on its own contract has
+/// found a hole in that boundary, not a shortcut. T4 hit exactly that for the
+/// standing-approval and starter-Lane session views.
+#[test]
+fn the_facade_re_exports_every_view_a_frontend_must_name() {
+    let standing: viden_core::StandingApprovalView = viden_core::StandingApprovalView {
+        rule_id: "rule-facade".to_string(),
+        tool_name: "shell".to_string(),
+        rule_content: "cargo fmt".to_string(),
+        granted_at: 1,
+        granted_in_workspace: "workspace-facade".to_string(),
+        audit_id: "audit-facade".to_string(),
+    };
+    assert_eq!(standing.rule_id, "rule-facade");
+
+    let binding: viden_core::StarterLaneAgentBinding = viden_core::StarterLaneAgentBinding {
+        agent_id: "codex".to_string(),
+        model: None,
+        task: None,
+    };
+    assert_eq!(binding.agent_id, "codex");
+
+    let outcome: viden_core::StarterLaneSessionOutcome =
+        viden_core::StarterLaneSessionOutcome::Refused {
+            reason: "no adapter".to_string(),
+        };
+    assert!(matches!(
+        outcome,
+        viden_core::StarterLaneSessionOutcome::Refused { .. }
+    ));
+
+    // The typed input an editable approval now publishes (GUI-CORE-036) is
+    // named by `ApprovalRequestView.input`, so its type must be nameable too.
+    let mut input = viden_core::ToolInput::new();
+    input.insert("command".to_string(), "cargo fmt".to_string());
+    assert_eq!(input.len(), 1);
+}
