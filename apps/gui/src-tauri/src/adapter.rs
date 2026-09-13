@@ -5159,7 +5159,7 @@ impl GuiCoreAdapter {
             .collect::<Vec<_>>();
         match runtime.as_slice() {
             [binding] if binding.owner.lane_id.as_deref() == Some(lane_id) => {
-                return Ok(binding.owner.clone());
+                Ok(binding.owner.clone())
             }
             _ => Err(format!(
                 "Lane `{lane_id}` does not have one exact Core {purpose} owner"
@@ -5687,6 +5687,34 @@ fn is_lower_hex_64(value: &str) -> bool {
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
+/// Parses the opaque `stream:sequence` audit cursor the client handed out.
+fn parse_audit_cursor(raw: &str) -> Result<viden_core::EventCursor, String> {
+    let (stream_id, sequence) = raw
+        .rsplit_once(':')
+        .ok_or_else(|| format!("malformed audit cursor `{raw}`"))?;
+    Ok(viden_core::EventCursor {
+        stream_id: stream_id.to_string(),
+        sequence: sequence
+            .parse()
+            .map_err(|_| format!("malformed audit cursor `{raw}`"))?,
+    })
+}
+
+/// Reads the canonical Core discriminant for an event kind.
+///
+/// Core owns the event vocabulary; serializing the tag keeps the client from
+/// mirroring a 117-variant enum that would drift on the next Core change.
+fn core_event_kind(kind: &viden_core::RuntimeEventKind) -> String {
+    match serde_json::to_value(kind) {
+        Ok(serde_json::Value::Object(map)) => map
+            .get("type")
+            .and_then(|value| value.as_str())
+            .map(str::to_string)
+            .unwrap_or_else(|| "unknown".to_string()),
+        _ => "unknown".to_string(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
@@ -6121,33 +6149,5 @@ mod tests {
         drop(host);
         std::fs::remove_dir_all(session_home).expect("remove temporary session home");
         std::fs::remove_dir_all(project).expect("remove temporary project");
-    }
-}
-
-/// Parses the opaque `stream:sequence` audit cursor the client handed out.
-fn parse_audit_cursor(raw: &str) -> Result<viden_core::EventCursor, String> {
-    let (stream_id, sequence) = raw
-        .rsplit_once(':')
-        .ok_or_else(|| format!("malformed audit cursor `{raw}`"))?;
-    Ok(viden_core::EventCursor {
-        stream_id: stream_id.to_string(),
-        sequence: sequence
-            .parse()
-            .map_err(|_| format!("malformed audit cursor `{raw}`"))?,
-    })
-}
-
-/// Reads the canonical Core discriminant for an event kind.
-///
-/// Core owns the event vocabulary; serializing the tag keeps the client from
-/// mirroring a 117-variant enum that would drift on the next Core change.
-fn core_event_kind(kind: &viden_core::RuntimeEventKind) -> String {
-    match serde_json::to_value(kind) {
-        Ok(serde_json::Value::Object(map)) => map
-            .get("type")
-            .and_then(|value| value.as_str())
-            .map(str::to_string)
-            .unwrap_or_else(|| "unknown".to_string()),
-        _ => "unknown".to_string(),
     }
 }

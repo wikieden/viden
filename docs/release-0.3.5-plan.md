@@ -148,8 +148,10 @@ every batch returns a raw report with verbatim check tails.
 
 Unchanged from `0.3.4` unless stated:
 
-- every Core batch: crate suites, the workspace suite with `viden-plugin-host`
-  and `viden-agents` serial until H3 retires the rule, `cargo fmt`, `cargo
+- every Core batch: crate suites, the full workspace suite with no crate
+  excluded and no `--test-threads` override — H3 retired the
+  `viden-plugin-host` / `viden-agents` serial-rerun rule on 2026-09-13 —
+  `cargo fmt`, `cargo
   clippy` with zero new warnings, dependency boundaries, `tui-regression`,
   doc pairs and links, `git diff --check`; the nine frozen base fixtures and
   every `0.3.4` extension fixture byte-identical (`shasum` against

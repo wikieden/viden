@@ -112,8 +112,9 @@ brief 位于派发者的 scratchpad；每个批次返回带逐字检查尾部的
 
 除特别说明外与 `0.3.4` 相同：
 
-- 每个 Core 批次：crate 套件、工作区套件（`viden-plugin-host` 与 `viden-agents` 串行，
-  直到 H3 退役该规则）、`cargo fmt`、零新增告警的 `cargo clippy`、依赖边界、
+- 每个 Core 批次：crate 套件、完整工作区套件（不排除任何 crate，也不覆盖
+  `--test-threads`；H3 已于 2026-09-13 退役 `viden-plugin-host` 与 `viden-agents`
+  的串行重跑规则）、`cargo fmt`、零新增告警的 `cargo clippy`、依赖边界、
   `tui-regression`、文档配对与链接、`git diff --check`；九个冻结基线 fixture 与每个
   `0.3.4` 扩展 fixture 字节一致（`shasum` 对比 `git show edcc7b3d:<path>`）；计数常量
   只按批次所加移动并带跟踪注释；

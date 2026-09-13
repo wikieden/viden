@@ -1263,16 +1263,16 @@ impl RuntimeProjection {
             .as_deref()
             .and_then(|lane_id| view.lanes.iter().find(|lane| lane.id == lane_id));
         let exact_owner_count = selected_lane
-            .and_then(|_| selected_lane_id.as_deref())
+            .and(selected_lane_id.as_deref())
             .map_or(0, |lane_id| exact_owner_count(view, lane_id));
         let exact_binding = selected_lane
-            .and_then(|_| selected_lane_id.as_deref())
+            .and(selected_lane_id.as_deref())
             .and_then(|lane_id| exact_owner_binding(view, lane_id));
         let restored_agent_session = exact_binding
             .is_none()
             .then(|| {
                 selected_lane
-                    .and_then(|_| selected_lane_id.as_deref())
+                    .and(selected_lane_id.as_deref())
                     .and_then(|lane_id| exact_terminal_agent_session(view, lane_id))
             })
             .flatten();

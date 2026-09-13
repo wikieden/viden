@@ -115,6 +115,24 @@ for capabilities a *client* needs and Core does not publish; a Core behaviour
 that is wrong where it already exists belongs in the compatibility follow-ups,
 and a missing control in one client belongs to that client.
 
+Status note 2026-09-13 (H3): the open register is adjudicated against
+`docs/release-0.3.5-plan.md`. 013, 018, 021, 023, 026, 031 and 033 are re-dated
+to `0.3.6` with the reason "not in the `0.3.5` plan —
+`docs/release-0.3.5-plan.md` Scope Decisions, 2026-09-13"; each stays OPEN with
+its closing condition unchanged. 032 stays OPEN and unscheduled with a roadmap
+note (`D-RAILNAV` ⑥) and is deliberately not closed as by-design: that would be
+a Core decision and belongs to the contract design (CD2). 019 and 030 are
+scheduled for `0.3.5` batch C15. The reserved 029 is written down for the first
+time, as a reservation re-dated to `0.3.6`, not as a request.
+
+The open register is therefore unchanged at 013, 018, 019, 021, 023, 026, 030,
+031, 032, and 033 — ten entries — and `apps/gui/release-manifest.toml` keeps
+`[contract_requests] open_count = 10`. Its comment still reads "029 ... is not
+yet written"; that file is the frozen `0.1.0-rc.5` manifest and is asserted
+byte-identical to `manifests/0.1.0-rc.5.toml`, so the wording is corrected by
+the next GUI version bump, not here. This pass closed nothing: re-dating is not
+closure.
+
 ## GUI-CORE-008: Selected-Lane context scope — CLOSED
 
 History: Core `0.3.5` exposed `RuntimeViewState.context_budgets`, but the
@@ -350,6 +368,11 @@ decision exists, and inert, so the client never sends a doomed command. They
 become conditional on the record's own state once Core publishes the pending
 fact this request asks for.
 
+Adjudicated 2026-09-13 (H3): re-dated to `0.3.6`. Reason: not in the `0.3.5`
+plan — `docs/release-0.3.5-plan.md` Scope Decisions, 2026-09-13. The entry
+stays OPEN and the closing condition above is unchanged; re-dating is not
+closure.
+
 ## GUI-CORE-014: Ordered event log in the view state — CLOSED
 
 History: `RuntimeViewState` published current facts but no ordered event log.
@@ -539,6 +562,11 @@ id and the owner it belongs to, a command that restores one, an event carrying
 the restore outcome, and a canonical `frontend-contract-v1` fixture covering a
 capture followed by a restore.
 
+Adjudicated 2026-09-13 (H3): re-dated to `0.3.6`. Reason: not in the `0.3.5`
+plan — `docs/release-0.3.5-plan.md` Scope Decisions, 2026-09-13. The entry
+stays OPEN and the closing condition above is unchanged; re-dating is not
+closure.
+
 ## GUI-CORE-019: Always approval scope and Edit decision
 
 `ApprovalScope` models `Once`, `Session`, and `RepoAllowlist`. The permission
@@ -558,6 +586,11 @@ revocation path that makes it safe to grant, models an Edit decision that
 carries the revised command back through the same approval gate, and the
 canonical fixture covers both. The GUI will then restore the design's
 `Shift+A` binding.
+
+Adjudicated 2026-09-13 (H3): scheduled for `0.3.5` batch C15
+(`runtime.approval_scopes`) — `docs/release-0.3.5-plan.md`, Batches and Goal 4,
+2026-09-13. It closes only when Core publishes both decisions with their
+fixture and both clients adopt them.
 
 ## GUI-CORE-020: Operator-initiated git actions — CLOSED
 
@@ -673,6 +706,11 @@ state, and its check results — with the credential and data-egress policy that
 makes fetching it safe, plus a canonical `frontend-contract-v1` fixture that
 covers a branch with a pull request and one without.
 
+Adjudicated 2026-09-13 (H3): re-dated to `0.3.6`. Reason: not in the `0.3.5`
+plan — `docs/release-0.3.5-plan.md` Scope Decisions, 2026-09-13. The entry
+stays OPEN and the closing condition above is unchanged; re-dating is not
+closure.
+
 ## GUI-CORE-022: Workspace file inventory — CLOSED
 
 History: the command palette ports the TUI jump index's `~` selector, and the
@@ -783,6 +821,11 @@ Close this request when Core publishes:
 The recent-work inventory (`runtime.recent_work`) is *not* this gap: it already
 lets a client list projects it could open. What is missing is the ability to
 have more than one of them open at once.
+
+Adjudicated 2026-09-13 (H3): re-dated to `0.3.6`. Reason: not in the `0.3.5`
+plan — `docs/release-0.3.5-plan.md` Scope Decisions, 2026-09-13. The entry
+stays OPEN and the closing condition above is unchanged; re-dating is not
+closure.
 
 ## GUI-CORE-024: AuditQuery filters and an AuditPageLoaded command id — CLOSED
 
@@ -985,6 +1028,11 @@ event that reports its outcome, and a canonical `frontend-contract-v1` fixture
 covering a staged credential that becomes a `CredentialHandle` and one that is
 refused.
 
+Adjudicated 2026-09-13 (H3): re-dated to `0.3.6`. Reason: not in the `0.3.5`
+plan — `docs/release-0.3.5-plan.md` Scope Decisions, 2026-09-13. The entry
+stays OPEN and the closing condition above is unchanged; re-dating is not
+closure.
+
 ## GUI-CORE-027: Workspace-scoped operator identity — CLOSED (Core 2026-09-12; GUI client 2026-09-12)
 
 `RunOperatorGitAction` validates that the command's `owner` equals the
@@ -1137,6 +1185,21 @@ content in batch T2. Neither client should present an absent
 `permission_snapshot_id` as approved, or a `canonical: None` row as
 display-only evidence: both are stated facts with their own copy.
 
+## GUI-CORE-029: D5 gallery review — reserved
+
+Reserved — D5 gallery review, `0.3.6`.
+
+`docs/release-0.3.4-plan.md` held this number for the D5 gallery review and the
+`0.3.4` register left it unwritten, which is why batch G7 numbered its four
+prose-only gaps 030 to 033 and skipped 029. This entry writes the reservation
+down so a reader who meets the number can look it up; it is not a request yet,
+so it states no closing condition and is not counted in
+`apps/gui/release-manifest.toml`'s `[contract_requests] open_count`.
+
+Adjudicated 2026-09-13 (H3): re-dated to `0.3.6`. Reason: not in the `0.3.5`
+plan — `docs/release-0.3.5-plan.md` Scope Decisions, 2026-09-13. The gap the D5
+gallery review finds will be written here when that review runs.
+
 ## GUI-CORE-030: Agent binding on the starter-Lane request
 
 Opened 2026-09-12 by batch G7, which numbered a request batch G4 wrote as prose
@@ -1158,6 +1221,11 @@ statement that the two-step flow is the contract — in which case the wizard's
 step is documentation and the register entry closes as by-design. The GUI needs
 no new event either way: `AgentSessionUpdated` already reports what started.
 
+Adjudicated 2026-09-13 (H3): scheduled for `0.3.5` batch C15
+(`runtime.starter_lane_agent`) — `docs/release-0.3.5-plan.md`, Batches and
+Goal 4, 2026-09-13. It closes only when Core echoes the binding on preview and
+creation with its fixture and both clients adopt it.
+
 ## GUI-CORE-031: Skill packs and context injection
 
 Opened 2026-09-12 by batch G7, numbering the second half of the same G4 prose.
@@ -1176,6 +1244,11 @@ What a client needs, in the order it could adopt them: a read of the packs Core
 holds (id, label, and what they inject), a field on the creation request naming
 one, and the fact that says which pack a running Lane resolved. Without the
 third, a client could select a pack and never show whether it took effect.
+
+Adjudicated 2026-09-13 (H3): re-dated to `0.3.6`. Reason: not in the `0.3.5`
+plan — `docs/release-0.3.5-plan.md` Scope Decisions, 2026-09-13. The entry
+stays OPEN and the closing condition above is unchanged; re-dating is not
+closure.
 
 ## GUI-CORE-032: Integrated terminal facts
 
@@ -1197,6 +1270,12 @@ terminal status fact — or the statement that the integrated terminal is out of
 scope for this contract, which would close this entry as by-design and leave the
 tab's copy as the permanent answer.
 
+Adjudicated 2026-09-13 (H3): stays OPEN and unscheduled — the surface itself
+is roadmap (`D-RAILNAV` ⑥), so there is nothing for a `0.3.5` client to
+consume. Deliberately **not** closed as by-design: whether an integrated
+terminal is out of scope for this contract is a Core decision, and it belongs
+to the `0.3.5` contract design (CD2), not to a hygiene pass.
+
 ## GUI-CORE-033: Workspace document facts
 
 Opened 2026-09-12 by batch G7, numbering the dock's other disabled tab from the
@@ -1214,6 +1293,11 @@ What a client needs: the document set for a scope (path, kind, and the scope it
 governs), read through the file read that already exists. Until then the GUI
 keeps the tab disabled and named (`d1.dock.tab.docs.reason`) and the palette's
 `~` rows stay the only way to a file.
+
+Adjudicated 2026-09-13 (H3): re-dated to `0.3.6`. Reason: not in the `0.3.5`
+plan — `docs/release-0.3.5-plan.md` Scope Decisions, 2026-09-13. The entry
+stays OPEN and the closing condition above is unchanged; re-dating is not
+closure.
 
 ## Retired pre-register codes
 
