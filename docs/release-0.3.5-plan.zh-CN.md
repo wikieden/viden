@@ -109,6 +109,7 @@ brief 位于派发者的 scratchpad；每个批次返回带逐字检查尾部的
 | E3b 候选上的原生证明 | 证据 | H4、G8、G9 之后在发布候选上用原生 GUI 跑完整真实任务（含 Lane 半段）；追加到证据文档；供 R1 使用 | H4、G10 |
 | H3 卫生 | Core、GUI | 注册表裁定（018、021、023、026、029、031、032、033 重标为 `0.3.6` 或带理由关闭）；把 `viden-plugin-host` 与 `viden-agents` 的计时测试改为确定性以退役串行重跑规则；清掉 clippy 既有告警集 | 无 |
 | P1 打包 | 发布 | 通过以 `upload_to_release=false` 派发的 `release.yml` 产出 macOS（arm64、x86_64）、Windows、Linux 的可复现 bundle；校验和；仅在用户提供凭据处签名与公证；记录 bundle 矩阵 | G10 |
+| P2 GUI 发布工作流 | 发布 | `release.yml` 增加 GUI bundle 作业（macOS arm64 与 x86_64 的 `.app`/`.dmg`、Windows `.msi`/NSIS、Linux `.deb`/`.AppImage`），含校验和与 artifact 上传，以 YAML 解析与作业干读验证；P1 发现该工作流只构建 CLI，GUI 半边的三平台门原本没有任何 CI 路径；派发仍需用户授权 | P1 |
 | R1 生产发布门 | 发布 | 带真实 provider 段（用户提供密钥）、迁移与全工作区段的 `scripts/release-gate.sh --phase prepublish`，同版本的 GitHub Release 与 Homebrew tap 验证，`--phase postpublish`；Core `0.3.8` 检查点与三条版本提升；`0.3.5` 完成报告 | 以上全部，且每个对外步骤各需一次「go」 |
 
 ## 门禁
