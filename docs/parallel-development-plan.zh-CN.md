@@ -361,6 +361,13 @@ Lane tab strip、上下文坞 tab、设计登记的快捷键），并通过五�
 - full workspace、real DeepSeek、migration、GitHub Release 与 Homebrew 同版本验证。
 - Plan Studio 与 Agent Board（2026-09-12 自 `0.3.4` 移入）。
 
+2026-09-13 修订：`0.3.4` 已合入 `main`（`edcc7b3d`），`0.3.5` 以此为基线，顺序由
+`docs/release-0.3.5-plan.zh-CN.md` 给出：先对 `0.3.4` 的真实任务做原生 GUI 证明；再关闭
+`0.3.4` 证据遗留的可信交付加固项（兼容性后续项 10、13、14、15、16 与 TUI 的
+`set_upstream` 控件）；再做 Plan Studio 与 Agent Board——先在设计包登记、后由客户端绘制，
+基于四项附加 Core 能力（Core `0.3.8`，目标 33 项能力）；再过上述设计保真门；最后跑生产
+发布门，其每个对外步骤都需要各自的明确授权。
+
 ## 分支验收门禁
 
 ### Core

@@ -209,15 +209,20 @@ Next release planning (`0.2.x` and `0.3.x`):
   gates, and exit criteria are in `docs/release-0.3.4-plan.md`; the Core
   contract increment behind them is in
   `docs/release-0.3.4-contract-design.md`.
-  Status 2026-09-12: **candidate on `claude/int-0.3.4` at
-  `39ed155dcc1847b915965f49626e6779b8b538d7`, awaiting push.** Core `0.3.7`
+  Status 2026-09-13: **merged and pushed; `main` at `edcc7b3d`.** Core
+  `0.3.7` immutable checkpoint `39ed155dcc1847b915965f49626e6779b8b538d7`
   (29 extension capabilities, schema `1`), TUI `0.3.5`, GUI `0.1.0-rc.5`.
-  Every batch landed and the gate set is green. The one exit criterion still
+  Every batch landed and the gate set is green. The one exit criterion left
   open is the native GUI capture set: the host screen was locked for the whole
   release step, so the real task was evidenced end to end through the TUI
-  instead. Nothing is on `main`. See `docs/release-0.3.4-report.md`.
-- `0.3.5`: Visual fidelity and production release gate (moved from `0.3.4`
-  on 2026-09-12 together with Plan Studio and Agent Board).
+  instead; the native proof is the first batch of `0.3.5`. See
+  `docs/release-0.3.4-report.md`.
+- `0.3.5`: Trusted-delivery hardening, Plan Studio, Agent Board, the
+  design-fidelity gate, and the production release gate (the last three moved
+  from `0.3.4` on 2026-09-12). Batches, gates, and exit criteria are in
+  `docs/release-0.3.5-plan.md`; the Core contract increment behind them will
+  be `docs/release-0.3.5-contract-design.md`. Status 2026-09-13: plan
+  written, nothing implemented.
 - Keep Mode/Permission, provider/model, plan-mode, daily-loop, and live
   DeepSeek token/cost smoke in the release gate for future releases.
 - GUI implementation starts only after the contract freeze, but then runs in

@@ -418,6 +418,16 @@ to `0.3.5`; D5 gallery review is opened as GUI-CORE-029 for `0.3.5`.
 - Full workspace, real DeepSeek, migration, GitHub Release, and matching Homebrew validation.
 - Plan Studio and Agent Board (moved from `0.3.4` on 2026-09-12).
 
+Amendment 2026-09-13: `0.3.4` merged to `main` at `edcc7b3d`, so `0.3.5`
+starts from that baseline and is ordered by `docs/release-0.3.5-plan.md`:
+the native GUI proof of the `0.3.4` real task first; then the trusted-delivery
+hardening the `0.3.4` evidence left open (compatibility follow-ups 10, 13, 14,
+15, 16 and the TUI `set_upstream` control); then Plan Studio and Agent Board,
+registered in the design package before either client draws them, on four
+additive Core capabilities (Core `0.3.8`, target 33 capabilities); then the
+design-fidelity gate above; and last the production release gate, every
+external step of which needs its own explicit authorization.
+
 ## Branch Acceptance Gates
 
 ### Core
