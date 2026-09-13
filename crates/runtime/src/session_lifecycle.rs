@@ -645,6 +645,19 @@ impl SessionEngine {
     ) -> Option<(String, Option<String>)> {
         match &event.kind {
             RuntimeEventKind::AgentDagUpdated { dag } => Some((dag.dag_id.clone(), None)),
+            // A plan is project-scoped work the operator owns rather than a
+            // task of some DAG, so it projects under the runtime's own bucket
+            // until a handoff gives it one. Projecting it at all is what makes
+            // `plan_documents` survive a restart: without a durable fact, a
+            // reopened session would answer "no plan proposed" about a plan it
+            // had already accepted.
+            RuntimeEventKind::PlanDocumentUpdated { plan } => Some((
+                plan.handoff
+                    .as_ref()
+                    .map(|handoff| handoff.dag_id.clone())
+                    .unwrap_or_else(|| "project-agent-runtime".to_string()),
+                None,
+            )),
             RuntimeEventKind::TaskUpdated { task } => Some((
                 self.dag_id_for_task_projection(&task.id)
                     .unwrap_or_else(|| "project-agent-runtime".to_string()),
@@ -876,6 +889,7 @@ impl SessionEngine {
                     self.runtime_agent_dags.push(dag);
                 }
             }
+            RuntimeEventKind::PlanDocumentUpdated { plan } => self.upsert_plan_document(plan),
             RuntimeEventKind::TaskUpdated { task } => self.upsert_agent_task(task),
             RuntimeEventKind::ContextBundleBuilt { .. }
             | RuntimeEventKind::ContextItemStored { .. }
@@ -1326,6 +1340,13 @@ fn is_durable_runtime_domain_event(kind: &RuntimeEventKind) -> bool {
     matches!(
         kind,
         RuntimeEventKind::AgentDagUpdated { .. }
+            // Every revision, including the `Superseded` republication a new
+            // proposal voids an earlier decision with. A plan a restart loses
+            // is a plan the operator has to accept twice, and the second
+            // acceptance would be of bytes they never re-read. The two
+            // settlement facts stay out: they announce a record this event
+            // already carried, so persisting them would replay one truth twice.
+            | RuntimeEventKind::PlanDocumentUpdated { .. }
             | RuntimeEventKind::TaskUpdated { .. }
             | RuntimeEventKind::ContextBundleBuilt { .. }
             | RuntimeEventKind::ContextItemStored { .. }

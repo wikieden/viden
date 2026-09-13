@@ -26,6 +26,7 @@ mod git_commands;
 mod lsp_tools;
 mod operator_git;
 mod permission_gate;
+mod plan_documents;
 mod presentation;
 mod project_runtime;
 mod provider_commands;
@@ -366,6 +367,9 @@ pub struct SessionEngine {
     runtime_snapshot: RuntimeSnapshot,
     runtime_tasks: Vec<AgentTaskRecord>,
     runtime_agent_dags: Vec<AgentDagRecord>,
+    /// Plans Core holds (`runtime.plan_documents`). Rebuilt from the durable
+    /// workflow projection on resume, exactly like the agent DAGs above it.
+    runtime_plan_documents: Vec<viden_types::PlanDocumentRecord>,
     runtime_merge_gates: Vec<MergeGateRecord>,
     runtime_evidence: Vec<EvidenceView>,
     runtime_handoffs: Vec<HandoffRecord>,
@@ -536,6 +540,7 @@ impl SessionEngine {
             runtime_snapshot,
             runtime_tasks: Vec::new(),
             runtime_agent_dags: Vec::new(),
+            runtime_plan_documents: Vec::new(),
             runtime_merge_gates: Vec::new(),
             runtime_evidence: Vec::new(),
             runtime_handoffs: Vec::new(),
