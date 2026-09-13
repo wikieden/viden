@@ -3055,6 +3055,7 @@ fn run_supervised_agent_session(
         session_id.clone(),
         active_control,
         engine.context_engine_root().to_path_buf(),
+        engine.cwd().to_path_buf(),
     );
 
     if let Err(error) = start_typed_agent_session(
@@ -3177,12 +3178,53 @@ fn supervised_agent_session_sink(
     session_id: String,
     active_control: &ActiveControlRegistry,
     context_engine_root: PathBuf,
+    workspace_root: PathBuf,
 ) -> RuntimeEventSink {
     let sink_bus = event_bus.clone();
     let sink_active = Arc::clone(active_control);
+    // The artifact this session's *current* turn is persisted to.
+    //
+    // `viden-agents` names a turn's runtime-event artifact after the turn id it
+    // publishes on `TurnStarted`, and a follow-up turn gets a fresh one, so the
+    // durable target is read from the bracket that comes through this same sink
+    // rather than assumed to be the session id. The first turn's artifact *is*
+    // the session id, which is the honest starting value.
+    let sink_turn_id = Arc::new(Mutex::new(session_id.clone()));
     Arc::new(move |events: Vec<RuntimeEvent>| {
         let mut events = events;
-        crate::work_evidence::canonicalize_agent_patch_evidence(&context_engine_root, &mut events);
+        if let Some(turn_id) = events.iter().rev().find_map(|event| match &event.kind {
+            RuntimeEventKind::TurnStarted { turn } => Some(turn.turn_id.clone()),
+            _ => None,
+        }) && let Ok(mut current) = sink_turn_id.lock()
+        {
+            *current = turn_id;
+        }
+        let completed = crate::work_evidence::canonicalize_agent_patch_evidence(
+            &context_engine_root,
+            &mut events,
+        );
+        // Compatibility follow-up 10. The adapter persisted its own patch fact
+        // before this ran, with `canonical: None`, because it owns no store;
+        // the completed row is written back to the same append-only artifact so
+        // a restart rebuilds the archive from what Core published rather than
+        // from the incomplete fact. Only the rows this ingestion changed are
+        // appended, and a failure is surfaced rather than swallowed: the live
+        // facts are already correct, so this is a durability warning, not a
+        // reason to drop the batch.
+        if !completed.is_empty()
+            && let Ok(turn_id) = sink_turn_id.lock()
+            && let Err(error) = viden_agents::append_agent_turn_runtime_events(
+                &workspace_root,
+                &turn_id,
+                &completed,
+            )
+        {
+            emit_error(
+                &sink_bus,
+                owner.clone(),
+                format!("an agent patch was canonicalized but not persisted: {error}"),
+            );
+        }
         let terminal = events.iter().any(|event| {
             matches!(
                 event.kind,
@@ -3341,6 +3383,7 @@ fn run_supervised_agent_session_continuation(
         session_id.clone(),
         active_control,
         engine.context_engine_root().to_path_buf(),
+        engine.cwd().to_path_buf(),
     );
     let result = if let Some(content) = content {
         resume_typed_agent_session(

@@ -7861,3 +7861,113 @@ while True:
         file_extensions: vec!["rs".to_string()],
     }])
 }
+
+/// Compatibility follow-up 10: an Agent-reported patch is canonicalized
+/// durably, not only on the live bus.
+///
+/// `viden-agents` appends its own ACP runtime-event artifact before the
+/// runtime's sink sees the batch, so the row on disk kept `canonical: None`
+/// while the completed row and its `EvidenceCanonicalized` reached the bus and
+/// the fixture. A restart therefore rebuilt the archive from an incomplete
+/// fact: `runtime.evidence_reads` would answer "no canonical bytes" for a patch
+/// Core had genuinely stored.
+#[test]
+fn an_agent_reported_patch_is_canonical_in_the_artifact_it_was_persisted_to() {
+    let _guard = CUSTOM_ACP_ENV_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .expect("custom ACP env lock");
+    let cwd = temp_dir("runtime_supervisor_acp_patch_durable_cwd");
+    let home = temp_dir("runtime_supervisor_acp_patch_durable_home");
+    let script = cwd.join("mock-acp-patch.sh");
+    fs::write(
+        &script,
+        [
+            "#!/bin/sh",
+            "read _init",
+            "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":0,\"result\":{\"protocolVersion\":1,\"agentCapabilities\":{},\"agentInfo\":{\"name\":\"mock-acp-patch\",\"version\":\"0.1.0\"}}}'",
+            "read _new_session",
+            "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"sessionId\":\"remote-patch-session\"}}'",
+            "read _prompt",
+            "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"remote-patch-session\",\"update\":{\"type\":\"ToolCallUpdate\",\"toolCallId\":\"tool-patch-1\",\"status\":\"completed\",\"path\":\"src.txt\",\"diff\":\"diff --git a/src.txt b/src.txt\\n--- a/src.txt\\n+++ b/src.txt\\n@@ -1 +1 @@\\n-beta\\n+BETA\\n\"}}}'",
+            "printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"remote-patch-session\",\"update\":{\"type\":\"TurnEnd\",\"status\":\"completed\"}}}'",
+            "sleep 1",
+        ]
+        .join("\n"),
+    )
+    .expect("write ACP patch mock");
+    unsafe {
+        std::env::set_var(
+            "VIDEN_AGENT_ACP_COMMAND",
+            format!("sh {}", script.display()),
+        );
+    }
+
+    let engine = SessionEngine::new_with_home(
+        &cwd,
+        Box::new(SequenceProvider::new(Vec::new())),
+        Some(home),
+    )
+    .unwrap();
+    let supervisor = RuntimeSupervisor::start(engine);
+    supervisor
+        .send_command_from_owner(
+            owner_for_lane("lane-acp-patch"),
+            "cmd_acp_patch_start",
+            RuntimeCommand::StartAgentSession {
+                request: AgentSessionRequest {
+                    lane_id: "lane-acp-patch".to_string(),
+                    agent_id: "custom-acp".to_string(),
+                    model: None,
+                    load_session_id: None,
+                    task: "report one patch".to_string(),
+                },
+            },
+        )
+        .unwrap();
+    let events = collect_events_until(&supervisor, Duration::from_secs(10), |events| {
+        events
+            .iter()
+            .any(|event| matches!(&event.kind, RuntimeEventKind::AgentSessionCompleted { .. }))
+    });
+    unsafe {
+        std::env::remove_var("VIDEN_AGENT_ACP_COMMAND");
+    }
+
+    // What the live bus published, which is what a connected client saw.
+    let canonicalized = events
+        .iter()
+        .find_map(|event| match &event.kind {
+            RuntimeEventKind::EvidenceCanonicalized {
+                evidence_id,
+                item_id,
+                content_sha256,
+            } => Some((
+                evidence_id.clone(),
+                item_id.clone(),
+                content_sha256.clone(),
+            )),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("the runtime's ingestion canonicalized the adapter's patch on the live bus, got {events:#?}"));
+
+    // What a restart would rebuild the archive from.
+    let persisted = viden_agents::tracked_agent_job_runtime_events(&cwd);
+    let row = persisted
+        .iter()
+        .rev()
+        .find_map(|event| match &event.kind {
+            RuntimeEventKind::EvidenceRecorded { evidence } if evidence.id == canonicalized.0 => {
+                Some(evidence.clone())
+            }
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("the artifact must hold the patch row `{}`", canonicalized.0));
+    let canonical = row.canonical.as_ref().unwrap_or_else(|| {
+        panic!(
+            "the persisted patch row must carry the canonical reference the bus published, got {row:?}"
+        )
+    });
+    assert_eq!(canonical.item_id, canonicalized.1);
+    assert_eq!(canonical.source_hash, canonicalized.2);
+}
