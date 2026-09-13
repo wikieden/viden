@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="en" data-mode="dark" data-skin="aurora">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Viden D15 · Plan Studio</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="../../i18n.js"></script>
+<script src="../../chrome.js"></script>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<link rel="stylesheet" href="../../tokens.css">
+<link rel="stylesheet" href="../gui-kit.css">
+<style>
+/* Token 单一真源 → ../tokens.css;本页只用 var(--*)。窗口壳 / 标题栏 / 活动 rail /
+   状态栏 / composer 走 ../gui-kit.css;下面只写 D15 页面专属类(前缀 .ps*,
+   有意避开已登记族名 —— PROTO-STANDARD §5 撞名解法)。 */
+*{box-sizing:border-box;}
+body{margin:0;background:var(--page-bg);color:var(--fg-primary);font-family:var(--sans);-webkit-font-smoothing:antialiased;}
+.pwrap{max-width:1560px;margin:0 auto;padding:28px 24px 70px;}
+.pkicker{font-family:var(--mono);font-size:11.5px;font-weight:700;letter-spacing:2.5px;text-transform:uppercase;color:var(--accent);display:flex;align-items:center;gap:10px;margin-bottom:10px;}
+.pkicker::before{content:"";width:24px;height:2px;background:var(--accent);}
+.ph1{font-size:28px;margin:0 0 8px;letter-spacing:-.6px;}
+.ph1 .ac{color:var(--accent);}
+.plead{font-size:14px;color:var(--fg-secondary);margin:0 0 20px;max-width:960px;line-height:1.6;text-wrap:pretty;}
+.plead b{color:var(--fg-primary);font-weight:600;}
+.plead .mono{font-family:var(--mono);font-size:12.5px;color:var(--fg-muted);}
+
+.frame{height:892px;min-width:1220px;}
+.vbody{flex:1;display:grid;grid-template-columns:var(--rail-act) 1fr 330px;min-height:0;}
+
+/* ===== centre pane ===== */
+.psmain{min-width:0;min-height:0;display:flex;flex-direction:column;background:var(--bg-base);}
+
+/* top bar: mode + title + state picker */
+.pstop{flex:none;display:flex;align-items:center;gap:12px;padding:11px 18px;border-bottom:1px solid var(--border-soft);background:var(--bg-void);}
+.psmode{display:inline-flex;align-items:center;gap:7px;font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;border:1px solid;border-radius:6px;padding:4px 9px;cursor:pointer;min-height:26px;}
+.psmode.plan{color:var(--gold-bright);border-color:color-mix(in srgb,var(--gold) 48%,transparent);background:color-mix(in srgb,var(--gold) 9%,transparent);}
+.psmode.build{color:var(--accent-bright);border-color:var(--accent-dim);background:var(--bg-sel);}
+.psmode .pm2{color:var(--fg-muted);font-weight:500;letter-spacing:.4px;text-transform:none;}
+.pstitle{min-width:0;display:flex;flex-direction:column;gap:3px;}
+.pstitle .t1{font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.pstitle .t2{font-family:var(--mono);font-size:10px;color:var(--fg-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.pstop .sp{flex:1;}
+.psseg{display:flex;border:1px solid var(--border-soft);border-radius:8px;overflow:hidden;flex:none;}
+.psseg button{font-family:var(--mono);font-size:10.5px;padding:5px 11px;min-height:28px;background:var(--bg-panel);color:var(--fg-muted);border:none;border-right:1px solid var(--border-soft);cursor:pointer;}
+.psseg button:last-child{border-right:none;}
+.psseg button.on{background:var(--bg-sel);color:var(--accent-bright);}
+
+/* body */
+.psbody{flex:1;min-height:0;overflow:hidden auto;padding:14px 18px 16px;scrollbar-width:thin;scrollbar-color:var(--border) transparent;}
+.psbody::-webkit-scrollbar{width:6px;}.psbody::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px;}
+.psgoal{background:var(--bg-panel);border:1px solid var(--border-soft);border-radius:var(--r-md);padding:11px 14px;font-size:13px;line-height:1.6;color:var(--fg-secondary);margin-bottom:13px;}
+.psgoal b{color:var(--fg-primary);font-weight:600;}
+
+.pssecs{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:9px;}
+.pssec{background:var(--bg-panel);border:1px solid var(--border-soft);border-radius:var(--r-md);padding:10px 13px 11px;}
+.pssec h4{margin:0 0 6px;font-family:var(--mono);font-size:9.5px;font-weight:700;letter-spacing:1.3px;text-transform:uppercase;color:var(--accent);display:flex;align-items:center;gap:8px;}
+.pssec h4::after{content:"";flex:1;height:1px;background:var(--border-soft);}
+.pssec p{margin:0;font-size:12.5px;line-height:1.65;color:var(--fg-secondary);}
+.pssec p .mono{font-family:var(--mono);font-size:11.5px;color:var(--fg-muted);}
+
+.pshd{font-family:var(--mono);font-size:9.5px;font-weight:700;letter-spacing:1.3px;text-transform:uppercase;color:var(--fg-muted);display:flex;align-items:center;gap:9px;margin:16px 0 8px;}
+.pshd::after{content:"";flex:1;height:1px;background:var(--border-soft);}
+.pshd .ct{letter-spacing:0;text-transform:none;font-weight:400;color:var(--fg-faint);}
+
+.psstep{display:grid;grid-template-columns:18px 1fr auto;gap:4px 10px;align-items:baseline;background:var(--bg-panel);border:1px solid var(--border-soft);border-radius:var(--r-md);padding:9px 12px;margin-bottom:6px;}
+.psstep .sg{font-family:var(--mono);font-size:11px;text-align:center;}
+.psstep.done .sg{color:var(--success);}
+.psstep.wip .sg{color:var(--progress);}
+.psstep.todo .sg{color:var(--fg-faint);}
+.psstep .nm{font-size:12.5px;color:var(--fg-secondary);min-width:0;}
+.psstep.wip .nm,.psstep.done .nm{color:var(--fg-primary);}
+.psstep .stt{font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;border:1px solid var(--border-soft);border-radius:4px;padding:1px 6px;color:var(--fg-muted);white-space:nowrap;}
+.psstep.done .stt{color:var(--success);border-color:color-mix(in srgb,var(--success) 45%,transparent);}
+.psstep.wip .stt{color:var(--progress);border-color:color-mix(in srgb,var(--progress) 45%,transparent);}
+.psstep .meta{grid-column:2/4;display:flex;flex-wrap:wrap;gap:6px;font-family:var(--mono);font-size:9.5px;color:var(--fg-faint);}
+.psstep .meta .role{color:var(--accent);border:1px solid var(--accent-dim);border-radius:4px;padding:0 6px;}
+.psstep .meta .dep{color:var(--fg-muted);}
+
+.psempty{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;text-align:center;color:var(--fg-muted);}
+.psempty .eh{font-size:15px;font-weight:600;color:var(--fg-secondary);}
+.psempty .es{font-size:12.5px;max-width:420px;line-height:1.65;}
+.psempty .ek{font-family:var(--mono);font-size:11px;color:var(--fg-faint);border:1px solid var(--border-soft);border-radius:7px;padding:5px 11px;}
+
+/* decision row */
+.psdecide{flex:none;border-top:1px solid var(--border);background:var(--bg-void);}
+.psrefuse{display:flex;align-items:flex-start;gap:9px;padding:9px 18px;border-bottom:1px solid var(--border-soft);font-size:12px;line-height:1.55;background:color-mix(in srgb,var(--error) 7%,transparent);color:var(--fg-secondary);}
+.psrefuse .rk{flex:none;font-family:var(--mono);font-size:10px;font-weight:700;color:var(--error);border:1px solid color-mix(in srgb,var(--error) 45%,transparent);border-radius:5px;padding:1px 7px;margin-top:1px;}
+.psrefuse.soft{background:color-mix(in srgb,var(--gold) 8%,transparent);}
+.psrefuse.soft .rk{color:var(--gold-bright);border-color:color-mix(in srgb,var(--gold) 45%,transparent);}
+.pshand{display:flex;align-items:center;gap:9px;padding:9px 18px;border-bottom:1px solid var(--border-soft);font-family:var(--mono);font-size:11px;color:var(--fg-secondary);}
+.pshand .dg{color:var(--accent-bright);}
+.pshand .go{margin-left:auto;color:var(--accent);cursor:pointer;border:1px solid var(--accent-dim);border-radius:7px;padding:4px 11px;min-height:28px;display:inline-flex;align-items:center;}
+.pshand .go:hover{background:var(--bg-sel);}
+.psreason{display:flex;align-items:center;gap:10px;padding:9px 18px;border-bottom:1px solid var(--border-soft);}
+.psreason .inp{flex:1;background:var(--bg-base);border:1px solid var(--border);border-radius:8px;padding:7px 12px;font-family:var(--mono);font-size:11.5px;color:var(--fg-muted);}
+.psreason .lb{font-family:var(--mono);font-size:10px;color:var(--fg-faint);}
+.psacts{display:flex;align-items:center;gap:11px;padding:11px 18px;}
+.psacts .pin{font-family:var(--mono);font-size:9.5px;color:var(--fg-faint);line-height:1.6;}
+.psacts .pin b{color:var(--fg-muted);font-weight:600;}
+.psacts .sp{flex:1;}
+.psbtn{display:inline-flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:12.5px;font-weight:600;font-family:var(--sans);border-radius:8px;padding:7px 18px;min-height:34px;cursor:pointer;border:1px solid var(--border);color:var(--fg-secondary);background:transparent;}
+.psbtn:hover:not(:disabled){color:var(--fg-primary);border-color:var(--fg-muted);}
+.psbtn.reject{color:var(--error);border-color:color-mix(in srgb,var(--error) 40%,transparent);}
+.psbtn.reject:hover:not(:disabled){background:color-mix(in srgb,var(--error) 8%,transparent);}
+.psbtn.go{color:var(--on-accent);background:var(--accent);border-color:var(--accent);font-weight:700;}
+.psbtn.go:hover:not(:disabled){background:var(--accent-bright);border-color:var(--accent-bright);}
+.psbtn:disabled{opacity:.38;cursor:not-allowed;}
+.psbtn kbd{font-family:var(--mono);font-size:9px;opacity:.65;margin-left:6px;}
+.pswhy{font-family:var(--mono);font-size:9px;color:var(--fg-faint);font-weight:400;letter-spacing:.2px;}
+.psbtn.go .pswhy{color:var(--on-accent);opacity:.72;}
+
+/* queue line under the composer */
+.psqueue{display:flex;align-items:center;gap:8px;margin-top:8px;font-family:var(--mono);font-size:10px;color:var(--fg-faint);}
+.psqueue .qn{color:var(--accent);border:1px solid var(--accent-dim);border-radius:5px;padding:1px 7px;}
+
+/* ===== right rail ===== */
+.psrail{background:var(--bg-panel);border-left:1px solid var(--border-soft);display:flex;flex-direction:column;overflow:hidden auto;scrollbar-width:thin;scrollbar-color:var(--border) transparent;}
+.psrail::-webkit-scrollbar{width:6px;}.psrail::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px;}
+.psrail .rh{flex:none;padding:14px 16px 11px;border-bottom:1px solid var(--border-soft);}
+.psrail .rh .t1{font-size:13px;font-weight:700;display:flex;align-items:center;gap:8px;}
+.psrail .rh .t2{font-family:var(--mono);font-size:9.5px;color:var(--fg-muted);margin-top:5px;line-height:1.6;}
+.pssecthd{padding:12px 16px 3px;font-family:var(--mono);font-size:9.5px;font-weight:700;letter-spacing:1.3px;text-transform:uppercase;color:var(--accent);display:flex;align-items:center;gap:8px;}
+.pssecthd::after{content:"";flex:1;height:1px;background:var(--border-soft);}
+.pskv{display:flex;gap:10px;font-family:var(--mono);font-size:10.5px;padding:2.5px 16px;line-height:1.6;}
+.pskv .k{color:var(--fg-faint);width:82px;flex:none;}
+.pskv .v{color:var(--fg-secondary);min-width:0;overflow:hidden;text-overflow:ellipsis;}
+.pskv .v.hl{color:var(--fg-primary);font-weight:600;}
+.pskv .v .a{color:var(--accent-bright);}
+.pskv .v .g{color:var(--gold-bright);}
+.pskv .v .dim{color:var(--fg-faint);}
+.psroles{display:flex;flex-wrap:wrap;gap:6px;padding:6px 16px 4px;}
+.psrole{font-family:var(--mono);font-size:9.5px;color:var(--fg-secondary);border:1px solid var(--border-soft);border-radius:5px;padding:2px 8px;}
+.psrole b{color:var(--accent-bright);font-weight:700;}
+.psnote{margin-top:auto;border-top:1px solid var(--border-soft);padding:12px 16px;font-family:var(--mono);font-size:9.5px;color:var(--fg-faint);line-height:1.8;}
+.psnote .a{color:var(--accent);}
+</style>
+</head>
+<body>
+<div class="pwrap">
+  <div id="root"></div>
+</div>
+
+<script type="text/babel" src="../../tweaks-panel.jsx"></script>
+<script type="text/babel" src="../gui-icons.jsx"></script>
+<script type="text/babel" src="../gui-statusbar.jsx"></script>
+<script type="text/babel" src="../gui-titlebar.jsx"></script>
+<script type="text/babel">
+const {useState} = React;
+const t = window.t || ((en,zh)=>en);
+
+/* ════════════════════════════════════════════════════════════════
+ * D15 Plan Studio —— 驾驶舱中央面(D1 chrome 保留 · SPEC D-RAILNAV/D-PLANBOARD)
+ *
+ * 控件 → Core 事实映射(0.3.5 契约设计「Design Package Inputs」表 · runtime.plan_documents):
+ *   模式徽标        → WorkMode / PermissionMode::Plan          (永不缺席)
+ *   七类 section    → PlanDocumentRecord.sections              (缺席 = no plan proposed)
+ *   步骤 + 状态     → PlanDocumentRecord.steps(PlanStepStatus) (同上)
+ *   修订 + 作者     → revision / proposed_by(PlanAuthor)       (同上)
+ *   Accept/Reject   → AcceptPlanDocument / RejectPlanDocument  (非 Proposed 即 disabled)
+ *   Hand off        → HandOffPlanDocument                      (非 Accepted 即 disabled;
+ *                                                              Plan 模式下标「refused in plan mode」)
+ *   handoff 链接    → handoff.dag_id → D13 Fleet & Workflow    (未移交前不存在)
+ *   composer + 队列 → 既有 composer / queued_inputs            (既有能力)
+ * 决策是钉住的:Accept/Reject 带 revision + content_sha256;不匹配 = CommandRejected
+ * plan_revision_stale(下面 'stale' 状态就是它)。Hand off 是唯一 mutation,
+ * Plan 模式拒绝(reason plan_mode)—— 切到 Build 才放行,这是显式操作者动作、不自动执行。
+ * ════════════════════════════════════════════════════════════════ */
+
+/* 活动 rail = 路由器(D-RAILNAV)。plan = 本屏;robot = D16 Agent Board。 */
+const RAIL = [['chat','Conversation'],['plan','Plan Studio'],['lanes','Lane monitor'],['robot','Agent Board'],['fleet','Fleet & Workflow'],['decide','Decision Center']];
+
+function VRail({on}){
+  return (
+    <div className="act">
+      {RAIL.map(([k,lbl])=>(
+        <div key={k} className={"actbtn "+(k===on?'on':'')} title={lbl}>{ICONS[k]}
+          {k==='decide'&&<span className="badge" style={{background:'var(--gold)'}}>2</span>}
+        </div>
+      ))}
+      <div className="actspacer"></div>
+      <div className="actbtn" title="Settings">{ICONS.settings}</div>
+    </div>
+  );
+}
+
+/* 七类 section 的顺序 = PlanSectionKind 的声明顺序（UI 只映射不重排） */
+const SECTIONS = () => [
+  ['Requirements','需求', t('An empty or unreadable config returns Err(Empty) instead of panicking. The CLI prints the path it tried.','空文件或读不出的 config 返回 Err(Empty),不再 panic。CLI 打印它尝试过的路径。')],
+  ['Assumptions','假设', t('viden.toml stays the only config file this release. No schema change, no new key.','本次发布 viden.toml 仍是唯一配置文件。不改 schema,不加新键。')],
+  ['Constraints','约束', t('No new dependency. The loader stays synchronous and its public signature does not change.','不引入新依赖。loader 保持同步,公开签名不变。')],
+  ['Architecture decisions','架构决策', t('Add Empty as a ConfigError variant rather than a boolean flag, so callers keep one exhaustive match.','Empty 作为 ConfigError 的一个变体,而不是布尔标志 —— 调用方仍只有一处穷尽匹配。')],
+  ['Risks','风险', t('Callers that match ConfigError exhaustively will not compile until the new arm lands. Two of them are in viden-cli.','穷尽匹配 ConfigError 的调用方在新分支落地前编译不过。其中两处在 viden-cli。')],
+  ['Test strategy','测试策略', t('Unit tests for empty, missing and malformed input, plus one CLI smoke test that asserts the printed path.','对空 / 缺失 / 格式错三种输入做单测,外加一条断言打印路径的 CLI 冒烟。')],
+  ['Acceptance criteria','验收标准', t('cargo test -p viden-cli config_tests green, no unwrap left on the read path, docs updated in both languages.','cargo test -p viden-cli config_tests 全绿,读路径上无 unwrap,中英文档同步更新。')],
+];
+
+/* 步骤 = PlanDocumentRecord.steps；status ∈ {completed,in_progress,pending}，
+   dependencies 是本 plan 内的 step id —— 移交时按同名依赖映射成 DAG 任务边。 */
+const STEPS = () => [
+  {id:'step_1', nm:t('Add ConfigError::Empty','新增 ConfigError::Empty'), st:'done', role:'coder', scope:'crates/config/src/error.rs', dep:[]},
+  {id:'step_2', nm:t('Return Err(Empty) from ConfigLoader::load','ConfigLoader::load 返回 Err(Empty)'), st:'wip', role:'coder', scope:'crates/config/src/lib.rs', dep:['step_1']},
+  {id:'step_3', nm:t('Unit tests: empty / missing / malformed','单测:空 / 缺失 / 格式错'), st:'todo', role:'tester', scope:'crates/config/tests/config_tests.rs', dep:['step_2']},
+  {id:'step_4', nm:t('Update the two exhaustive matches in viden-cli','更新 viden-cli 里两处穷尽匹配'), st:'todo', role:'coder', scope:'apps/cli/src/main.rs', dep:['step_1']},
+  {id:'step_5', nm:t('Docs: config.md + config.zh-CN.md','文档:config.md + config.zh-CN.md'), st:'todo', role:'doc-writer', scope:'docs/config.md', dep:['step_2']},
+  {id:'step_6', nm:t('Review and submit to the integration gate','评审并提交集成闸'), st:'todo', role:'reviewer', scope:'—', dep:['step_3','step_4','step_5']},
+];
+const SG = {done:'✓', wip:'▶', todo:'◌'};
+const SLB = () => ({done:t('completed','已完成'), wip:t('in progress','进行中'), todo:t('pending','待办')});
+
+/* 五个视图态。前三个是 PlanDocumentStatus 的真实取值;stale = 客户端拿着旧 revision
+   去决策被 Core 拒(plan_revision_stale);empty = 该 owner 名下没有 plan。 */
+const VIEWS = () => [
+  ['proposed', t('Proposed','已提议')],
+  ['accepted', t('Accepted','已接受')],
+  ['handed',   t('Handed off','已移交')],
+  ['stale',    t('Stale revision','修订过期')],
+  ['empty',    t('No plan','无计划')],
+];
+
+function App(){
+  const [view,setView]=useState('proposed');
+  const [mode,setMode]=useState('plan');      // plan | build —— Hand off 只在 Build 放行
+  const [reason,setReason]=useState(false);   // Reject with reason 的理由输入行
+  const [tw,setTweak]=useTweaks(/*EDITMODE-BEGIN*/{
+    "showRail": true
+  }/*EDITMODE-END*/);
+
+  const empty = view==='empty';
+  const stale = view==='stale';
+  const handed = view==='handed';
+  const accepted = view==='accepted';
+  const proposed = view==='proposed';
+  /* Hand off = 唯一 mutation;Plan 模式下 Core 以 reason plan_mode 拒绝 */
+  const handBlockedByMode = mode==='plan';
+  const canDecide = proposed;
+  const canHand = accepted && !handBlockedByMode;
+
+  const rev = stale ? 1 : 2;
+  const sha = stale ? '4a90…0c17' : '7c1f…b204';
+  const status = empty ? '—' : handed ? 'HandedOff' : accepted ? 'Accepted' : 'Proposed';
+  const steps = STEPS(), slb = SLB();
+  const doneN = steps.filter(s=>s.st==='done').length;
+
+  return (
+    <div>
+      <div className="pkicker">viden · D15 concept · draft 01</div>
+      <h1 className="ph1">{t('Plan Studio','规划工作台')} <span className="ac">{t('read the plan, decide, then hand it to work','读计划 · 做决定 · 再交给工作')}</span></h1>
+      <p className="plead">{t('Plan Studio is a ','规划工作台是一个')}<b>{t('centre-pane view of the cockpit','驾驶舱的中央面')}</b>{t(', not a second app: the titlebar, the activity rail and the statusbar stay (D-RAILNAV). Every control on it maps to a fact of ','，不是第二个应用：标题栏 / 活动 rail / 状态栏都在（D-RAILNAV）。面上每个控件都映射到 ')}<span className="mono">runtime.plan_documents</span>{t(' — sections, steps, revision and author are read; Accept, Reject with reason and Hand off are the three commands. Decisions are pinned to the revision and its content hash, so a stale view is refused (','的一条事实 —— section / 步骤 / 修订 / 作者是读，Accept、附理由 Reject、Hand off 是三条命令。决策钉住 revision 与内容哈希，看的是旧版就会被拒（')}<span className="mono">plan_revision_stale</span>{t('). Hand off is the only mutation, and plan mode refuses it (','）。Hand off 是唯一的 mutation，Plan 模式会拒绝它（')}<span className="mono">plan_mode</span>{t(') — plan-to-build is always an explicit operator action. Use the picker to walk the states.','）—— 计划转工作永远是显式的操作者动作。用右上角切换器逐个看这些状态。')}</p>
+
+      <div className="frame" data-screen-label="Plan Studio 中央面">
+        <GuiTitleBar project={t('viden','viden')} branch="vd/config-loader" worktrees={4} tools={['palette','focus','popout','|','index','settings']}/>
+
+        <div className="vbody">
+          {tw.showRail && <VRail on="plan"/>}
+
+          <div className="psmain">
+            <div className="pstop" data-screen-label="模式与状态切换">
+              <span className={"psmode "+(mode==='plan'?'plan':'build')} onClick={()=>setMode(mode==='plan'?'build':'plan')}
+                    title={t('Switch work mode','切换工作模式')}>
+                {mode==='plan'?'PLAN':'BUILD'}
+                <span className="pm2">{mode==='plan'?t('Read Only','只读'):t('Ask','逐次询问')}</span>
+              </span>
+              <div className="pstitle">
+                <span className="t1">{empty?t('No plan open','没有进行中的计划'):t('config loader · fail closed on empty file','config 加载 · 空文件直接失败')}</span>
+                <span className="t2">{empty?t('lane L1 · session s1','lane L1 · 会话 s1'):'L1 · s1 · rev '+rev+' · sha '+sha}</span>
+              </div>
+              <span className="sp"></span>
+              <div className="psseg">
+                {VIEWS().map(([k,lbl])=>(
+                  <button key={k} data-view={k} className={view===k?'on':''} onClick={()=>{setView(k);setReason(false);}}>{lbl}</button>
+                ))}
+              </div>
+            </div>
+
+            {empty ? (
+              <div className="psbody" data-screen-label="空态">
+                <div className="psempty">
+                  <div className="eh">{t('No plan proposed','尚无计划提议')}</div>
+                  <div className="es">{t('Nothing has been proposed for this lane. Ask in Plan mode and the planner writes one; it appears here the moment the first revision is proposed.','这条 lane 名下还没有任何提议。在 Plan 模式里提问,规划者会写一份;第一版提议一落地就出现在这里。')}</div>
+                  <div className="ek">{t('Plan mode blocks file, shell, Git, memory and task mutations.','Plan 模式阻断文件 / shell / Git / 记忆 / 任务的写入。')}</div>
+                </div>
+              </div>
+            ) : (
+              <div className="psbody" data-screen-label="计划正文">
+                <div className="psgoal"><b>{t('Goal','目标')} · </b>{t('Make the config loader fail closed on an empty or unreadable file, and cover that behavior with tests, without changing its public signature.','让 config loader 在空文件或读不出时失败关闭,并用测试覆盖这个行为,同时不改它的公开签名。')}</div>
+
+                <div className="pssecs">
+                  {SECTIONS().map(([en,zh,body])=>(
+                    <div className="pssec" key={en}><h4>{t(en,zh)}</h4><p>{body}</p></div>
+                  ))}
+                </div>
+
+                <div className="pshd">{t('Steps','步骤')} <span className="ct">{doneN} / {steps.length} {t('completed','已完成')}</span></div>
+                {steps.map(s=>(
+                  <div className={"psstep "+s.st} key={s.id}>
+                    <span className="sg">{SG[s.st]}</span>
+                    <span className="nm">{s.nm}</span>
+                    <span className="stt">{slb[s.st]}</span>
+                    <span className="meta">
+                      <span className="role">{s.role}</span>
+                      <span>{s.id}</span>
+                      <span>{s.scope}</span>
+                      {s.dep.length>0 && <span className="dep">{t('after','依赖')} {s.dep.join(' · ')}</span>}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="psdecide" data-screen-label="决策行">
+              {stale && (
+                <div className="psrefuse">
+                  <span className="rk">plan_revision_stale</span>
+                  <span>{t('Refused. You are looking at revision 1; the planner has since proposed revision 2. Reload the plan, read what changed, then decide again — a decision always carries the revision and hash you saw.','已拒绝。你看的是第 1 版,规划者之后已提议第 2 版。重新载入、读过改动再决定 —— 决策永远带上你当时看到的修订号与哈希。')}</span>
+                </div>
+              )}
+              {accepted && handBlockedByMode && (
+                <div className="psrefuse soft">
+                  <span className="rk">plan_mode</span>
+                  <span>{t('Hand off is refused in plan mode. The plan is accepted and waits; switch to Build to turn it into work.','Plan 模式下拒绝移交。计划已接受、原地等待;切到 Build 才能把它变成工作。')}</span>
+                </div>
+              )}
+              {handed && (
+                <div className="pshand">
+                  <span>{t('Handed off to','已移交给')}</span><span className="dg">dag_7f21</span>
+                  <span>· 6 {t('tasks','个任务')} · {t('audit','审计')} a-0412</span>
+                  <span className="go">{t('Open in Fleet & Workflow','在 Fleet 编排里打开')} ↗</span>
+                </div>
+              )}
+              {reason && (
+                <div className="psreason">
+                  <span className="lb">{t('Reason','理由')}</span>
+                  <span className="inp">{t('Section "Risks" misses the two exhaustive matches in the TUI client…','「风险」一节漏了 TUI 客户端里那两处穷尽匹配…')}</span>
+                  <span className="lb">{t('recorded with the decision','随决策一并记录')}</span>
+                </div>
+              )}
+              <div className="psacts">
+                <div className="pin">
+                  {empty ? t('Nothing to decide yet.','暂无可决策的内容。')
+                         : <React.Fragment><b>{t('Decision pinned to','决策钉住')}</b> rev {rev} · sha {sha}</React.Fragment>}
+                </div>
+                <span className="sp"></span>
+                <button className="psbtn reject" disabled={!canDecide} onClick={()=>setReason(!reason)}>
+                  {t('Reject with reason','附理由驳回')}
+                </button>
+                <button className="psbtn" disabled={!canHand} title={handBlockedByMode?t('refused in plan mode','Plan 模式下被拒绝'):''}>
+                  {t('Hand off','移交')}
+                  {!canHand && <span className="pswhy">{handed?t('already handed off','已经移交过'):accepted?t('refused in plan mode','Plan 模式下被拒绝'):t('available after Accept','接受之后才可用')}</span>}
+                </button>
+                <button className="psbtn go" disabled={!canDecide}>
+                  {t('Accept','接受')}<kbd>⌘⏎</kbd>
+                  {!canDecide && <span className="pswhy">{stale?t('reload first','先重新载入'):handed?t('decision recorded','决策已记录'):accepted?t('decision recorded','决策已记录'):t('no plan','无计划')}</span>}
+                </button>
+              </div>
+            </div>
+
+            <div className="composer" data-screen-label="输入区与队列">
+              <div className="cbox">
+                <span className="pr">{'›'}</span>
+                <span className="tx">{empty?t('Ask for a plan — the planner writes it with update_plan…','让它出一份计划 —— 规划者用 update_plan 写…'):t('Add a constraint while the planner is still writing…','规划者还在写时,继续补一条约束…')}</span>
+                <button className="snd">{'↑'}</button>
+              </div>
+              <div className="psqueue">
+                {!empty && <span className="qn">2 {t('queued','排队')}</span>}
+                <span>{empty?t('nothing queued · the composer stays editable in plan mode','队列为空 · Plan 模式下输入框照常可编辑'):t('sent in order when this turn ends · the composer stays editable while planning runs','本轮结束后按序发出 · 规划进行中输入框始终可编辑')}</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="psrail" data-screen-label="计划记录详情">
+            <div className="rh">
+              <div className="t1">{t('Plan record','计划记录')}</div>
+              <div className="t2">{empty?t('no record for this owner','该归属下无记录'):t('one open plan per owner · every revision is a durable fact','每个归属同时只有一份进行中的计划 · 每版修订都是持久事实')}</div>
+            </div>
+
+            <div className="pssecthd">{t('Record','记录')}</div>
+            <div className="pskv"><span className="k">plan</span><span className="v">{empty?<span className="dim">—</span>:'plan_01j9d3…'}</span></div>
+            <div className="pskv"><span className="k">owner</span><span className="v">{t('lane L1 · session s1','lane L1 · 会话 s1')}</span></div>
+            <div className="pskv"><span className="k">status</span><span className="v hl">{status}</span></div>
+            {/* 右栏 = Core 持有的记录本身;上方标题与决策钉住的是「你正看的那一版」——
+                stale 态两者有意不同(你看 rev 1,Core 已到 rev 2),这正是拒绝的理由。 */}
+            <div className="pskv"><span className="k">revision</span><span className="v">{empty?<span className="dim">—</span>:2}</span></div>
+            <div className="pskv"><span className="k">content sha</span><span className="v">{empty?<span className="dim">—</span>:'7c1f…b204'}</span></div>
+            <div className="pskv"><span className="k">proposed by</span><span className="v">{empty?<span className="dim">—</span>:<React.Fragment><span className="a">{t('assistant','助手')}</span> · turn t-0f3a</React.Fragment>}</span></div>
+            <div className="pskv"><span className="k">created</span><span className="v">{empty?<span className="dim">—</span>:'13:58'}</span></div>
+            <div className="pskv"><span className="k">updated</span><span className="v">{empty?<span className="dim">—</span>:'14:21'}</span></div>
+            <div className="pskv"><span className="k">decided</span><span className="v">{(accepted||handed)?<React.Fragment>14:24 · <span className="g">a-0409</span></React.Fragment>:<span className="dim">—</span>}</span></div>
+            <div className="pskv"><span className="k">handoff</span><span className="v">{handed?<React.Fragment><span className="a">dag_7f21</span> · 6 {t('tasks','任务')}</React.Fragment>:<span className="dim">—</span>}</span></div>
+
+            <div className="pssecthd">{t('Steps by role','步骤按角色')}</div>
+            <div className="psroles">
+              {empty ? <span className="psrole">{t('none','无')}</span> : (
+                [['coder',3],['tester',1],['doc-writer',1],['reviewer',1]].map(([r,n])=>(
+                  <span className="psrole" key={r}>{r} <b>{'×'+n}</b></span>
+                ))
+              )}
+            </div>
+
+            {!empty && <React.Fragment>
+              <div className="pssecthd">{t('Revisions','修订')}</div>
+              <div className="pskv"><span className="k">rev 2</span><span className="v">{t('current · 14:21','当前 · 14:21')}</span></div>
+              <div className="pskv"><span className="k">rev 1</span><span className="v dim">{t('superseded · 14:02','被取代 · 14:02')}</span></div>
+            </React.Fragment>}
+
+            <div className="psnote">
+              {t('Accepting or rejecting writes an audit row before the decision is announced. Handing off builds one task per step, keeps the dependencies, and runs the DAG Core already owns — the plan never executes itself.','接受或驳回会先写一条审计行,再宣布决策。移交时每个步骤生成一个任务、保留依赖,交给 Core 已有的 DAG 去跑 —— 计划自己永远不会执行。')}
+            </div>
+          </div>
+        </div>
+
+        <GuiStatusBar right={empty?t('no plan','无计划'):handed?t('plan handed off','计划已移交'):t('plan · rev 2 awaiting you','计划 · 第 2 版等你')}/>
+      </div>
+
+      <TweaksPanel>
+        <TweakSection label={t('Layout','布局')} />
+        <TweakToggle label={t('Show activity rail','显示活动 rail')} value={tw.showRail} onChange={v=>setTweak('showRail',v)} />
+      </TweaksPanel>
+    </div>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>

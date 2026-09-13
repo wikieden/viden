@@ -35,6 +35,9 @@
     lanes: S(<g><path d="M4 5v14M12 5v14M20 5v14" strokeDasharray="3 3"/><circle cx="4" cy="10" r="2.2"/><circle cx="12" cy="14" r="2.2"/><circle cx="20" cy="8" r="2.2"/></g>),
     review: S(<path d="M9 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h4M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M12 4v16"/>),
     decide: S(<path d="M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>),
+    /* plan = 步骤清单（首项已勾、其余待办）—— D15 Plan Studio 的 rail 目的地。
+       刻意不画成第二个剪贴板：decide 已占「剪贴板 + 勾」，本图形讲的是 steps 本身。 */
+    plan: S(<g><path d="M3.2 6.4l1.7 1.7L8.4 4.6"/><path d="M3.4 12.6h2.2M3.4 18.6h2.2"/><path d="M11 6.4h9.6M11 12.6h9.6M11 18.6h6.2"/></g>),
     fleet: S(<g><circle cx="12" cy="5" r="2.4"/><circle cx="5" cy="19" r="2.2"/><circle cx="12" cy="19" r="2.2"/><circle cx="19" cy="19" r="2.2"/><path d="M12 7.4v4M12 11.4L5.6 16.8M12 11.4l6.4 5.4M12 11.4V17"/></g>),
     evidence: S(<g><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 13h6M9 17h4"/></g>),
     diagnostics: S(<path d="M3 12h4l3 8 4-16 3 8h4"/>),
