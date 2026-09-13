@@ -57,19 +57,262 @@ jobs:
             dist/viden-${{ github.event.inputs.tag }}-${{ matrix.target }}.tar.gz.sha256
           if-no-files-found: error
 
+  gui-bundle:
+    name: GUI bundle ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            bundles: app,dmg
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            bundles: app,dmg
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            bundles: msi,nsis
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            bundles: deb,appimage
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: apps/gui/package-lock.json
+
+      # Tauri v2 on Linux needs WebKitGTK 4.1 plus the tray, SVG, and ELF
+      # rewriting tools the deb and AppImage bundlers shell out to. Without
+      # patchelf the AppImage bundler fails after a full release compile.
+      - name: Install Linux bundle dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libxdo-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      # The GUI version is the one the bundle carries, and it comes from the
+      # dispatched ref's tauri.conf.json. The `tag` input labels the CLI
+      # archives only; the two version lines move independently.
+      - name: Read the GUI version
+        id: gui
+        shell: bash
+        run: |
+          version="$(node -p "require('./apps/gui/src-tauri/tauri.conf.json').version")"
+          printf 'version=%s\n' "$version" >>"$GITHUB_OUTPUT"
+
+      - name: Install frontend dependencies
+        run: npm --prefix apps/gui ci
+
+      # Reports only whether the signing and notarization secrets exist. No
+      # secret value is ever printed, written to a file, or exported to
+      # $GITHUB_ENV; the build step below receives them directly.
+      - name: Detect the macOS signing secrets
+        id: signing
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          sign=false
+          notarize=false
+          if [ -n "$APPLE_CERTIFICATE" ] \
+            && [ -n "$APPLE_CERTIFICATE_PASSWORD" ] \
+            && [ -n "$APPLE_SIGNING_IDENTITY" ]; then
+            sign=true
+          fi
+          if [ "$sign" = true ] \
+            && [ -n "$APPLE_ID" ] \
+            && [ -n "$APPLE_PASSWORD" ] \
+            && [ -n "$APPLE_TEAM_ID" ]; then
+            notarize=true
+          fi
+          printf 'sign=%s\n' "$sign" >>"$GITHUB_OUTPUT"
+          printf 'notarize=%s\n' "$notarize" >>"$GITHUB_OUTPUT"
+
+      # One build step for every platform. On macOS the Apple variables are
+      # passed through only when the matching secrets exist; empty values make
+      # the Tauri bundler skip signing and notarization and emit an ad-hoc
+      # bundle, which the job summary then states.
+      - name: Build the GUI bundle
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ steps.signing.outputs.sign == 'true' && secrets.APPLE_CERTIFICATE || '' }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ steps.signing.outputs.sign == 'true' && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
+          APPLE_SIGNING_IDENTITY: ${{ steps.signing.outputs.sign == 'true' && secrets.APPLE_SIGNING_IDENTITY || '' }}
+          APPLE_ID: ${{ steps.signing.outputs.notarize == 'true' && secrets.APPLE_ID || '' }}
+          APPLE_PASSWORD: ${{ steps.signing.outputs.notarize == 'true' && secrets.APPLE_PASSWORD || '' }}
+          APPLE_TEAM_ID: ${{ steps.signing.outputs.notarize == 'true' && secrets.APPLE_TEAM_ID || '' }}
+        run: npm --prefix apps/gui run tauri -- build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+
+      - name: Collect the bundles
+        id: collect
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+          GUI_VERSION: ${{ steps.gui.outputs.version }}
+        run: |
+          set -euo pipefail
+          bundle_root="target/$TARGET/release/bundle"
+          out_dir="dist/gui/$TARGET"
+          rm -rf "$out_dir"
+          mkdir -p "$out_dir"
+
+          case "$RUNNER_OS" in
+            macOS)
+              app="$bundle_root/macos/Viden.app"
+              # The bundler emits a directory, which no release asset can be.
+              # ditto with --keepParent preserves the bundle structure and the
+              # resource forks a later codesign verification depends on.
+              ditto -c -k --sequesterRsrc --keepParent \
+                "$app" "$out_dir/Viden-$GUI_VERSION-$TARGET.app.zip"
+              # The Mach-O inside the bundle is the reproducible identity of a
+              # build; the zip and the .dmg are per-build containers whose
+              # timestamps and volume UUID change every time.
+              cp "$app/Contents/MacOS/viden-gui" \
+                "$out_dir/.viden-gui-$TARGET.bin"
+              cp "$bundle_root"/dmg/*.dmg "$out_dir/"
+              ;;
+            Windows)
+              cp "$bundle_root"/msi/*.msi "$out_dir/"
+              cp "$bundle_root"/nsis/*.exe "$out_dir/"
+              ;;
+            Linux)
+              cp "$bundle_root"/deb/*.deb "$out_dir/"
+              cp "$bundle_root"/appimage/*.AppImage "$out_dir/"
+              ;;
+          esac
+
+          printf 'out_dir=%s\n' "$out_dir" >>"$GITHUB_OUTPUT"
+          ls -l "$out_dir"
+
+      - name: Checksum the bundles
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+          OUT_DIR: ${{ steps.collect.outputs.out_dir }}
+        run: |
+          set -euo pipefail
+          sha256() {
+            if command -v shasum >/dev/null 2>&1; then
+              shasum -a 256 "$@"
+            else
+              sha256sum "$@"
+            fi
+          }
+          sums="SHA256SUMS-gui-$TARGET"
+          (
+            cd "$OUT_DIR"
+            : >"$sums"
+            for file in *; do
+              case "$file" in
+                "$sums"|.*) continue ;;
+              esac
+              sha256 "$file" >>"$sums"
+            done
+            # P1 finding 3: the .app zip and the .dmg are not byte-reproducible,
+            # so the embedded binary's digest is published beside them as the
+            # identifier that is. The temporary copy is removed afterwards so
+            # it never becomes a release asset of its own.
+            if [ -f ".viden-gui-$TARGET.bin" ]; then
+              sha256 ".viden-gui-$TARGET.bin" \
+                | sed "s|\.viden-gui-$TARGET\.bin|Viden.app/Contents/MacOS/viden-gui|" \
+                >>"$sums"
+              rm -f ".viden-gui-$TARGET.bin"
+            fi
+            cat "$sums"
+          )
+
+      - name: Write the job summary
+        if: always()
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+          BUNDLES: ${{ matrix.bundles }}
+          GUI_VERSION: ${{ steps.gui.outputs.version }}
+          OUT_DIR: ${{ steps.collect.outputs.out_dir }}
+          SIGN: ${{ steps.signing.outputs.sign }}
+          NOTARIZE: ${{ steps.signing.outputs.notarize }}
+        run: |
+          {
+            printf '## GUI bundle `%s`\n\n' "$TARGET"
+            printf -- '- version: `%s` (from `apps/gui/src-tauri/tauri.conf.json`)\n' "$GUI_VERSION"
+            printf -- '- bundles: `%s`\n' "$BUNDLES"
+            if [ "$RUNNER_OS" = "macOS" ]; then
+              if [ "$SIGN" = "true" ]; then
+                printf -- '- signing: Developer ID identity from repository secrets\n'
+              else
+                printf -- '- signing: **ad-hoc only** — the Apple signing secrets are absent, so the bundle is linker-signed and Gatekeeper will quarantine it\n'
+              fi
+              if [ "$NOTARIZE" = "true" ]; then
+                printf -- '- notarization: submitted with the repository Apple ID\n'
+              else
+                printf -- '- notarization: **not run** — notarization credentials are absent\n'
+              fi
+              printf -- '- reproducibility: the `Viden.app/Contents/MacOS/viden-gui` digest is the build identity; the `.app.zip` and `.dmg` digests are per-build identifiers only\n'
+            fi
+            printf '\n'
+            if [ -d "${OUT_DIR:-}" ]; then
+              printf '```\n'
+              cat "$OUT_DIR/SHA256SUMS-gui-$TARGET"
+              printf '```\n'
+            else
+              printf 'No bundle was produced.\n'
+            fi
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: viden-gui-${{ steps.gui.outputs.version }}-${{ matrix.target }}
+          path: dist/gui/${{ matrix.target }}/*
+          if-no-files-found: error
+
   upload-release:
     name: Upload to GitHub release
-    needs: build
+    needs: [build, gui-bundle]
     if: ${{ github.event.inputs.upload_to_release == 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
 
     steps:
+      # merge-multiple flattens every matrix artifact into one directory: the
+      # CLI archives and their .sha256 siblings from `build`, and the GUI
+      # bundles plus their SHA256SUMS-gui-<target> files from `gui-bundle`.
+      # Every name already carries its target, so nothing collides.
       - uses: actions/download-artifact@v8
         with:
           path: dist-upload
           merge-multiple: true
+
+      - name: List the assets to upload
+        run: ls -l dist-upload
 
       - name: Upload assets
         env:

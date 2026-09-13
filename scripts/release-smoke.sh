@@ -282,8 +282,17 @@ assets = release.get("assets", [])
 names = {asset.get("name", "") for asset in assets}
 if release.get("isDraft") or release.get("isPrerelease"):
     raise SystemExit("release must not be draft or prerelease")
+# `viden-v` is the CLI/TUI archive from the `build` matrix. The remaining
+# prefixes are the GUI bundles from the `gui-bundle` matrix added in 0.3.5:
+# `Viden-<version>-<target>.app.zip`, `Viden_<version>_<arch>.dmg`,
+# `Viden_<version>_x64_en-US.msi`, `Viden_<version>_x64-setup.exe`,
+# `Viden_<version>_amd64.deb`, `Viden_<version>_amd64.AppImage`, and one
+# `SHA256SUMS-gui-<target>` per GUI target.
 expected_prefixes = [
     "viden-v",
+    "Viden-",
+    "Viden_",
+    "SHA256SUMS-gui-",
 ]
 if len(assets) < 2:
     raise SystemExit("expected release assets and sha256 files")
@@ -294,11 +303,22 @@ if missing:
     raise SystemExit(f"missing checksum assets: {missing}")
 if not all(any(name.startswith(prefix) for prefix in expected_prefixes) for name in names):
     raise SystemExit("unexpected asset naming")
+gui_bundle_suffixes = (".app.zip", ".dmg", ".msi", "-setup.exe", ".deb", ".AppImage")
+gui_bundles = {name for name in names if name.endswith(gui_bundle_suffixes)}
+gui_checksums = {name for name in names if name.startswith("SHA256SUMS-gui-")}
+# A GUI bundle without its checksum file is unverifiable, so the pair is
+# required in the same direction as the CLI archive/.sha256 pair above.
+if gui_bundles and not gui_checksums:
+    raise SystemExit("GUI bundles present without any SHA256SUMS-gui-<target> asset")
+if gui_checksums and not gui_bundles:
+    raise SystemExit("SHA256SUMS-gui-<target> present without any GUI bundle")
 print(json.dumps({
     "tag": release.get("tagName"),
     "url": release.get("url"),
     "asset_count": len(assets),
     "tarballs": sorted(tarballs),
+    "gui_bundles": sorted(gui_bundles),
+    "gui_checksums": sorted(gui_checksums),
 }, ensure_ascii=False))
 PY
 }
