@@ -133,6 +133,45 @@ byte-identical to `manifests/0.1.0-rc.5.toml`, so the wording is corrected by
 the next GUI version bump, not here. This pass closed nothing: re-dating is not
 closure.
 
+Status note 2026-09-13 (G9): 019 is closed **on the client side for the GUI**.
+The permission dock sends `Allow { scope: Always }` wherever Core offered the
+scope and renders Core's own `scope_not_offered` where it did not; `Shift+A`
+returns to the Always tier `D-PERM` assigns it; Edit opens an inline field over
+the tool input and sends `Edit { revised_input }`; a request carrying
+`revised_from` renders linked to the one it replaces; and the standing rules an
+Always grant installs are listed in the settings panel with a Revoke and a D14
+link. 019 stays OPEN as a *TUI* adoption item until T4 lands `a` and `e` in the
+decision modal.
+
+030 does **not** close on the client side, and the reason is a new entry rather
+than a gap in this batch: `viden-core` re-exports `StarterLaneRequest`,
+`StarterLanePreview` and `StarterLaneReceipt` but neither
+`StarterLaneAgentBinding` nor `StarterLaneSessionOutcome`, which are the types
+their new fields are made of, and the GUI may import only `viden-core`. The
+binding therefore cannot be constructed and the receipt's outcome cannot be
+matched on. Opened as GUI-CORE-036. The D4 wizard's step 2 was re-worded rather
+than left stale: it said "Core's StarterLaneRequest carries no agent", which
+stopped being true when C15 landed, and now says Core does carry one and which
+request blocks the pick.
+
+034 closes on **both** sides: `viden-core` re-exports
+`MAX_PLAN_REJECT_REASON_BYTES` on this base, and
+`apps/gui/src-tauri/src/plan.rs` no longer mirrors `2 * 1024` — the bound
+travels from Core's own constant through the projection, which is the layer the
+architecture boundary lets hold Core types.
+
+035 is opened by this batch. Offering Edit at all requires the tool input's
+key/value pairs, and Core publishes only `input_preview`, its own rendering of
+them. The host recovers the pairs from that rendering, exactly and fail-closed;
+a preview that does not parse withdraws the Edit control and names the entry.
+
+The open register is therefore 013, 018, 019, 021, 023, 026, 030, 031, 032,
+033, 035 and 036 — twelve entries — with 034 closed. `apps/gui/release-manifest.toml`
+still records `[contract_requests] open_count = 10`: it is the frozen
+`0.1.0-rc.5` manifest and is asserted byte-identical to
+`manifests/0.1.0-rc.5.toml`, so the count moves at the next GUI version bump,
+not here — the same rule H3 recorded on 2026-09-13.
+
 ## GUI-CORE-008: Selected-Lane context scope — CLOSED
 
 History: Core `0.3.5` exposed `RuntimeViewState.context_budgets`, but the
@@ -604,10 +643,22 @@ where it was not offered is `CommandRejected` with `scope_not_offered`. Fixture
 `approval-scopes.json`; contract in
 `docs/frontend-integration-contract.md`, "Approval Scopes".
 
-Client side stays open. The GUI's permission dock still renders Always and Edit
-as `GUI-CORE-003` placeholders and `Shift+A` still sits on `repo_allowlist`;
-both go live in GUI batch G9, and the TUI decision modal gains `a` and `e` in
-batch T4. This entry is closed on the Core side only.
+Client side closed for the GUI 2026-09-13 by batch G9. The dock sends
+`Allow { scope: Always }` where `allowed_scopes` carries the scope and renders
+Core's own `scope_not_offered` where it does not, rather than hiding the tier;
+`Shift+A` is back on Always, which is the tier `SPEC` line 82 and `D-PERM`
+assign it. `repo_allowlist` deliberately gets no chord in exchange: the design's
+tier list is `y · a · ⇧A · e · n` and does not contain it, so inventing a sixth
+key would be the client legislating a shortcut the package never fixed — it
+stays a button in the option row. Edit opens an inline field over the tool
+input's pairs and sends `Edit { revised_input }` with every key, including the
+unchanged ones, because Core re-evaluates the whole input. A follow-up request
+carrying `revised_from` renders linked to the request it replaces. The standing
+rules are listed in the settings panel's permission card, each with a Revoke
+(`RevokeStandingApproval`) and a D14 link by the grant's own audit id.
+
+This entry stays OPEN as a TUI adoption item until batch T4 lands `a` and `e`
+in the decision modal.
 
 ## GUI-CORE-020: Operator-initiated git actions — CLOSED
 
@@ -1254,9 +1305,15 @@ binding is byte-identical to the two-step flow that already existed. Fixture
 `starter-lane-agent.json`; contract in
 `docs/frontend-integration-contract.md`, "Starter-Lane Agent Binding".
 
-Client side stays open: D4 step 2 sends the binding and step 4 renders the
-receipt's outcome in GUI batch G9, and `/lanes` creation takes an optional agent
-in TUI batch T4. This entry is closed on the Core side only.
+Client side stays open, and G9 could not close it. `viden-core` re-exports
+`StarterLaneRequest`, `StarterLanePreview` and `StarterLaneReceipt` but not
+`StarterLaneAgentBinding` or `StarterLaneSessionOutcome`, the two types their
+new fields are made of, and `apps/gui/AGENTS.md` allows this client only
+`viden-core`. So the binding cannot be constructed and the receipt's `session`
+outcome cannot be matched on, and the wizard's rows stay unselectable. That
+re-export is filed as GUI-CORE-036; D4 step 2 and step 4 land in a later GUI
+batch once it exists, and `/lanes` creation takes an optional agent in TUI
+batch T4. This entry is closed on the Core side only.
 
 ## GUI-CORE-031: Skill packs and context injection
 
@@ -1331,7 +1388,7 @@ plan — `docs/release-0.3.5-plan.md` Scope Decisions, 2026-09-13. The entry
 stays OPEN and the closing condition above is unchanged; re-dating is not
 closure.
 
-## GUI-CORE-034: `MAX_PLAN_REJECT_REASON_BYTES` is not re-exported by `viden-core`
+## GUI-CORE-034: `MAX_PLAN_REJECT_REASON_BYTES` is not re-exported by `viden-core` — CLOSED (2026-09-13)
 
 Opened 2026-09-13 by batch G8 while building the Plan Studio decision row. Not
 scheduled; this is a re-export, not a new fact.
@@ -1354,6 +1411,68 @@ not make the number right.
 What a client needs: `pub use viden_types::MAX_PLAN_REJECT_REASON_BYTES` in
 `crates/core/src/lib.rs`, beside the four plan bounds already there. One line;
 the GUI then deletes its literal.
+
+Closed 2026-09-13 on **both** sides. Core re-exports the constant
+(`crates/core/src/lib.rs:47`), and batch G9 deleted the literal: the bound now
+travels from `viden_core::MAX_PLAN_REJECT_REASON_BYTES` through
+`RuntimeProjection::d15_plan_studio` onto `D15DecisionProjection`, and the
+adapter checks the same constant when it refuses an over-bound reason.
+`apps/gui/src-tauri/src/plan.rs` holds no constant at all now, which is what the
+architecture boundary requires of a presentation module — it may not name Core
+types, so the value has to arrive on the projection rather than be mirrored.
+
+## GUI-CORE-035: `ApprovalRequestView` publishes no structured tool input
+
+Opened 2026-09-13 by batch G9 while making the permission dock's Edit decision
+live. Not scheduled.
+
+`ApprovalDecision::Edit { revised_input: ToolInput }` takes the tool input as a
+map, and `ApprovalRequestView` publishes no map: it publishes `input_preview`,
+which is `viden-permissions`' own *rendering* of that map (`render_prompt_input`:
+one `  key: value` line per entry, or `  <no input>`). A client that offers Edit
+therefore has to recover the pairs from the rendering, which is display-text
+parsing — the one thing `AGENTS.md` tells a frontend never to do.
+
+What the GUI does meanwhile, and why it is the least-bad version of a bad
+choice: the parse lives in `apps/gui/src-tauri/src/projection.rs`
+(`parse_permission_input_fields`), once, in the layer that already holds Core
+types, and it is exact. Two spaces, a key with no colon in it, `": "`, and the
+rest of the line — anything else returns `None`, the Edit control renders
+disabled carrying this entry's code, and nothing is sent. A value containing a
+newline fails by construction, which is the point: a revision assembled from a
+half-parsed preview would put an input the operator never wrote under their name
+in an audit row.
+
+What a client needs: the input itself on the view, e.g. an additive
+`#[serde(default, skip_serializing_if = "ToolInput::is_empty")] pub input: ToolInput`
+on `ApprovalRequestView`, published for the requests Core already marks
+`editable`. The GUI then deletes the parser and the code with it.
+
+## GUI-CORE-036: `viden-core` re-exports neither starter-Lane agent type
+
+Opened 2026-09-13 by batch G9, which could not deliver plan row G9 item 3
+because of it. Not scheduled; this is a re-export, not a new fact.
+
+C15 closed GUI-CORE-030 on the Core side: `StarterLaneRequest` and
+`StarterLanePreview` carry an optional `agent: Option<StarterLaneAgentBinding>`
+and `StarterLaneReceipt` carries `session: Option<StarterLaneSessionOutcome>`.
+`crates/core/src/lib.rs` re-exports the three containers — `StarterLaneRequest`,
+`StarterLanePreview`, `StarterLaneReceipt` — and neither of the two types their
+new fields are made of, while `apps/gui/AGENTS.md` allows this client only
+`viden-core`. So the GUI cannot construct a binding to send and cannot match on
+the receipt's outcome to render it. Both halves of the wizard's work are blocked
+on two lines, not on a design or a fact.
+
+The client does **not** work around it. It does not reach past `viden-core`, and
+it does not rebuild either type from its wire form: a second definition of a
+contract type is exactly the drift the single-facade rule exists to prevent, and
+a starter Lane is a mutation. D4 step 2 says instead that Core now carries the
+field, that this client cannot build one, and which request to watch.
+
+What a client needs: `pub use viden_types::{StarterLaneAgentBinding,
+StarterLaneSessionOutcome};` in `crates/core/src/lib.rs`, beside the three
+starter-Lane types already there. GUI-CORE-030 then closes on the client side in
+the next GUI batch.
 
 ## Retired pre-register codes
 

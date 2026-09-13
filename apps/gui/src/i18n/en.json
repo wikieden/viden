@@ -847,5 +847,11 @@
   "settings.standing.unavailable": "Core publishes no {capability}, so no standing rule can be listed or revoked.",
   "settings.standing.revoke": "Revoke",
   "settings.standing.trail": "Open the audit trail",
-  "settings.standing.granted": "granted {at} in {workspace}"
+  "settings.standing.granted": "granted {at} in {workspace}",
+  "d16.why.capability": "capability absent",
+  "d16.why.ended": "session has ended",
+  "d16.why.completed": "it finished",
+  "d16.why.noModel": "no model published",
+  "d16.why.noCoreFact": "no runtime fact yet",
+  "d16.why.status": "session is {status}"
 }

@@ -859,6 +859,12 @@ export const MESSAGE_ARGUMENT_NAMES = {
   "d16.switch.endFirst": [],
   "d16.switch.foot": [],
   "d16.note": [],
+  "d16.why.capability": [],
+  "d16.why.ended": [],
+  "d16.why.completed": [],
+  "d16.why.noModel": [],
+  "d16.why.noCoreFact": [],
+  "d16.why.status": ["status"],
 } as const;
 
 export type MessageKey = keyof typeof MESSAGE_ARGUMENT_NAMES;

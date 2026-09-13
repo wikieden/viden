@@ -428,6 +428,80 @@ fn emit_capture_projections() {
         &adapter.d15_plan_studio(None).unwrap(),
     );
 
+    // D16: the Agent Board, captured from prefixes of its own canonical
+    // stream. `lanes` is the running session with its approval pending,
+    // `paused` the pause with two held inputs, and `killed` the terminal kill
+    // Retry accepts. The one delta is the Lane record: the contract fixture
+    // publishes sessions and no `AgentLaneRecord`, and the board's own
+    // "a Lane Core published no record for" state is already covered by
+    // `tests/d16_agent_board.rs`, so these captures borrow `multi-lane.json`'s
+    // first Lane record under the sessions' own lane id — which is the shape a
+    // real workspace has and the design draws.
+    let board_lane = {
+        let lanes = load("multi-lane.json").lanes;
+        let mut lane = lanes
+            .into_iter()
+            .next()
+            .expect("multi-lane publishes Lanes");
+        lane.id = "lane_session_control".to_string();
+        lane.summary = "config loader refactor".to_string();
+        lane
+    };
+    let with_lane = |mut view: RuntimeViewState| {
+        view.lanes = vec![board_lane.clone()];
+        view
+    };
+
+    write(
+        "d16-board-lanes",
+        &connected(with_lane(load_prefix("agent-session-control.json", 3)))
+            .d16_agent_board(None)
+            .unwrap(),
+    );
+    write(
+        "d16-board-paused",
+        &connected(with_lane(load_prefix("agent-session-control.json", 12)))
+            .d16_agent_board(Some("session_control"))
+            .unwrap(),
+    );
+    write(
+        "d16-board-killed",
+        &connected(with_lane(load_prefix("agent-session-control.json", 20)))
+            .d16_agent_board(Some("session_control"))
+            .unwrap(),
+    );
+    // The empty board: a Core that publishes the capability and holds no Lane
+    // and no session, which is absence rather than an empty list.
+    write(
+        "d16-board-no-lane",
+        &connected(RuntimeViewState::new(
+            load("multi-lane.json").snapshot.clone(),
+        ))
+        .d16_agent_board(None)
+        .unwrap(),
+    );
+
+    // The permission dock's two new tiers, from `approval-scopes.json`'s own
+    // stream: the medium-risk request Core offered `Always` on, the editable
+    // request whose revision Core answered with a `revised_from` request, and
+    // the standing rule the grant installed.
+    write(
+        "dock-always-edit",
+        &connected(load_prefix("approval-scopes.json", 13))
+            .permission_dock()
+            .unwrap(),
+    );
+    write(
+        "dock-revised-from",
+        &connected(load_prefix("approval-scopes.json", 15))
+            .permission_dock()
+            .unwrap(),
+    );
+    write(
+        "standing-approvals",
+        &connected(load_prefix("approval-scopes.json", 3)).standing_approvals(),
+    );
+
     // D14: the replay contract has no fixture, so the batch is built from
     // typed Core events and served through the same replay path.
     let mut event_one = RuntimeEvent::new(

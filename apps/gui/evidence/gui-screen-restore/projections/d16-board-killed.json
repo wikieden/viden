@@ -1,0 +1,119 @@
+{
+  "capabilityAvailable": true,
+  "lanes": [
+    {
+      "laneId": "lane_session_control",
+      "published": true,
+      "summary": "config loader refactor",
+      "role": "coder",
+      "route": "terminal",
+      "gateStrength": "containment",
+      "status": "running",
+      "branch": "codex/lane_core",
+      "worktree": ".worktrees/lane_core",
+      "sessions": [
+        {
+          "sessionId": "session_control",
+          "laneId": "lane_session_control",
+          "agentId": "codex-acp",
+          "model": "gpt-5-codex",
+          "task": "task.session_control.held_two",
+          "status": "killed",
+          "diagnostic": "killed by owner",
+          "control": {
+            "pausedAt": 1700006010,
+            "resumedAt": 1700006020,
+            "terminatedBy": "killed",
+            "heldInputCount": 0
+          },
+          "terminal": true,
+          "awaitsHuman": false,
+          "actions": [
+            {
+              "kind": "pause",
+              "available": false,
+              "block": "session_status_killed",
+              "request": false
+            },
+            {
+              "kind": "resume",
+              "available": false,
+              "block": "session_status_killed",
+              "request": false
+            },
+            {
+              "kind": "kill",
+              "available": false,
+              "block": "session_status_killed",
+              "request": false
+            },
+            {
+              "kind": "stop",
+              "available": false,
+              "block": "D16-SESSION-ENDED",
+              "request": false
+            },
+            {
+              "kind": "retry",
+              "available": true,
+              "block": null,
+              "request": false
+            },
+            {
+              "kind": "switch_model",
+              "available": false,
+              "block": "D16-SESSION-ENDED",
+              "request": false
+            },
+            {
+              "kind": "downgrade_manual",
+              "available": false,
+              "block": "D16-NO-CORE-FACT",
+              "request": true
+            },
+            {
+              "kind": "ask_user",
+              "available": false,
+              "block": "D16-NO-CORE-FACT",
+              "request": true
+            }
+          ]
+        }
+      ],
+      "awaiting": 0
+    }
+  ],
+  "totalLanes": 1,
+  "totalSessions": 1,
+  "awaitingTotal": 0,
+  "selectedSessionId": "session_control",
+  "detail": {
+    "sessionId": "session_control",
+    "laneId": "lane_session_control",
+    "conversation": [
+      {
+        "messageId": "session_control-message-1",
+        "role": "user",
+        "content": "task.session_control.refactor"
+      },
+      {
+        "messageId": "session_control-message-2",
+        "role": "user",
+        "content": "task.session_control.held_one"
+      },
+      {
+        "messageId": "session_control-message-3",
+        "role": "assistant",
+        "content": "the first held prompt ran"
+      },
+      {
+        "messageId": "session_control-message-4",
+        "role": "user",
+        "content": "task.session_control.held_two"
+      }
+    ],
+    "evidence": [],
+    "switchModel": null,
+    "switchModelBlock": "D16-SESSION-ENDED"
+  }
+}

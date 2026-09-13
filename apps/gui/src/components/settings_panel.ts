@@ -525,6 +525,10 @@ export function renderSettingsPanel(
         // Core's own rule key, printed verbatim: it is the contract's
         // statement of what the rule matches.
         what.textContent = `${rule.toolName} · ${rule.ruleContent}`;
+        // The card is narrow and the rule key can be long, so the row elides.
+        // The full key stays recoverable rather than lost: a rule the operator
+        // cannot read whole is a rule they cannot decide to revoke.
+        what.title = what.textContent;
         const when = document.createElement("span");
         when.className = "gset-row-detail";
         when.textContent = translate(locale, "settings.standing.granted", {

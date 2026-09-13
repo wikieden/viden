@@ -1474,8 +1474,8 @@ tell which is which without clicking.
 | --- | --- |
 | **Attach** | Not a Core command. It calls the cockpit's own `selectLane` — the path the Lane rail, the Lane tab strip and `⌃⇥` share — and then the router's `conversation` route, so the composer ends up addressing that Lane with the transcript back in the centre pane. |
 | **Stop** | `RuntimeCommand::CancelAgentSession` for the Lane's own Agent session, sent under a `gui-d10-stop-…` command id. The outcome shown is the answering event's: accepted, or Core's own refusal text. |
-| **Pause** | No Core command exists. Rendered disabled, naming that. |
-| **Kill** | No Core command exists. Rendered disabled, naming that, and saying that Stop cancels through `CancelAgentSession` rather than implying Stop is the same verb. |
+| **Pause** | `RuntimeCommand::PauseAgentSession` for the Lane's own Agent session, sent under a `gui-board-…` command id through the same path the Agent Board uses (C14, `runtime.agent_session_control`). Without the capability, and on a session whose status does not allow it, the control is disabled and names the reason. |
+| **Kill** | `RuntimeCommand::KillAgentSession`, sent the same way. Kill leaves no grace period and drops held input; Stop still cancels through `CancelAgentSession`, and the row keeps both because they are two different verbs, not two names for one. |
 
 Stop's target is resolved fail-closed from the Lane's published sessions, the
 same way the cockpit resolves its owner binding: exactly one session is a
@@ -1483,9 +1483,11 @@ target, zero says there is nothing to stop, and more than one says the client
 will not choose. Without a bound host every control in the row is disabled and
 says so, rather than being hidden or left enabled and inert.
 
-`RuntimeCommand` carries no pause and no kill for an Agent session
-(`crates/types/src/runtime.rs`); the two disabled controls are the honest
-rendering of that, not a placeholder. The event ticker's own
+Pause and Kill were disabled controls here until C14 landed
+`runtime.agent_session_control`. They now send Core's own commands, and the
+disabled rendering they used to carry permanently is the rendering they fall
+back to when Core does not publish the capability — the honest state is the same
+shape, it just stopped being the only state. The event ticker's own
 `eventsUnavailable` copy is unchanged here — it belongs to the hygiene batch.
 
 ## Fleet drill
@@ -1714,6 +1716,128 @@ of them.
 
 The rejection reason is **not** truncated to fit Core's 2 KiB bound: the byte
 counter measures UTF-8 the way Core does, and over the bound the send is
-disabled and states the bound. The bound itself is a mirrored literal, because
-`viden-core` does not re-export `MAX_PLAN_REJECT_REASON_BYTES` — that is
-[GUI-CORE-034](contract-requests.md).
+disabled and states the bound. The bound is now Core's own
+`MAX_PLAN_REJECT_REASON_BYTES`, read through the projection and the adapter
+rather than mirrored as a literal here —
+[GUI-CORE-034](contract-requests.md) is closed on both sides.
+
+## Agent Board (G9)
+
+`D-PLANBOARD` registered the Agent Board the same way it registered Plan
+Studio: a **centre-pane view of the cockpit**, not a window and not a mode. The
+titlebar, the activity rail, the Lane sidebar, the context dock, the composer
+and the statusbar all stay. It is `centerView` `d16`, reached from the rail's
+`robot` slot (the registered `GUI/gui-icons.jsx` glyph, directly after `lanes`,
+which is the order `D-PLANBOARD` fixed), from the cockpit router, and from
+`?screen=d16`.
+
+The board rides `runtime.agent_session_control` (C14). Four rules shape it, and
+each one exists because dropping it produces a specific lie:
+
+1. **A session is never detached from its Lane.** Sessions are grouped by their
+   own `lane_id`. A Lane Core published no record for still gets a group
+   carrying its id and saying the record is absent, because hiding the session
+   would be worse than admitting the Lane row is thin.
+2. **Liveness is read from `status`, never from `active_session_ids`.** The C14
+   amendment is explicit — Core never prunes that list, not even for a cancel —
+   so a client treating membership as "alive" would report every settled
+   session as running.
+3. **A disabled control names the status that disabled it.** Core refuses a
+   badly-timed control with `session_status_<current>`; the board precomputes
+   the same family, so the operator reads the reason before pressing rather
+   than after.
+4. **Switch model is two commands and is drawn as two.** The contract has no
+   switch verb: it is Kill (or Stop) followed by
+   `StartAgentSession { model, load_session_id }`. One button would claim an
+   atomicity Core does not have.
+
+| Control | What it sends | With the fact absent |
+| --- | --- | --- |
+| the rail slot | nothing; it switches the centre view | no `runtime.agent_session_control` still leaves the board reachable — Lanes and sessions are ordinary `0.3.0` facts — but every control on it renders disabled and names the capability. A host that cannot answer the read leaves the slot disabled without claiming Core lacks anything |
+| the rail badge | nothing | the number of sessions whose status is `waiting_approval`, which is the one status that blocks on a human. No badge at all while the read is unanswered: "nothing waiting" and "nobody counted" are different facts, so the badge is never a zero |
+| **Pause** | `PauseAgentSession { session_id }` under a `gui-board-…` command id | disabled and labelled `session_status_<current>` when the status does not allow it, `D16-NO-CAPABILITY` without the capability, `D16-SESSION-ENDED` on a terminal session |
+| **Resume** | `ResumeAgentSession { session_id }` | the same family; on a session that was never paused the label is the status that is actually current |
+| **Kill** | `KillAgentSession { session_id }` | the same family. Kill is the only control still live on a `paused` session besides Resume |
+| **Stop** | `CancelAgentSession { session_id }` — a `0.3.0` command, so it is **not** gated on C14 | disabled only when the session is terminal |
+| **Retry** | `RetryAgentSession { session_id }` — Core's own retry verb, confirmed by the session reaching `starting` | offered on a terminal session that *failed* or was *killed*, and refused with `D16-SESSION-COMPLETED` on one that completed — a completed session has nothing to retry |
+| **Switch model** | nothing by itself. It opens the two-step panel: step 1 is Kill or Stop, step 2 is `StartAgentSession { model, load_session_id }` with the model field starting from the model Core reports | `D16-NO-MODEL` when Core published no model for the session, so step 2 would have no target it could name honestly |
+| **Downgrade to manual**, **Ask user** | nothing. Drawn dashed-disabled as register requests | `D16-NO-CORE-FACT`: the design draws them, the contract has no verb behind them, and the dashed border is `D-PLANBOARD`'s own rendering for "requested, not backed" |
+| **Open the audit trail** | nothing; it opens `d14` scoped to `session:<session_id>` | the timeline says the audit read is *unread* rather than empty when no host answered it |
+| the composer and the queue line | unchanged — `QueueFollowUp` against the selected Lane | unchanged |
+
+**Three empty states, drawn rather than described.** No Lane at all says this
+workspace has no Lane and that the board never invents one. A Lane with no
+session keeps its row and says the record is there and the sessions are not. A
+selection naming a session Core no longer publishes falls back to the first
+session blocking on a human, then to the first session, and never to a row Core
+does not hold.
+
+**The conversation and the audit rows are two lists, not one.**
+`AgentConversationMessageView` carries no timestamp, so interleaving them would
+invent an order Core never published. They are drawn under separate
+sub-headings in Core's own order.
+
+**The sub-agent tree is deferred, not missing.** `D-RAILNAV` ④ put it in the
+`fleet` family; the context dock says so where a reader would look for it.
+
+## Always and Edit (G9)
+
+`runtime.approval_scopes` (C15) completed the permission dock's tier list.
+`D-PERM` fixes it as exactly `y · a · ⇧A · e · n`, and that is now what the dock
+draws:
+
+| Tier | Chord | What it sends |
+| --- | --- | --- |
+| Once | `Y` | `Allow { scope: Once }` |
+| Session | `A` | `Allow { scope: Session(..) }` |
+| **Always** | `Shift+A` | `Allow { scope: Always }` — a standing rule that outlives the session |
+| **Edit** | `E` | `Edit { revised_input }` — the whole input, not a patch |
+| Deny | `N` | `Deny` |
+
+`repo_allowlist` deliberately gets **no** chord. The design's tier list has five
+entries and does not contain it; inventing a sixth key would be the client
+legislating a shortcut the package never fixed. It stays a button in the option
+row.
+
+**A scope Core did not offer is named, not hidden.** Core never offers a
+standing rule above medium risk. On such a request Always is drawn disabled
+carrying Core's own refusal name, `scope_not_offered`, and the send is refused
+locally rather than issued as a command Core would only reject.
+
+**Edit is Core's answer about editability, and the fields are recovered
+fail-closed.** `ApprovalRequestView` publishes `editable` and a rendered
+`input_preview`, but no structured tool input. The projection parses Core's own
+`  key: value` rendering exactly; on any deviation it returns nothing, the Edit
+control is withdrawn, and the block names [GUI-CORE-035](contract-requests.md)
+rather than offering a revision built from a guess. Every key travels back on
+send, including the ones left alone, because Core re-evaluates the whole input.
+
+**A revision is linked, not stacked.** The request Core produces from an Edit
+carries `revised_from`; the dock prints the link directly under the input it
+revises, so the operator can tell "Core wants another decision about the thing I
+just narrowed" from "Core wants a decision about something else".
+
+**Standing approvals are listed where they are revoked.** The settings panel's
+permission card lists Core's own `StandingApprovalView` rows — rule key, tool,
+the workspace and time of the grant — each with **Revoke**
+(`RevokeStandingApproval { rule_id }`, confirmed by `StandingApprovalRevoked`)
+and a link to the D14 trail by the audit id the grant wrote. An empty list and
+an absent capability are two different sentences: the first says no rule is
+installed, the second says this Core cannot answer.
+
+## D4 agent binding (G9)
+
+Plan row G9 asked D4's step 2 to send the agent binding and step 4 to show the
+receipt's session outcome. **It is stopped and stated instead.**
+
+C15 gave `StarterLaneRequest` an `agent` field (`runtime.starter_lane_agent`),
+but `viden-core` re-exports neither `StarterLaneAgentBinding` nor
+`StarterLaneSessionOutcome`, and the GUI may depend only on `viden-core`
+(`apps/gui/AGENTS.md`). There is no accessor and no `impl` to route around it,
+so the pick still cannot travel and the receipt's outcome cannot be read.
+
+Step 2 therefore records the choice and names what happens next — the agent is
+started from the cockpit once the Lane exists — and points at
+[GUI-CORE-036](contract-requests.md), which asks for the two re-exports. No row
+was shipped that cannot reach Core: a step that looked live and was not would
+cost more than a step that says why it is not.

@@ -1,0 +1,103 @@
+{
+  "capabilityAvailable": true,
+  "lanes": [
+    {
+      "laneId": "lane_session_control",
+      "published": true,
+      "summary": "config loader refactor",
+      "role": "coder",
+      "route": "terminal",
+      "gateStrength": "containment",
+      "status": "running",
+      "branch": "codex/lane_core",
+      "worktree": ".worktrees/lane_core",
+      "sessions": [
+        {
+          "sessionId": "session_control",
+          "laneId": "lane_session_control",
+          "agentId": "codex-acp",
+          "model": "gpt-5-codex",
+          "task": "task.session_control.refactor",
+          "status": "waiting_approval",
+          "diagnostic": null,
+          "control": null,
+          "terminal": false,
+          "awaitsHuman": true,
+          "actions": [
+            {
+              "kind": "pause",
+              "available": true,
+              "block": null,
+              "request": false
+            },
+            {
+              "kind": "resume",
+              "available": false,
+              "block": "session_status_waiting_approval",
+              "request": false
+            },
+            {
+              "kind": "kill",
+              "available": true,
+              "block": null,
+              "request": false
+            },
+            {
+              "kind": "stop",
+              "available": true,
+              "block": null,
+              "request": false
+            },
+            {
+              "kind": "retry",
+              "available": false,
+              "block": "session_status_waiting_approval",
+              "request": false
+            },
+            {
+              "kind": "switch_model",
+              "available": true,
+              "block": null,
+              "request": false
+            },
+            {
+              "kind": "downgrade_manual",
+              "available": false,
+              "block": "D16-NO-CORE-FACT",
+              "request": true
+            },
+            {
+              "kind": "ask_user",
+              "available": false,
+              "block": "D16-NO-CORE-FACT",
+              "request": true
+            }
+          ]
+        }
+      ],
+      "awaiting": 1
+    }
+  ],
+  "totalLanes": 1,
+  "totalSessions": 1,
+  "awaitingTotal": 1,
+  "selectedSessionId": "session_control",
+  "detail": {
+    "sessionId": "session_control",
+    "laneId": "lane_session_control",
+    "conversation": [
+      {
+        "messageId": "session_control-message-1",
+        "role": "user",
+        "content": "task.session_control.refactor"
+      }
+    ],
+    "evidence": [],
+    "switchModel": {
+      "loadSessionId": "session_control",
+      "currentModel": "gpt-5-codex",
+      "agentId": "codex-acp"
+    },
+    "switchModelBlock": null
+  }
+}

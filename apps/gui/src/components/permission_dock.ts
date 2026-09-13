@@ -153,6 +153,24 @@ export function renderPermissionDock(
   command.className = "cmd";
   command.textContent = request.inputPreview;
   facts.append(command);
+
+  // A revision Core produced from an `Edit` is shown linked to the request it
+  // replaces, not as a second unrelated prompt: the operator has to be able to
+  // tell "Core wants another decision about the thing I just narrowed" from
+  // "Core wants a decision about something else". It sits directly under the
+  // input because that is the thing it revises, and because `.gperm-what`
+  // scrolls in the dock — a link placed after the fact line would be true and
+  // unread.
+  if (request.revisedFrom) {
+    const revision = document.createElement("p");
+    revision.className = "gperm-revision";
+    revision.dataset.permissionRevisedFrom = request.revisedFrom;
+    revision.textContent = translate(locale, "d1.permission.revisedFrom", {
+      request: request.revisedFrom,
+    });
+    facts.append(revision);
+  }
+
   const factText = document.createElement("p");
   factText.className = "why";
   const scope = request.actions
@@ -253,20 +271,6 @@ export function renderPermissionDock(
     alert.setAttribute("role", "alert");
     alert.textContent = translate(locale, "d1.permission.plan", {});
     facts.append(alert);
-  }
-
-  // A revision Core produced from an `Edit` is shown linked to the request it
-  // replaces, not as a second unrelated prompt: the operator has to be able to
-  // tell "Core wants another decision about the thing I just narrowed" from
-  // "Core wants a decision about something else".
-  if (request.revisedFrom) {
-    const revision = document.createElement("p");
-    revision.className = "gperm-revision";
-    revision.dataset.permissionRevisedFrom = request.revisedFrom;
-    revision.textContent = translate(locale, "d1.permission.revisedFrom", {
-      request: request.revisedFrom,
-    });
-    facts.append(revision);
   }
 
   /**

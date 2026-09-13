@@ -148,6 +148,28 @@ export function renderD16AgentBoard(
     );
 
   /**
+   * The same block code as a short caption for the button face.
+   *
+   * The full sentence stays in the accessible name and the tooltip; the face
+   * carries the design's own terse `.why` line, which is what keeps a disabled
+   * control the size of an enabled one instead of a paragraph with a border.
+   */
+  const blockCaption = (block: string | null): string => {
+    if (!block) return "";
+    if (block === D16_CAPABILITY_ABSENT_CODE) return t("d16.why.capability", {});
+    if (block === D16_SESSION_ENDED_CODE) return t("d16.why.ended", {});
+    if (block === D16_SESSION_COMPLETED_CODE) return t("d16.why.completed", {});
+    if (block === D16_NO_MODEL_CODE) return t("d16.why.noModel", {});
+    if (block === D16_NO_CORE_FACT_CODE) return t("d16.why.noCoreFact", {});
+    if (block.startsWith(D16_STATUS_BLOCK_PREFIX)) {
+      const status = block.slice(D16_STATUS_BLOCK_PREFIX.length);
+      const key = STATUS_LABELS[status];
+      return t("d16.why.status", { status: key ? t(key, {}) : status });
+    }
+    return block;
+  };
+
+  /**
    * Turns a block code into a sentence.
    *
    * Core's own `session_status_<current>` family is rendered through the status
@@ -355,14 +377,20 @@ export function renderD16AgentBoard(
       glyph.textContent = STATUS_GLYPHS[session.status] ?? "·";
       glyph.setAttribute("aria-hidden", "true");
       const role = document.createElement("span");
+      // Core publishes a role on the *Lane*, not on the session, so every
+      // session under one Lane carries that Lane's role — which is true, and
+      // is why the chip reads the Lane rather than inventing a per-session one.
+      // A Lane Core published no record for has no role to show.
+      role.textContent = lane.role ?? session.agentId;
       role.className = "role";
-      role.textContent = session.agentId;
       const task = document.createElement("span");
       task.className = "task";
       task.textContent = session.task;
       const model = document.createElement("span");
       model.className = "mdl";
-      model.textContent = session.model ?? t("d16.model.absent", {});
+      // The design's backend·model pair: the adapter Core started and the model
+      // it reported, in that order.
+      model.textContent = `${session.agentId} · ${session.model ?? t("d16.model.absent", {})}`;
       const status = document.createElement("span");
       status.className = `stt st-${session.status}`;
       const statusKey = STATUS_LABELS[session.status];
@@ -406,10 +434,13 @@ export function renderD16AgentBoard(
       const why = document.createElement("span");
       why.className = "why";
       why.dataset.d16Block = action.block;
-      why.textContent = blockReason(action.block);
+      why.textContent = blockCaption(action.block);
       button.append(why);
-      button.setAttribute("aria-label", `${label.textContent} — ${why.textContent}`);
-      button.title = `${label.textContent} — ${why.textContent}`;
+      // The full sentence, not the caption: a control an operator cannot press
+      // has to say why in the one string a screen reader announces.
+      const sentence = blockReason(action.block);
+      button.setAttribute("aria-label", `${label.textContent} — ${sentence}`);
+      button.title = `${label.textContent} — ${sentence}`;
     } else if (action.kind === "switch_model") {
       const why = document.createElement("span");
       why.className = "why";
