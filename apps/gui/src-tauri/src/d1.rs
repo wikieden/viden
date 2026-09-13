@@ -621,11 +621,37 @@ pub struct D1TurnFailureProjection {
     pub reason: Option<String>,
 }
 
+/// The client's own in-flight D1 command, published so a refused submit can
+/// name what is holding the single command slot instead of dropping in
+/// silence (E3b defect 23).
+///
+/// Every field here is the host's own bookkeeping, never a Core fact: Core
+/// publishes no "what am I still working on for you" record, so the kind and
+/// the age come from the pending the adapter itself created when it sent the
+/// command.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct D1PendingCommandProjection {
+    pub command_id: String,
+    /// Stable snake_case name of the Core command this pending is waiting on.
+    pub kind: &'static str,
+    /// How long the client has been waiting, in milliseconds since it sent.
+    pub age_ms: u64,
+    /// Whether the client may stop waiting on its own. True for exactly the
+    /// two adapter-discovery reads, which mutate nothing; a pending mutation
+    /// is never abandoned client-side, because its answer is the only record
+    /// of whether its effect ran.
+    pub abandonable: bool,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct D1IntentResult {
     pub projection: D1CockpitProjection,
     pub pending_command_id: Option<String>,
+    /// The same pending, with the facts a refusal has to name. `None`
+    /// whenever `pending_command_id` is `None`.
+    pub pending_command: Option<D1PendingCommandProjection>,
     pub outcome: D1OutcomeProjection,
 }
 

@@ -1805,6 +1805,61 @@ this batch's bounded effort; what the run did reproduce is the window briefly
 leaving the Accessibility tree after a full re-render. Both are recorded in the
 evidence document, and no fix is claimed.
 
+### H5 — the funnel had one hole left, and it was the composer's
+
+Batch H5 (2026-09-13) closed the E3b native run's defects 22–24. H4's rule was
+right and incomplete: `reconcile_ambient_pendings` reconciled every correlated
+command *except* `pending_d1`, which only `poll_d1` observed. In the shipped
+desktop shell `poll_d1` is almost never the drain that sees a D1 receipt —
+`spawn_core_event_pump` holds the bounded receive on a background thread and
+the webview reads only after the wake that pump emits, so the pump consumes the
+receipt first. A starter Lane created under a `lane_create` approval therefore
+never settled its creation command: `pendingCommandId` stayed set for the life
+of the process, every later composer submit and `Cancel active turn` was
+dropped, and the Lane's own initial task — held in `pendingLaneStart` and sent
+by `maybeResumeLaneStart` once the slot frees — was never submitted, which is
+why the run found a created Lane with no turn in it at all (defect 22).
+`observe_pending_d1` now runs inside the funnel and records the outcome on the
+adapter, so the next `poll_d1` reads the freed slot and the confirmed or
+rejected outcome regardless of which drain saw the receipt. Plan Studio's
+`pending_d15` and the Agent Board's `pending_d16` were the last two commands
+outside that funnel and had the identical hole — a `PlanDocumentDecided` or a
+paused-session fact drained by the pump left their slot occupied — so both now
+observe through it and hold their outcome on the adapter the same way, with
+their polls reading it back instead of reporting `idle`. Core was not at
+fault: a runtime test drives the same native path — `PreviewDefaultStarterLane`
+in a real Git workspace, the real `LocalLaneEffectExecutor`, an allow-once
+`lane_create` approval — and Core emits `StarterLaneCreated` after `LaneUpdated`
+with no invalidation before it.
+
+**A refusal the client makes is as visible as one Core makes.** `sendAndWait`
+used to return `null` when the slot was occupied: no alert, no row, no cleared
+composer, which is why ten presses of `Send message` produced ten silences and
+defect 22 took an hour to locate. `D1IntentResult` now carries
+`pending_command` — the occupied pending's command id, its stable Core command
+name, its age since the client sent it, and whether the host would allow the
+wait to be abandoned — and the composer renders a `role=alert` naming the kind
+and the age, keeps its text, offers `abandon_pending_probe` only for the two
+adapter-discovery reads, and otherwise says plainly that the command carries an
+effect and its wait is never abandoned client-side.
+`PendingD1Kind::is_abandonable` is the same predicate `abandon_pending_probe`
+enforces, kept as one function so the control cannot be offered where the host
+refuses it (defect 23).
+
+**Cancel is a claim about work.** `composer.canCancel` read
+`lane.is_active() && exact_binding.is_some()`, neither of which is work: an
+owner binding keeps its `turn_id` after the turn ends, so a `draft` Lane whose
+session JSONL held no turn at all advertised a cancellable turn — the claim
+that made H4 read a held command slot as a stalled turn. It now gates on the
+same Core liveness the composer's `busy` uses (defect 24).
+
+**Defect 25 is open and is not defect 22.** Against live in-process Core with
+the pump interposed, the `git_push` half of `Commit & Push` does reach a
+decidable surface: Core raises its own `git_push` approval, the permission dock
+carries it, the Decision Center counts it, and answering it settles the action
+with Core's typed `NoUpstream` outcome. The native failure is therefore
+something the workspace-target probe does not cover, and it stays open for E3c.
+
 ## Agent Board (G9)
 
 `D-PLANBOARD` registered the Agent Board the same way it registered Plan

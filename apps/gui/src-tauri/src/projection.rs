@@ -2171,9 +2171,16 @@ impl RuntimeProjection {
             composer: D1ComposerProjection {
                 editable: supports_owner && selected_owner.is_some(),
                 busy,
-                can_cancel: supports_owner
-                    && selected_lane.is_some_and(|lane| lane.is_active())
-                    && exact_binding.is_some(),
+                // E3b defect 24. The retired predicate read
+                // `lane.is_active() && exact_binding.is_some()`, which is a
+                // fact about an identity, not about work: a `draft` Lane whose
+                // session JSONL holds no turn at all advertised a cancellable
+                // turn, and that claim is what made H4 read a held command
+                // slot as a stalled turn. `busy` is Core's own liveness —
+                // an `active_turns` entry owned by this Lane, or a running
+                // Agent session under its owner — so the control is offered
+                // only where Core says work exists to cancel.
+                can_cancel: supports_owner && busy && exact_binding.is_some(),
                 can_submit_immediately: supports_owner && selected_owner.is_some() && !busy,
             },
             statusbar,

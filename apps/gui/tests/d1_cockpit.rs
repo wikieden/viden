@@ -136,13 +136,17 @@ fn canonical_d1_projects_cockpit_regions_only_from_the_core_view() {
     assert!(projection.live_work.tasks.is_empty());
     assert!(projection.live_work.evidence.is_empty());
     assert!(projection.composer.editable);
-    assert!(projection.composer.can_cancel);
     // C6: the fixture publishes no `active_turns` entry, so nothing is running
     // and the composer submits rather than queueing. Before C6 this read
     // `false`, because the Lane's owner binding carries a `turn_id` — a fact
     // about an identity that outlives the work it names.
     assert!(projection.composer.can_submit_immediately);
     assert!(!projection.composer.busy);
+    // E3b defect 24: and for the same reason nothing is cancellable. This read
+    // `true` until H5, because `can_cancel` gated on the owner binding rather
+    // than on Core's liveness — the claim that made a held command slot look
+    // like a stalled turn.
+    assert!(!projection.composer.can_cancel);
     assert!(
         projection
             .transcript

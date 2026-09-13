@@ -43,11 +43,12 @@ pub use d1::{
     D1AgentSessionInputProjection, D1AgentSessionProjection, D1ChecklistItemProjection,
     D1CockpitProjection, D1ContentPartProjection, D1ContextDockProjection,
     D1ContextUsageProjection, D1CostUsageProjection, D1CursorProjection, D1Intent, D1IntentResult,
-    D1LaneAgentProjection, D1OutcomeProjection, D1ProviderHealthProjection,
-    D1RuntimeServiceProjection, D1StarterLaneReceiptProjection, D1StatusbarContextProjection,
-    D1StatusbarLaneProjection, D1StatusbarLatencyProjection, D1StatusbarProjection,
-    D1StatusbarRequestsProjection, D1StatusbarTokensProjection, D1TopbarSourceProjection,
-    D1TurnFailureProjection, D1TurnProjection, D1WorkspaceSourceProjection,
+    D1LaneAgentProjection, D1OutcomeProjection, D1PendingCommandProjection,
+    D1ProviderHealthProjection, D1RuntimeServiceProjection, D1StarterLaneReceiptProjection,
+    D1StatusbarContextProjection, D1StatusbarLaneProjection, D1StatusbarLatencyProjection,
+    D1StatusbarProjection, D1StatusbarRequestsProjection, D1StatusbarTokensProjection,
+    D1TopbarSourceProjection, D1TurnFailureProjection, D1TurnProjection,
+    D1WorkspaceSourceProjection,
 };
 pub use d2::{
     D2_CONTRACT_DECIDED_CODE, D2_KIND_CONTRACT, D2_KIND_GATE, D2_KIND_REVIEW,

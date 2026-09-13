@@ -1201,44 +1201,103 @@ composer、也不发出命令。祸首不是 `composerDispatchQueued`：它会�
 **这属于 Core 侧，因此按本批次的授权在此编号并停止，而不是修复。** 没有编辑任何
 `crates/**` 文件。
 
+**更正，2026-09-13（H5）。** 上面最后那条推断是错的，它被原样保留，以便推理过程可
+被审计。读数 —— 某一条命令的收据缺失，而 Core 的 worker 仍在继续作答 —— 是对的；
+归属不对。Core 在这条完全相同的路径上正确地发出了收据，由一个首次运行即 GREEN 的
+runtime 测试证明。收据是在 Core 发布*之后*丢失的，丢在桌面外壳自己的后台事件 pump
+里：它排空了该事件，却没有把它交给客户端的 D1 pending。更正后的根因、它的 RED 与修
+复记录在下面的缺陷 22 中。
+
 ### E3b 发现的缺陷与缺口
 
 编号接续上文二十一项。每一项都是复现出来的，不是推断出来的。此处没有修复任何
 一项。
 
 22. **在审批之下创建的 starter Lane 从未了结其创建命令，因而驾驶舱唯一的命令
-    槽位在进程整个生命周期内保持被占用**（Core，阻塞）。Lane 本身创建正确 ——
-    工作树、分支、`LaneRuntimeOwnerBound`、`LaneOutputAppended` 与持久 Lane 行
-    全部到达 —— 但宿主所等待的 `StarterLaneCreated` 收据
-    （`apps/gui/src-tauri/src/adapter.rs:610-615`）没有到达，其发射点位于
-    `crates/lanes/src/lane_supervisor.rs:1068-1101`，在那里该事件仅当所观察的
-    lane 事件携带 `created_lane` **且**待决创建条目仍在注册表中时才会发布。其
-    后果就是整个 Lane 半区：每一次 composer 提交与每一次 `Cancel active turn`
-    都被丢弃（`d1_cockpit.ts:3179`），Evidence 导轨槽位不再挂载其窗格（因为返回
-    它是一次 Core 读取），`Commit & Push ⇡` 的 `git_push` 一半也不再浮现（缺陷
-    25 极可能就是同一个槽位）。它是唯一让真实任务的 Lane 半区在 `0.3.5` 候选版
-    上不可达的缺陷，正如缺陷 14 与 15 之于 `0.3.4`。
-23. **客户端无法发送的 composer 提交被静默丢弃**（GUI，对诊断构成阻塞）。槽位
-    被占用时 `sendAndWait` 返回 `null`
-    （`apps/gui/src/screens/d1_cockpit.ts:3179`）：没有 `role=alert`、没有
-    `data-d1-rejection`、没有状态行，键入的文本被留在 composer 里，就像根本没有
-    人提出过请求。十次按下 `Send message` 得到十次沉默。这正是 H4 无法诊断第 5
-    步、只能把它交出去的原因，也正是客户端自己那条有界等待注释所禁止的失败形状
-    —— "没有界限的等待无法报告"。让拒绝可见并不能解除缺陷 22 的阻塞，但那会把它
-    从一小时的排查变成五分钟的发现。
+    槽位在进程整个生命周期内保持被占用**（GUI 宿主，阻塞）。**2026-09-13 由 H5
+    修复**（`05764cb2`）。E3b 把它编号为 Core 侧并就此停手；复现说明并非如此。
+    一个 runtime 测试驱动了完全相同的原生路径 —— 真实 Git 工作区中的
+    `PreviewDefaultStarterLane`、真实的 `LocalLaneEffectExecutor`、以 allow-once
+    决定的 `lane_create` 审批 —— Core 在 `LaneUpdated` 之后发出
+    `StarterLaneCreated`，此前没有任何作废事件，首次运行即为 GREEN
+    （`crates/runtime/src/tests/frontend_services_tests.rs:2331`,
+    `default_starter_lane_in_real_git_workspace_settles_its_creation_receipt`）。
+    RED 在上一层，在传输层。`reconcile_ambient_pendings`
+    （`apps/gui/src-tauri/src/adapter.rs:6252`）—— H4 为"无论哪一次排空消费了信
+    封，都要调和每一个相关命令"而引入的漏斗 —— 把事件交给了每一个 pending，
+    **唯独漏掉 `pending_d1`**，后者只有 `poll_d1` 观察。而在已发布的桌面外壳
+    里，看到 D1 回执的排空几乎从来不是 `poll_d1`：`spawn_core_event_pump`
+    （`apps/gui/src-tauri/src/lib.rs:1484`）在后台线程上持有有界接收，webview 只
+    在该 pump 发出的唤醒之后才读取，于是 `pump_events`（`adapter.rs:6277`）消费
+    了 `StarterLaneCreated`，而创建命令从未被结算。在 allow-once 与屏幕自身的轮
+    询之间插入一次 pump 排空即可精确复现：
+    `assertion \`left == right\` failed: a receipt drained by the desktop pump
+    must still free the client's one command slot / left: Some("pump-create-lane")
+    / right: None`（`apps/gui/src-tauri/src/adapter.rs`,
+    `desktop_event_pump_settles_the_lane_creation_it_drains`）。这也解释了 E3b
+    记录下却无法解读的对照组：`QueryWorkspaceDiff`、`QueryWorkspaceFiles`、
+    `QueryAudit` 以及四个 operator-git 命令在同一进程内照常工作，正因为它们的
+    pending 全都*在*漏斗里。`observe_pending_d1` 现在在漏斗内部运行并把结果记在
+    adapter 上，因此无论哪一次排空看到回执，下一次 `poll_d1` 都能读到已释放的槽
+    位与 confirmed 或 rejected 的结果。规划工作台的 `pending_d15` 与 Agent 看板
+    的 `pending_d16` 是最后两个仍留在该漏斗之外的命令，且有着一模一样的洞，因此
+    在同一批次中以同样方式关闭，并把结果保存在 adapter 上供各自的下一次轮询读
+    回。测试：`apps/gui/tests/h5_native_defects.rs`
+    `a_receipt_drained_by_the_desktop_pump_still_frees_the_d1_command_slot`，以及
+    上面那个真实 Core 的 `desktop_event_pump_settles_the_lane_creation_it_drains`。
+    **弹出框 TASK 字段在这条路径上做了什么**（那次运行无法看到）：随创建一同抵
+    达 Core 的什么也没有。在本基线上 `StarterLaneRequest` 不携带 task，D4 发送
+    `agent: None`（`apps/gui/src-tauri/src/adapter.rs:4726`），因此 Core 的默认预
+    览不绑定任何 agent、也不启动任何会话 —— 收据的 `session` 为 `None`。该任务
+    被客户端保存在 `pendingLaneStart`
+    （`apps/gui/src/screens/d1_cockpit.ts:3356`），并在 Core 发布已创建的 Lane
+    **且** `commandSlotAvailable()` 为真之后，由 `maybeResumeLaneStart`（`:3373`）
+    作为一次普通的 composer `SubmitUserInput` 提交。命令槽从未释放，该守卫在每
+    一次唤醒时都提前返回，这正是 Lane 的持久记录停留在 `status: draft`、
+    `task_id: null`、`active_session_ids: []`，而 session JSONL 中完全没有回合事
+    实的原因。Lane 从未停滞；是它的第一条消息从未发出。
+23. **客户端无法发送的 composer 提交被静默丢弃**（GUI，对诊断构成阻塞）。
+    **2026-09-13 由 H5 修复**（`0296ce0b`）。槽位被占用时 `sendAndWait` 返回
+    `null`（`apps/gui/src/screens/d1_cockpit.ts:3179`）。`D1IntentResult` 现在携
+    带 `pending_command`（`apps/gui/src-tauri/src/d1.rs:624`）—— 被占用 pending
+    的命令 id、它稳定的 Core 命令名、自客户端发出以来的时长，以及宿主是否允许放
+    弃该等待 —— composer 渲染一个 `role=alert` 的 `data-d1-slot-busy`，写明种类
+    与时长，保留已输入文本，仅对两个 adapter 发现读操作提供宿主自己的放弃入口，
+    其余情况则明说该命令带有副作用、其等待绝不会由客户端放弃。
+    `PendingD1Kind::is_abandonable`（`adapter.rs:465`）与 `abandon_pending_probe`
+    执行同一个判定，保持为一个函数，使该控件不可能出现在宿主会拒绝的地方。测
+    试：`apps/gui/tests/h5_native_defects.rs`
+    `an_occupied_command_slot_publishes_its_kind_age_and_whether_it_may_be_abandoned`，
+    以及 `apps/gui/tests/h5_native_defects.spec.ts` 的"defect 23 — a refused
+    submit names what holds the command slot"（五个用例；修复前为 RED，在
+    `[data-d1-slot-busy]` 上报 `expected null not to be null`）。
 24. **`Cancel active turn` 为一个没有回合的 Lane 绘制**（GUI，诚实性）。
-    `composer.canCancel` 从不读取 `busy` 或 `active_turns`
-    （`apps/gui/src-tauri/src/projection.rs:2163-2165`），因此任何带有精确绑定的
-    活动 Lane 都会宣告一个可取消的回合。在一个 session JSONL 中完全没有回合事实
-    的 `draft` Lane 上，该控件是对并不存在的工作所作的断言 —— 而这恰恰是让 H4
-    把此状态读成停滞回合的那条断言。
+    **2026-09-13 由 H5 修复**（`26eff93d`）。`composer.can_cancel`
+    （`apps/gui/src-tauri/src/projection.rs:2172`）读的是
+    `lane.is_active() && exact_binding.is_some()`，两者都不是关于工作的事实：
+    owner 绑定在回合结束后仍保留其 `turn_id`。它现在依据 `busy` —— Core 自己
+    针对该 Lane 的 `active_turns` 条目，或其 owner 下处于 running / starting /
+    waiting-approval 的 Agent 会话。RED 是那条把旧读法固化下来的规范投影断言：
+    `panicked at apps/gui/src-tauri/../tests/d1_cockpit.rs:139:5: assertion
+    failed: projection.composer.can_cancel`。测试：
+    `apps/gui/tests/h5_native_defects.rs`
+    `cancel_is_not_offered_for_a_bound_lane_core_is_running_no_turn_for` 与
+    `cancel_is_offered_once_core_reports_an_active_turn_for_the_lane`，外加
+    `h5_native_defects.spec.ts` 中的两个渲染用例。
 25. **`Commit & Push ⇡` 的 `git_push` 一半没有到达任何可决定的界面**（GUI，对
-    推送构成阻塞）。在其 `git_commit` 审批被决定、提交落地之后，提交栏停在
-    `Push is waiting for approval in the permission dock.` 且 `Commit & Push ⇡`
-    禁用，而 D2 读作 `0 awaiting you`，没有出现队列徽标，审计存储中也没有写入
-    任何 `git_push` 行 —— 连一条授权行都没有。跨 D2 与停靠栏轮询 40 秒。这是
-    缺陷 16 在两审批动作的*第二个*审批上残存的形状；H4 关闭了"已决定的卡片仍
-    显示待决"那一半，这一半仍然存在。
+    推送构成阻塞）。**H5 之后仍然开放，并且它不是缺陷 22。** H5 在插入了桌面
+    pump 的进程内真实 Core 上探查了这一对命令
+    （`apps/gui/src-tauri/src/adapter.rs`,
+    `the_push_half_of_commit_and_push_reaches_a_decidable_surface`）：在
+    `git_commit` 一半被决定、提交落地之后，Core 提出它自己的 `git_push` 审批，
+    `operator_git` 报告 `awaiting_approval`，权限坞承载 `tool_name == "git_push"`
+    的请求，决策中心的 `pending_total` 为 `1`，答复之后该操作以 Core 的类型化
+    `NoUpstream` 结果结算。权限门也运行在上游检查之前
+    （`crates/runtime/src/operator_git.rs:85` 对 `:157`），因此缺少远端无法压制
+    该审批。该探针以工作区为目标运行；原生运行则选中了 Lane，所以留给 E3c 的嫌
+    疑落在 Lane 作用域的路由上 —— `GuiCoreAdapter::operator_git_owner` 与
+    `RuntimeProjection::permission_dock_for_owner` —— 而不是命令槽。缺陷 16 在两
+    审批动作的*第二个*审批上残存的形状，仍如 E3b 所记录。
 26. **针对已持有已创建 Lane 的 `VIDEN_HOME` 重新启动会留下空白窗口**（GUI，对
     重启构成阻塞）。在设置了 `VIDEN_GUI_WORKSPACE` 且 home 中带有一个 Lane 时，
     进程启动、绘制出窗口框架、在 web 区域中不放任何内容 —— 可访问性树中只有窗口
@@ -1316,7 +1375,8 @@ composer、也不发出命令。祸首不是 `composerDispatchQueued`：它会�
   Board、专注模式与 `Esc` 返回路径 —— 全部通过驾驶舱驱动完成。
 - **驾驶舱仍然做不到的，是在它刚刚创建的 Lane 中启动一个回合**，随之而来的还有
   工具审批、内联工具差异、检查运行、归档补丁、排队跟进、已提出的计划，以及任何
-  可暂停、恢复或终止的 Agent 会话。成因是缺陷 22，属于 Core 侧。
+  可暂停、恢复或终止的 Agent 会话。成因是缺陷 22 —— 此处记录为 Core 侧，已由 H5
+  更正为 GUI 宿主的事件 pump；参见上面的更正与下面的缺陷 22。
 - **诚实的总结：** 目标 4 的源码控制半区在 GUI 上**带 Lane** 与不带 Lane 都已
   得到证明，而 `0.3.5` 目标 2 所指的信任缺口 —— 在 Lane 路径上决定的审批留下一条
   持久审计行 —— **已关闭并原生取证**。目标 4 的 Agent 半区仍然在 TUI 上得到证明，

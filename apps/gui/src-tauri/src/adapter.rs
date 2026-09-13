@@ -21,7 +21,7 @@ use viden_core::{RecentProjectSummary, RecentSessionSummary, RecentWorkQuery};
 
 use crate::d1::{
     ComposerControlIntent, D1_OWNER_CAPABILITY, D1CockpitProjection, D1Intent, D1IntentResult,
-    D1OutcomeProjection, D1TurnFailureProjection,
+    D1OutcomeProjection, D1PendingCommandProjection, D1TurnFailureProjection,
 };
 use crate::d4::{D4OutcomeProjection, PendingD4, ReviewedD4};
 use crate::d10::D10_EVENT_TICKER_LIMIT;
@@ -126,6 +126,11 @@ pub struct GuiCoreAdapter {
     /// belongs to, so the slot refuses the second locally rather than letting
     /// Core order two racing terminations. See [`PendingD16`].
     pending_d16: Option<PendingD16>,
+    /// The last answer Core gave for a D16 control, held on the adapter for
+    /// the same reason `d1_outcome` is: the drain that settles a pending is
+    /// often not the screen's own poll, so the outcome has to outlive the
+    /// call that observed it.
+    d16_outcome: D1OutcomeProjection,
     /// One plan decision at a time (`runtime.plan_documents`, C13).
     ///
     /// A plan settles exactly once and a handoff spawns real work, so a second
@@ -133,6 +138,9 @@ pub struct GuiCoreAdapter {
     /// refusal — or, worse, hand the same plan off twice. The slot refuses it
     /// locally instead. See [`PendingD15`].
     pending_d15: Option<PendingD15>,
+    /// The last answer Core gave for a D15 command, held for the same reason
+    /// as `d16_outcome`.
+    d15_outcome: D1OutcomeProjection,
     /// One audit read at a time. Core now names the read each page answers
     /// (GUI-CORE-024), so two reads *could* be told apart, but a single slot
     /// keeps the receipt's replace/append decision unambiguous and keeps the
@@ -439,6 +447,10 @@ struct PendingD1 {
     owner: RuntimeOwner,
     kind: PendingD1Kind,
     accepted: bool,
+    /// When the client sent this command. It is the only honest source for
+    /// the age a refusal reports: Core publishes no per-command clock, and a
+    /// number invented from a render would be a claim about Core.
+    sent_at: Instant,
 }
 
 enum D1Observation {
@@ -447,7 +459,53 @@ enum D1Observation {
     Rejected(String),
 }
 
+impl PendingD1Kind {
+    /// Stable name of the Core command this pending waits on, for the refusal
+    /// a blocked submit renders. Never a display string: the frontend
+    /// translates it.
+    fn name(&self) -> &'static str {
+        match self {
+            Self::Submit => "submit_user_input",
+            Self::Queue => "queue_follow_up",
+            Self::Cancel => "cancel_active_turn",
+            Self::QueryAgentAdapters => "query_agent_adapters",
+            Self::ProbeAgentAdapter { .. } => "probe_agent_adapter",
+            Self::PreviewDefaultLane => "preview_starter_lane",
+            Self::CreateStarterLane { .. } => "create_starter_lane",
+            Self::StartAgentSession { .. } => "start_agent_session",
+            Self::SendAgentSessionInput { .. } => "send_agent_session_input",
+            Self::RetryAgentSession { .. } => "retry_agent_session",
+            Self::CancelAgentSession { .. } => "cancel_agent_session",
+            Self::SetWorkMode => "set_work_mode",
+            Self::SetPermissionLevel => "set_permission_level",
+            Self::SelectModel => "select_model",
+        }
+    }
+
+    /// Whether the client may stop waiting on this command by itself.
+    ///
+    /// Exactly the predicate `abandon_pending_probe` enforces, kept as one
+    /// function so the refusal can never offer a control the host refuses:
+    /// the two adapter-discovery reads mutate nothing, and every other
+    /// pending carries an effect whose answer is the only record it ran.
+    fn is_abandonable(&self) -> bool {
+        matches!(
+            self,
+            Self::ProbeAgentAdapter { .. } | Self::QueryAgentAdapters
+        )
+    }
+}
+
 impl PendingD1 {
+    fn projection(&self) -> D1PendingCommandProjection {
+        D1PendingCommandProjection {
+            command_id: self.command_id.clone(),
+            kind: self.kind.name(),
+            age_ms: self.sent_at.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
+            abandonable: self.kind.is_abandonable(),
+        }
+    }
+
     fn is_satisfied_by_agent_sessions(&self, sessions: &[viden_core::AgentSessionView]) -> bool {
         match &self.kind {
             PendingD1Kind::StartAgentSession {
@@ -1881,7 +1939,9 @@ impl GuiCoreAdapter {
             d2_selected: None,
             pending_d2_review: None,
             pending_d15: None,
+            d15_outcome: D1OutcomeProjection::idle(),
             pending_d16: None,
+            d16_outcome: D1OutcomeProjection::idle(),
             pending_audit: None,
             turn_failure: None,
             pending_transcript_rows: None,
@@ -3750,6 +3810,7 @@ impl GuiCoreAdapter {
             expect,
             accepted: false,
         });
+        self.d16_outcome = D1OutcomeProjection::pending();
         self.client
             .send(RuntimeCommandEnvelope {
                 schema_version: FRONTEND_SCHEMA_V1,
@@ -3760,6 +3821,8 @@ impl GuiCoreAdapter {
             })
             .map_err(|error| {
                 self.pending_d16 = None;
+                // The command never left, so there is no Core answer to hold.
+                self.d16_outcome = D1OutcomeProjection::idle();
                 error.to_string()
             })?;
         let outcome = self.poll_d16_control(event_timeout)?;
@@ -3812,11 +3875,11 @@ impl GuiCoreAdapter {
     }
 
     fn poll_d16_control(&mut self, event_timeout: Duration) -> Result<D1OutcomeProjection, String> {
+        // Not an early "idle", for the same reason as `poll_d15_decision`.
         if self.pending_d16.is_none() {
-            return Ok(D1OutcomeProjection::idle());
+            return Ok(self.d16_outcome.clone());
         }
         let mut received = false;
-        let mut outcome = D1OutcomeProjection::pending();
         for _ in 0..8 {
             let event = match self
                 .receive_event_until(if received {
@@ -3830,37 +3893,19 @@ impl GuiCoreAdapter {
                 None => break,
             };
             received = true;
-            // The held view is what `NewSession` counts against, and it is the
-            // pre-event view on purpose: the confirming fact has not been
-            // reduced yet, so the count it is compared with is the one taken
-            // before the command went out.
-            let sessions = self
-                .projection
-                .view()
-                .map(|view| view.agent_sessions.clone())
-                .unwrap_or_default();
-            let Some(pending) = self.pending_d16.as_mut() else {
+            // Through the shared funnel, which holds the `NewSession` count
+            // rule: the session list it compares against is read before the
+            // event is offered and therefore before the fact is reduced.
+            let _ = self.reconcile_ambient_pendings(&event);
+            if self.pending_d16.is_none() {
                 break;
-            };
-            match pending.observe(&event, &sessions) {
-                D12Observation::Continue => {}
-                D12Observation::Confirmed => {
-                    self.pending_d16 = None;
-                    outcome = D1OutcomeProjection::confirmed();
-                    break;
-                }
-                D12Observation::Rejected(reason) => {
-                    self.pending_d16 = None;
-                    outcome = D1OutcomeProjection::rejected(reason);
-                    break;
-                }
             }
         }
         if received {
             self.refresh_projection()
                 .map_err(|error| error.to_string())?;
         }
-        Ok(outcome)
+        Ok(self.d16_outcome.clone())
     }
 
     /// Whether Core's handshake published `runtime.plan_documents`.
@@ -3913,6 +3958,7 @@ impl GuiCoreAdapter {
             handoff,
             accepted: false,
         });
+        self.d15_outcome = D1OutcomeProjection::pending();
         self.client
             .send(RuntimeCommandEnvelope {
                 schema_version: FRONTEND_SCHEMA_V1,
@@ -3923,6 +3969,8 @@ impl GuiCoreAdapter {
             })
             .map_err(|error| {
                 self.pending_d15 = None;
+                // The command never left, so there is no Core answer to hold.
+                self.d15_outcome = D1OutcomeProjection::idle();
                 error.to_string()
             })?;
         let outcome = self.poll_d15_decision(event_timeout)?;
@@ -4050,11 +4098,12 @@ impl GuiCoreAdapter {
         &mut self,
         event_timeout: Duration,
     ) -> Result<D1OutcomeProjection, String> {
+        // Not an early "idle": another drain may already have settled this
+        // command, and the recorded answer is what this poll owes the screen.
         if self.pending_d15.is_none() {
-            return Ok(D1OutcomeProjection::idle());
+            return Ok(self.d15_outcome.clone());
         }
         let mut received = false;
-        let mut outcome = D1OutcomeProjection::pending();
         for _ in 0..8 {
             let event = match self
                 .receive_event_until(if received {
@@ -4068,28 +4117,18 @@ impl GuiCoreAdapter {
                 None => break,
             };
             received = true;
-            let Some(pending) = self.pending_d15.as_mut() else {
+            // Through the shared funnel, so an event this poll happens to
+            // consume also reconciles every other correlated command.
+            let _ = self.reconcile_ambient_pendings(&event);
+            if self.pending_d15.is_none() {
                 break;
-            };
-            match pending.observe(&event) {
-                D12Observation::Continue => {}
-                D12Observation::Confirmed => {
-                    self.pending_d15 = None;
-                    outcome = D1OutcomeProjection::confirmed();
-                    break;
-                }
-                D12Observation::Rejected(reason) => {
-                    self.pending_d15 = None;
-                    outcome = D1OutcomeProjection::rejected(reason);
-                    break;
-                }
             }
         }
         if received {
             self.refresh_projection()
                 .map_err(|error| error.to_string())?;
         }
-        Ok(outcome)
+        Ok(self.d15_outcome.clone())
     }
 
     pub fn d2_send_intent(
@@ -4904,6 +4943,7 @@ impl GuiCoreAdapter {
             owner,
             kind,
             accepted: false,
+            sent_at: Instant::now(),
         });
         self.d1_outcome = D1OutcomeProjection::pending();
         self.poll_d1(selected_lane_id.as_deref(), event_timeout)
@@ -4929,24 +4969,11 @@ impl GuiCoreAdapter {
             };
             received = true;
             // Every correlated command, not only the permission dock's: this
-            // drain may be the only one that ever sees this envelope.
-            self.reconcile_ambient_pendings(&event);
-            let observation = self
-                .pending_d1
-                .as_mut()
-                .map_or(D1Observation::Continue, |pending| pending.observe(&event));
-            match observation {
-                D1Observation::Continue => {}
-                D1Observation::Confirmed => {
-                    self.pending_d1 = None;
-                    self.d1_outcome = D1OutcomeProjection::confirmed();
-                    break;
-                }
-                D1Observation::Rejected(reason) => {
-                    self.pending_d1 = None;
-                    self.d1_outcome = D1OutcomeProjection::rejected(reason);
-                    break;
-                }
+            // drain may be the only one that ever sees this envelope. The
+            // funnel settles the D1 pending too, so this loop only has to
+            // stop once it did.
+            if self.reconcile_ambient_pendings(&event) {
+                break;
             }
         }
         if received && !receive_failed {
@@ -4981,6 +5008,10 @@ impl GuiCoreAdapter {
                 .pending_d1
                 .as_ref()
                 .map(|pending| pending.command_id.clone()),
+            // Published beside the id so a refused submit can name what holds
+            // the slot and for how long, instead of returning in silence
+            // (E3b defect 23).
+            pending_command: self.pending_d1.as_ref().map(PendingD1::projection),
             outcome: self.d1_outcome.clone(),
         })
     }
@@ -5049,6 +5080,7 @@ impl GuiCoreAdapter {
             owner,
             kind,
             accepted: false,
+            sent_at: Instant::now(),
         });
         self.d1_outcome = D1OutcomeProjection::pending();
         self.poll_d1(selected_lane_id, event_timeout)
@@ -6249,7 +6281,18 @@ impl GuiCoreAdapter {
     /// the commit bar saying "waiting for the permission decision" beside a
     /// completed commit, unchanged thirty seconds later. Every drain now funnels
     /// through here, so whoever takes an event reconciles all of them.
-    fn reconcile_ambient_pendings(&mut self, event: &RuntimeEventEnvelope) {
+    /// Offers one drained event to every correlated pending this adapter
+    /// holds. Returns whether it settled the in-flight D1 command.
+    ///
+    /// Every ordered Core event reaches exactly one drain, and in the shipped
+    /// desktop shell that drain is almost never the screen's own `poll_d1`:
+    /// `spawn_core_event_pump` holds the bounded receive on a background
+    /// thread and the webview only reads *after* the wake the pump emits. A
+    /// pending whose receipt is not offered here therefore never settles —
+    /// which is E3b defect 22, where a `StarterLaneCreated` consumed by the
+    /// pump held the client's single D1 command slot for the life of the
+    /// process and silently dropped every later submit and cancel.
+    fn reconcile_ambient_pendings(&mut self, event: &RuntimeEventEnvelope) -> bool {
         self.observe_pending_permission(event);
         self.observe_pending_preference(event);
         self.observe_pending_layout_preference(event);
@@ -6264,7 +6307,92 @@ impl GuiCoreAdapter {
         self.observe_pending_operator_git(event);
         self.observe_pending(event);
         self.observe_pending_d12(event);
+        self.observe_pending_d15(event);
+        self.observe_pending_d16(event);
         self.observe_d4(event);
+        self.observe_pending_d1(event)
+    }
+
+    /// Settles the in-flight Plan Studio command against one ordered event.
+    ///
+    /// Same rule as `observe_pending_d1`, and it is here for the same reason:
+    /// a `PlanDocumentDecided` drained by the desktop pump would otherwise
+    /// leave D15's slot occupied for the life of the process. The outcome is
+    /// recorded on the adapter so the screen's next `poll_d15` can still read
+    /// it, because the drain that settled the command was not that poll.
+    fn observe_pending_d15(&mut self, event: &RuntimeEventEnvelope) {
+        let Some(pending) = self.pending_d15.as_mut() else {
+            return;
+        };
+        match pending.observe(event) {
+            D12Observation::Continue => {}
+            D12Observation::Confirmed => {
+                self.pending_d15 = None;
+                self.d15_outcome = D1OutcomeProjection::confirmed();
+            }
+            D12Observation::Rejected(reason) => {
+                self.pending_d15 = None;
+                self.d15_outcome = D1OutcomeProjection::rejected(reason);
+            }
+        }
+    }
+
+    /// Settles the in-flight Agent Board control against one ordered event.
+    ///
+    /// The held session list is read *before* the event is offered, and that
+    /// is the same pre-event view `poll_d16_control` reads: the confirming
+    /// fact has not been reduced into the projection yet (`receive_event` does
+    /// not apply it; `refresh_projection` does), so `NewSession`'s count is
+    /// compared against the one taken before the command went out.
+    fn observe_pending_d16(&mut self, event: &RuntimeEventEnvelope) {
+        if self.pending_d16.is_none() {
+            return;
+        }
+        let sessions = self
+            .projection
+            .view()
+            .map(|view| view.agent_sessions.clone())
+            .unwrap_or_default();
+        let Some(pending) = self.pending_d16.as_mut() else {
+            return;
+        };
+        match pending.observe(event, &sessions) {
+            D12Observation::Continue => {}
+            D12Observation::Confirmed => {
+                self.pending_d16 = None;
+                self.d16_outcome = D1OutcomeProjection::confirmed();
+            }
+            D12Observation::Rejected(reason) => {
+                self.pending_d16 = None;
+                self.d16_outcome = D1OutcomeProjection::rejected(reason);
+            }
+        }
+    }
+
+    /// Settles the in-flight D1 command against one ordered event.
+    ///
+    /// The outcome is recorded on the adapter rather than returned, because
+    /// the screen that sent the command may not be the caller that drains its
+    /// receipt: the next `poll_d1` reads both the freed slot and the recorded
+    /// outcome from here.
+    fn observe_pending_d1(&mut self, event: &RuntimeEventEnvelope) -> bool {
+        let observation = self
+            .pending_d1
+            .as_mut()
+            .map_or(D1Observation::Continue, |pending| pending.observe(event));
+        match observation {
+            D1Observation::Continue => false,
+            D1Observation::Confirmed => {
+                self.pending_d1 = None;
+                self.d1_outcome = D1OutcomeProjection::confirmed();
+                true
+            }
+            D1Observation::Rejected(reason) => {
+                self.pending_d1 = None;
+                self.d1_outcome = D1OutcomeProjection::rejected(reason);
+                true
+            }
+        }
     }
 
     /// Drains ordered Core events with one bounded wait and refreshes the
@@ -6291,7 +6419,10 @@ impl GuiCoreAdapter {
                 }
             };
             received = true;
-            self.reconcile_ambient_pendings(&event);
+            // A settled D1 command is not a reason to stop draining here: the
+            // pump has no screen to answer, and the webview reads the freed
+            // slot off the adapter on the wake this drain triggers.
+            let _ = self.reconcile_ambient_pendings(&event);
         }
         if received {
             let _ = self.refresh_projection();
@@ -6584,11 +6715,14 @@ fn core_event_kind(kind: &viden_core::RuntimeEventKind) -> String {
 mod tests {
     use std::path::PathBuf;
     use std::process::Command;
-    use std::time::{Duration, SystemTime, UNIX_EPOCH};
+    use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
     use viden_core::{AgentSessionStatus, AgentSessionView, LocalCoreHost, RuntimeOwner};
 
-    use crate::{D6ConnectionState, D11Intent, PermissionChoice, PermissionIntent};
+    use crate::{
+        D6ConnectionState, D11Intent, GuiCoreAdapter, OperatorGitIntent, PermissionChoice,
+        PermissionIntent,
+    };
 
     use super::{PendingD1, PendingD1Kind, open_workspace_with_host};
 
@@ -6643,6 +6777,7 @@ mod tests {
                 matching_sessions_before: 0,
             },
             accepted: false,
+            sent_at: Instant::now(),
         };
         let sessions = vec![AgentSessionView {
             session_id: "session-reconciled".to_string(),
@@ -6924,6 +7059,248 @@ mod tests {
         drop(host);
         std::fs::remove_dir_all(session_home).expect("remove temporary session home");
         std::fs::remove_dir_all(project).expect("remove temporary project");
+    }
+
+    /// E3b defect 22, at the transport: the desktop shell runs
+    /// `spawn_core_event_pump`, which drains ordered Core events off the UI
+    /// thread and only then wakes the webview. The receipt that settles a D1
+    /// command is therefore almost always consumed by the pump, never by the
+    /// screen's own `poll_d1`. Interposing one pump drain between the
+    /// allow-once and the screen's poll reproduces the native run exactly.
+    #[test]
+    fn desktop_event_pump_settles_the_lane_creation_it_drains() {
+        let session_home = temp_dir("pump-create-session-home");
+        let project = temp_dir("pump-create-project");
+        initialize_git_repository(&project);
+        let host = LocalCoreHost::with_session_home(&session_home);
+        let mut adapter = open_workspace_with_host(&host, &project).expect("open local workspace");
+
+        let preview = adapter
+            .send_d1_intent_and_wait(
+                "pump-create-preview",
+                crate::D1Intent::PreviewDefaultLane {
+                    preset: "coder".to_string(),
+                },
+                Duration::from_millis(250),
+            )
+            .expect("preview default Lane through live Core")
+            .projection
+            .starter_lane_previews
+            .into_iter()
+            .next()
+            .expect("Core publishes a starter Lane preview");
+
+        let create = adapter
+            .send_d1_intent_and_wait(
+                "pump-create-lane",
+                crate::D1Intent::CreateStarterLane {
+                    lane_id: preview.lane_id.clone(),
+                    preset: "coder".to_string(),
+                    branch: preview.branch.clone(),
+                    preview_id: preview.preview_id.clone(),
+                    content_sha256: preview.content_sha256.clone(),
+                },
+                Duration::from_millis(250),
+            )
+            .expect("request starter Lane creation through live Core");
+        let request_id = create
+            .projection
+            .permission_dock
+            .request
+            .expect("Core requests approval before creating a worktree")
+            .id;
+        adapter
+            .send_permission_intent_and_wait(
+                "pump-create-allow-once",
+                PermissionIntent::Respond {
+                    request_id,
+                    choice: PermissionChoice::Once,
+                    feedback: None,
+                    revised_input: None,
+                },
+                Duration::from_millis(250),
+            )
+            .expect("allow starter Lane creation once");
+
+        // The background pump wins the recv race in the shipped desktop shell:
+        // it is the thread sitting in the bounded receive while the webview is
+        // waiting for the wake the pump itself emits.
+        for _ in 0..8 {
+            if !adapter.pump_events(Duration::from_millis(250)) {
+                break;
+            }
+        }
+        let created = adapter
+            .poll_d1(None, Duration::from_millis(250))
+            .expect("observe starter Lane creation after the pump drained it");
+
+        assert!(
+            created
+                .projection
+                .lanes
+                .iter()
+                .any(|lane| lane.id == preview.lane_id),
+            "the Lane is created either way; only its receipt is at issue"
+        );
+        assert_eq!(
+            created.pending_command_id, None,
+            "a receipt drained by the desktop pump must still free the client's one command slot"
+        );
+        assert_eq!(created.outcome.state, "confirmed");
+
+        drop(adapter);
+        drop(host);
+        std::fs::remove_dir_all(session_home).expect("remove temporary session home");
+        std::fs::remove_dir_all(project).expect("remove temporary project");
+    }
+
+    /// E3b defect 25, against live Core: after the `git_commit` half of
+    /// `Commit & Push` is decided, does the `git_push` half reach a decidable
+    /// surface at all? This drives the exact pair the native run drove, with
+    /// the desktop pump interposed the way the shell runs it, and reports what
+    /// Core and the host actually publish for the second approval.
+    #[test]
+    fn the_push_half_of_commit_and_push_reaches_a_decidable_surface() {
+        let session_home = temp_dir("pair-session-home");
+        let project = temp_dir("pair-project");
+        initialize_git_repository(&project);
+        let host = LocalCoreHost::with_session_home(&session_home);
+        let mut adapter = open_workspace_with_host(&host, &project).expect("open local workspace");
+
+        std::fs::write(project.join("README.md"), "# Edited for the pair\n")
+            .expect("dirty the fixture tree");
+
+        // Stage, under its own approval.
+        adapter
+            .run_operator_git_action_and_wait(
+                "gui-git-stage",
+                None,
+                OperatorGitIntent::Stage { paths: Vec::new() },
+                Duration::from_millis(250),
+            )
+            .expect("stage is sent");
+        decide_operator_git_approval(&mut adapter, "gui-git-stage-allow");
+
+        // Commit, under its own approval: the first half of the pair.
+        adapter
+            .run_operator_git_action_and_wait(
+                "gui-git-commit",
+                None,
+                OperatorGitIntent::Commit {
+                    message: "Edit the fixture README".to_string(),
+                },
+                Duration::from_millis(250),
+            )
+            .expect("commit is sent");
+        decide_operator_git_approval(&mut adapter, "gui-git-commit-allow");
+        let committed = adapter.operator_git(None);
+        assert_eq!(
+            committed.outcome.state, "confirmed",
+            "the commit half settles before the push is sent"
+        );
+
+        // The second half, exactly as `advanceCommitPair` sends it.
+        adapter
+            .run_operator_git_action_and_wait(
+                "gui-git-push",
+                None,
+                OperatorGitIntent::Push {
+                    remote: None,
+                    set_upstream: false,
+                },
+                Duration::from_millis(250),
+            )
+            .expect("push is sent");
+        // The shell's background pump is what drains next.
+        for _ in 0..8 {
+            if !adapter.pump_events(Duration::from_millis(250)) {
+                break;
+            }
+        }
+        let pushing = adapter.operator_git(None);
+        let dock = adapter.permission_dock();
+        let queue = adapter.d2_decisions();
+
+        let decidable = pushing.awaiting_approval
+            || dock.as_ref().is_some_and(|dock| dock.request.is_some())
+            || queue.as_ref().is_some_and(|queue| queue.pending_total > 0);
+        assert!(
+            decidable || pushing.outcome.state != "pending",
+            "the push half must reach a decidable surface or settle: outcome={:?} awaiting={} dock={:?} queue={:?}",
+            pushing.outcome,
+            pushing.awaiting_approval,
+            dock.as_ref().map(|dock| dock.request.is_some()),
+            queue.as_ref().map(|queue| queue.pending_total),
+        );
+        assert!(
+            pushing.awaiting_approval,
+            "the second approval of the pair is pending on Core, not missing"
+        );
+        assert!(
+            dock.as_ref().is_some_and(|dock| dock
+                .request
+                .as_ref()
+                .is_some_and(|request| request.tool_name == "git_push")),
+            "the permission dock renders the `git_push` request itself"
+        );
+        assert_eq!(
+            queue.as_ref().map(|queue| queue.pending_total),
+            Some(1),
+            "the Decision Center counts the second approval too"
+        );
+
+        // The exact shape H5 observed, recorded rather than merely tolerated:
+        // Core raises the `git_push` approval on this path, the dock renders
+        // it, and answering it settles the action with Core's own typed
+        // outcome. Defect 25 therefore does not reproduce in-process and is
+        // not the held D1 command slot of defect 22; it stays open for E3c.
+        decide_operator_git_approval(&mut adapter, "gui-git-push-allow");
+        let settled = adapter.operator_git(None);
+        assert_eq!(
+            settled.outcome.state, "confirmed",
+            "the push settles once its approval is answered"
+        );
+        let result = settled.result.as_ref().expect("Core answered the push");
+        assert_eq!(result.action, "push");
+        assert_eq!(
+            result.failure_class,
+            Some("no_upstream"),
+            "the fixture has no remote, so Core's typed refusal is NoUpstream"
+        );
+
+        drop(adapter);
+        drop(host);
+        std::fs::remove_dir_all(session_home).expect("remove temporary session home");
+        std::fs::remove_dir_all(project).expect("remove temporary project");
+    }
+
+    /// Answers whatever approval the last operator-git action raised, the way
+    /// the permission dock does.
+    fn decide_operator_git_approval(adapter: &mut GuiCoreAdapter, command_id: &str) {
+        for _ in 0..40 {
+            if let Some(request) = adapter.permission_dock().and_then(|dock| dock.request) {
+                adapter
+                    .send_permission_intent_and_wait(
+                        command_id,
+                        PermissionIntent::Respond {
+                            request_id: request.id,
+                            choice: PermissionChoice::Once,
+                            feedback: None,
+                            revised_input: None,
+                        },
+                        Duration::from_millis(250),
+                    )
+                    .expect("decide the operator git approval");
+                break;
+            }
+            let _ = adapter.poll_operator_git(None, Duration::from_millis(100));
+        }
+        for _ in 0..8 {
+            let _ = adapter.poll_operator_git(None, Duration::from_millis(100));
+            if adapter.operator_git(None).outcome.state != "pending" {
+                break;
+            }
+        }
     }
 
     #[test]

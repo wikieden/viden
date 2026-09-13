@@ -1380,6 +1380,50 @@ Kiro CLI 的主机可以在所有 ACP 探测仍未返回时创建 Lane —— �
 复现的，是整屏重绘之后窗口短暂离开 Accessibility 树。两者都记录在证据文档中，未声称
 任何修复。
 
+### H5 —— 漏斗还剩一个洞，而它正是输入区的
+
+批次 H5（2026-09-13）关闭了 E3b 原生运行的缺陷 22–24。H4 的规则是对的，但不完
+整：`reconcile_ambient_pendings` 调和了每一个相关命令，**唯独漏掉 `pending_d1`**
+——只有 `poll_d1` 观察它。而在已发布的桌面外壳里，看到 D1 回执的排空几乎从来都
+不是 `poll_d1`：`spawn_core_event_pump` 在后台线程上持有有界接收，webview 只在
+该 pump 发出的唤醒之后才读取，因此回执先被 pump 消费。于是在一次 `lane_create`
+审批下创建的起步 Lane 从不结算它的创建命令：`pendingCommandId` 在整个进程生命
+期内保持置位，之后每一次输入区提交和 `Cancel active turn` 都被丢弃，而 Lane 自
+己的初始任务——保存在 `pendingLaneStart`、由 `maybeResumeLaneStart` 在命令槽空
+出后发送——从未提交，这正是那次运行看到一个已创建却完全没有回合的 Lane 的原因
+（缺陷 22）。`observe_pending_d1` 现在在漏斗内部运行并把结果记在 adapter 上，因
+此无论哪一次排空看到回执，下一次 `poll_d1` 都能读到已释放的命令槽以及 confirmed
+或 rejected 的结果。规划工作台的 `pending_d15` 与 Agent 看板的 `pending_d16` 是
+最后两个留在该漏斗之外的命令，并且有着一模一样的洞 —— 被 pump 排空的
+`PlanDocumentDecided` 或已暂停会话事实会让它们的槽位保持被占用 —— 因此两者现在
+也经由漏斗观察，并以同样方式把结果保存在 adapter 上，其轮询改为读回该结果而不再
+报告 `idle`。Core 没有过错：一个 runtime 测试驱动了同一条原生路径——真实
+Git 工作区中的 `PreviewDefaultStarterLane`、真实的 `LocalLaneEffectExecutor`、
+allow-once 的 `lane_create` 审批——Core 在 `LaneUpdated` 之后发出
+`StarterLaneCreated`，且此前没有任何作废事件。
+
+**客户端做出的拒绝，必须和 Core 做出的拒绝一样可见。** 当命令槽被占用时，
+`sendAndWait` 过去只是返回 `null`：没有警报、没有状态行、也不清空输入区，这正是
+十次按下 `Send message` 换来十次沉默、以及定位缺陷 22 花了一小时的原因。
+`D1IntentResult` 现在携带 `pending_command`——被占用 pending 的命令 id、它稳定
+的 Core 命令名、自客户端发出以来的时长，以及宿主是否允许放弃该等待——输入区渲
+染一个 `role=alert`，写明种类与时长，保留已输入文本，仅对两个 adapter 发现读操
+作提供 `abandon_pending_probe`，其余情况则明说该命令带有副作用、其等待绝不会由
+客户端放弃。`PendingD1Kind::is_abandonable` 与 `abandon_pending_probe` 执行的是
+同一个判定，保持为一个函数，使该控件不可能出现在宿主会拒绝的地方（缺陷 23）。
+
+**Cancel 是一句关于工作的断言。** `composer.canCancel` 过去读的是
+`lane.is_active() && exact_binding.is_some()`，两者都不是工作：owner 绑定在回合
+结束后仍保留其 `turn_id`，因此一个会话 JSONL 里根本没有任何回合事实的 `draft`
+Lane 也会宣称有可取消的回合——正是这句断言让 H4 把被占住的命令槽读成了卡住的回
+合。它现在改为依据输入区 `busy` 所用的同一份 Core 活跃度（缺陷 24）。
+
+**缺陷 25 仍然开放，并且不是缺陷 22。** 在插入了 pump 的进程内真实 Core 上，
+`Commit & Push ⇡` 的 `git_push` 一半确实抵达了可决策面：Core 提出它自己的
+`git_push` 审批，权限坞承载它，决策中心计入它，答复之后该操作以 Core 自己的
+`NoUpstream` 类型化结果结算。因此原生失败属于工作区目标探针未覆盖的其他原因，
+留给 E3c。
+
 ## Agent 看板（G9）
 
 `D-PLANBOARD` 对 Agent 看板的注册方式与规划工作台相同：它是驾驶舱的**中央面
