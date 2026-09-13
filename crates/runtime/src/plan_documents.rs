@@ -79,6 +79,61 @@ impl PlanDecision {
 }
 
 impl SessionEngine {
+    /// Folds a completed `update_plan` call into the owner's plan.
+    ///
+    /// Runs after the registry executed the tool, so the permission gate, the
+    /// cost interceptor, and the transcript entry all saw a normal tool call —
+    /// nothing about this tool bypasses the path every other tool takes. The
+    /// registry's own run validated and summarized the input; this reads the
+    /// same input through the same parser and turns it into the proposal, so
+    /// the summary the model got and the record the operator decides on cannot
+    /// describe different plans.
+    ///
+    /// `Err` becomes a failed tool result the model sees and can act on. The
+    /// one non-obvious refusal is the owner: a plan Core cannot attribute is a
+    /// plan no owner can find, so an engine that published no workspace
+    /// identity refuses to record one rather than filing it under nobody.
+    pub(crate) fn fold_update_plan_call(
+        &mut self,
+        input: &viden_types::ToolInput,
+    ) -> Result<Vec<RuntimeEvent>, String> {
+        let call = viden_tools::parse_update_plan_input(input)?;
+        let owner = self.active_native_turn_owner().ok_or_else(|| {
+            "this Core published no workspace identity, so a plan has no owner to belong to; the \
+             plan was not recorded (`runtime.workspace_owner`)"
+                .to_string()
+        })?;
+        let turn_id = owner.turn_id.clone().unwrap_or_default();
+        let draft = PlanDocumentDraft {
+            owner,
+            title: call.title,
+            goal: call.goal,
+            sections: call.sections,
+            steps: call.steps,
+        };
+        self.propose_plan_document(
+            draft,
+            PlanAuthor::Assistant {
+                session_id: self.session_id().to_string(),
+                turn_id,
+            },
+        )
+    }
+
+    /// The owner of the native turn currently running, when Core can name it.
+    ///
+    /// `None` covers both "no turn is open" and "this engine published no
+    /// workspace identity": the second is a real answer, not an empty owner,
+    /// which is the fabricated-actor failure `runtime.workspace_owner` exists
+    /// to end.
+    fn active_native_turn_owner(&self) -> Option<RuntimeOwner> {
+        let owner = self
+            .active_native_turn
+            .as_ref()
+            .map(|turn| turn.owner.clone())?;
+        (owner != RuntimeOwner::default() && !owner.workspace_id.is_empty()).then_some(owner)
+    }
+
     pub(crate) fn upsert_plan_document(&mut self, record: PlanDocumentRecord) {
         if let Some(existing) = self
             .runtime_plan_documents

@@ -11,6 +11,7 @@ mod lane_tests;
 mod lsp_tests;
 mod patch_conflict_tests;
 mod patch_document_tests;
+mod plan_tests;
 mod shell_tests;
 mod web_tests;
 

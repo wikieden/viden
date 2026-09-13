@@ -619,3 +619,137 @@ fn a_proposal_with_no_owner_is_refused() {
             .contains("names nobody")
     );
 }
+
+// --- the `update_plan` tool --------------------------------------------------
+
+/// The one tool plan mode allows to have an effect, and the effect it has.
+///
+/// A planning turn in plan mode calls `update_plan`; the permission engine
+/// sees a safe read and lets it through, and Core records the plan under the
+/// turn's own owner with `PlanAuthor::Assistant`. Before this capability the
+/// same turn produced transcript prose and nothing an operator could accept.
+#[test]
+fn the_update_plan_tool_records_the_plan_in_plan_mode() {
+    let cwd = temp_dir("plan_tool_cwd");
+    let home = temp_dir("plan_tool_home");
+    let mut input = viden_types::ToolInput::new();
+    input.insert("title".to_string(), "Rename the parser entry".to_string());
+    input.insert(
+        "plan".to_string(),
+        r#"[{"step":"rename the entry point","status":"in_progress","role":"coder"},
+            {"step":"update the callers","status":"pending","dependencies":["step_1"]}]"#
+            .to_string(),
+    );
+    let provider = Box::new(SequenceProvider::new(vec![
+        vec![viden_types::ModelEvent::ToolCall(viden_types::ToolCall {
+            id: "tool_update_plan".to_string(),
+            name: viden_tools::UPDATE_PLAN_TOOL.to_string(),
+            input,
+        })],
+        vec![viden_types::ModelEvent::AssistantText {
+            content: "Plan recorded.".to_string(),
+        }],
+    ]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    crate::workspace_owner::bind_workspace_owner_at_root(&mut engine, &cwd).unwrap();
+    engine.set_work_mode(WorkMode::Plan).unwrap();
+
+    let events = engine
+        .handle_runtime_command(
+            "plan-turn",
+            RuntimeCommand::SubmitUserInput {
+                content: "plan the rename".to_string(),
+            },
+            &mut |_prompt| panic!("`update_plan` is a safe read and must not prompt"),
+        )
+        .unwrap();
+    assert!(rejection(&events).is_none(), "{events:?}");
+
+    // The turn's own event list carries the plan twice and identically: once
+    // in the snapshot prefix every turn republishes state through, and once as
+    // the ordered fact the tool call produced. The reducer upserts by plan id,
+    // so a client sees one plan either way.
+    let published = updates(&events);
+    assert!(
+        published.windows(2).all(|pair| pair[0] == pair[1]),
+        "every copy of the record describes the same plan: {published:?}"
+    );
+    let plan = published.last().expect("the tool call publishes a plan");
+    assert_eq!(plan.revision, 1);
+    assert_eq!(plan.status, PlanDocumentStatus::Proposed);
+    assert_eq!(plan.title, "Rename the parser entry");
+    assert_eq!(plan.steps.len(), 2);
+    assert_eq!(plan.steps[0].status, PlanStepStatus::InProgress);
+    assert_eq!(plan.steps[1].dependencies, vec!["step_1"]);
+    assert!(
+        matches!(&plan.proposed_by, PlanAuthor::Assistant { turn_id, .. } if !turn_id.is_empty()),
+        "the tool path records the assistant as the author: {:?}",
+        plan.proposed_by
+    );
+    assert_eq!(
+        plan.owner.workspace_id,
+        engine.workspace_owner().unwrap().workspace_id,
+        "the plan belongs to the workspace identity Core published"
+    );
+
+    // The record is ordered after the tool result the model read, so a client
+    // renders the plan beside the call that produced it.
+    let result_index = events
+        .iter()
+        .position(|event| {
+            matches!(&event.kind, RuntimeEventKind::ToolCallFinished { name, .. }
+                if name == viden_tools::UPDATE_PLAN_TOOL)
+        })
+        .expect("the tool call finishes");
+    let plan_index = events
+        .iter()
+        .rposition(|event| matches!(event.kind, RuntimeEventKind::PlanDocumentUpdated { .. }))
+        .expect("the plan is published");
+    assert!(result_index < plan_index, "{events:?}");
+
+    assert_eq!(engine.runtime_view_state().plan_documents.len(), 1);
+}
+
+/// A malformed call is a tool error the model sees, and nothing is recorded. A
+/// summary claiming a plan was recorded over a plan that was not is the one
+/// outcome worse than the refusal.
+#[test]
+fn a_malformed_update_plan_call_records_nothing() {
+    let cwd = temp_dir("plan_tool_bad_cwd");
+    let home = temp_dir("plan_tool_bad_home");
+    let mut input = viden_types::ToolInput::new();
+    input.insert("title".to_string(), "No steps".to_string());
+    let provider = Box::new(SequenceProvider::new(vec![
+        vec![viden_types::ModelEvent::ToolCall(viden_types::ToolCall {
+            id: "tool_update_plan_bad".to_string(),
+            name: viden_tools::UPDATE_PLAN_TOOL.to_string(),
+            input,
+        })],
+        vec![viden_types::ModelEvent::AssistantText {
+            content: "I will retry.".to_string(),
+        }],
+    ]));
+    let mut engine = SessionEngine::new_with_home(&cwd, provider, Some(home)).unwrap();
+    crate::workspace_owner::bind_workspace_owner_at_root(&mut engine, &cwd).unwrap();
+
+    let events = engine
+        .handle_runtime_command(
+            "plan-turn-bad",
+            RuntimeCommand::SubmitUserInput {
+                content: "plan it".to_string(),
+            },
+            &mut |_prompt| panic!("`update_plan` is a safe read and must not prompt"),
+        )
+        .unwrap();
+
+    assert!(updates(&events).is_empty(), "nothing is recorded");
+    assert!(
+        events.iter().any(|event| matches!(
+            &event.kind,
+            RuntimeEventKind::ToolCallFinished { name, success, .. }
+                if name == viden_tools::UPDATE_PLAN_TOOL && !success
+        )),
+        "the model sees a failed tool call: {events:?}"
+    );
+    assert!(engine.runtime_view_state().plan_documents.is_empty());
+}
