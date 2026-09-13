@@ -103,7 +103,8 @@ What `0.3.4` left open, verbatim from its report:
   only if the production gate passes in full; otherwise it ships as `rc.6`
   and the gate's failing rows are the `0.3.6` backlog.
 - **Out for `0.3.5`**, adjudicated in the hygiene batch and re-dated rather
-  than silently carried: 018 (checkpoint capture and restore), 021 (forge
+  than silently carried: 013 (pending contract-confirmation fact), 018
+  (checkpoint capture and restore), 021 (forge
   and PR status), 023 (multi-workspace supervision), 026 (platform
   credential intake), 029 (D5 gallery), 031 (skill packs), 032 (terminal
   PTY facts, DockSD roadmap), 033 (workspace document facts); DockSD,
