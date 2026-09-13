@@ -1,5 +1,9 @@
 import type { PaletteWorkspaceFiles } from "../components/command_palette";
 import type { PermissionIntent, PermissionIntentResult } from "../components/permission_dock";
+import type {
+  StandingApprovalIntentResult,
+  StandingApprovalsProjection,
+} from "../models/workspace";
 import type { WorkspaceDiffProjection } from "../models/diff_review";
 import type {
   EvidenceArchiveProjection,
@@ -13,6 +17,11 @@ import type {
   LayoutPreferencePatch,
   LayoutPreferencesProjection,
 } from "../models/layout_preferences";
+import type {
+  D16AgentBoardProjection,
+  D16Intent,
+  D16IntentResult,
+} from "../models/board";
 import type {
   D15Intent,
   D15IntentResult,
@@ -392,6 +401,46 @@ export interface CoreClient {
   d15SendIntent(commandId: string, intent: D15Intent): Promise<D15IntentResult>;
   /** Drains ordered Core events while a plan command is still pending. */
   d15Poll(laneId: string | null): Promise<D15IntentResult>;
+
+  /**
+   * The Agent Board with no Core traffic (`runtime.agent_session_control`, C14).
+   *
+   * `selectedSessionId` is the shell's own selection; the host resolves it
+   * against what Core publishes rather than trusting it, so a session that has
+   * gone can never remain the one the detail pane acts on.
+   */
+  d16AgentBoard(selectedSessionId: string | null): Promise<D16AgentBoardProjection | null>;
+  /**
+   * Sends one session control — `PauseAgentSession`, `ResumeAgentSession`,
+   * `KillAgentSession`, `CancelAgentSession`, `RetryAgentSession`, or the
+   * `StartAgentSession` that is step 2 of a model switch — and resolves with
+   * Core's own answer.
+   *
+   * There is no switch-model command in the contract and none here: the board
+   * sends the two steps as two intents under two command ids.
+   */
+  d16SendIntent(commandId: string, intent: D16Intent): Promise<D16IntentResult>;
+  /** Drains ordered Core events while a session control is still pending. */
+  d16Poll(selectedSessionId: string | null): Promise<D16IntentResult>;
+
+  /**
+   * The standing `Always` rules in force (`runtime.approval_scopes`, C15).
+   *
+   * Empty with the capability present means no rule is installed; empty
+   * without it means nobody could answer, and the panel prints the two
+   * differently.
+   */
+  standingApprovals(): Promise<StandingApprovalsProjection>;
+  /**
+   * Sends one `RevokeStandingApproval` and resolves with Core's own answer.
+   *
+   * The revocation is what makes an Always grant safe to make, so it ships
+   * beside it rather than later.
+   */
+  revokeStandingApproval(
+    commandId: string,
+    ruleId: string,
+  ): Promise<StandingApprovalIntentResult>;
   /** D14's diagnostic mode: one raw replay page through the Core cursor. */
   d14AuditTimeline(after: string | null, limit: number): Promise<D14AuditTimelineProjection>;
 

@@ -30,6 +30,7 @@ const DESTINATIONS: Record<D1RailDestination, { en: string; zh: string }> = {
   d13: { en: "Fleet board", zh: "舰队看板" },
   d14: { en: "Audit timeline", zh: "审计时间线" },
   d15: { en: "Plan Studio", zh: "规划工作台" },
+  d16: { en: "Agent Board", zh: "Agent 看板" },
 };
 
 function rail(): HTMLElement {
@@ -87,6 +88,7 @@ describe("activity rail destinations", () => {
       "d13",
       "d14",
       "d15",
+      "d16",
       "d2",
       "evidence",
       "review",
@@ -104,6 +106,9 @@ describe("activity rail destinations", () => {
       // `D-PLANBOARD` puts `plan` between `chat` and `lanes`.
       "plan",
       "lanes",
+      // `D-PLANBOARD` reuses the registered `robot` key for D16 and fixes the
+      // order `chat · plan · lanes · robot · fleet · decide`.
+      "robot",
       "review",
       "evidence",
       "decide",

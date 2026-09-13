@@ -443,9 +443,13 @@ export function renderD4LaneCreate(
       form.append(section);
     } else if (state.step === 1) {
       // Step 2 — Choose agent. The list is Core's published adapters; the
-      // popover's pick is marked. Nothing here is selectable, because the
-      // create command carries no agent: making these rows clickable would be
-      // a control that cannot reach Core.
+      // popover's pick is marked. Nothing here is selectable yet, and the
+      // reason moved rather than went away: C15 gave `StarterLaneRequest` an
+      // `agent` field, but `viden-core` re-exports neither
+      // `StarterLaneAgentBinding` nor `StarterLaneSessionOutcome`, and this
+      // client may import only `viden-core`. So the binding still cannot be
+      // constructed and the rows stay unselectable rather than becoming a
+      // control that cannot reach Core (GUI-CORE-037).
       const section = stepSection("agent", translate(locale, "d4.step.agent.lead", {}));
       const agents = queueState.agents ?? [];
       if (agents.length === 0) {

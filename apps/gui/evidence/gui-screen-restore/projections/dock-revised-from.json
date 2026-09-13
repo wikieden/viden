@@ -1,0 +1,76 @@
+{
+  "workMode": "build",
+  "permissionLevel": "ask",
+  "request": {
+    "id": "approval_scopes_revised",
+    "toolName": "shell",
+    "title": "Approve shell",
+    "message": "Approve shell?",
+    "inputPreview": "  command: rm -rf target/debug",
+    "isMutating": true,
+    "reason": "Approve shell?",
+    "risk": "medium",
+    "target": {
+      "kind": "shell",
+      "display": "  command: rm -rf target/debug",
+      "canonicalRef": null
+    },
+    "policyReasonKey": "permission.requires_approval",
+    "policyReasonArgs": {},
+    "expiresAt": 1700004300,
+    "defaultAction": "deny",
+    "auditId": "audit_approval_scopes_revised",
+    "blockedByPlan": false,
+    "decisionContext": null,
+    "editable": true,
+    "revisedFrom": "approval_scopes_wide",
+    "inputFields": [
+      {
+        "key": "command",
+        "value": "rm -rf target/debug"
+      }
+    ],
+    "editBlock": null,
+    "actions": [
+      {
+        "kind": "once",
+        "available": true,
+        "sessionId": null,
+        "paths": [],
+        "code": null
+      },
+      {
+        "kind": "session",
+        "available": true,
+        "sessionId": "session_approval_scopes",
+        "paths": [],
+        "code": null
+      },
+      {
+        "kind": "always",
+        "available": true,
+        "sessionId": null,
+        "paths": [],
+        "code": null
+      },
+      {
+        "kind": "edit",
+        "available": true,
+        "sessionId": null,
+        "paths": [],
+        "code": null
+      },
+      {
+        "kind": "deny",
+        "available": true,
+        "sessionId": null,
+        "paths": [],
+        "code": null
+      }
+    ]
+  },
+  "standing": {
+    "capabilityAvailable": true,
+    "rules": []
+  }
+}

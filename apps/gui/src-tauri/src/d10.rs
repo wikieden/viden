@@ -72,6 +72,16 @@ pub struct D10AgentProjection {
     pub agent_id: String,
     pub model: Option<String>,
     pub status: String,
+    /// Core's own `AgentSessionStatus::is_terminal` answer
+    /// (`runtime.agent_session_control`, C14).
+    ///
+    /// The monitor's Pause and Kill share D16's rules, and this is what lets
+    /// the row name `session_status_<current>` instead of offering a control
+    /// Core would refuse. Liveness is never read from the Lane's
+    /// `active_session_ids`, which Core does not prune when a session settles.
+    pub terminal: bool,
+    /// True for the three statuses `PauseAgentSession` accepts.
+    pub pausable: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -92,6 +102,10 @@ pub const D10_EVENT_TICKER_LIMIT: u32 = 50;
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct D10LaneMonitorProjection {
+    /// Whether Core's handshake published `runtime.agent_session_control`
+    /// (C14). Without it the card's Pause and Kill stay disabled and name the
+    /// capability, exactly as they did before the capability existed.
+    pub session_control_available: bool,
     pub total_lanes: usize,
     /// Distinct Core project ids across bound lanes.
     pub total_projects: usize,

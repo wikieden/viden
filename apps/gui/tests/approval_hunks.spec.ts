@@ -56,7 +56,12 @@ function dockProjection(
   return {
     workMode: "build",
     permissionLevel: "ask",
+    standing: { capabilityAvailable: true, rules: [] },
     request: {
+      editable: false,
+      revisedFrom: null,
+      inputFields: [],
+      editBlock: null,
       id: "approval-edit",
       toolName: "edit_file",
       title: "Approve edit_file",

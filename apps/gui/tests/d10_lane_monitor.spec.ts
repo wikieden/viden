@@ -23,7 +23,7 @@ function lane(overrides: Partial<D10Lane> = {}): D10Lane {
     worktree: ".worktrees/lane-1",
     progress: 64,
     agents: [
-      { sessionId: "session-1", agentId: "codex", model: "gpt-5-codex", status: "running" },
+      { sessionId: "session-1", agentId: "codex", model: "gpt-5-codex", status: "running", terminal: false, pausable: true },
     ],
     evidence: [{ id: "evidence-1", kind: "check", summary: "replay regression 12/12" }],
     tokenLimit: null,
@@ -35,6 +35,7 @@ function lane(overrides: Partial<D10Lane> = {}): D10Lane {
 }
 
 const PROJECTION: D10LaneMonitorProjection = {
+  sessionControlAvailable: true,
   totalLanes: 3,
   totalProjects: 2,
   awaitingTotal: 1,

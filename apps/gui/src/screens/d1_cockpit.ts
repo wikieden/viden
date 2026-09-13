@@ -62,6 +62,10 @@ import {
   type LayoutPreferencesProjection,
 } from "../models/layout_preferences";
 import {
+  AGENT_SESSION_CONTROL_CAPABILITY,
+  type D16AgentBoardProjection,
+} from "../models/board";
+import {
   PLAN_DOCUMENTS_CAPABILITY,
   type D15PlanStudioProjection,
 } from "../models/plan";
@@ -153,6 +157,7 @@ const SECONDARY_VIEW_LABELS = {
   d13: "d1.activity.fleet",
   d14: "d1.activity.audit",
   d15: "d1.activity.plan",
+  d16: "d1.activity.agentBoard",
 } as const satisfies Record<D1SecondaryRoute, MessageKey>;
 
 export interface D1IntentResult {
@@ -179,8 +184,8 @@ type RecoverD6 = () => Promise<D6RecoveryProjection>;
  */
 export type D1CenterView = "transcript" | D1RailDestination;
 
-/** The six D-screens the shell mounts inside the centre pane. */
-export type D1SecondaryRoute = "d2" | "d10" | "d12" | "d13" | "d14" | "d15";
+/** The seven D-screens the shell mounts inside the centre pane. */
+export type D1SecondaryRoute = "d2" | "d10" | "d12" | "d13" | "d14" | "d15" | "d16";
 
 export interface D1Controller {
   applyProjection: (projection: D1CockpitProjection) => void;
@@ -418,6 +423,28 @@ export interface D1RenderOptions {
   plan?: {
     read: (laneId: string | null) => Promise<D15PlanStudioProjection>;
   };
+  /**
+   * The Agent Board (`runtime.agent_session_control`, C14, G9).
+   *
+   * `read` is the no-traffic projection the rail reads for the capability and
+   * for the badge: the number of sessions blocking on a human, counted by Core
+   * and not by this webview. The Board itself mounts through `secondaryViews`
+   * like every other D-screen; this port exists because the *rail* has to know
+   * before anyone opens the view. Absent while no host is bound, which disables
+   * the slot and names it rather than opening a pane nothing can fill.
+   */
+  board?: {
+    read: (selectedSessionId: string | null) => Promise<D16AgentBoardProjection>;
+  };
+  /**
+   * Sends one `RevokeStandingApproval` (`runtime.approval_scopes`, C15, G9).
+   *
+   * The revocation ships beside the grant deliberately: a standing rule
+   * outlives the process, so a client that could install one and not remove one
+   * would offer a decision the operator cannot take back. Absent leaves the
+   * control disabled rather than hidden.
+   */
+  revokeStandingApproval?: (ruleId: string) => Promise<{ state: string; reason: string | null }>;
   /**
    * Mounts one of the six secondary D-screens inside the cockpit's centre
    * pane (`D-RAILNAV`, resolved by the `0.3.4` plan in favour of the D1
@@ -1010,6 +1037,22 @@ export function renderD1Cockpit(
   /** The Lane scope the held plan projection was read for. */
   let planScopeLaneId: string | null = null;
   let planReadInFlight = false;
+  /**
+   * The Agent Board projection, or `null` until the first no-traffic read
+   * answers (`runtime.agent_session_control`, C14).
+   *
+   * The rail reads it for the badge; the Board re-reads its own. Null is
+   * deliberately not an empty projection: before the first read nobody has
+   * counted, and a badge is not drawn for a count nobody took.
+   */
+  let boardProjection: D16AgentBoardProjection | null = null;
+  /** Whether Core published `runtime.agent_session_control`. Null until read. */
+  let boardCapability: boolean | null = null;
+  let boardReadInFlight = false;
+  /** True while a `RevokeStandingApproval` is unanswered. */
+  let revokeInFlight = false;
+  /** Core's last answer to a revocation, or null before any this session. */
+  let revokeOutcome: { state: string; reason: string | null } | null = null;
   /**
    * Core's last word on the operator action side.
    *
@@ -1824,6 +1867,11 @@ export function renderD1Cockpit(
         queueMicrotask(() => {
           planProjection = null;
           readPlanDocuments();
+          // The board rides the same wake: a session that just reached
+          // `WaitingApproval` is the badge, and re-reading is what keeps the
+          // count Core's rather than a number this webview remembers.
+          boardProjection = null;
+          readAgentBoard();
         });
       });
   };
@@ -2205,6 +2253,43 @@ export function renderD1Cockpit(
       });
   };
 
+  /* ---- agent sessions (C14, G9) ---- */
+
+  /**
+   * Reads the board with no Core traffic, for the rail's slot and badge.
+   *
+   * Unscoped on purpose: the board spans every Lane, so unlike the plan it is
+   * not re-read when the Lane selection moves. A host that cannot answer leaves
+   * the capability unresolved, which keeps the slot's note off rather than
+   * claiming Core lacks the capability — a host failure is not a Core gap.
+   */
+  const readAgentBoard = (): void => {
+    if (!options.board || boardReadInFlight || boardProjection !== null) return;
+    boardReadInFlight = true;
+    void options.board
+      .read(null)
+      .then((next) => {
+        boardReadInFlight = false;
+        if (disposed) return;
+        boardProjection = next;
+        boardCapability = next.capabilityAvailable;
+        render(false);
+      })
+      .catch(() => {
+        boardReadInFlight = false;
+      });
+  };
+
+  /**
+   * The rail badge: the sessions blocking on a human, as Core counted them.
+   *
+   * `null` — not `0` — is what an unread projection carries, because "nobody
+   * counted" and "nothing waiting" are different facts and the rail draws them
+   * differently.
+   */
+  const boardBadge = (): number | null =>
+    boardProjection === null ? null : boardProjection.awaitingTotal;
+
   /** Drops the held plan when the owner changes, then re-reads for the new one. */
   const rescopePlanDocuments = (): void => {
     const scope = selectedLaneId ?? null;
@@ -2494,6 +2579,7 @@ export function renderD1Cockpit(
     "d13",
     "d14",
     "d15",
+    "d16",
   ];
 
   const isSecondaryRoute = (view: D1CenterView): view is D1SecondaryRoute =>
@@ -2513,6 +2599,11 @@ export function renderD1Cockpit(
     // facts it could only draw an empty form, so the slot is disabled and
     // labelled rather than opening a pane that claims the owner has no plan.
     if (destination === "d15") return planAvailable();
+    // The Board *is* readable without `runtime.agent_session_control` — Lanes
+    // and sessions are ordinary `0.3.0` facts — so the slot opens as soon as a
+    // host is bound and the view itself carries the capability banner. What the
+    // slot needs is the port, not the capability.
+    if (destination === "d16") return !!options.board && !!options.secondaryViews;
     return !!options.secondaryViews || !!options.onNavigate;
   };
 
@@ -2531,6 +2622,13 @@ export function renderD1Cockpit(
     if (destination === "d15" && !planAvailable()) {
       return translate(locale, "d1.activity.unavailable", {
         capability: PLAN_DOCUMENTS_CAPABILITY,
+      });
+    }
+    // The Board opens either way; the note says up front that its controls will
+    // be disabled, rather than letting the operator discover it after the click.
+    if (destination === "d16" && boardCapability === false) {
+      return translate(locale, "d1.activity.unavailable", {
+        capability: AGENT_SESSION_CONTROL_CAPABILITY,
       });
     }
     // D14 is never blocked by a capability: without `runtime.audit` it opens
@@ -2573,7 +2671,9 @@ export function renderD1Cockpit(
             ? projection.statusbar.pendingDecisionCount
             : destination === "d15"
               ? planBadge()
-              : null,
+              : destination === "d16"
+                ? boardBadge()
+                : null,
       };
     }
     return states;
@@ -3423,9 +3523,48 @@ export function renderD1Cockpit(
               enabled: projection.composer.editable && !shouldShowWelcome(),
               busy: controlInFlight || sending || Boolean(pendingCommandId),
             },
+        // The standing rules come straight off the permission dock's own Core
+        // read, so the list and the dock's Always control can never disagree
+        // about what is installed.
+        standing: {
+          capabilityAvailable: projection.permissionDock.standing.capabilityAvailable,
+          rules: projection.permissionDock.standing.rules,
+          busy: revokeInFlight,
+          outcome: revokeOutcome,
+        },
       },
       {
         onControl: (intent: ComposerControlIntent) => sendControl(intent),
+        onRevokeStanding: options.revokeStandingApproval
+          ? (ruleId) => {
+              if (revokeInFlight) return;
+              revokeInFlight = true;
+              revokeOutcome = null;
+              remountSettingsPanel();
+              void options
+                .revokeStandingApproval!(ruleId)
+                .then((outcome) => {
+                  revokeOutcome = outcome;
+                })
+                .catch((error: unknown) => {
+                  // A host failure is a refusal in its own words, never a
+                  // silent success on a rule that is still installed.
+                  revokeOutcome = {
+                    state: "rejected",
+                    reason: error instanceof Error ? error.message : String(error),
+                  };
+                })
+                .finally(() => {
+                  revokeInFlight = false;
+                  remountSettingsPanel();
+                });
+            }
+          : undefined,
+        // `D-AUDIT`'s link runs one way: the trail is opened by the object
+        // the audit row names, which for a standing grant is the rule itself.
+        onOpenStandingTrail: options.onOpenAuditTrail
+          ? (auditId) => options.onOpenAuditTrail?.({ kind: "approval", id: auditId })
+          : undefined,
         onDraft: (update: PreferenceDraft) => {
           preferenceState = updatePreferenceDraft(preferenceState, update);
           // A new edit supersedes the previous result; keeping a stale
@@ -5195,6 +5334,10 @@ export function renderD1Cockpit(
   // The plan, read once at mount so the rail's slot and its badge are honest
   // before anyone reaches for either. No Core command is sent.
   readPlanDocuments();
+  // The board, read once at mount for the same reason: the rail's robot slot
+  // and its "awaiting you" badge have to be honest before anyone reaches for
+  // either. No Core command is sent.
+  readAgentBoard();
   // The same at-mount, no-traffic read for the action side, so the commit bar
   // and the titlebar sync chip know whether they may act before anyone presses
   // one of them.

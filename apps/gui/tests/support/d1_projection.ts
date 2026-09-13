@@ -137,7 +137,7 @@ export const D1_PROJECTION: D1CockpitProjection = {
     requests: { requestCount: 4, errorCount: 0 },
     pendingDecisionCount: 0,
   },
-  permissionDock: { workMode: "build", permissionLevel: "ask", request: null },
+  permissionDock: { standing: { capabilityAvailable: true, rules: [] }, workMode: "build", permissionLevel: "ask", request: null },
   recovery: {
     connection: "live",
     state: "live",

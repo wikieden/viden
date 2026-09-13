@@ -53,7 +53,7 @@ test("a pending approval keeps the composer editable through CJK composition and
     root,
     {
       ...D1_PROJECTION,
-      permissionDock: {
+      permissionDock: { standing: { capabilityAvailable: true, rules: [] },
         workMode: "build",
         permissionLevel: "ask",
         request: {
@@ -72,6 +72,10 @@ test("a pending approval keeps the composer editable through CJK composition and
           defaultAction: "deny",
           auditId: "audit-ime",
           blockedByPlan: false,
+          editable: false,
+          revisedFrom: null,
+          inputFields: [],
+          editBlock: null,
           actions: [],
         },
       },

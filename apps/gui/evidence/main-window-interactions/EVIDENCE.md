@@ -209,7 +209,7 @@ All URLs share the prefix
 | `nav-d14-in-cockpit` | `…/qa.html?state=nav-d14-in-cockpit` | the audit trail in the same shell, which is where `D-AUDIT`'s one-way link from an evidence row or a D12 baseline chip now lands: the rail's `Audit timeline` slot marked current, the mode toggle and the three audit rows below the view head, and the conversation still one `Esc` away |
 | `nav-sidebar-floating-peek` | `…/qa.html?state=nav-sidebar-floating-peek` | `D-SIDEBAR` **floating** mode — the decision's default — with the peek open through the keyboard path (the Lanes rail slot): the sidebar as an **overlay above a full-width transcript** rather than a layout column, the 12px hot zone with its `.edgehint` cue against the activity rail, and the rail's pin (above the settings gear) reading unpinned |
 | `nav-statusbar-config` | `…/qa.html?state=nav-statusbar-config` | the `D-STATUSBAR` config gear open: the `.sbcfg` popover listing the six ambient segments with their checkboxes, the footer sentence saying identity and actionable items are always pinned, and `MODE`, `PERM`, `LANE`, and the decision chip visible on the bar behind it while absent from the list |
-| `d10-actions` | `…/qa.html?state=d10-actions` | the Lane monitor's card action row in the cockpit: **Attach / Stop / Pause / Kill on both cards**, with Stop live on the Lane Core published an Agent session for and disabled on the Lane it published none for, and Pause and Kill disabled on both naming the commands `RuntimeCommand` does not carry (G6) |
+| `d10-actions` | `…/qa.html?state=d10-actions` | the Lane monitor's card action row in the cockpit: **Attach / Stop / Pause / Kill on both cards**, with Stop, Pause and Kill live on the Lane Core published a running Agent session for and all three disabled on the Lane it published none for. Recaptured for G9: Pause and Kill stopped being permanently disabled when C14 landed `runtime.agent_session_control`, and now carry Core's own status rule instead of the absence of a command (G6, recaptured G9) |
 | `d13-drill` | `…/qa.html?state=d13-drill` | both Lane-binding answers on one column: the node Core bound to a Lane carrying its visible `Open Lane lane_core ↗` line and `role="button"`, and a copy of the same generated node with the binding removed saying Core bound no Lane and offering no click (G6) |
 | `d14-filtered` | `…/qa.html?state=d14-filtered` | the audit trail with the `agent` actor chip engaged: the actor chips are the values **this page** carries (`All actors`, `operator`, `agent` — no `system`, because no row on the page is one), the four time chips with `All time` pressed, the note saying the cut is the loaded page and naming `GUI-CORE-024`, the rollup reading `Outcomes on the loaded page, filtered · 1 of 3 · denied 1`, one remaining row, and `Export` disabled (G6) |
 | `consumer-workspace-commit` | `…/qa.html?state=consumer-workspace-commit` | `C5`'s three client-visible facts in one frame: the Lane tab strip printing that Lane's **own** worktree branch with its own `↑2 ↓1` from `lane_sources`, the dock's Local section saying it is showing the **Lane** worktree with that tree's numbers, and Commit-or-push enabled because Core published a workspace owner to act as (`GUI-CORE-027`). The Environment facts section is collapsed for the reason `dock-environment` collapses it (G7) |
@@ -223,6 +223,15 @@ All URLs share the prefix
 | `plan-stale-revision` | `…/qa.html?state=plan-stale-revision` | Core's `plan_revision_stale` refusal after a real Accept dispatch: the raw code chip beside Core's own sentence in a `role=alert`, and **Reload the plan** — the one remedy the refusal itself prescribes. The record rail still reads revision 2, because the view re-reads what Core holds rather than deciding again on what it was holding |
 | `plan-no-plan` | `…/qa.html?state=plan-no-plan` | absence, not an empty plan: Core publishes the capability and holds no plan for this owner, so the pane says so, states what plan mode blocks, and every decision control is disabled naming `no plan`. The record rail's fields are all `—` and the rail slot carries no badge |
 | `plan-capability-absent` | `…/qa.html?state=plan-capability-absent` | a Core that published no `runtime.plan_documents`. The rail slot is disabled with the capability in its accessible name; the pane names the capability and draws **no plan and no record rail**, even though this fixture's view state does carry a plan record — the capability is the promise those records mean what the screen would say they mean |
+| `board-lanes` | `…/qa.html?state=board-lanes` | `C14` / G9: the Agent Board as a centre-pane view with the cockpit chrome retained — the rail's `robot` slot marked current and badged `1`, the header reading `1 lanes · 1 sessions · 1 awaiting you`, the Lane group with its session nested **under** it, the role chip from the Lane record and `codex-acp · gpt-5-codex` in the model column, `WAITING ON YOUR APPROVAL`, and the action row with Pause, Kill and Stop live while Resume and Retry are disabled carrying `session is waiting on your approval`. Downgrade to manual and Ask user are dashed, naming `no runtime fact yet` |
+| `board-paused` | `…/qa.html?state=board-paused` | the same board after `PauseAgentSession`: status `paused`, the control line reading `paused 1700006010 · 2 held input`, Pause disabled naming `session is paused`, Resume live, and the note saying pause holds the session and its queued input, cancels the turn in flight and drops the approval that turn was waiting on |
+| `board-killed-retry` | `…/qa.html?state=board-killed-retry` | the terminal end of the same session: status `killed`, the diagnostic `killed by owner`, Pause / Resume / Kill / Stop / Switch model all disabled and labelled, **Retry the one control still live**, and the drained held-input messages in the conversation list |
+| `board-switch-model-two-step` | `…/qa.html?state=board-switch-model-two-step` | the switch drawn as what it is: `Switch model` reading `two steps`, and the panel below naming step 1 (end the session) and step 2 (`StartAgentSession { model, load_session_id }`) as two separate sends. No single button and no claim of atomicity the contract does not have |
+| `board-no-lane` | `…/qa.html?state=board-no-lane` | absence, not an empty board: a workspace with no Lane says so, says the board never invents one, and repeats the rule that sessions are always shown under the Lane that owns them. The detail pane stays empty rather than drawing a placeholder agent |
+| `dock-always-edit` | `…/qa.html?state=dock-always-edit` | `C15` / G9: the permission dock's complete tier list — `Y · Once`, `A · Session`, `Shift+A · Always`, `E · Edit`, `N · Deny`, which is exactly `D-PERM`'s `y · a · ⇧A · e · n` — with the inline revision editor open on the `command` field the projection recovered from Core's own preview, and the sentence saying every key travels because Core evaluates the whole input, not a patch of it |
+| `dock-edit-revised-from` | `…/qa.html?state=dock-edit-revised-from` | the request Core produced from the `Edit`: the narrowed input in the preview and, directly under it, the gold line linking it to `approval_scopes_wide` — the request it replaces — rather than a second unrelated prompt stacked on the first |
+| `standing-approvals-revoke` | `…/qa.html?state=standing-approvals-revoke` | the settings panel's permission card listing Core's own standing rule: `shell · command=cargo fmt --all -- --check` with the workspace and time of the grant, a **Revoke** beside it, and **Open the audit trail** pointing at D14 by the audit id the grant wrote |
+| `d4-agent-binding-blocked` | `…/qa.html?state=d4-agent-binding-blocked` | plan row G9 item 3, stopped and stated: D4's step 2 lists Core's adapters with the popover's pick marked, and the note says C15 gave `StarterLaneRequest` an agent but `viden-core` re-exports neither type this client needs to build one, so the pick still cannot travel and the agent is started from the cockpit once the Lane exists — `GUI-CORE-037` |
 
 `mode=dark|light` and `locale=en|zh-CN` are accepted on every state and resolve
 through the shared `resolveTheme` path, so the harness never ships a second
@@ -1150,7 +1159,7 @@ only so the method matches what was run.
 
 | Image | The claim it proves |
 | --- | --- |
-| `d10-actions` | the action row is **four controls on every card**, and the two that cannot act say so. `lane_core` (terminal route, no published session) shows Attach live and Stop dimmed; `lane_review` (ACP route, one published session) shows both live. Pause and Kill are dimmed on both cards — visible, in the positions the design draws them, and carrying the sentence naming the command `RuntimeCommand` does not have. Read it against `d10-blind`, which is the same two cards before the row existed |
+| `d10-actions` | the action row is **four controls on every card**, and the ones that cannot act say so. `lane_core` (terminal route, no published session) shows Attach live and Stop, Pause and Kill dimmed on the one reason that applies — Core published no session to act on; `lane_review` (ACP route, one running published session) shows all four live. Read it against `d10-blind`, which is the same two cards before the row existed. **Superseded by the G9 recapture**: this row records what the frame showed in G6, when Pause and Kill were disabled because `RuntimeCommand` had no such verb; the committed image is the G9 one, taken after C14 gave them commands |
 | `d13-drill` | both Lane-binding answers in one frame. The upper node carries `Open Lane lane_core ↗` and is the control; the lower one — the same generated node with its binding removed — carries "Core bound no Lane to this task, so there is nothing to open." and no affordance at all. The difference is in the frame rather than in a hover state, which is the point of the visible cue |
 | `d14-filtered` | the whole loaded-page claim at once: the actor chips are `All actors / operator / agent` — no `system` chip, because no row on this page is one — the four time chips sit behind `All time`, the note under the bar states that the cut is the loaded page and names `GUI-CORE-024`, the rollup reads `Outcomes on the loaded page, filtered · 1 of 3` with `denied 1`, exactly one row survives the filter, and `Export` is dimmed at the end of the bar |
 | `d14-filtered` (light/zh-CN) | the locale and skin proof for the added copy: the chip labels, the loaded-page note, the rollup caption and the export control translate, while every Core value in the surviving row — the dotted `evidence.rejected` key, the actor word `agent`, the agent id `codex-acp`, the outcome `denied`, the object and argument chips — stays exactly as Core published it, and the timestamp keeps its fixed `UTC` format in both locales |
@@ -1397,3 +1406,78 @@ both named in `qa.ts`:
 The `plan-stale-revision` refusal text is the fixture's own event 9 payload,
 dispatched through the production send path, so the alert, the code chip and the
 reload control are all the shipped rendering rather than a harness drawing.
+
+## Agent Board, approval scopes, and the D4 stop (G9)
+
+Captured 2026-09-13 with headless Chrome
+(`--headless --disable-gpu --hide-scrollbars --window-size=<w>,<h>
+--virtual-time-budget=6000`) against the vite dev server on port 4183, then
+viewed by the author — all twelve, one at a time.
+
+| File | State | Viewport | Mode | Locale |
+| --- | --- | --- | --- | --- |
+| [board-lanes-1440x1180-dark-en.png](board-lanes-1440x1180-dark-en.png) | board-lanes | 1440x1180 | dark | en |
+| [board-lanes-1440x1180-light-zh-CN.png](board-lanes-1440x1180-light-zh-CN.png) | board-lanes | 1440x1180 | light | zh-CN |
+| [board-paused-1440x1180-dark-en.png](board-paused-1440x1180-dark-en.png) | board-paused | 1440x1180 | dark | en |
+| [board-killed-retry-1440x1180-dark-en.png](board-killed-retry-1440x1180-dark-en.png) | board-killed-retry | 1440x1180 | dark | en |
+| [board-switch-model-two-step-1440x1180-dark-en.png](board-switch-model-two-step-1440x1180-dark-en.png) | board-switch-model-two-step | 1440x1180 | dark | en |
+| [board-no-lane-1440x1180-dark-en.png](board-no-lane-1440x1180-dark-en.png) | board-no-lane | 1440x1180 | dark | en |
+| [dock-always-edit-1440x1180-dark-en.png](dock-always-edit-1440x1180-dark-en.png) | dock-always-edit | 1440x1180 | dark | en |
+| [dock-always-edit-1440x1180-light-zh-CN.png](dock-always-edit-1440x1180-light-zh-CN.png) | dock-always-edit | 1440x1180 | light | zh-CN |
+| [dock-edit-revised-from-1440x1180-dark-en.png](dock-edit-revised-from-1440x1180-dark-en.png) | dock-edit-revised-from | 1440x1180 | dark | en |
+| [standing-approvals-revoke-1440x1180-dark-en.png](standing-approvals-revoke-1440x1180-dark-en.png) | standing-approvals-revoke | 1440x1180 | dark | en |
+| [d4-agent-binding-blocked-1440x1180-dark-en.png](d4-agent-binding-blocked-1440x1180-dark-en.png) | d4-agent-binding-blocked | 1440x1180 | dark | en |
+| [d10-actions-1440x900-dark-en.png](d10-actions-1440x900-dark-en.png) | d10-actions | 1440x900 | dark | en |
+
+The viewport is **1440x1180** for the eleven new states, for the reason G8 gave:
+the board and the dock are both two-column panes inside the cockpit, and at
+900px the action row and the reason under it fall below the fold together — a
+capture that cut both would be evidence for neither. `d10-actions` keeps its
+original **1440x900**, because it is a recapture of an existing row and changing
+its frame would make it uncomparable with the `d10-blind` shot it is meant to be
+read against.
+
+**Why `d10-actions` was recaptured.** Its Pause and Kill were disabled in G6
+because `RuntimeCommand` had no such verb. C14 gave them one, and this batch
+wired the Lane monitor to the same senders the Agent Board uses, so the frame
+committed before this batch stated something about the contract that is no
+longer true. The new frame shows them live on the Lane Core published a running
+session for and disabled on the Lane it published none for.
+
+**Every projection is generated by `tests/capture_projections.rs`.** The five
+board states come from prefixes of the canonical `agent-session-control.json`
+stream — `d16-board-lanes` before any control, `d16-board-paused` after the
+pause, `d16-board-killed` after the kill — plus `d16-board-no-lane` from a
+handshake with no Lane at all. The three permission states come from prefixes of
+`approval-scopes.json`: `dock-always-edit` from the request whose
+`allowed_scopes` carries `Always`, `dock-revised-from` from the request Core
+produced from the `Edit`, and `standing-approvals` from the rule the grant
+installed. Two hand-written deltas, both named in `qa.ts`:
+
+1. **The board states borrow a Lane record.** `agent-session-control.json`
+   publishes sessions and the control facts, not an `AgentLaneRecord`, so the
+   board states reuse `multi-lane.json`'s first Lane record renamed to
+   `lane_session_control` — the id the sessions already name. Without it the
+   capture would frame the "Lane record absent" path on every shot, which is a
+   real state but not the one these captures are for.
+2. **`board-switch-model-two-step` is a click, not a state.** The panel is
+   opened through the production listener on the shipped control; nothing about
+   the projection is edited to pre-open it.
+
+**`d4-agent-binding-blocked` replaces the two states the plan row asked for.**
+The row asked for `d4-agent-binding-started` and `d4-agent-binding-refused` —
+the two `StarterLaneSessionOutcome` arms in the receipt. Neither can be captured
+honestly: `viden-core` re-exports neither `StarterLaneAgentBinding` nor
+`StarterLaneSessionOutcome`, so the GUI can neither send the binding nor read
+the outcome, and a capture of either would be a harness drawing rather than a
+shipped rendering. The one state that is true is the block itself, and it names
+`GUI-CORE-037`.
+
+**The capture recipe.** Chrome writes the PNG and then does not exit on this
+host, and reusing one `--user-data-dir` makes a second invocation attach to the
+first instance instead of capturing. Each shot therefore gets a fresh `mktemp -d`
+profile, runs in the background, and is reaped once the file lands; only the PID
+this script started is killed, by that PID and never by name. No PNG in this
+table is under 30 KB — the smallest is `d4-agent-binding-blocked` at 80,616
+bytes, which is the D4 wizard on a dark ground and legitimately the sparsest
+frame.

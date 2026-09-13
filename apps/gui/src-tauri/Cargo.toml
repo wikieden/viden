@@ -122,6 +122,14 @@ name = "d15_plan_studio"
 path = "../tests/d15_plan_studio.rs"
 
 [[test]]
+name = "approval_scopes"
+path = "../tests/approval_scopes.rs"
+
+[[test]]
+name = "d16_agent_board"
+path = "../tests/d16_agent_board.rs"
+
+[[test]]
 name = "capture_projections"
 path = "../tests/capture_projections.rs"
 

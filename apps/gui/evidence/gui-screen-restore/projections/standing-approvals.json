@@ -1,0 +1,13 @@
+{
+  "capabilityAvailable": true,
+  "rules": [
+    {
+      "ruleId": "rule_approval_scopes",
+      "toolName": "shell",
+      "ruleContent": "command=cargo fmt --all -- --check",
+      "grantedAt": 1700004002,
+      "grantedInWorkspace": "workspace_contract_v1",
+      "auditId": "audit_approval_scopes_always"
+    }
+  ]
+}

@@ -104,6 +104,39 @@ E2 在驱动该任务时发现了四个缺陷。它们都刻意没有占用登�
 因此这处措辞由下一次 GUI 版本号推进时更正，而不是在这里。本次没有关闭任何条目：
 改期不等于关闭。
 
+2026-09-13 状态说明（G9）：019 在 **GUI 客户端侧关闭**。权限坞在 Core 提供该作用域处
+发送 `Allow { scope: Always }`，在未提供处渲染 Core 自己的 `scope_not_offered`；`Shift+A`
+回到 `D-PERM` 指派给它的 Always 档；Edit 在工具输入上打开内联字段并发送
+`Edit { revised_input }`；携带 `revised_from` 的请求渲染为与其所替代的请求相链接；
+Always 授予所安装的常驻规则列在设置面板中，带 Revoke 与 D14 链接。019 作为 **TUI**
+采纳项仍为开放，直到 T4 在决策模态中落地 `a` 与 `e`。
+
+030 在客户端侧**未**关闭，原因是一条新条目而非本批次的疏漏：`viden-core` 重导出了
+`StarterLaneRequest`、`StarterLanePreview` 与 `StarterLaneReceipt`，却没有重导出
+`StarterLaneAgentBinding` 与 `StarterLaneSessionOutcome` —— 也就是它们新字段所使用的
+那两个类型 —— 而 GUI 只允许导入 `viden-core`。因此绑定无法构造，回执的结果也无法匹配。
+以 GUI-CORE-037 开立（G9 的报告写的是 036；编号在集成时分配，因为 H4 与 T4 已在 G9
+所分支的基线之后占用了 035 与 036）。D4 第 2 步的文案被改写而不是留旧：它原本写「Core 的
+StarterLaneRequest 不携带 agent」，这句话在 C15 落地时就不再成立，现在写明 Core 确实
+携带，以及是哪条请求挡住了这个选择。
+
+034 在**两侧**关闭：`viden-core` 在本基线上重导出了 `MAX_PLAN_REJECT_REASON_BYTES`，
+`apps/gui/src-tauri/src/plan.rs` 不再镜像 `2 * 1024` —— 上界从 Core 自己的常量经由投影
+travel，投影正是架构边界允许持有 Core 类型的那一层。
+
+本批次遇到的类型化输入缺口是 GUI-CORE-036，由 T4 同日开立、Core 批次 C16 关闭（G9
+的报告称之为 035）。要提供 Edit，就需要工具输入的键值对，而 G9 所基于的基线只发布
+`input_preview`——Core 自己对这些键值对的渲染。宿主从该渲染中精确、fail-closed 地恢复
+这些对；无法解析的预览会撤下 Edit 控件并点名该条目。GUI 改读 C16 的 `input` 字段后，
+G9 后续批次删掉解析器。
+
+因此开放登记为 013、018、019、021、023、026、030、031、032、033、036 与 037 —— 共十二条
+—— 034 已在两侧关闭，035 由 Core 关闭（GUI 的 15 s 上界保留为纵深防御）；030、036 与
+037 在 Core 侧已关闭，仅作为 G9 后续批次的 GUI 采纳项留在这里。`apps/gui/release-manifest.toml` 仍记录
+`[contract_requests] open_count = 10`：它是冻结的 `0.1.0-rc.5` manifest，并被断言与
+`manifests/0.1.0-rc.5.toml` 逐字节相同，因此计数在下一次 GUI 版本号提升时才移动，不在
+这里 —— 与 H3 在 2026-09-13 记录的规则相同。
+
 ## GUI-CORE-008：所选 Lane 的上下文作用域 — 已关闭
 
 历史：Core `0.3.5` 已暴露 `RuntimeViewState.context_budgets`，但 frontend-neutral
@@ -462,9 +495,17 @@ Viden home 下 `settings.toml` 的 `[[permissions.standing]]` 表中并在启动
 `scope_not_offered` 得到 `CommandRejected`。Fixture 为 `approval-scopes.json`；契约见
 `docs/frontend-integration-contract.zh-CN.md` 的「Approval Scopes」。
 
-客户端侧仍然开放。GUI 权限坞仍把 Always 与 Edit 渲染为 `GUI-CORE-003` 占位，`Shift+A`
-仍绑定在 `repo_allowlist`；两者在 GUI 的 G9 批次中启用，TUI 决策模态在 T4 批次中获得
-`a` 与 `e`。本条目仅在 Core 侧关闭。
+客户端侧于 2026-09-13 由 G9 批次为 GUI 关闭。坞在 `allowed_scopes` 携带该作用域时发送
+`Allow { scope: Always }`，未携带时渲染 Core 自己的 `scope_not_offered`，而不是隐藏这一
+档；`Shift+A` 回到 Always，这是 `SPEC` 第 82 行与 `D-PERM` 指派给它的那一档。作为交换，
+`repo_allowlist` 刻意不获得快捷键：设计的档位表是 `y · a · ⇧A · e · n`，其中不含它，
+再发明第六个键就是客户端为设计包从未定档的快捷键立法 —— 它仍是选项行里的一个按钮。
+Edit 在工具输入的键值对上打开内联字段，并连同未改动的键一起发送 `Edit { revised_input }`，
+因为 Core 重新评估的是完整输入。携带 `revised_from` 的后续请求渲染为与其所替代的请求
+相链接。常驻规则列在设置面板的权限卡片中，每条带 Revoke（`RevokeStandingApproval`）
+与按授予自身 audit id 的 D14 链接。
+
+本条目作为 TUI 采纳项仍为开放，直到 T4 批次在决策模态中落地 `a` 与 `e`。
 
 ## GUI-CORE-020：面向操作者的 git 动作 — 已关闭
 
@@ -963,8 +1004,13 @@ Core 侧已于 2026-09-13 由 C15 批次关闭，能力 `runtime.starter_lane_ag
 `starter-lane-agent.json`；契约见 `docs/frontend-integration-contract.zh-CN.md` 的
 「起步 Lane 的 Agent 绑定」。
 
-客户端侧仍然开放：D4 第 2 步发送绑定、第 4 步渲染回执结果在 GUI 的 G9 批次中完成，
-`/lanes` 创建接受可选 agent 在 TUI 的 T4 批次中完成。本条目仅在 Core 侧关闭。
+客户端侧仍然开放，且 G9 无法关闭它。`viden-core` 重导出了 `StarterLaneRequest`、
+`StarterLanePreview` 与 `StarterLaneReceipt`，却没有重导出 `StarterLaneAgentBinding`
+与 `StarterLaneSessionOutcome` —— 它们新字段所使用的那两个类型 —— 而
+`apps/gui/AGENTS.md` 只允许本客户端使用 `viden-core`。因此绑定无法构造，回执的
+`session` 结果也无法匹配，向导里的行仍不可选。该重导出记为 GUI-CORE-036；D4 第 2 步与
+第 4 步在它存在之后的某个 GUI 批次落地，`/lanes` 创建接受可选 agent 在 TUI 的 T4 批次中
+完成。本条目仅在 Core 侧关闭。
 
 ## GUI-CORE-031：技能包与上下文注入
 
@@ -1024,7 +1070,7 @@ Core 侧可被查阅，而不是为它排期。
 `docs/release-0.3.5-plan.md` 的「Scope Decisions」，2026-09-13。该条目仍为开放，
 上文的关闭条件不变；改期不等于关闭。
 
-## GUI-CORE-034：`viden-core` 未重导出 `MAX_PLAN_REJECT_REASON_BYTES`
+## GUI-CORE-034：`viden-core` 未重导出 `MAX_PLAN_REJECT_REASON_BYTES` — 已关闭（2026-09-13）
 
 2026-09-13 由批次 G8 在实现规划工作台决策行时提出。未排期；这是一次重导出，不是新事实。
 
@@ -1042,6 +1088,13 @@ Core 侧可被查阅，而不是为它排期。
 
 客户端需要的：在 `crates/core/src/lib.rs` 里，紧挨着已有的四个 plan 上界，加一行
 `pub use viden_types::MAX_PLAN_REJECT_REASON_BYTES`。一行；GUI 随即删掉自己的字面量。
+
+2026-09-13 在**两侧**关闭。Core 重导出了该常量（`crates/core/src/lib.rs:47`），G9 批次
+删掉了字面量：上界现在从 `viden_core::MAX_PLAN_REJECT_REASON_BYTES` 经
+`RuntimeProjection::d15_plan_studio` 传到 `D15DecisionProjection` 上，adapter 在拒绝
+超界理由时检查同一个常量。`apps/gui/src-tauri/src/plan.rs` 现在完全不持有该常量，这正是
+架构边界对一个表现层模块的要求 —— 它不得指名 Core 类型，因此这个值必须由投影送达，
+而不是被镜像。
 
 ## GUI-CORE-035：适配器探测不应占用 Core 的命令工作线程 —— 已关闭（Core 2026-09-13）
 
@@ -1117,6 +1170,42 @@ base fixture 都逐字节不变；`approval-scopes` extension fixture 确实发�
 因为它的五个可编辑请求现在携带了该字段。测试：
 `crates/runtime/src/tests/approval_scopes_tests.rs:489`。没有 capability、计数或
 事件形状变化。
+
+G9 批次同日在 GUI 侧独立遇到了同一个缺口（其报告编为 035；集成时并入本条，因为
+035 是 H4 的探测发现）。GUI 在采纳该字段之前的做法，以及为什么这是坏选项里最不坏
+的那个：解析位于 `apps/gui/src-tauri/src/projection.rs`
+（`parse_permission_input_fields`），只有一处，在本就持有 Core 类型的那一层，而且
+是精确的——两个空格、一个不含冒号的键、`": "`、以及该行其余部分；其它任何形式都返
+回 `None`，Edit 控件渲染为禁用并携带本条目的编码，且什么都不发送。含换行的值按构
+造必然解析失败，这正是重点：用半解析的预览拼出的修订，会把操作者从未写过的输入以
+他们的名义写进审计行。G9 后续批次改读 `input` 并删掉解析器连同这个编码；在此之前
+本条在 Core 侧已关闭，作为 GUI 采纳项保持开放。
+
+## GUI-CORE-037：`viden-core` 未重导出 starter-Lane 的两个 agent 类型 —— 已关闭（Core 2026-09-13）
+
+2026-09-13 由 G9 批次开立 —— 正是因为它，计划表 G9 行第 3 项无法交付（G9 的报告编为
+036；集成时重新编号）。这是重导出，不是新事实。
+
+C15 在 Core 侧关闭了 GUI-CORE-030：`StarterLaneRequest` 与 `StarterLanePreview` 携带
+可选的 `agent: Option<StarterLaneAgentBinding>`，`StarterLaneReceipt` 携带
+`session: Option<StarterLaneSessionOutcome>`。`crates/core/src/lib.rs` 重导出了三个容器
+—— `StarterLaneRequest`、`StarterLanePreview`、`StarterLaneReceipt` —— 却没有重导出它们
+新字段所使用的那两个类型，而 `apps/gui/AGENTS.md` 只允许本客户端使用 `viden-core`。
+于是 GUI 既无法构造要发送的绑定，也无法匹配回执的结果来渲染它。向导这半边的工作全部
+卡在两行代码上，而不是卡在设计或事实上。
+
+客户端**不**绕过它。它不越过 `viden-core`，也不从线格式重建这两个类型：契约类型的第二份
+定义正是单一门面规则要防止的漂移，而创建 starter Lane 是一次 mutation。D4 第 2 步改为
+说明 Core 现在携带该字段、本客户端尚无法构造它，以及该关注哪条请求。
+
+客户端需要什么：在 `crates/core/src/lib.rs` 中，紧挨着已有的三个 starter-Lane 类型，
+加上 `pub use viden_types::{StarterLaneAgentBinding, StarterLaneSessionOutcome};`。
+GUI-CORE-030 随即在下一个 GUI 批次于客户端侧关闭。
+
+**2026-09-13 由 Core 批次 C16 关闭**：`crates/core/src/lib.rs` 重导出了两个类型
+（`StarterLaneAgentBinding` 在 `:62`，`StarterLaneSessionOutcome` 在 `:64`）。GUI
+侧——从 D4 第 2 步发送绑定、渲染回执结果、退役 `d4-agent-binding-blocked` 状态——在
+G9 后续批次落地，同时在客户端侧关闭 GUI-CORE-030；在此之前本条是 GUI 采纳项。
 
 ## 已退役的前登记编码
 

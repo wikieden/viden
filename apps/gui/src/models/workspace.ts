@@ -47,6 +47,25 @@ export interface PermissionDockProjection {
        */
       baseSha256: string | null;
     } | null;
+    /**
+     * Whether Core will accept an `ApprovalDecision::Edit` for this request
+     * (`runtime.approval_scopes`, GUI-CORE-019).
+     */
+    editable: boolean;
+    /**
+     * The request this one replaces, when Core produced it from an `Edit`.
+     * The dock shows the revision linked to its original rather than stacking
+     * a second, unrelated prompt.
+     */
+    revisedFrom: string | null;
+    /**
+     * The tool input's key/value pairs, recovered by the host from Core's own
+     * `input_preview` rendering. Empty when the parse was not exact, which is
+     * what `editBlock` names (GUI-CORE-036).
+     */
+    inputFields: Array<{ key: string; value: string }>;
+    /** Why Edit is withheld although Core marked the request editable. */
+    editBlock: string | null;
     actions: Array<{
       kind: PermissionChoice;
       available: boolean;
@@ -55,6 +74,35 @@ export interface PermissionDockProjection {
       code: string | null;
     }>;
   } | null;
+  /** The standing `Always` rules in force (`runtime.approval_scopes`, C15). */
+  standing: StandingApprovalsProjection;
+}
+
+export interface StandingApproval {
+  ruleId: string;
+  toolName: string;
+  /** The same encoding a `Session` rule uses, printed verbatim. */
+  ruleContent: string;
+  grantedAt: number;
+  grantedInWorkspace: string;
+  /** The audit row the grant wrote, which the D14 link opens. */
+  auditId: string;
+}
+
+export interface StandingApprovalsProjection {
+  /**
+   * Whether Core published `runtime.approval_scopes`.
+   *
+   * Empty with the capability present means no rule is installed; empty
+   * without it means nobody could answer. The two are different sentences.
+   */
+  capabilityAvailable: boolean;
+  rules: StandingApproval[];
+}
+
+export interface StandingApprovalIntentResult {
+  projection: StandingApprovalsProjection;
+  outcome: { state: string; reason: string | null };
 }
 
 export type D6State =

@@ -1132,17 +1132,18 @@ D10 的卡片带上了设计稿的动作行。其中四个控件里有两个在
 | --- | --- |
 | **接管（Attach）** | 不是 Core 命令。它调用驾驶舱自身的 `selectLane`——Lane 侧栏、Lane 标签条与 `⌃⇥` 共用的同一条路径——随后走路由的 `conversation` 路线，于是输入区开始面向该 Lane，中央面板回到对话。 |
 | **停止（Stop）** | 针对该 Lane 自己的 Agent 会话发送 `RuntimeCommand::CancelAgentSession`，命令 id 形如 `gui-d10-stop-…`。展示的结果来自应答事件：被接受，或 Core 自己的拒绝原因。 |
-| **暂停（Pause）** | 契约上没有对应命令。渲染为禁用并说明这一点。 |
-| **终止（Kill）** | 契约上没有对应命令。渲染为禁用并说明这一点，同时说明「停止」是通过 `CancelAgentSession` 取消，而不是暗示两者是同一个动作。 |
+| **暂停（Pause）** | 针对该 Lane 自己的 Agent 会话发送 `RuntimeCommand::PauseAgentSession`，命令 id 形如 `gui-board-…`，与 Agent 看板走同一条路径（C14，`runtime.agent_session_control`）。没有该能力时、以及会话状态不允许时，控件禁用并写出原因。 |
+| **终止（Kill）** | 同样方式发送 `RuntimeCommand::KillAgentSession`。终止不留宽限期、丢弃暂存输入；停止仍然是通过 `CancelAgentSession` 取消。动作行同时保留两者，因为它们是两个动作，而不是一个动作的两种叫法。 |
 
 停止的目标按 fail-closed 的方式从该 Lane 已发布的会话中解析，与驾驶舱解析
 owner 绑定的方式一致：恰好一个会话才是目标，零个表示没有可停止的对象，多于
 一个则说明客户端不会替你选择。未绑定宿主时，整行控件全部禁用并说明原因，而
 不是隐藏，也不是保留一个点了没反应的按钮。
 
-`RuntimeCommand` 并未为 Agent 会话提供 pause 或 kill
-（`crates/types/src/runtime.rs`）；那两个禁用控件就是这一事实的诚实呈现，而不
-是占位。事件流自身的 `eventsUnavailable` 文案在此未改动——它属于 hygiene 批次。
+在 C14 落地 `runtime.agent_session_control` 之前，这里的暂停与终止一直是禁用控
+件。现在它们发送 Core 自己的命令；而它们过去那种永久禁用的呈现，正是 Core 未发
+布该能力时它们退回的呈现——诚实状态的形状没有变，只是不再是唯一的状态。事件流自
+身的 `eventsUnavailable` 文案在此未改动——它属于 hygiene 批次。
 
 ## Fleet 节点下钻
 
@@ -1322,9 +1323,9 @@ yet」是页面自身的状态，对 Core 什么都不声称；「Core 握手未
 2. 设计稿的状态切换器是用来逐个走查状态的原型件；生产版没有切换器，因为状态属于 Core。
 
 驳回理由**不会**为了塞进 Core 的 2 KiB 上界而被截断：字节计数按 Core 的方式数 UTF-8，
-超界时发送禁用并写出上界。上界本身是一个镜像字面量，因为 `viden-core` 未重导出
-`MAX_PLAN_REJECT_REASON_BYTES` —— 这是
-[GUI-CORE-034](contract-requests.zh-CN.md)。
+超界时发送禁用并写出上界。上界现在就是 Core 自己的
+`MAX_PLAN_REJECT_REASON_BYTES`，经投影与适配层读取，不再在此镜像为字面量——
+[GUI-CORE-034](contract-requests.zh-CN.md) 已在两侧关闭。
 
 ## 原生缺陷（H4）
 
@@ -1378,3 +1379,109 @@ Kiro CLI 的主机可以在所有 ACP 探测仍未返回时创建 Lane —— �
 **缺陷 18 仍然开放。** 会话中途的自行终止在本批次的有界努力内未能复现；本次运行确实
 复现的，是整屏重绘之后窗口短暂离开 Accessibility 树。两者都记录在证据文档中，未声称
 任何修复。
+
+## Agent 看板（G9）
+
+`D-PLANBOARD` 对 Agent 看板的注册方式与规划工作台相同：它是驾驶舱的**中央面
+板视图**，不是窗口，也不是模式。标题栏、活动栏、Lane 侧栏、上下文坞、输入区与
+状态栏全部保留。它是 `centerView` `d16`，入口为活动栏的 `robot` 槽位（`GUI/
+gui-icons.jsx` 中已注册的字形，紧随 `lanes` 之后，这是 `D-PLANBOARD` 固定下来
+的顺序）、驾驶舱路由，以及 `?screen=d16`。
+
+看板骑在 `runtime.agent_session_control`（C14）之上。四条规则塑造了它，每一条
+的存在都是因为一旦丢掉它就会产生一句具体的谎话：
+
+1. **会话永远不脱离它的 Lane。** 会话按其自身的 `lane_id` 分组。Core 未发布记
+   录的 Lane 仍然会得到一个分组，带上它的 id 并说明记录缺失——因为把会话藏起来
+   比承认 Lane 行很薄更糟。
+2. **存活状态读 `status`，永不读 `active_session_ids`。** C14 的修订写得很明
+   确：Core 从不裁剪那个列表，取消也不裁剪；把「在列表里」当成「活着」的客户端
+   会把每一个已落定的会话都报成运行中。
+3. **禁用的控件写出让它禁用的那个状态。** Core 用 `session_status_<current>`
+   拒绝一个时机不对的控件；看板预先算出同一族字符串，于是操作者是按之前读到原
+   因，而不是按之后。
+4. **换模型是两条命令，也就画成两步。** 契约里没有 switch 动词：它是「终止（或
+   停止）」加上 `StartAgentSession { model, load_session_id }`。做成一个按钮就
+   是在宣称一种 Core 并不具备的原子性。
+
+| 控件 | 它发送什么 | 事实缺失时 |
+| --- | --- | --- |
+| 活动栏槽位 | 什么都不发；它切换中央视图 | 没有 `runtime.agent_session_control` 时看板依然可达——Lane 与会话是普通的 `0.3.0` 事实——但其上每个控件都渲染为禁用并写出能力名。宿主答不上这次读取时，槽位禁用但不声称 Core 缺什么 |
+| 活动栏计数气泡 | 什么都不发 | 状态为 `waiting_approval` 的会话数，这是唯一一个阻塞在人身上的状态。读取尚未被应答时完全不出气泡：「没有在等」和「没人数过」是两回事，所以气泡永远不会是零 |
+| **暂停** | `PauseAgentSession { session_id }`，命令 id 形如 `gui-board-…` | 状态不允许时禁用并标注 `session_status_<current>`；没有能力时为 `D16-NO-CAPABILITY`；会话已终结时为 `D16-SESSION-ENDED` |
+| **恢复** | `ResumeAgentSession { session_id }` | 同一族；在从未暂停过的会话上，标注的是当前真正的状态 |
+| **终止** | `KillAgentSession { session_id }` | 同一族。在 `paused` 会话上，除恢复之外只有终止仍然可用 |
+| **停止** | `CancelAgentSession { session_id }`——这是 `0.3.0` 的命令，因此**不**受 C14 门控 | 仅在会话已终结时禁用 |
+| **重试** | `RetryAgentSession { session_id }`——Core 自己的重试动词，以会话进入 `starting` 作为确认 | 只在**失败**或**被终止**的终结会话上提供；对已完成的会话以 `D16-SESSION-COMPLETED` 拒绝——已完成的会话没有什么可重试 |
+| **换模型** | 它本身什么都不发。它展开两步面板：第一步是终止或停止，第二步是 `StartAgentSession { model, load_session_id }`，模型输入框从 Core 报告的模型开始 | Core 未发布该会话的模型时为 `D16-NO-MODEL`，否则第二步没有一个能诚实指名的目标 |
+| **降级为人工**、**向人提问** | 什么都不发。按虚线禁用画出，作为登记册请求 | `D16-NO-CORE-FACT`：设计稿画了它们，契约里没有对应动词，虚线边框正是 `D-PLANBOARD` 为「已请求、无支撑」规定的呈现 |
+| **打开审计轨迹** | 什么都不发；它打开限定为 `session:<session_id>` 的 `d14` | 没有宿主应答该读取时，时间线写的是「未读」，而不是「空」 |
+| 输入区与排队行 | 未变——对选中 Lane 的 `QueueFollowUp` | 未变 |
+
+**三种空状态，是画出来的，不是描述出来的。** 完全没有 Lane 时，直接说这个工作
+区没有 Lane，并说明看板不会凭空造一个。有 Lane 而没有会话时，保留该行并说明记
+录在、会话不在。选择项指向 Core 不再发布的会话时，回退到第一个阻塞在人身上的会
+话，再回退到第一个会话，绝不回退到 Core 并不持有的行。
+
+**对话与审计行是两个列表，不是一个。** `AgentConversationMessageView` 不带时间
+戳，把两者交织起来就是在编造 Core 从未发布过的顺序。它们按 Core 自己的顺序，分
+别在各自的小标题下绘制。
+
+**子代理树是延后，不是缺失。** `D-RAILNAV` ④ 把它放进了 `fleet` 家族；上下文坞
+在读者会去找它的位置说明了这一点。
+
+## 始终与编辑（G9）
+
+`runtime.approval_scopes`（C15）补全了权限坞的档位列表。`D-PERM` 把它固定为恰
+好 `y · a · ⇧A · e · n`，现在权限坞画的就是这个：
+
+| 档位 | 快捷键 | 它发送什么 |
+| --- | --- | --- |
+| 一次 | `Y` | `Allow { scope: Once }` |
+| 本会话 | `A` | `Allow { scope: Session(..) }` |
+| **始终** | `Shift+A` | `Allow { scope: Always }`——一条比会话活得更久的常驻规则 |
+| **编辑** | `E` | `Edit { revised_input }`——整份输入，而不是一个补丁 |
+| 拒绝 | `N` | `Deny` |
+
+`repo_allowlist` 刻意**不给**快捷键。设计稿的档位列表只有五项，并不包含它；再
+发明第六个键就是客户端在替设计包立法。它仍然是选项行里的一个按钮。
+
+**Core 没有提供的范围会被写出来，而不是藏起来。** Core 从不对中等风险以上提供
+常驻规则。在这种请求上，「始终」画成禁用并带上 Core 自己的拒绝名
+`scope_not_offered`，发送在本地就被拒绝，而不是发一条 Core 只会驳回的命令。
+
+**是否可编辑由 Core 回答，字段则以 fail-closed 的方式还原。**
+`ApprovalRequestView` 发布 `editable` 和一份已渲染的 `input_preview`，但没有结
+构化的工具输入。投影层精确解析 Core 自己的 `  key: value` 渲染；一旦出现任何偏
+差就返回空，撤回「编辑」控件，并在阻塞原因里写出
+[GUI-CORE-036](contract-requests.zh-CN.md)，而不是拿猜出来的内容去构造修订。发
+送时每个键都会回传，包括你没有动过的那些，因为 Core 评估的是完整输入。Core 批次
+C16 随后已在每条可编辑请求上发布 `input: Option<ToolInput>`（036 当天在 Core 侧
+关闭）；解析器只保留到 G9 后续批次采纳该字段并删掉它为止。
+
+**修订是被链接起来的，不是被堆叠起来的。** Core 从一次「编辑」产生的请求带有
+`revised_from`；权限坞把这条链接直接印在它所修订的那份输入下面，好让操作者能分
+辨「Core 想就我刚刚收窄的那件事再要一次决定」和「Core 想就另一件事要一次决定」。
+
+**常驻批准列在可以撤销它的地方。** 设置面板的权限卡片列出 Core 自己的
+`StandingApprovalView` 行——规则键、工具、授予时所在的工作区与时间——每一行都带
+**撤销**（`RevokeStandingApproval { rule_id }`，由 `StandingApprovalRevoked`
+确认），以及按授予时写下的审计 id 指向 D14 轨迹的链接。空列表和能力缺失是两句
+不同的话：前者说没有安装规则，后者说这个 Core 答不上来。
+
+## D4 Agent 绑定（G9）
+
+计划行 G9 要求 D4 第 2 步发送 agent 绑定、第 4 步展示回执里的会话结果。**这一项
+被停下并写明原因。**
+
+C15 给 `StarterLaneRequest` 加了 `agent` 字段（`runtime.starter_lane_agent`），
+但 `viden-core` 既没有重导出 `StarterLaneAgentBinding`，也没有重导出
+`StarterLaneSessionOutcome`，而 GUI 只能依赖 `viden-core`
+（`apps/gui/AGENTS.md`）。没有访问器，也没有可以绕行的 `impl`，因此这个选择仍然
+无法上路，回执里的结果也读不到。
+
+于是第 2 步记录这个选择并写明接下来会发生什么——Lane 建好之后，agent 从驾驶舱启
+动——同时指向 [GUI-CORE-037](contract-requests.zh-CN.md)，它请求补上那两个重导
+出。没有交付任何到不了 Core 的行：一个看起来能用、实际不能用的步骤，代价比一个
+说明自己为何不能用的步骤更大。Core 批次 C16 当天补上了两个重导出（037 在 Core 侧
+关闭）；接线在 G9 后续批次落地，在此之前第 2 步继续写明这个选择尚未上路。

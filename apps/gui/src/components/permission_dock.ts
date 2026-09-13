@@ -13,6 +13,15 @@ export interface PermissionIntent {
   requestId: string;
   choice: PermissionChoice;
   feedback: string | null;
+  /**
+   * The revised tool input an `Edit` decision carries
+   * (`runtime.approval_scopes`, GUI-CORE-019).
+   *
+   * A revision is a new input Core re-evaluates through the same gate, not a
+   * variant of an allow, so it travels only with `edit` and the whole map goes
+   * — including the keys the operator left alone.
+   */
+  revisedInput?: Record<string, string> | null;
 }
 
 export interface PermissionIntentResult {
@@ -31,21 +40,40 @@ const ACTION_COPY = {
 } as const;
 
 /**
- * Known divergence from the design package, recorded rather than resolved.
+ * The design's scope tiers, restored (`D-PERM`, `SPEC` line 82).
  *
- * The design assigns `Shift+A` to "Always". Schema 1 has no Always approval
- * scope and no Edit decision — both render as fail-closed GUI-CORE-003
- * placeholders — so binding the chord to a decision Core cannot carry would
- * put a live shortcut on a dead action. `Shift+A` therefore stays on
- * `repo_allowlist`, the widest scope Core actually accepts, until Core adds
- * the scope (contract request GUI-CORE-019). Do not re-point it before then.
+ * The package fixes exactly five keys — `y · a · ⇧A · e · n` — and `⇧A` is
+ * "Always". The GUI parked that chord on `repo_allowlist` while schema 1 had no
+ * Always scope, because binding a live chord to a dead action was worse than
+ * the divergence; `runtime.approval_scopes` (C15) shipped the scope and its
+ * revocation, so the chord returns to the tier the design assigns it.
+ *
+ * `repo_allowlist` gets no chord back, and that is deliberate rather than an
+ * omission: the design's tier list does not contain it, so inventing a sixth
+ * key would be this client legislating a shortcut the package never fixed. It
+ * stays a button in the option row, which is where the design puts every scope
+ * Core offers.
  */
 const SHORTCUTS: Partial<Record<PermissionChoice, string>> = {
   once: "Y",
   session: "A",
-  repo_allowlist: "Shift+A",
+  always: "Shift+A",
   edit: "E",
   deny: "N",
+};
+
+/**
+ * The codes a blocked scope or decision carries, turned into sentences.
+ *
+ * `scope_not_offered` and `revision_unchanged` are Core's own refusal names, so
+ * a code this table does not have is printed verbatim rather than softened: a
+ * refusal the operator cannot match against Core's audit row is worse than a
+ * raw string.
+ */
+const BLOCK_COPY: Partial<Record<string, MessageKey>> = {
+  scope_not_offered: "d1.permission.scopeNotOffered",
+  not_editable: "d1.permission.notEditable",
+  "GUI-CORE-036": "d1.permission.editUnavailable",
 };
 
 const RISK_COPY = {
@@ -125,6 +153,24 @@ export function renderPermissionDock(
   command.className = "cmd";
   command.textContent = request.inputPreview;
   facts.append(command);
+
+  // A revision Core produced from an `Edit` is shown linked to the request it
+  // replaces, not as a second unrelated prompt: the operator has to be able to
+  // tell "Core wants another decision about the thing I just narrowed" from
+  // "Core wants a decision about something else". It sits directly under the
+  // input because that is the thing it revises, and because `.gperm-what`
+  // scrolls in the dock — a link placed after the fact line would be true and
+  // unread.
+  if (request.revisedFrom) {
+    const revision = document.createElement("p");
+    revision.className = "gperm-revision";
+    revision.dataset.permissionRevisedFrom = request.revisedFrom;
+    revision.textContent = translate(locale, "d1.permission.revisedFrom", {
+      request: request.revisedFrom,
+    });
+    facts.append(revision);
+  }
+
   const factText = document.createElement("p");
   factText.className = "why";
   const scope = request.actions
@@ -227,6 +273,17 @@ export function renderPermissionDock(
     facts.append(alert);
   }
 
+  /**
+   * The inline editor, open only while the operator asked for it.
+   *
+   * The fields are Core's own tool-input pairs, recovered by the host; the
+   * draft starts as a copy of them and every key travels back on send,
+   * including the ones left alone, because Core re-evaluates the whole input
+   * rather than a patch of it.
+   */
+  let editOpen = false;
+  const draft = new Map(request.inputFields.map((field) => [field.key, field.value]));
+
   const options = document.createElement("div");
   options.className = "gperm-opts";
   const actionButtons = new Map<PermissionChoice, HTMLButtonElement>();
@@ -240,8 +297,27 @@ export function renderPermissionDock(
     if (shortcut) actionButton.setAttribute("aria-keyshortcuts", shortcut);
     const label = translate(locale, ACTION_COPY[action.kind], {});
     actionButton.textContent = `${shortcut ? `${shortcut} · ` : ""}${label}${action.code ? ` · ${action.code}` : ""}`;
+    // A blocked scope or decision says why in the accessible name, not only as
+    // a code chip: the operator has to learn from the control they pressed why
+    // Core would refuse it.
+    if (action.code) {
+      const reason = BLOCK_COPY[action.code];
+      const sentence = reason ? translate(locale, reason, {}) : action.code;
+      actionButton.title = `${label} — ${sentence}`;
+      actionButton.setAttribute("aria-label", `${label} — ${sentence}`);
+      actionButton.dataset.permissionBlock = action.code;
+    }
     actionButton.addEventListener("click", () => {
       if (!action.available) return;
+      if (action.kind === "edit") {
+        // Edit is not a decision on its own: it opens the field the operator
+        // revises, and the revision is what gets sent.
+        editOpen = !editOpen;
+        editor.hidden = !editOpen;
+        actionButton.setAttribute("aria-expanded", String(editOpen));
+        if (editOpen) editor.querySelector("input")?.focus();
+        return;
+      }
       void send({
         type: "respond",
         requestId: request.id,
@@ -249,6 +325,10 @@ export function renderPermissionDock(
         feedback: null,
       });
     });
+    if (action.kind === "edit") {
+      actionButton.setAttribute("aria-expanded", "false");
+      actionButton.setAttribute("aria-controls", "gperm-editor");
+    }
     actionButtons.set(action.kind, actionButton);
     options.append(actionButton);
   }
@@ -259,7 +339,7 @@ export function renderPermissionDock(
       : key === "n"
         ? "deny"
         : key === "a" && event.shiftKey
-          ? "repo_allowlist"
+          ? "always"
           : key === "a"
             ? "session"
             : key === "e"
@@ -272,6 +352,58 @@ export function renderPermissionDock(
     action.focus();
     action.click();
   });
-  dock.append(heading, facts, options);
+  // The editor is built unconditionally and hidden, so the Edit button has an
+  // element to name in `aria-controls` before it is opened.
+  const editor = document.createElement("form");
+  editor.id = "gperm-editor";
+  editor.className = "gperm-editor";
+  editor.dataset.permissionEditor = "true";
+  editor.hidden = true;
+  const editorHead = document.createElement("p");
+  editorHead.className = "gperm-editor-head";
+  editorHead.textContent = translate(locale, "d1.permission.editHead", {});
+  editor.append(editorHead);
+  for (const field of request.inputFields) {
+    const row = document.createElement("label");
+    row.className = "gperm-editor-row";
+    const name = document.createElement("span");
+    name.className = "k";
+    // Core's own key, printed raw: it is the contract's vocabulary for what
+    // this value means to the tool.
+    name.textContent = field.key;
+    const input = document.createElement("input");
+    input.type = "text";
+    input.dataset.permissionEditField = field.key;
+    input.value = field.value;
+    input.addEventListener("input", () => draft.set(field.key, input.value));
+    row.append(name, input);
+    editor.append(row);
+  }
+  const editorSend = document.createElement("button");
+  editorSend.type = "submit";
+  editorSend.className = "gperm-opt";
+  editorSend.dataset.permissionEditSend = "true";
+  editorSend.textContent = translate(locale, "d1.permission.editSend", {});
+  editor.append(editorSend);
+  const editorNote = document.createElement("p");
+  editorNote.className = "gperm-editor-note";
+  editorNote.textContent = translate(locale, "d1.permission.editNote", {});
+  editor.append(editorNote);
+  editor.addEventListener("submit", (event) => {
+    event.preventDefault();
+    // A revision byte-identical to the original is `revision_unchanged` at
+    // Core; the dock lets it go and renders Core's refusal rather than
+    // second-guessing the comparison, because Core compares the canonical
+    // input and this client only has the preview it parsed.
+    void send({
+      type: "respond",
+      requestId: request.id,
+      choice: "edit",
+      feedback: null,
+      revisedInput: Object.fromEntries(draft),
+    });
+  });
+
+  dock.append(heading, facts, options, editor);
   root.replaceChildren(dock);
 }

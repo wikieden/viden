@@ -167,7 +167,7 @@ URL 与尺寸，不在该运行时之外调用浏览器自动化。
 | `nav-d14-in-cockpit` | `…/qa.html?state=nav-d14-in-cockpit` | 同一外壳中的审计轨迹，也就是 `D-AUDIT` 从证据行或 D12 基线芯片单向链接如今落到的地方：rail 的 `审计时间线` 槽位标记为当前，视图头部之下是模式切换与三条审计行，而对话只差一个 `Esc` |
 | `nav-sidebar-floating-peek` | `…/qa.html?state=nav-sidebar-floating-peek` | `D-SIDEBAR` **浮动**模式——该决策的默认值——经键盘路径（Lane rail 槽位）peek 打开：侧栏是**覆盖在整宽转录之上的浮层**而非布局列，12px 热区连同 `.edgehint` 提示条贴在活动 rail 右缘，rail 上（设置齿轮之上）的 pin 读作未固定 |
 | `nav-statusbar-config` | `…/qa.html?state=nav-statusbar-config` | `D-STATUSBAR` 配置齿轮打开：`.sbcfg` 弹层列出六个环境段及其勾选框，页脚写明身份项与可操作项始终固定，而 `MODE`、`PERM`、`LANE` 与决策芯片就在其后的状态栏上、却不在列表中 |
-| `d10-actions` | `…/qa.html?state=d10-actions` | 驾驶舱中的 Lane 监视器卡片动作行：**两张卡片上都有 接管 / 停止 / 暂停 / 终止**，在 Core 发布了 Agent 会话的那条 Lane 上「停止」可用、在未发布会话的那条上禁用，两张卡片的「暂停」「终止」都禁用并注明 `RuntimeCommand` 并不携带的命令（G6） |
+| `d10-actions` | `…/qa.html?state=d10-actions` | 驾驶舱中的 Lane 监视器卡片动作行：**两张卡片上都有 接管 / 停止 / 暂停 / 终止**，在 Core 发布了运行中 Agent 会话的那条 Lane 上「停止」「暂停」「终止」三者都可用，在未发布会话的那条上三者都禁用。G9 重拍：C14 落地 `runtime.agent_session_control` 之后，「暂停」「终止」不再是永久禁用，现在带的是 Core 自己的状态规则，而不是「命令不存在」（G6，G9 重拍） |
 | `d13-drill` | `…/qa.html?state=d13-drill` | 同一列里同时给出两种 Lane 绑定答案：Core 绑定了 Lane 的节点带着可见的 `Open Lane lane_core ↗` 一行与 `role="button"`；同一个生成节点去掉绑定后的副本说明 Core 未绑定任何 Lane，也不提供点击（G6） |
 | `d14-filtered` | `…/qa.html?state=d14-filtered` | 启用了 `agent` 执行者筛选的审计轨迹：执行者标签是**本页**携带的值（`全部执行者`、`operator`、`agent`——没有 `system`，因为本页没有这类行），四个时间标签中 `全部时间` 处于按下态，筛选条下的说明点明切分范围是已加载页并注明 `GUI-CORE-024`，结果分布条读作 `已加载页（已筛选）的结果分布 · 1 of 3 · denied 1`，剩下一行记录，`导出` 禁用（G6） |
 | `consumer-workspace-commit` | `…/qa.html?state=consumer-workspace-commit` | `C5` 的三个客户端可见事实在同一帧里：Lane 标签条打印该 Lane **自己**的 worktree 分支与它自己的 `↑2 ↓1`（来自 `lane_sources`）、坞的本地节说明它展示的是该 **Lane** 的 worktree 并给出那棵树的数字、提交或推送可用（因为 Core 发布了可供代入的工作区 owner，`GUI-CORE-027`）。环境事实节折叠，理由与 `dock-environment` 折叠它的理由相同（G7） |
@@ -197,6 +197,15 @@ URL 与尺寸，不在该运行时之外调用浏览器自动化。
 | `lane-rail` | `…/qa.html?state=lane-rail` | `D-SIDEBAR` **pinned** 模式：侧栏作为真正的布局列（设计默认 218px），把工作面推开而不是覆盖它，活动 rail 的 pin 标记为已按下。画面显示 Core 监督的那一个 `.wsroot` 项目分组 `viden`，其 `▾` 折叠、Lane 计数、分组内 `＋`、嵌套其下的 Lane，以及 `＋ 添加项目…` 页脚——没有第二个分组，也没有「Global」小节 |
 | `project-picker` | `…/qa.html?state=project-picker` | 选择器在标题栏 `▾` 之下展开，三列同时可见：可用的 `添加目录…` 与两行点名 `GUI-CORE-023` 的禁用行、当前打开项目的唯一「工作区内」行及其 lane 计数，以及一行带相对时间的「最近」 |
 | `project-switch-confirm` | `…/qa.html?state=project-switch-confirm` | 同一选择器在点击最近项目后进入内联确认：目标根目录、点名 `GUI-CORE-023` 的替换说明、正在运行的工作计数，以及「取消」与「切换工作区」两个按钮 |
+| `board-lanes` | `…/qa.html?state=board-lanes` | `C14` / G9：Agent 看板作为中央面板视图、驾驶舱外壳保持不变——活动栏 `robot` 槽位标为当前并带计数气泡 `1`，抬头读作 `1 lanes · 1 sessions · 1 awaiting you`，会话嵌在它的 Lane 分组**之下**，角色 chip 取自 Lane 记录、模型列读作 `codex-acp · gpt-5-codex`，状态为 `WAITING ON YOUR APPROVAL`；动作行里暂停、终止、停止可用，恢复与重试禁用并带上「会话当前为等你批准」。降级为人工与向人提问画成虚线，注明「运行时尚无此事实」 |
+| `board-paused` | `…/qa.html?state=board-paused` | 同一块看板在 `PauseAgentSession` 之后：状态 `paused`，控制行读作 `paused 1700006010 · 2 held input`，暂停禁用并注明「会话已暂停」，恢复可用；说明文字写出暂停会保留会话与暂存输入、取消正在进行的这一轮、并拒掉那一轮正在等的权限 |
+| `board-killed-retry` | `…/qa.html?state=board-killed-retry` | 同一个会话的终结态：状态 `killed`，诊断为 `killed by owner`，暂停 / 恢复 / 终止 / 停止 / 换模型全部禁用并标注，**重试是唯一仍然可用的控件**，对话列表里是被清空的暂存输入 |
+| `board-switch-model-two-step` | `…/qa.html?state=board-switch-model-two-step` | 换模型按它真实的样子画出：`换模型` 读作「两步」，下方面板分别写明第一步（结束会话）与第二步（`StartAgentSession { model, load_session_id }`）是两次独立发送。没有单个按钮，也没有契约并不具备的原子性宣称 |
+| `board-no-lane` | `…/qa.html?state=board-no-lane` | 是缺失，不是空看板：没有 Lane 的工作区直接这么说，说明看板不会凭空造一个，并重申会话永远显示在拥有它的 Lane 之下。详情面板保持为空，而不是画一个占位 agent |
+| `dock-always-edit` | `…/qa.html?state=dock-always-edit` | `C15` / G9：权限坞完整的档位列表——`Y · 一次`、`A · 本会话`、`Shift+A · 始终`、`E · 编辑`、`N · 拒绝`，恰好是 `D-PERM` 的 `y · a · ⇧A · e · n`——内联修订编辑器打开在投影从 Core 自己的预览里还原出的 `command` 字段上，并写明所有键都会回传，因为 Core 评估的是完整输入而不是补丁 |
+| `dock-edit-revised-from` | `…/qa.html?state=dock-edit-revised-from` | Core 从那次「编辑」产生的请求：预览里是收窄后的输入，紧接其下是那行金色文字，把它链接到它所替代的 `approval_scopes_wide`，而不是在第一条之上再堆一条不相干的提示 |
+| `standing-approvals-revoke` | `…/qa.html?state=standing-approvals-revoke` | 设置面板的权限卡片列出 Core 自己的常驻规则：`shell · command=cargo fmt --all -- --check`，带授予时所在的工作区与时间，旁边是**撤销**，以及按授予时写下的审计 id 指向 D14 的**打开审计轨迹** |
+| `d4-agent-binding-blocked` | `…/qa.html?state=d4-agent-binding-blocked` | 计划行 G9 第 3 项，停下并写明：D4 第 2 步列出 Core 的适配器并标记 popover 的选择，说明文字写出 C15 给了 `StarterLaneRequest` 一个 agent，但 `viden-core` 没有重导出本客户端构造它所需的两个类型，因此这个选择仍然上不了路，agent 在 Lane 建好之后从驾驶舱启动——`GUI-CORE-037` |
 
 `mode=dark|light` 与 `locale=en|zh-CN` 每个状态都接受，并统一走共享的
 `resolveTheme`，harness 不携带第二套配色。`mode=light` 同时选用 `ice` 皮肤，
@@ -1007,7 +1016,7 @@ ERR_CONNECTION_REFUSED"页面，采集脚本把那个页面存成了证据。它
 
 | 图 | 它证明的主张 |
 | --- | --- |
-| `d10-actions` | 动作行在**每张卡片上都是四个控件**，其中无法执行的两个会如实说明。`lane_core`（terminal 路由、无已发布会话）显示「接管」可用、「停止」变暗；`lane_review`（ACP 路由、一个已发布会话）两者都可用。两张卡片的「暂停」「终止」都变暗——它们仍在设计稿给出的位置上，并带着说明 `RuntimeCommand` 缺少哪个命令的句子。可与 `d10-blind` 对照，那是动作行存在之前的同两张卡片 |
+| `d10-actions` | 动作行在**每张卡片上都是四个控件**，无法执行的那些会如实说明。`lane_core`（terminal 路由、无已发布会话）显示「接管」可用，「停止」「暂停」「终止」按唯一适用的那条理由变暗——Core 没有发布可作用的会话；`lane_review`（ACP 路由、一个运行中的已发布会话）四者都可用。可与 `d10-blind` 对照，那是动作行存在之前的同两张卡片。**已被 G9 重拍取代**：本行记录的是 G6 时画面的样子，那时「暂停」「终止」禁用是因为 `RuntimeCommand` 没有这两个动词；已提交的图像是 G9 那张，拍摄于 C14 给了它们命令之后 |
 | `d13-drill` | 两种 Lane 绑定答案出现在同一帧里。上面的节点带 `Open Lane lane_core ↗`，它是控件；下面那个——同一个生成节点去掉绑定后的副本——带着「Core 未为该任务绑定任何 Lane，没有可打开的对象。」，且完全没有可点击暗示。差异在画面里而不是在 hover 状态里，这正是可见提示的意义 |
 | `d14-filtered` | 已加载页这一整套主张同时成立：执行者标签是 `全部执行者 / operator / agent`——没有 `system` 标签，因为本页没有这类行——四个时间标签停在 `全部时间` 上，筛选条下的说明点明切分范围是已加载页并注明 `GUI-CORE-024`，结果分布条读作 `已加载页（已筛选）的结果分布 · 1 of 3` 与 `denied 1`，筛选后恰好剩一行，`导出` 在筛选条末端变暗 |
 | `d14-filtered`（light/zh-CN） | 新增文案的语言与皮肤验证：标签文字、已加载页说明、结果分布标题与导出控件都会翻译，而存留行里的每个 Core 值——点分键 `evidence.rejected`、执行者词 `agent`、agent id `codex-acp`、结果 `denied`、对象与参数芯片——都与 Core 发布时完全一致，时间戳在两种语言下都保持固定的 `UTC` 格式 |
@@ -1222,3 +1231,65 @@ server），随后由作者逐张查看 —— 全部七张。
 
 `plan-stale-revision` 的拒绝文本就是 fixture 自己的第 9 条事件负载，经生产发送路径派发，
 因此告警、code chip 与重新载入控件全都是出厂渲染，而不是 harness 的临摹。
+
+## Agent 看板、批准范围与 D4 的停下（G9）
+
+2026-09-13 用无头 Chrome 捕获（`--headless --disable-gpu --hide-scrollbars
+--window-size=<w>,<h> --virtual-time-budget=6000`，对着 4183 端口的 vite dev
+server），随后由作者逐张查看 —— 全部十二张，一张一张地看。
+
+| 文件 | 状态 | 视口 | 模式 | Locale |
+| --- | --- | --- | --- | --- |
+| [board-lanes-1440x1180-dark-en.png](board-lanes-1440x1180-dark-en.png) | board-lanes | 1440x1180 | 深色 | en |
+| [board-lanes-1440x1180-light-zh-CN.png](board-lanes-1440x1180-light-zh-CN.png) | board-lanes | 1440x1180 | 浅色 | zh-CN |
+| [board-paused-1440x1180-dark-en.png](board-paused-1440x1180-dark-en.png) | board-paused | 1440x1180 | 深色 | en |
+| [board-killed-retry-1440x1180-dark-en.png](board-killed-retry-1440x1180-dark-en.png) | board-killed-retry | 1440x1180 | 深色 | en |
+| [board-switch-model-two-step-1440x1180-dark-en.png](board-switch-model-two-step-1440x1180-dark-en.png) | board-switch-model-two-step | 1440x1180 | 深色 | en |
+| [board-no-lane-1440x1180-dark-en.png](board-no-lane-1440x1180-dark-en.png) | board-no-lane | 1440x1180 | 深色 | en |
+| [dock-always-edit-1440x1180-dark-en.png](dock-always-edit-1440x1180-dark-en.png) | dock-always-edit | 1440x1180 | 深色 | en |
+| [dock-always-edit-1440x1180-light-zh-CN.png](dock-always-edit-1440x1180-light-zh-CN.png) | dock-always-edit | 1440x1180 | 浅色 | zh-CN |
+| [dock-edit-revised-from-1440x1180-dark-en.png](dock-edit-revised-from-1440x1180-dark-en.png) | dock-edit-revised-from | 1440x1180 | 深色 | en |
+| [standing-approvals-revoke-1440x1180-dark-en.png](standing-approvals-revoke-1440x1180-dark-en.png) | standing-approvals-revoke | 1440x1180 | 深色 | en |
+| [d4-agent-binding-blocked-1440x1180-dark-en.png](d4-agent-binding-blocked-1440x1180-dark-en.png) | d4-agent-binding-blocked | 1440x1180 | 深色 | en |
+| [d10-actions-1440x900-dark-en.png](d10-actions-1440x900-dark-en.png) | d10-actions | 1440x900 | 深色 | en |
+
+十一个新状态的视口是 **1440x1180**，理由与 G8 相同：看板与权限坞都是驾驶舱内部
+的双列面板，900px 下动作行和它下面的原因会一起掉到折线以下，同时裁掉两者的截图
+对哪一个都不构成证据。`d10-actions` 保留原有的 **1440x900**，因为它是既有行的重
+拍，改变取景会让它无法与本就用来对照的 `d10-blind` 相比。
+
+**为什么重拍 `d10-actions`。** 它的「暂停」「终止」在 G6 时禁用，是因为
+`RuntimeCommand` 没有这两个动词。C14 给了它们命令，本批次把 Lane 监视器接到了
+Agent 看板所用的同一组发送器上，于是本批次之前提交的那张图，对契约陈述了一件不
+再为真的事。新的画面里，它们在 Core 发布了运行中会话的那条 Lane 上可用，在未发
+布会话的那条上禁用。
+
+**所有 projection 都由 `tests/capture_projections.rs` 生成。** 五个看板状态取自
+规范事件流 `agent-session-control.json` 的前缀 —— `d16-board-lanes` 在任何控制之
+前、`d16-board-paused` 在暂停之后、`d16-board-killed` 在终止之后 —— 外加从一次没
+有任何 Lane 的握手得到的 `d16-board-no-lane`。三个权限状态取自
+`approval-scopes.json` 的前缀：`dock-always-edit` 取自 `allowed_scopes` 带
+`Always` 的那条请求，`dock-revised-from` 取自 Core 从「编辑」产生的那条请求，
+`standing-approvals` 取自授予时安装的那条规则。两处手写增量，都写在 `qa.ts` 里：
+
+1. **看板状态借用了一条 Lane 记录。** `agent-session-control.json` 发布的是会话
+   与控制事实，不是 `AgentLaneRecord`，因此看板状态复用 `multi-lane.json` 的第一
+   条 Lane 记录并改名为 `lane_session_control` —— 也就是会话本来就指名的那个 id。
+   没有它，每一张截图取景的都会是「Lane 记录缺失」那条路径：那是真实状态，但不是
+   这些截图要说明的那一个。
+2. **`board-switch-model-two-step` 是一次点击，不是一个状态。** 面板是通过出厂控
+   件上的生产监听器打开的；没有为了预先展开它而改动 projection 的任何字段。
+
+**`d4-agent-binding-blocked` 取代了计划行要求的那两个状态。** 计划行要求
+`d4-agent-binding-started` 与 `d4-agent-binding-refused` —— 回执里
+`StarterLaneSessionOutcome` 的两个分支。两者都无法诚实地拍出来：`viden-core` 既
+没有重导出 `StarterLaneAgentBinding`，也没有重导出
+`StarterLaneSessionOutcome`，因此 GUI 既发不出绑定，也读不到结果，拍出任何一个都
+会是 harness 的临摹而不是出厂渲染。唯一为真的状态就是这个阻塞本身，它写明了
+`GUI-CORE-037`。
+
+**捕获配方。** 在这台宿主上，Chrome 写完 PNG 之后不会退出；而复用同一个
+`--user-data-dir` 会让第二次调用附着到第一个实例上，从而拍不出图。因此每一张都用
+一个新的 `mktemp -d` 配置目录，在后台运行，待文件落地后回收；只杀脚本自己启动的那
+个 PID，按 PID 杀，绝不按名字杀。本表中没有任何 PNG 小于 30 KB —— 最小的是 80,616
+字节的 `d4-agent-binding-blocked`，那是深色底上的 D4 向导，本来就是最稀疏的一帧。

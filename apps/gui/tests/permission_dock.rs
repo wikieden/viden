@@ -81,8 +81,16 @@ fn permission_dock_projects_every_exact_core_fact_and_only_typed_scopes() {
             ("deny", true),
         ]
     );
-    assert_eq!(request.actions[3].code, Some("GUI-CORE-003"));
-    assert_eq!(request.actions[4].code, Some("GUI-CORE-003"));
+    // This fixture's `allowed_scopes` carries no `Always` — it is a high-risk
+    // request, which Core never offers a standing rule on — so the tier is
+    // drawn with Core's own refusal name (`runtime.approval_scopes`, C15).
+    assert_eq!(request.actions[3].code, Some("scope_not_offered"));
+    // `shell` *is* on Core's editable list, but this fixture's approval does
+    // not set `editable`, so Edit is withheld as Core's own decision rather
+    // than as a client gap.
+    assert!(!request.editable);
+    assert_eq!(request.actions[4].code, Some("not_editable"));
+    assert!(request.revised_from.is_none());
 }
 
 #[test]
@@ -135,6 +143,7 @@ fn exact_once_session_repo_and_deny_responses_send_only_respond_to_approval() {
                     request_id: approval.id.clone(),
                     choice,
                     feedback: None,
+                    revised_input: None,
                 },
                 std::time::Duration::ZERO,
             )
@@ -178,6 +187,7 @@ fn plan_mutation_and_untyped_design_actions_send_nothing() {
                     request_id: approval.id.clone(),
                     choice,
                     feedback: None,
+                    revised_input: None,
                 },
             )
             .expect_err("Plan mutation or untyped design action must fail closed");
@@ -218,6 +228,7 @@ fn d1_poll_observes_the_exact_permission_resolution_it_consumes() {
                 request_id: approval.id.clone(),
                 choice: PermissionChoice::Deny,
                 feedback: None,
+                revised_input: None,
             },
             std::time::Duration::ZERO,
         )

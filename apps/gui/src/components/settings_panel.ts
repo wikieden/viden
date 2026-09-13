@@ -5,6 +5,10 @@ import {
 } from "./composer_controls";
 import { translate, type Locale, type MessageKey } from "../i18n/catalog";
 import type { ComposerControlIntent } from "../models/composer";
+import {
+  APPROVAL_SCOPES_CAPABILITY,
+  type StandingApproval,
+} from "../models/approval_scopes";
 import type {
   PreferenceDraft,
   PreferenceIntentOutcome,
@@ -111,6 +115,22 @@ export interface SettingsControlsModel {
   busy: boolean;
 }
 
+/**
+ * The standing `Always` rules the panel lists (`runtime.approval_scopes`, C15).
+ *
+ * `null` while no host is bound — the list is a Core read like any other, and a
+ * panel that cannot reach Core says nothing about which rules are in force
+ * rather than printing an empty list that reads as "none".
+ */
+export interface SettingsStandingModel {
+  capabilityAvailable: boolean;
+  rules: StandingApproval[];
+  /** True while a revocation is in flight. */
+  busy: boolean;
+  /** Core's last answer to a revocation, or null before any this session. */
+  outcome: { state: string; reason: string | null } | null;
+}
+
 export interface SettingsPanelModel {
   /** UI language for the panel's own copy. */
   locale: Locale;
@@ -122,6 +142,7 @@ export interface SettingsPanelModel {
   /** The last Core outcome, or null before any command in this session. */
   outcome: PreferenceIntentOutcome | null;
   controls: SettingsControlsModel | null;
+  standing: SettingsStandingModel | null;
 }
 
 export interface SettingsPanelHandlers {
@@ -132,6 +153,10 @@ export interface SettingsPanelHandlers {
   onClose: () => void;
   /** Dispatches through the cockpit's shared composer-control path. */
   onControl: (intent: ComposerControlIntent) => void;
+  /** Sends one `RevokeStandingApproval`; absent disables the control. */
+  onRevokeStanding?: (ruleId: string) => void;
+  /** Opens D14 on the audit row the grant wrote; absent leaves the row a fact. */
+  onOpenStandingTrail?: (auditId: string) => void;
 }
 
 export interface SettingsPanelController {
@@ -454,6 +479,97 @@ export function renderSettingsPanel(
   cwdValue.textContent = controls?.cwd ?? translate(locale, "d1.permission.unavailable", {});
   cwdRow.append(cwdLabels, cwdValue);
   permissionCard.append(cwdRow);
+
+  // The standing rules an Always decision installs. They live in the
+  // permission card because that is the decision they came from, and the
+  // revocation ships beside the list rather than later: a rule that outlives
+  // the process and cannot be taken back is not a decision the operator made.
+  if (model.standing) {
+    const standing = model.standing;
+    const row = document.createElement("div");
+    row.className = "gset-row gset-row-block";
+    row.dataset.settingsStanding = "true";
+    const labels = document.createElement("div");
+    labels.className = "gset-row-labels";
+    const title = document.createElement("div");
+    title.className = "gset-row-title";
+    title.textContent = translate(locale, "settings.standing", {});
+    const detail = document.createElement("div");
+    detail.className = "gset-row-detail";
+    detail.textContent = translate(locale, "settings.standing.detail", {});
+    labels.append(title, detail);
+    row.append(labels);
+
+    if (!standing.capabilityAvailable) {
+      const absent = document.createElement("p");
+      absent.className = "gset-row-detail";
+      absent.dataset.settingsStandingAbsent = "capability";
+      absent.textContent = translate(locale, "settings.standing.unavailable", {
+        capability: APPROVAL_SCOPES_CAPABILITY,
+      });
+      row.append(absent);
+    } else if (standing.rules.length === 0) {
+      const empty = document.createElement("p");
+      empty.className = "gset-row-detail";
+      empty.dataset.settingsStandingAbsent = "empty";
+      empty.textContent = translate(locale, "settings.standing.empty", {});
+      row.append(empty);
+    } else {
+      const list = document.createElement("ul");
+      list.className = "gset-standing";
+      for (const rule of standing.rules) {
+        const item = document.createElement("li");
+        item.dataset.settingsStandingRule = rule.ruleId;
+        const what = document.createElement("code");
+        what.className = "gset-value";
+        // Core's own rule key, printed verbatim: it is the contract's
+        // statement of what the rule matches.
+        what.textContent = `${rule.toolName} · ${rule.ruleContent}`;
+        // The card is narrow and the rule key can be long, so the row elides.
+        // The full key stays recoverable rather than lost: a rule the operator
+        // cannot read whole is a rule they cannot decide to revoke.
+        what.title = what.textContent;
+        const when = document.createElement("span");
+        when.className = "gset-row-detail";
+        when.textContent = translate(locale, "settings.standing.granted", {
+          at: String(rule.grantedAt),
+          workspace: rule.grantedInWorkspace,
+        });
+        item.append(what, when);
+        const revoke = document.createElement("button");
+        revoke.type = "button";
+        revoke.className = "gset-action";
+        revoke.dataset.settingsStandingRevoke = rule.ruleId;
+        revoke.textContent = translate(locale, "settings.standing.revoke", {});
+        revoke.disabled = !handlers.onRevokeStanding || standing.busy;
+        revoke.addEventListener("click", () => handlers.onRevokeStanding?.(rule.ruleId));
+        item.append(revoke);
+        if (handlers.onOpenStandingTrail) {
+          const trail = document.createElement("button");
+          trail.type = "button";
+          trail.className = "gset-action";
+          trail.dataset.settingsStandingTrail = rule.auditId;
+          trail.textContent = translate(locale, "settings.standing.trail", {});
+          trail.addEventListener("click", () =>
+            handlers.onOpenStandingTrail?.(rule.auditId),
+          );
+          item.append(trail);
+        }
+        list.append(item);
+      }
+      row.append(list);
+    }
+    if (standing.outcome && standing.outcome.state === "rejected" && standing.outcome.reason) {
+      // Core's own refusal, verbatim.
+      const alert = document.createElement("p");
+      alert.className = "gset-row-detail";
+      alert.setAttribute("role", "alert");
+      alert.dataset.settingsStandingOutcome = "rejected";
+      alert.textContent = standing.outcome.reason;
+      row.append(alert);
+    }
+    permissionCard.append(row);
+  }
 
   card("settings.language", [
     {
