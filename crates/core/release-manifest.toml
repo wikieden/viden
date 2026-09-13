@@ -105,13 +105,23 @@ payload_sha256 = "f17c3e7fad2baf3d5670cf320ec172f50a9048baa3aedbe09c8cd38456ff4e
 view_sha256 = "2fa91b16aff8c0d896ae2b6cd7843acea86be1cf04ddf2c69394b86d5fa2ad13"
 final_cursor = 10
 
+# The 0.3.5 contract increment's session-control batch (C14):
+# `runtime.agent_session_control`. Extension capability 30; C13's
+# `runtime.plan_documents` and C15's two capabilities take the count to 33 as
+# they land on their own branches.
+[fixtures.agent_session_control]
+path = "../types/tests/fixtures/frontend-contract-v1/agent-session-control.json"
+payload_sha256 = "0ff531b6ec98fd25a0efdea96367b902910871e5345416119f1b239029b43636"
+view_sha256 = "7f4dbbc80ac27fe29409d52acc49b6923c836b337cb622f154fee60ba916e18a"
+final_cursor = 19
+
 [verification]
 date = "2026-09-12"
 core_gates = "passed"
 workspace_gate = "passed"
 workspace_baseline = "39ed155dcc1847b915965f49626e6779b8b538d7"
 base_fixture_bytes = "nine frozen frontend-contract-v1 fixtures byte-identical to `git show 25072a0a:<path>` and to their apps/tui/release-manifest.toml digests"
-capability_count = "15 frozen base + 29 extensions"
+capability_count = "15 frozen base + 30 extensions"
 integration_branch = "claude/int-0.3.4"
 on_main = false
 tag_authorized = false

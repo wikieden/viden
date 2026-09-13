@@ -328,6 +328,11 @@ fn is_known_runtime_event_type(event_type: &str) -> bool {
             | "agent_adapters_loaded"
             | "agent_session_completed"
             | "agent_session_failed"
+            // A killed session's terminal fact
+            // (`runtime.agent_session_control`). Quarantining it would leave
+            // the session projected as alive on every serialized path, which
+            // is the one thing an operator who just killed it must not see.
+            | "agent_session_killed"
             | "agent_session_input_accepted"
             | "agent_session_started"
             | "agent_session_updated"
