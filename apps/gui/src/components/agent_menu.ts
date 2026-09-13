@@ -255,7 +255,13 @@ export function renderAgentMenu(
     ),
   );
   for (const adapter of orderedAgentAdapters(model.adapters)) {
-    const probe = adapterProbeState(adapter);
+    // A probe sentence only ever replaces a *probe's* answer. An adapter Core
+    // already classified — not installed, needs authentication — keeps Core's
+    // own diagnostic, which is the more useful of the two and the one with a
+    // remedy behind it.
+    const probe = adapter.startability === "probe_required" || adapter.startability === "ready"
+      ? adapterProbeState(adapter)
+      : "idle";
     const status =
       probe === "checking"
         ? translate(model.locale, "d1.agentMenu.probing", {})
@@ -332,6 +338,9 @@ export function renderAgentMenu(
   (anchor.closest(".d1-frame")?.parentElement ?? document.body).append(menu);
 
   function sync(): void {
+    const retryOffered =
+      model.discoveryDiagnostic !== null ||
+      model.adapters.some((adapter) => adapterProbeState(adapter) === "timed_out");
     const selectedKey = selected ? selectionKey(selected) : null;
     for (const candidate of menu.querySelectorAll<HTMLButtonElement>("[data-selection-key]")) {
       const isSelected = candidate.dataset.selectionKey === selectedKey;
@@ -373,8 +382,11 @@ export function renderAgentMenu(
     if (model.discoveryDiagnostic) diagnostic.dataset.agentDiscoveryError = "true";
     else delete diagnostic.dataset.agentDiscoveryError;
     diagnostic.setAttribute("role", model.discoveryDiagnostic ? "alert" : "status");
-    diagnosticRow.hidden = diagnostic.textContent.length === 0;
-    retryDiscovery.hidden = model.discoveryDiagnostic === null;
+    diagnosticRow.hidden = diagnostic.textContent.length === 0 && retryOffered === false;
+    // The retry is offered for both ways a walk can end without an answer: a
+    // discovery Core refused, and a probe this client stopped waiting for.
+    // Without it a timed-out adapter would have no way back at all.
+    retryDiscovery.hidden = !retryOffered;
   }
 
   const enabledItems = (): HTMLButtonElement[] =>

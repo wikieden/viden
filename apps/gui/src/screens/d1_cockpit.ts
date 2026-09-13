@@ -1069,6 +1069,9 @@ export function renderD1Cockpit(
   let pendingAgentTaskDraft = options.newLaneDraft?.task ?? "";
   let creatingLane = false;
   const commandSlotWaiters: Array<() => void> = [];
+  /// How long a creation waits for Core's one command slot before it sends
+  /// anyway and lets Core's own refusal be the answer on screen.
+  const COMMAND_SLOT_WAIT_MS = 5_000;
   let pendingLaneStart:
     | { laneId: string; task: string; agentId: string | null }
     | null = null;
@@ -1693,9 +1696,30 @@ export function renderD1Cockpit(
     commandSlotWaiters.splice(0).forEach((resolve) => resolve());
   };
 
+  /**
+   * Waits for Core's one command slot, under a bound.
+   *
+   * The waiters are released by whichever drain frees the slot, and a quiet
+   * Core produces no drain — so an operator who pressed `Create lane ↵` while
+   * the slot looked busy used to wait forever with no sentence on screen. The
+   * bound hands control back instead: the command is then sent, and a slot
+   * Core really is still holding answers with its own refusal, which the
+   * cockpit renders. A client that waits without a bound cannot report.
+   */
   const waitForCommandSlot = async (): Promise<boolean> => {
     if (!commandSlotAvailable()) {
-      await new Promise<void>((resolve) => commandSlotWaiters.push(resolve));
+      await new Promise<void>((resolve) => {
+        const release = (): void => {
+          window.clearTimeout(timer);
+          resolve();
+        };
+        const timer = window.setTimeout(() => {
+          const index = commandSlotWaiters.indexOf(release);
+          if (index >= 0) commandSlotWaiters.splice(index, 1);
+          resolve();
+        }, COMMAND_SLOT_WAIT_MS);
+        commandSlotWaiters.push(release);
+      });
     }
     return !disposed;
   };
@@ -3038,21 +3062,30 @@ export function renderD1Cockpit(
     // one command at a time, so an outstanding probe is abandoned here rather
     // than waited out. Everything below still goes through Core's
     // one-command-at-a-time D1 adapter boundary.
-    if (discoveryInFlight?.kind === "probe") {
-      agentProbeTimedOut.add(discoveryInFlight.agentId);
-      discoveryInFlight = null;
+    if (discoveryIsProbing()) {
+      if (discoveryInFlight?.kind === "probe") {
+        agentProbeTimedOut.add(discoveryInFlight.agentId);
+        discoveryInFlight = null;
+      }
+      // The host refuses to abandon anything but a probe, so this is safe to
+      // attempt whenever a walk is open: it frees the slot when a probe holds
+      // it and is a no-op otherwise.
       await abandonAgentProbe("create");
     }
     if (!(await waitForCommandSlot())) return false;
     const previewResult = await sendAndWait({ type: "preview_default_lane", preset: "coder" });
-    const preview = previewResult?.projection.starterLanePreviews.at(-1);
-    if (
-      !preview ||
-      previewResult?.outcome.state === "rejected" ||
-      preview.diagnostics.length > 0
-    ) {
+    if (!previewResult) {
+      // The send itself failed and `sendAndWait` already put the host's own
+      // sentence on screen. Replacing it with "Core did not publish a
+      // creatable Lane preview." would blame Core for a refusal it never
+      // issued — the native H4 re-run hit exactly that and lost the reason.
+      render(false);
+      return false;
+    }
+    const preview = previewResult.projection.starterLanePreviews.at(-1);
+    if (!preview || previewResult.outcome.state === "rejected" || preview.diagnostics.length > 0) {
       errorMessage =
-        previewResult?.outcome.reason ??
+        previewResult.outcome.reason ??
         preview?.diagnostics[0] ??
         projection.workspaceEligibility?.diagnostic ??
         "Core did not publish a creatable Lane preview.";
@@ -3127,19 +3160,32 @@ export function renderD1Cockpit(
   }
 
   /**
-   * Starts this probe's bounded wait.
+   * Starts the bounded wait that covers this discovery walk.
    *
-   * The bound is the client's, not Core's: it says how long this popover will
-   * keep an operator on "checking" before it says the probe did not answer.
+   * The bound belongs to the *walk*, not to one probe, because the walk can
+   * stall with nothing in flight at all: `advanceAgentDiscovery` returns when
+   * the command slot is momentarily busy and is re-queued only by a drain, and
+   * a quiet Core produces no drain to re-queue it. The native H4 re-run found
+   * exactly that — `Checking ACP agents…` standing with no probe outstanding
+   * and no wake coming. A bound the client owns is what guarantees the
+   * sentence ends; it says how long this popover waits, never what Core did.
    */
-  function armAgentProbeDeadline(agentId: string): void {
+  function armAgentDiscoveryDeadline(): void {
     clearAgentProbeDeadline();
     agentProbeDeadline = window.setTimeout(() => {
       agentProbeDeadline = null;
-      if (disposed) return;
-      if (discoveryInFlight?.kind !== "probe" || discoveryInFlight.agentId !== agentId) return;
-      agentProbeTimedOut.add(agentId);
+      if (disposed || !discoveryIsProbing()) return;
+      // Every adapter that still needs a probe is reported as unanswered.
+      // Saying "did not answer" about an adapter this walk never reached is
+      // the honest reading: the operator asked, and no answer arrived.
+      for (const adapter of projection.agentAdapters) {
+        if (adapter.startability === "probe_required") agentProbeTimedOut.add(adapter.agentId);
+      }
+      if (discoveryInFlight?.kind === "probe") agentProbeTimedOut.add(discoveryInFlight.agentId);
+      // Nothing else is relabelled: an adapter Core reported as not installed
+      // or needing authentication keeps that answer, which the menu prefers.
       discoveryInFlight = null;
+      agentDiscoveryComplete = true;
       void abandonAgentProbe("timeout");
     }, AGENT_PROBE_TIMEOUT_MS);
   }
@@ -3752,10 +3798,10 @@ export function renderD1Cockpit(
     }
     discoveryDispatching = true;
     discoveryInFlight = command;
-    if (command.kind === "probe") {
-      attemptedAgentProbes.add(command.agentId);
-      armAgentProbeDeadline(command.agentId);
-    }
+    if (command.kind === "probe") attemptedAgentProbes.add(command.agentId);
+    // Every dispatch re-arms the walk's bound, so a walk that is making
+    // progress is never cut short and a walk that stops is always cut.
+    armAgentDiscoveryDeadline();
     sending = true;
     try {
       const result = await send(
@@ -3827,6 +3873,7 @@ export function renderD1Cockpit(
     clearAgentProbeDeadline();
     attemptedAgentProbes.clear();
     agentProbeTimedOut.clear();
+    armAgentDiscoveryDeadline();
     render(false);
     advanceAgentDiscovery();
   }

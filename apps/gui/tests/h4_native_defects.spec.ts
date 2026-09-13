@@ -47,13 +47,14 @@ function idle(next: D1CockpitProjection): D1IntentResult {
 function mount(
   options: D1RenderOptions = {},
   initial: D1CockpitProjection = projection(),
+  send: (intent: { type: string }) => Promise<D1IntentResult> = async () => idle(initial),
 ): { root: HTMLElement; controller: D1Controller } {
   document.body.innerHTML = '<main id="app"></main>';
   const root = document.querySelector<HTMLElement>("#app")!;
   const controller = renderD1Cockpit(
     root,
     initial,
-    vi.fn(async () => idle(initial)),
+    send as never,
     vi.fn(async () => idle(initial)),
     undefined,
     undefined,
@@ -193,6 +194,59 @@ describe("defect 14 — the built-in agent needs no ACP probe", () => {
     expect(controller.root.querySelector(".agent-menu-diagnostic")?.textContent).toContain(
       "did not answer",
     );
+  });
+});
+
+describe("defect 14 — the popover's own bound always ends the sentence", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  test("leaves `Checking ACP agents…` within the bound even with nothing in flight", async () => {
+    // Only the clock: faking `queueMicrotask` too would stop the discovery
+    // walk this test is about from ever advancing.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const probing = projection({
+        selectedLaneId: null,
+        lanes: [],
+        agentAdapters: [
+          {
+            agentId: "codex-acp",
+            displayName: "Codex",
+            startability: "probe_required",
+            diagnostics: [],
+            models: [],
+          },
+        ],
+      });
+      // The adapter query answers; the probe never does — a host with no ACP
+      // binary, which is what the native run ran on.
+      const send = vi.fn(async (intent: { type: string }): Promise<D1IntentResult> => {
+        if (intent.type === "query_agent_adapters") return idle(probing);
+        return new Promise<D1IntentResult>(() => undefined);
+      });
+      const abandon = vi.fn(async () => idle(probing));
+      // A quiet Core: no wake ever re-queues the discovery walk, which is how
+      // the native run's popover stalled with nothing outstanding.
+      const { root, controller } = mount({ agentProbe: { abandon } }, probing, send);
+      root.querySelector<HTMLButtonElement>("[data-create-lane]")!.click();
+      await vi.advanceTimersByTimeAsync(200);
+      expect(document.querySelector("[data-new-lane-popover]")).not.toBeNull();
+
+      await vi.advanceTimersByTimeAsync(AGENT_PROBE_TIMEOUT_MS + 200);
+
+      const diagnostic = document.querySelector(".agent-menu-diagnostic")?.textContent ?? "";
+      expect(diagnostic).not.toContain("Checking");
+      expect(
+        document.querySelector('[data-agent-id="codex-acp"]')?.getAttribute("data-agent-probe"),
+      ).toBe("timed_out");
+      // The slot is handed back through the host's own refusal-safe port.
+      expect(abandon).toHaveBeenCalled();
+      controller.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

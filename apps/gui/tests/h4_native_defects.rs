@@ -310,7 +310,7 @@ fn an_unanswered_probe_can_be_abandoned_so_the_next_command_is_accepted() {
 }
 
 #[test]
-fn abandoning_refuses_to_drop_anything_but_a_probe() {
+fn abandoning_refuses_to_drop_anything_that_carries_an_effect() {
     let sent = Arc::new(Mutex::new(Vec::new()));
     let client = TestCoreClient::new(view_with_lane_owner(), Arc::clone(&sent));
     let mut adapter = GuiCoreAdapter::new(Box::new(client));

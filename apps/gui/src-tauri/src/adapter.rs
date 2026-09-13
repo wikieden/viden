@@ -4185,7 +4185,7 @@ impl GuiCoreAdapter {
         })
     }
 
-    /// Stops waiting for an unanswered `ProbeAgentAdapter` and frees the slot.
+    /// Stops waiting for an unanswered adapter *read* and frees the slot.
     ///
     /// Defects 14 and 15 (E3a). Core answers one command at a time and gives
     /// an ACP handshake up to 90 s for a registry package it may have to fetch
@@ -4193,24 +4193,25 @@ impl GuiCoreAdapter {
     /// only D1 slot for minutes — which closed *both* Lane-creation paths in
     /// the shipped build, the built-in runtime included.
     ///
-    /// Abandoning is safe for exactly one command kind. `ProbeAgentAdapter` is
-    /// a read: it mutates nothing, so dropping the wait claims nothing about
-    /// Core and loses nothing — a later `AgentAdapterProbed` still reaches the
-    /// adapter list through the snapshot. Any other pending command is refused
-    /// here, because its answer is the only record of whether its effect ran.
+    /// Abandoning is safe for exactly the two adapter-discovery reads —
+    /// `QueryAgentAdapters` and `ProbeAgentAdapter`. Both mutate nothing, so
+    /// dropping the wait claims nothing about Core and loses nothing: a later
+    /// `AgentAdaptersLoaded` or `AgentAdapterProbed` still reaches the adapter
+    /// list through the snapshot. Any other pending command is refused here,
+    /// because its answer is the only record of whether its effect ran.
     pub fn abandon_pending_probe(
         &mut self,
         event_timeout: Duration,
     ) -> Result<D1IntentResult, String> {
         match self.pending_d1.as_ref().map(|pending| &pending.kind) {
-            Some(PendingD1Kind::ProbeAgentAdapter { .. }) => {}
+            Some(PendingD1Kind::ProbeAgentAdapter { .. } | PendingD1Kind::QueryAgentAdapters) => {}
             Some(_) => {
                 return Err(
-                    "only an adapter probe may be abandoned; every other command carries an effect"
+                    "only an adapter discovery read may be abandoned; every other command carries an effect"
                         .to_string(),
                 );
             }
-            None => return Err("no adapter probe is pending".to_string()),
+            None => return Err("no adapter discovery read is pending".to_string()),
         }
         self.pending_d1 = None;
         self.d1_outcome = D1OutcomeProjection::idle();
