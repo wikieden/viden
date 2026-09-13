@@ -628,6 +628,7 @@ checkpoint 失效。
     132 字节的 ContextStore blob 以 `--- before` / `+++ after` 开头。字节、哈希、
     验证结论与 `PATH` 行全都正确；只有派生出的单文件标注是错的。闭环方式是在
     `evidence_reads.rs` 中把条目的路径盖到文档上，就像审批路径已经做的那样。
+    **已由 C12 07d5afe5 关闭**（兼容性后续项 14）。
 11. **Lane 生命周期审批的决策不写持久审计行**（Core，对审计完整性而言是阻塞级）。
     这正是 E1 缺陷 4 的原形，在两条审批路径中的另一条上越过了 C7。
     `RespondToApproval` 先检查 `lane_supervisor.pending_approval_owner`
@@ -640,6 +641,7 @@ checkpoint 失效。
     `AUDIT audit_1789224503187620000`，本次会话共批准了五次审批，而持久时间线持有
     四条 `approval.allow_once` 行 —— 缺的那条就是 `lane_create`。跟着那张收据去查的
     操作者什么也找不到。
+    **已由 C12 da3dd5d0 关闭**（兼容性后续项 15）。
 12. **`NoUpstream` 的恢复路径在 TUI 中没有控件**（TUI）。Core 的拒绝语说
     「push again with set upstream」，契约也陈述了同一条恢复路径
     （`crates/types/src/source_control.rs:225`：「`NoUpstream` -> offer
@@ -660,6 +662,7 @@ checkpoint 失效。
     所以 Core 是诚实的 —— 它还没有接受一个队列条目；客户端对 Core 发布的内容也是
     诚实的；但两个客户端基于 C6 建起来的 `queued_inputs` 界面，在原生路径的会话作用
     域上是不可达的。这被报告为产品缺口，而不是契约破裂。
+    **已由 C12 8972b0da 关闭**（兼容性后续项 16）。
 
 两条关于驱动器而非客户端的 harness 说明。三条 `USER` 行读作 `i/lanes`、`i/evidence`
 和 `iconfirm the push outcome`，因为驱动器在 composer 已处于 Insert 模式时又发了一个

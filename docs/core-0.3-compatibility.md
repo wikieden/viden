@@ -1298,6 +1298,27 @@ provider. Each was reproduced, not inferred; none was fixed in E1.
    needs the ingestion to own that artifact write or a durable-append handle
    threaded through the agent sink; it is a follow-up for the ACP artifact
    seam's owner, not for a client.
+   **Closed 2026-09-13 by C12.** The seam chosen is the first one named: the
+   ingestion owns the artifact write.
+   `viden_agents::append_agent_turn_runtime_events`
+   (`crates/agents/src/glue.rs:1253`) keeps the artifact layout where it
+   belongs and takes the completed rows as data, so the dependency direction is
+   unchanged — the events travel adapter-to-runtime through `RuntimeEventSink`
+   and runtime-to-adapter through this function, and `viden-agents` still owns
+   no ContextStore. `supervised_agent_session_sink`
+   (`crates/runtime/src/runtime_supervisor.rs:3192`) reads the turn's artifact
+   id from the `TurnStarted` bracket that comes through the same sink, so a
+   follow-up turn's own artifact is completed rather than the session's first
+   one, and appends only the rows
+   `canonicalize_agent_patch_evidence` actually changed. The log stays
+   append-only and nothing on disk is rewritten: the reader upserts an evidence
+   row by id, so the completed fact recorded after the adapter's incomplete one
+   is the one a rebuilt archive keeps. An artifact that does not exist is left
+   alone rather than created. A persistence failure is published as an `Error`
+   rather than swallowed, because the live facts are already correct. Test:
+   `crates/runtime/src/tests/runtime_supervisor_tests.rs:7875` drives a real
+   ACP patch through the supervisor and reads the artifact back. No capability,
+   count, or fixture change.
 11. **The CLI bootstrap never binds the workspace owner** (Core or CLI, found
    during T2, 2026-09-12). **Closed 2026-09-12 by C10.** Minting and binding
    moved out of the host and into the one bootstrap every frontend entrypoint
@@ -1367,6 +1388,21 @@ provider. Each was reproduced, not inferred; none was fixed in E1.
    replay test, which hashes the file, still passes. The committed bytes stay
    canonical for 0.3.4; refreshing them and the corpus digest is a 0.3.5
    bookkeeping item, decided rather than done inside a fix batch.
+   **Closed 2026-09-13 by C12**, in its own bookkeeping commit. The fixture was
+   regenerated from
+   `crates/core/tests/frontend_contract_v1.rs:2406`
+   (`refresh_interaction_closed_loop_extension_fixture`). Only
+   `required_capabilities` moved, so the canonical fixture bytes went
+   `a6f1c436a15f7c77a5410c3563d8c3f67c5a5a3864692de61db61623f93ed891` →
+   `c2ea4647a7c639e761695185129d0d96ef676fb587da7fbc54e0fdfaa8cb578c` while the
+   recorded final-view digest stayed
+   `c43d9fe304c28a50349e441c643837a9899cccab79566f9c193838248df2da1d`. The new
+   bytes are named in `crates/core/release-manifest.toml:27`,
+   `crates/core/frontend-contract-extensions.toml:10`,
+   `crates/core/tests/frontend_contract_v1.rs:290` and `:376`, the corpus table
+   above, and the "Canonical Digest" section. The nine frozen base fixtures and
+   every other extension fixture are byte-identical to
+   `git show edcc7b3d:<path>`.
 
 Open follow-ups added 2026-09-12 by the E2 release-evidence run, which drove one
 real task end to end through the TUI against a temporary Git repository with the
@@ -1392,6 +1428,22 @@ in `docs/release-evidence/gui-trusted-delivery/checkpoints.md` (defects 10 to
    verdict are all correct; only the derived per-file label is wrong. Closing it
    means stamping the entry's path and `WorkspaceChangeKind` onto the document
    in `evidence_reads.rs`. `0.3.5`.
+   **Closed 2026-09-13 by C12.** `stamp_rendered_placeholder_file`
+   (`crates/runtime/src/evidence_reads.rs:183`) writes the archived row's own
+   `path` over the placeholder and derives the change kind from the whole-file
+   hunk (`:201`): additions with no context and no deletions are an addition,
+   the mirror is a deletion, and everything else — every in-place edit — is a
+   modification, because the archive records no `WorkspaceChangeKind` of its
+   own. Only the placeholder shape is stamped, and only when the row names a
+   path: an adapter-reported or merge patch carries a real unified diff with
+   its own headers, and overwriting those with the row's single `path` would
+   mislabel every file after the first
+   (`crates/runtime/src/tests/evidence_reads_tests.rs:614` holds that in
+   place). The placeholder spelling is now the named
+   `viden_tools::RENDERED_DIFF_OLD_PATH` / `RENDERED_DIFF_NEW_PATH`
+   (`crates/tools/src/files.rs:130`) so producer and reader cannot drift. Test:
+   `crates/runtime/src/tests/evidence_reads_tests.rs:579`. No event, capability,
+   or fixture change; the canonical bytes and their hash are untouched.
 15. **A lane-lifecycle approval decision writes no durable audit row** (Core,
    blocking for audit completeness, found during E2, 2026-09-12). This is
    follow-up 8 / E1 defect 4 surviving C7 on the other of the two approval
@@ -1409,6 +1461,28 @@ in `docs/release-evidence/gui-trusted-delivery/checkpoints.md` (defects 10 to
    rows; the missing one is `lane_create`. Closing it means auditing on the lane
    branch too, under the same pre-minted id and before the fact that announces
    it. `0.3.5`.
+   **Closed 2026-09-13 by C12.** The row is written on the runtime branch, at
+   `crates/runtime/src/runtime_supervisor.rs:1227`, before the response is
+   forwarded — the lane worker emits `ApprovalResolved` carrying this `audit_id`
+   as soon as it picks the message up, so recording afterwards would publish a
+   receipt before the row existed. `ApprovalAuditLog::record_decision_for`
+   (`:494`) is `record_decision` plus the lane the decision released, so a
+   lane-path row names the request, the tool, the command it unblocks, and its
+   lane; a runtime-owned row is unchanged, which is what keeps every recorded
+   fixture's audit rows where they were. Audit stays runtime-owned policy:
+   `crates/lanes` gains a read-only `LanePendingApproval` record and the
+   `LaneApprovalIntake` rule the worker already applied
+   (`crates/lanes/src/lane_worker.rs:320`, read through
+   `LaneSupervisor::pending_approval`, `crates/lanes/src/lane_supervisor.rs:659`)
+   and still writes nothing. Recording the *intake* verdict rather than the raw
+   answer is deliberate: an expired, stale-epoch, or out-of-scope "allow" is
+   enforced as a denial and is recorded as one, from the same rule the worker
+   applies. Stated limitation: the worker's injected permission-gate re-check
+   runs on its own thread after the row is written, so a refusal from that
+   re-check is published as `ApprovalResolved { Deny }` and is not re-recorded —
+   a second row under one pre-minted id would break the receipt join. Tests:
+   `crates/runtime/src/tests/lane_supervisor_tests.rs:4736` (allow) and `:4819`
+   (deny). No capability, count, or fixture change.
 16. **A session follow-up queued during a turn is never observably pending**
    (Core/TUI seam, product gap, found during E2, 2026-09-12). Nothing on screen
    is false, which is why this is a gap and not a break. The supervisor is one
@@ -1425,6 +1499,23 @@ in `docs/release-evidence/gui-trusted-delivery/checkpoints.md` (defects 10 to
    both clients built on C6 is therefore unreachable for the session scope on
    the native path. Closing it means Core acknowledging the queue entry when it
    accepts the command rather than when the worker reaches it. `0.3.5`.
+   **Closed 2026-09-13 by C12.** The session queue is now a shared
+   `SessionInputQueue` (`crates/runtime/src/runtime_contract.rs:87`) rather than
+   a `Vec` the worker owns, so the *intake* side of the channel can push into
+   the same queue the drain consumes from. `RuntimeCommand::QueueFollowUp` at
+   session scope is answered on the accept path
+   (`crates/runtime/src/runtime_supervisor.rs:1027`): the entry is pushed and
+   `CommandAccepted` and `InputQueued` are published immediately, while a turn
+   is still running. `InputDequeued` stays with the drain that starts the turn,
+   so the two no longer share an instant. The worker is told only that it may
+   need to drain, through `SupervisorMessage::SessionFollowUpQueued`
+   (`:1973`), which keeps the armed-drain rule exactly where it was; the
+   supervisor is still one worker. Lane scope is untouched — a Lane's
+   follow-ups are held and drained by its own worker — and the direct contract
+   path still owns the whole acknowledgement itself, so the frozen
+   `queued-follow-up` fixture is byte-identical. Test:
+   `crates/runtime/src/tests/turn_lifecycle_tests.rs:657`. No capability, count,
+   or event-shape change.
 
 A fourth E2 finding is client-side and is recorded where it belongs rather than
 here: the `/git` picker hard-codes `set_upstream: false`
