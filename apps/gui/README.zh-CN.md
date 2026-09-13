@@ -1103,6 +1103,15 @@ immutable rc.3 snapshot 记录相同证据路径并保持逐字节一致。macOS
 `release.yml` 命令，见
 [docs/release-0.3.5-packaging.zh-CN.md](../../docs/release-0.3.5-packaging.zh-CN.md)。
 
+CI 通过 [.github/workflows/release.yml](../../.github/workflows/release.yml) 中的
+`gui-bundle` 矩阵打包 GUI：macOS arm64 与 x86_64（`app`、`dmg`）、Windows（`msi`、
+`nsis`）、Linux（`deb`、`appimage`），每个 target 都产出一个
+`SHA256SUMS-gui-<target>` 文件。产物携带的版本从被分发 ref 的
+`src-tauri/tauri.conf.json` 读取，而不是来自工作流的 `tag` 输入。只有仓库提供
+Apple 密钥时才会执行 macOS 签名与公证；没有密钥时产物是 ad-hoc 的，作业摘要会
+照实写明。作业列表、产物名、签名门禁，以及只有分发才能证明的事项，见打包文档的
+“GUI 工作流（P2）”一节。该工作流尚未被分发。
+
 画廊模块本身已在 `claude/hygiene-h1` 上删除：从来没有任何地方 import 它，没有任何
 qa state 或脚本渲染它，它的样式表也从未进入过 bundle，因此它既没有产出 capture，也
 不可能发生回归。于是 `release-manifest.toml` 以及 `0.1.0-rc.2`/`0.1.0-rc.3` 快照中的

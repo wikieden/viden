@@ -72,9 +72,9 @@ English version: [release-0.3.5-packaging.md](release-0.3.5-packaging.md)
 | macOS | x86_64 | GUI `.app` / `.dmg` | 未构建 —— 未安装 `x86_64-apple-darwin` std 且 `rustup` 缺失 | — | — | — |
 | macOS | x86_64 | CLI/TUI `.tar.gz` | 未构建 —— 同一工具链缺口 | — | — | — |
 | Windows | x86_64（`x86_64-pc-windows-msvc`） | CLI/TUI `.tar.gz` | 未构建 —— 无 Windows 宿主；CI 路径存在且已准备好，但其分发未获授权 | — | — | — |
-| Windows | x86_64 | GUI `.msi` / NSIS `.exe` | 未构建 —— **任何平台上都没有工作流作业产出 GUI 产物** | — | — | — |
+| Windows | x86_64 | GUI `.msi` / NSIS `.exe` | 未构建 —— 无 Windows 宿主机；批次 P2 已在下文新增 `gui-bundle` 作业，但其分发未获授权 | — | — | — |
 | Linux | x86_64（`x86_64-unknown-linux-gnu`） | CLI/TUI `.tar.gz` | 未构建 —— 无 Linux 宿主；CI 路径已准备，分发未获授权 | — | — | — |
-| Linux | x86_64 | GUI `.deb` / `.rpm` / `.AppImage` | 未构建 —— 没有工作流作业产出 GUI 产物 | — | — | — |
+| Linux | x86_64 | GUI `.deb` / `.AppImage` | 未构建 —— 无 Linux 宿主机；批次 P2 已在下文新增 `gui-bundle` 作业，但其分发未获授权。`.rpm` 不在该作业的产物列表内 | — | — | — |
 
 完整校验和见下一节。缩写列只是为了表格可读，不是第二份事实来源。
 
@@ -82,8 +82,9 @@ English version: [release-0.3.5-packaging.md](release-0.3.5-packaging.md)
 
 `docs/parallel-development-plan.md` 要求 macOS、Linux、Windows 均可构建并启动，
 并把 GitHub Release 与 Homebrew tap 视为同一个发布单元。按该规则，本矩阵在 CLI
-上是三分之一平台，在 GUI 上也是三分之一，且 GUI 根本没有跨平台路径。R1 不能
-依据本证据报告该门禁已达成。
+上是三分之一平台，在 GUI 上也是三分之一。R1 不能依据本证据报告该门禁已达成。
+批次 P2 为 GUI 补上了跨平台 CI 路径 —— 见 [GUI 工作流（P2）](#gui-工作流p2)
+—— 但路径不等于构建：在获得授权的分发真正产出产物之前，对应平台上没有任何产物。
 
 ## 产物与校验和
 
@@ -207,13 +208,190 @@ upload-release if: ${{ github.event.inputs.upload_to_release == 'true' }}
 1. **没有任何作业构建 GUI 产物。** 工作流中没有 `npm ci`、没有 `tauri build`，
    也没有任何 `.app`/`.dmg`/`.msi`/`.deb`。今天无论何种授权级别，分发它都无法
    产出 Windows 与 Linux 的 GUI 产物。补上三平台门禁的 GUI 一半需要新增工作流
-   作业，而不是一次分发。
+   作业，而不是一次分发。**已由批次 P2 于 2026-09-13 关闭**；下一节记录了关闭
+   它的那个作业。
 2. **`tag` 输入是构建标签，不是检出 ref。** 工作流检出的是被分发的 ref，并通过
    去掉 `tag` 的前导 `v` 推导版本。在 `main` 上分发并传入 `tag=v0.1.30`，构建的
    是 `main`，只是标注为 `0.1.30`。
 3. **0.3.5 候选不在 GitHub 上。** `f2298f4f` 不在任何远程分支上；`origin/main`
    是 `75e2a84a`。因此今天分发会构建 `main` 而不是集成分支 —— 所以这次分发只有
    在候选被推送之后才有意义，而推送本身也是需要授权的步骤。
+
+## GUI 工作流（P2）
+
+批次 P2 关闭了上文的发现 1。`release.yml` 在保持 CLI `build` 矩阵不变的前提下
+新增了 `gui-bundle` 矩阵，`scripts/release-smoke.sh --github-release-assets`
+也认识了 GUI 产物名。没有任何分发、打标签、签名、公证、上传、合并或推送。
+
+| 字段 | 值 |
+| --- | --- |
+| 分支 | `claude/release-workflow-p2` |
+| 工作树 | `.worktrees/release-workflow-p2` |
+| 基线 | `claude/int-0.3.5` 的 `e3f75e0d` |
+| 改动文件 | [`.github/workflows/release.yml`](../.github/workflows/release.yml)、[`scripts/release-smoke.sh`](../scripts/release-smoke.sh) |
+
+### 作业
+
+| 作业 | 运行于 | needs | 条件 |
+| --- | --- | --- | --- |
+| `build` | 矩阵 `os` | — | 始终运行；未改动，仍然只构建 `viden-cli` |
+| `gui-bundle` | 矩阵 `os` | — | 始终运行；`fail-fast: false`，一个平台失败不会取消其余平台 |
+| `upload-release` | `ubuntu-latest` | `[build, gui-bundle]` | `github.event.inputs.upload_to_release == 'true'` |
+
+`upload-release` 原先只依赖 `build`，现在同时等待两个矩阵：一次发布要么同时拿到
+CLI 归档与 GUI 产物，要么什么都拿不到。
+
+### `gui-bundle` 步骤
+
+| # | 步骤 | 条件 | 作用 |
+| --- | --- | --- | --- |
+| 0 | `actions/checkout@v6` | — | 检出被分发的 ref |
+| 1 | `dtolnay/rust-toolchain@stable` | — | 带 `targets: <矩阵 target>` |
+| 2 | `actions/setup-node@v6` | — | Node 24，npm 缓存键为 `apps/gui/package-lock.json` |
+| 3 | 安装 Linux 打包依赖 | `runner.os == 'Linux'` | `libwebkit2gtk-4.1-dev`、`build-essential`、`curl`、`wget`、`file`、`libxdo-dev`、`libssl-dev`、`libayatana-appindicator3-dev`、`librsvg2-dev`、`patchelf` |
+| 4 | 读取 GUI 版本 | — | 对 `apps/gui/src-tauri/tauri.conf.json` 执行 `node -p`，写入 `gui` 步骤输出 |
+| 5 | 安装前端依赖 | — | `npm --prefix apps/gui ci` |
+| 6 | 探测 macOS 签名密钥 | `runner.os == 'macOS'` | 只输出 `sign` 与 `notarize` 两个布尔值 |
+| 7 | 构建 GUI 产物 | — | `npm --prefix apps/gui run tauri -- build --target <target> --bundles <bundles>` |
+| 8 | 收集产物 | — | macOS 上对 `.app` 执行 `ditto` 压缩，其余平台直接复制，统一放入 `dist/gui/<target>/` |
+| 9 | 计算校验和 | — | 写出 `SHA256SUMS-gui-<target>` |
+| 10 | 写作业摘要 | `always()` | 版本、产物列表、签名状态、校验和块 |
+| 11 | `actions/upload-artifact@v7` | — | `if-no-files-found: error` |
+
+产物携带的版本来自被分发 ref 的 `tauri.conf.json`，绝不来自 `tag` 输入。两条
+版本线各自独立 —— CLI 归档标注为 `v0.1.30`，而 GUI 是 `0.1.0-rc.5` —— 而且 P1
+的发现 2 已经说明 `tag` 是构建标签而不是检出 ref。
+
+### 各 target 的产物
+
+产物名中的版本取自步骤 4 读到的 GUI 版本，此处写作 `<version>`。
+
+| Target | Runner | `--bundles` | Artifact | 其中的文件 |
+| --- | --- | --- | --- | --- |
+| `aarch64-apple-darwin` | `macos-latest` | `app,dmg` | `viden-gui-<version>-aarch64-apple-darwin` | `Viden-<version>-aarch64-apple-darwin.app.zip`、`Viden_<version>_aarch64.dmg`、`SHA256SUMS-gui-aarch64-apple-darwin` |
+| `x86_64-apple-darwin` | `macos-latest` | `app,dmg` | `viden-gui-<version>-x86_64-apple-darwin` | `Viden-<version>-x86_64-apple-darwin.app.zip`、`Viden_<version>_x64.dmg`、`SHA256SUMS-gui-x86_64-apple-darwin` |
+| `x86_64-pc-windows-msvc` | `windows-latest` | `msi,nsis` | `viden-gui-<version>-x86_64-pc-windows-msvc` | `Viden_<version>_x64_en-US.msi`、`Viden_<version>_x64-setup.exe`、`SHA256SUMS-gui-x86_64-pc-windows-msvc` |
+| `x86_64-unknown-linux-gnu` | `ubuntu-latest` | `deb,appimage` | `viden-gui-<version>-x86_64-unknown-linux-gnu` | `Viden_<version>_amd64.deb`、`Viden_<version>_amd64.AppImage`、`SHA256SUMS-gui-x86_64-unknown-linux-gnu` |
+
+只有第一行的名字是实测得到的，来自下文的本地预演。其余三行是 Tauri v2 文档中的
+命名约定，在真正分发之前仍未经验证。作业本身并不依赖这些名字：它对每个打包器的
+输出目录做通配，而不是拼接文件名，因此 Tauri 改名只会让上表过时，不会让构建失败。
+
+`.app` 是目录，不能作为发布资产，因此以 `ditto -c -k --sequesterRsrc --keepParent`
+的压缩包形式发布。Linux 产物列表刻意不含 `.rpm`；是否加入是 R1 的决定，不是 P2 的。
+
+### 签名门禁
+
+默认关闭。步骤 6 读取六个 Apple 密钥并给出两个布尔值：
+
+- 只有 `APPLE_CERTIFICATE`、`APPLE_CERTIFICATE_PASSWORD`、
+  `APPLE_SIGNING_IDENTITY` 全部存在时，`sign` 才为真；
+- 只有 `sign` 为真且 `APPLE_ID`、`APPLE_PASSWORD`、`APPLE_TEAM_ID` 也存在时，
+  `notarize` 才为真。
+
+步骤 7 仅在对应布尔值为真时通过表达式拿到各项凭据，否则替换为空字符串。任何密钥
+都不会被打印、写入文件或导出到 `$GITHUB_ENV`，因此作业中后续步骤也读不到。密钥
+缺失时构建只会产出 ad-hoc 产物，作业摘要会照实写明这一点，并指出 Gatekeeper 会
+隔离它 —— 这正是 P1 为本地构建手工记录的状态。
+
+真正的签名还需要在 `apps/gui/src-tauri/tauri.conf.json` 中配置
+`bundle.macOS.signingIdentity` 与 entitlements。该文件属于 GUI 轨道，P2 未触碰，
+因此签名通路已接好但尚未配置；P1 的缺口 4 仍然开着。
+
+### 带入工作流的可复现性结论
+
+P1 的发现 3：`.app` 压缩包与 `.dmg` 都不是逐字节可复现的，因为 `ditto` 会保存每个
+条目的修改时间，而 UDZO 镜像内嵌卷创建日期与 UUID。`.app` 中的 Mach-O 是可复现的。
+
+因此 macOS 上的 `SHA256SUMS-gui-<target>` 有三行 —— 压缩包、`.dmg`，以及一行名为
+`Viden.app/Contents/MacOS/viden-gui` 的记录。前两者是每次构建的标识符，第三者才是
+可跨构建比较的构建身份。用于计算它的临时副本会在上传前删除，因此该二进制本身不会
+成为发布资产。
+
+预演暴露出一处限定：二进制摘要只在工具链**与构建路径**都固定时才稳定。P1 在
+`.worktrees/release-packaging-p1` 中的两次构建都得到 `01373033…d6d44eca`；P2 在
+另一个工作树中、并且带 `--target` 的预演得到
+`74f1b268ee51b2aa7c80f9f18e2229c560e2fd072b1a5de47e7cef74b3f5eb12`。不加
+`--remap-path-prefix` 时，跨不同根目录的检出比较摘要没有意义；比较同一作业的两次
+运行才有意义。
+
+### Windows MSI 的预发布版本限制
+
+Tauri 的 MSI 目标只接受单段纯数字的 semver 预发布标识。GUI 版本是 `0.1.0-rc.5`，
+其预发布段是 `rc.5`，而 `apps/gui/src-tauri/tauri.conf.json` 未声明任何
+`bundle.windows.wix` 版本覆盖。因此在当前版本下分发时，Windows 行的 `msi` 一半
+预计会失败；`nsis` 没有这条规则。
+
+两条出路都在 P2 的写入范围之外：让 GUI 以不带预发布段的 `0.1.0` 发布 —— 计划已把
+它列为生产门禁通过时的结果 —— 或者在 `tauri.conf.json` 中给 WiX 打包器一个
+`major.minor.patch` 版本覆盖，而该文件属于 GUI 轨道。这是依据打包器文档规则做出的
+预测，不是观测结果 —— 没有任何 Windows 构建运行过。
+
+### 已执行的验证
+
+没有分发，因此下列每一条要么是本地观测，要么是一次解析。
+
+- **YAML 解析。** 本宿主机上仍无 `actionlint`，因此与 P1 一样解析工作流并打印其
+  结构。`YAML PARSE: ok`，三个作业，两个矩阵各四条，逐步骤列出 `if` 与 `env`。
+- **干审阅表。** 上文两张表就是该审阅，由解析结果生成而非手工誊抄。
+- **`tauri build` 预演。** `npm --prefix apps/gui ci && npm --prefix apps/gui run
+  tauri -- build --target aarch64-apple-darwin` 在本宿主机的 P2 工作树中运行并以
+  0 退出：`added 97 packages`、`vite v7.3.6 … built in 454ms`、
+  ``Finished `release` profile … in 1m 23s``，随后 `Finished 2 bundles at:` 指向
+  `target/aarch64-apple-darwin/release/bundle/` 下的 `.app` 与
+  `Viden_0.1.0-rc.5_aarch64.dmg`。由此得到两个事实：传入 `--target` 时打包器写在
+  target 三元组目录下，这正是收集步骤所通配的位置；macOS 的默认产物集合恰好就是
+  `app,dmg`，因此作业中的 `--bundles app,dmg` 选中的正是预演产出的那一组。
+- **收集与校验和预演。** 步骤 8 与步骤 9 原样对上述产物运行，产出
+  `Viden-0.1.0-rc.5-aarch64-apple-darwin.app.zip`（14,348,908 字节）、
+  `Viden_0.1.0-rc.5_aarch64.dmg`（15,008,320 字节），以及：
+
+```
+691403d07f9cde26b65293e09b18fc1d796c28ac41e1294696db6877dec7b0af  Viden-0.1.0-rc.5-aarch64-apple-darwin.app.zip
+c096fe08e7e241f7b4774c9ee753ef2f8e856501a7e850313acf8a1512ec9452  Viden_0.1.0-rc.5_aarch64.dmg
+74f1b268ee51b2aa7c80f9f18e2229c560e2fd072b1a5de47e7cef74b3f5eb12  Viden.app/Contents/MacOS/viden-gui
+```
+
+- **`--target` 下的 ad-hoc 状态已确认。** 对预演产物执行 `codesign -dv` 报告
+  `flags=0x20002(adhoc,linker-signed)`、`Signature=adhoc`、
+  `TeamIdentifier=not set`、`Sealed Resources=none` —— 正是作业摘要未签名分支所
+  描述的状态。
+- **产物名期望。** 更新后的 `github_release_asset_validation` 对六份合成的
+  release 负载做了验证：完整的 `0.3.5` 资产集合通过；仅含 CLI 的 release 仍然
+  通过，因此该检查不会打断 GUI 作业出现之前所做的发布；有 GUI 产物却没有任何
+  `SHA256SUMS-gui-*`、有 `SHA256SUMS-gui-*` 却没有任何 GUI 产物、出现无法识别的
+  资产名、以及 `.tar.gz` 缺少对应 `.sha256`，四种情况各自以专属消息失败。
+- **Linux 依赖列表。** 取自 Tauri v2 的先决条件与该项目自己发布的 GitHub Actions
+  指引。在这台 macOS 宿主机上无法预演；该行列在下文的未证明项中。
+
+### 未执行的分发
+
+与 P1 准备的命令相同 —— 同一个工作流，GUI 矩阵在同一次分发下运行：
+
+```bash
+gh workflow run release.yml \
+  --repo wikieden/viden \
+  --ref <已推送的候选 ref> \
+  -f tag=v0.1.30 \
+  -f upload_to_release=false
+```
+
+**未执行。** 其前置条件就是 P1 的三条 —— 明确的“go”、已认证的 `gh`、已推送的候选
+ref —— P2 没有新增任何一条。P2 未获授权分发、打标签、发布、签名、公证或改动 `gh`
+认证，也没有做其中任何一件。
+
+只有分发才能证明的事项：
+
+| 断言 | 不分发能否证明？ |
+| --- | --- |
+| macOS arm64 的 `app` + `dmg` 构建以及收集/校验和步骤可用 | 能 —— 上文已预演 |
+| macOS x86_64 可构建 | 不能 —— 本宿主机缺 `rustup`，无法添加该 target |
+| Windows `nsis` 可构建 | 不能 |
+| Windows `msi` 可构建 | 不能，且上文的预发布规则预测它在 `0.1.0-rc.5` 下会失败 |
+| Linux `deb` + `appimage` 可构建，且 apt 列表足够 | 不能 |
+| `actions/setup-node@v6` 与 npm 缓存键在 runner 上可解析 | 不能 |
+| 各产物汇入 `upload-release` 时不会重名 | 不能 —— 名字在构造上唯一，但只有真正运行才能证明 |
+| 密钥缺失时签名门禁干净跳过 | 不能 —— 表达式经审阅是正确的，而且仓库也没有 Apple 密钥可用来测试为真的分支 |
 
 ## 已准备但未分发的分发命令
 
@@ -282,7 +460,9 @@ Homebrew 开关均关闭。16 项通过，6 项按开关跳过：
 1. macOS x86_64 需要本宿主机上的 `rustup` 工具链，或者使用 CI 矩阵条目 ——
    该条目已存在，只需在已推送的 ref 上获得授权分发。
 2. Windows 与 Linux 的 CLI 归档需要授权分发。
-3. Windows 与 Linux 的 GUI 产物需要新增工作流作业；任何分发都无法产出它们。
+3. Windows 与 Linux 的 GUI 产物现在已有工作流作业（上文批次 P2）；它们需要在
+   已推送的 ref 上获得授权分发，其中 Windows 的 `.msi` 一半还需要一个不带
+   `rc.N` 预发布段的版本，或者一个 WiX 版本覆盖。
 4. 签名需要 Developer ID 身份，以及在
    `apps/gui/src-tauri/tauri.conf.json` 中配置 `signingIdentity` 与
    entitlements；公证需要凭据与 `notarytool` 步骤。

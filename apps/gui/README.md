@@ -1456,6 +1456,17 @@ The `0.3.5` bundle matrix, checksums, signing state, reproducibility result,
 and the prepared-but-undispatched `release.yml` command are in
 [docs/release-0.3.5-packaging.md](../../docs/release-0.3.5-packaging.md).
 
+CI bundles the GUI through the `gui-bundle` matrix in
+[.github/workflows/release.yml](../../.github/workflows/release.yml): macOS
+arm64 and x86_64 (`app`, `dmg`), Windows (`msi`, `nsis`), and Linux (`deb`,
+`appimage`), each producing a `SHA256SUMS-gui-<target>` file. The version the
+bundle carries is read from `src-tauri/tauri.conf.json` on the dispatched ref,
+not from the workflow's `tag` input. macOS signing and notarization run only
+when the repository supplies the Apple secrets; without them the bundle is
+ad-hoc and the job summary says so. The job list, artifact names, the signing
+gate, and what only a dispatch can prove are in the packaging document's "GUI
+Workflow (P2)" section. The workflow has not been dispatched.
+
 The gallery module itself was deleted on `claude/hygiene-h1`: nothing ever
 imported it, no qa state or script rendered it, and its stylesheet never
 reached a bundle, so it produced no capture and could not regress. The

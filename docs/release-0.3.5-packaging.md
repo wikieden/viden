@@ -75,9 +75,9 @@ built. It is a host property, not a repository defect.
 | macOS | x86_64 | GUI `.app` / `.dmg` | not built — `x86_64-apple-darwin` std is not installed and `rustup` is absent | — | — | — |
 | macOS | x86_64 | CLI/TUI `.tar.gz` | not built — same toolchain gap | — | — | — |
 | Windows | x86_64 (`x86_64-pc-windows-msvc`) | CLI/TUI `.tar.gz` | not built — no Windows host; the CI path exists and is prepared but its dispatch is not authorized | — | — | — |
-| Windows | x86_64 | GUI `.msi` / NSIS `.exe` | not built — **no workflow job produces a GUI bundle on any platform** | — | — | — |
+| Windows | x86_64 | GUI `.msi` / NSIS `.exe` | not built — no Windows host; batch P2 added the `gui-bundle` job below, but its dispatch is not authorized | — | — | — |
 | Linux | x86_64 (`x86_64-unknown-linux-gnu`) | CLI/TUI `.tar.gz` | not built — no Linux host; CI path prepared, dispatch not authorized | — | — | — |
-| Linux | x86_64 | GUI `.deb` / `.rpm` / `.AppImage` | not built — no workflow job produces a GUI bundle | — | — | — |
+| Linux | x86_64 | GUI `.deb` / `.AppImage` | not built — no Linux host; batch P2 added the `gui-bundle` job below, but its dispatch is not authorized. `.rpm` is out of the job's bundle list | — | — | — |
 
 Full checksums are in the next section. The abbreviated column exists so the
 table stays readable; it is not a second source of truth.
@@ -87,8 +87,10 @@ table stays readable; it is not a second source of truth.
 `docs/parallel-development-plan.md` requires macOS, Linux, and Windows build
 and launch, and treats the GitHub Release and the Homebrew tap as one release
 unit. Against that rule this matrix is one platform of three for the CLI and
-one of three for the GUI, and the GUI has no cross-platform path at all. R1
-cannot report the gate as met from this evidence.
+one of three for the GUI. R1 cannot report the gate as met from this evidence.
+Batch P2 gave the GUI a cross-platform CI path — see
+[GUI Workflow (P2)](#gui-workflow-p2) — but a path is not a build: no bundle
+exists for a platform until an authorized dispatch produces one.
 
 ## Artifacts And Checksums
 
@@ -224,7 +226,8 @@ Three findings follow, and each is an R1 input:
    `tauri build`, and no `.app`/`.dmg`/`.msi`/`.deb` anywhere in the workflow.
    Windows and Linux GUI bundles cannot be produced by dispatching it, today,
    at any authorization level. Closing the GUI half of the three-platform gate
-   requires a new workflow job, not a dispatch.
+   requires a new workflow job, not a dispatch. **Closed by batch P2** on
+   2026-09-13; the section below records the job that closes it.
 2. **The tag input is a build label, not a checkout ref.** The workflow checks
    out the ref it is dispatched on and derives the version by stripping the
    leading `v` from `tag`. Passing `tag=v0.1.30` while dispatching on `main`
@@ -233,6 +236,210 @@ Three findings follow, and each is an R1 input:
    branch; `origin/main` is `75e2a84a`. A dispatch today would therefore build
    `main`, not the integration branch — so the dispatch is worth running only
    after the candidate is pushed, which is itself an authorized step.
+
+## GUI Workflow (P2)
+
+Batch P2 closes finding 1 above. `release.yml` gained a `gui-bundle` matrix
+beside the CLI `build` matrix, which is unchanged, and
+`scripts/release-smoke.sh --github-release-assets` learned the GUI asset
+names. Nothing was dispatched, tagged, signed, notarized, uploaded, merged, or
+pushed.
+
+| Field | Value |
+| --- | --- |
+| Branch | `claude/release-workflow-p2` |
+| Worktree | `.worktrees/release-workflow-p2` |
+| Base | `claude/int-0.3.5` at `e3f75e0d` |
+| Files changed | [`.github/workflows/release.yml`](../.github/workflows/release.yml), [`scripts/release-smoke.sh`](../scripts/release-smoke.sh) |
+
+### Jobs
+
+| Job | Runs on | Needs | Condition |
+| --- | --- | --- | --- |
+| `build` | matrix `os` | — | always; unchanged, still `viden-cli` only |
+| `gui-bundle` | matrix `os` | — | always; `fail-fast: false`, so one platform's failure does not cancel the rest |
+| `upload-release` | `ubuntu-latest` | `[build, gui-bundle]` | `github.event.inputs.upload_to_release == 'true'` |
+
+`upload-release` previously needed `build` alone. It now waits for both
+matrices, so a release either receives the CLI archives and the GUI bundles
+together or receives nothing.
+
+### `gui-bundle` steps
+
+| # | Step | Condition | What it does |
+| --- | --- | --- | --- |
+| 0 | `actions/checkout@v6` | — | the dispatched ref |
+| 1 | `dtolnay/rust-toolchain@stable` | — | with `targets: <matrix target>` |
+| 2 | `actions/setup-node@v6` | — | Node 24, npm cache keyed on `apps/gui/package-lock.json` |
+| 3 | Install Linux bundle dependencies | `runner.os == 'Linux'` | `libwebkit2gtk-4.1-dev`, `build-essential`, `curl`, `wget`, `file`, `libxdo-dev`, `libssl-dev`, `libayatana-appindicator3-dev`, `librsvg2-dev`, `patchelf` |
+| 4 | Read the GUI version | — | `node -p` over `apps/gui/src-tauri/tauri.conf.json`, into the `gui` step output |
+| 5 | Install frontend dependencies | — | `npm --prefix apps/gui ci` |
+| 6 | Detect the macOS signing secrets | `runner.os == 'macOS'` | emits the booleans `sign` and `notarize` only |
+| 7 | Build the GUI bundle | — | `npm --prefix apps/gui run tauri -- build --target <target> --bundles <bundles>` |
+| 8 | Collect the bundles | — | `ditto` zip of the `.app` on macOS, otherwise a copy, into `dist/gui/<target>/` |
+| 9 | Checksum the bundles | — | writes `SHA256SUMS-gui-<target>` |
+| 10 | Write the job summary | `always()` | version, bundle list, signing state, the checksum block |
+| 11 | `actions/upload-artifact@v7` | — | `if-no-files-found: error` |
+
+The version the bundle carries comes from the dispatched ref's
+`tauri.conf.json`, never from the `tag` input. The two version lines move
+independently — the CLI archives are labelled `v0.1.30` while the GUI is
+`0.1.0-rc.5` — and P1 finding 2 already showed that `tag` is a build label,
+not a checkout ref.
+
+### Artifacts per target
+
+Artifact names use the GUI version read at step 4, written `<version>` here.
+
+| Target | Runner | `--bundles` | Artifact | Files inside it |
+| --- | --- | --- | --- | --- |
+| `aarch64-apple-darwin` | `macos-latest` | `app,dmg` | `viden-gui-<version>-aarch64-apple-darwin` | `Viden-<version>-aarch64-apple-darwin.app.zip`, `Viden_<version>_aarch64.dmg`, `SHA256SUMS-gui-aarch64-apple-darwin` |
+| `x86_64-apple-darwin` | `macos-latest` | `app,dmg` | `viden-gui-<version>-x86_64-apple-darwin` | `Viden-<version>-x86_64-apple-darwin.app.zip`, `Viden_<version>_x64.dmg`, `SHA256SUMS-gui-x86_64-apple-darwin` |
+| `x86_64-pc-windows-msvc` | `windows-latest` | `msi,nsis` | `viden-gui-<version>-x86_64-pc-windows-msvc` | `Viden_<version>_x64_en-US.msi`, `Viden_<version>_x64-setup.exe`, `SHA256SUMS-gui-x86_64-pc-windows-msvc` |
+| `x86_64-unknown-linux-gnu` | `ubuntu-latest` | `deb,appimage` | `viden-gui-<version>-x86_64-unknown-linux-gnu` | `Viden_<version>_amd64.deb`, `Viden_<version>_amd64.AppImage`, `SHA256SUMS-gui-x86_64-unknown-linux-gnu` |
+
+Only the first row's names are observed; they come from the local rehearsal
+below. The other three are Tauri v2's documented naming and stay unverified
+until a dispatch runs. The job does not depend on them: it globs each
+bundler's output directory rather than reconstructing a filename, so a Tauri
+naming change breaks the documentation above and not the build.
+
+The `.app` is a directory and cannot be a release asset, so it ships as the
+`ditto -c -k --sequesterRsrc --keepParent` zip. `.rpm` is deliberately not in
+the Linux bundle list; adding it is an R1 decision, not a P2 one.
+
+### The signing gate
+
+Absent by default. Step 6 reads the six Apple secrets and publishes two
+booleans:
+
+- `sign` is true only when `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`,
+  and `APPLE_SIGNING_IDENTITY` are all present;
+- `notarize` is true only when `sign` is true and `APPLE_ID`,
+  `APPLE_PASSWORD`, and `APPLE_TEAM_ID` are also present.
+
+Step 7 receives each credential only under the matching boolean, through an
+expression that substitutes an empty string otherwise. No secret is printed,
+written to a file, or exported to `$GITHUB_ENV`, so no later step in the job
+can read one. With the secrets absent the build simply produces an ad-hoc
+bundle and the job summary says so in those words, including that Gatekeeper
+will quarantine it — the same state P1 recorded by hand for the local build.
+
+Real signing additionally needs `bundle.macOS.signingIdentity` and
+entitlements in `apps/gui/src-tauri/tauri.conf.json`. That file belongs to the
+GUI track and P2 did not touch it, so the signing path is wired but not yet
+configured; P1 gap 4 stays open.
+
+### Reproducibility carried into the workflow
+
+P1 finding 3: the `.app` zip and the `.dmg` are not byte-reproducible, because
+`ditto` stores per-entry modification times and a UDZO image embeds the volume
+creation date and UUID. The `.app`'s Mach-O is reproducible.
+
+`SHA256SUMS-gui-<target>` therefore carries three lines on macOS — the zip, the
+`.dmg`, and a line naming `Viden.app/Contents/MacOS/viden-gui`. The first two
+are per-build identifiers; the third is the build identity to compare across
+builds. The temporary copy used to compute it is deleted before the upload, so
+the binary never becomes a release asset of its own.
+
+One qualification the rehearsal exposed: the binary digest is stable for a
+fixed toolchain **and a fixed build path**. P1's two builds matched at
+`01373033…d6d44eca` in `.worktrees/release-packaging-p1`; the P2 rehearsal in a
+different worktree, and under `--target`, produced
+`74f1b268ee51b2aa7c80f9f18e2229c560e2fd072b1a5de47e7cef74b3f5eb12`. Comparing
+digests across differently rooted checkouts is not meaningful without
+`--remap-path-prefix`; comparing two runs of the same job is.
+
+### The Windows MSI pre-release constraint
+
+Tauri's MSI target accepts a semver pre-release identifier only when it is a
+single numeric segment. The GUI version is `0.1.0-rc.5`, whose pre-release is
+`rc.5`, and `apps/gui/src-tauri/tauri.conf.json` declares no
+`bundle.windows.wix` version override. The `msi` half of the Windows row is
+therefore expected to fail on a dispatch at the current version; `nsis` has no
+such rule.
+
+Two ways out, both outside P2's write scope: release the GUI as `0.1.0` with no
+pre-release, which the plan already lists as the outcome if the production gate
+passes, or give the WiX bundler a `major.minor.patch` version override in
+`tauri.conf.json`, which is the GUI track's file. This is a prediction from the
+bundler's documented rule, not an observation — no Windows build has run.
+
+### Validation performed
+
+No dispatch, so every claim below is either a local observation or a parse.
+
+- **YAML parse.** `actionlint` is still absent on this host, so the workflow
+  was parsed and its structure printed, as P1 did. `YAML PARSE: ok`, three
+  jobs, both matrices with four entries each, every step's `if` and `env`
+  enumerated.
+- **Dry review table.** The two tables above are that review, generated from
+  the parse rather than transcribed.
+- **`tauri build` rehearsal.** `npm --prefix apps/gui ci && npm --prefix
+  apps/gui run tauri -- build --target aarch64-apple-darwin` ran on this host
+  and exited 0 in the P2 worktree: `added 97 packages`, `vite v7.3.6 … built in
+  454ms`, ``Finished `release` profile … in 1m 23s``, then
+  `Finished 2 bundles at:` the `.app` and `Viden_0.1.0-rc.5_aarch64.dmg` under
+  `target/aarch64-apple-darwin/release/bundle/`. Two facts follow: the bundler
+  writes under the target triple when `--target` is passed, which is what the
+  collect step globs, and macOS's default bundle set is exactly `app,dmg`, so
+  the job's `--bundles app,dmg` selects the set the rehearsal produced.
+- **Collect and checksum rehearsal.** Steps 8 and 9 were run verbatim against
+  those bundles. They produced
+  `Viden-0.1.0-rc.5-aarch64-apple-darwin.app.zip` (14,348,908 bytes),
+  `Viden_0.1.0-rc.5_aarch64.dmg` (15,008,320 bytes), and:
+
+```
+691403d07f9cde26b65293e09b18fc1d796c28ac41e1294696db6877dec7b0af  Viden-0.1.0-rc.5-aarch64-apple-darwin.app.zip
+c096fe08e7e241f7b4774c9ee753ef2f8e856501a7e850313acf8a1512ec9452  Viden_0.1.0-rc.5_aarch64.dmg
+74f1b268ee51b2aa7c80f9f18e2229c560e2fd072b1a5de47e7cef74b3f5eb12  Viden.app/Contents/MacOS/viden-gui
+```
+
+- **Ad-hoc state confirmed under `--target`.** `codesign -dv` on the rehearsed
+  bundle reports `flags=0x20002(adhoc,linker-signed)`, `Signature=adhoc`,
+  `TeamIdentifier=not set`, `Sealed Resources=none` — the state the unsigned
+  path of the job summary describes.
+- **Asset expectations.** The updated
+  `github_release_asset_validation` check was exercised against six synthetic
+  release payloads: the full `0.3.5` asset set passes; a CLI-only release still
+  passes, so the check does not break a release made before the GUI jobs
+  existed; a GUI bundle without any `SHA256SUMS-gui-*`, a `SHA256SUMS-gui-*`
+  without any GUI bundle, an unrecognised asset name, and a `.tar.gz` missing
+  its `.sha256` each fail with their own message.
+- **Linux dependency list.** Taken from the Tauri v2 prerequisites and the
+  project's own published GitHub Actions guidance. It cannot be rehearsed on
+  this macOS host; the row is listed as unproven below.
+
+### The dispatch that was not run
+
+Unchanged from P1's prepared command — one workflow, and the GUI matrix runs
+under the same dispatch:
+
+```bash
+gh workflow run release.yml \
+  --repo wikieden/viden \
+  --ref <the pushed candidate ref> \
+  -f tag=v0.1.30 \
+  -f upload_to_release=false
+```
+
+**Not run.** Its preconditions are P1's three — an explicit "go", an
+authenticated `gh`, and a pushed candidate ref — and P2 adds none. P2 was not
+authorized to dispatch, tag, release, sign, notarize, or touch `gh` auth, and
+did none of them.
+
+What a dispatch, and only a dispatch, can prove:
+
+| Claim | Provable without a dispatch? |
+| --- | --- |
+| macOS arm64 `app` + `dmg` build and the collect/checksum steps work | yes — rehearsed above |
+| macOS x86_64 builds | no — `rustup` is absent on this host, so the target cannot be added |
+| Windows `nsis` builds | no |
+| Windows `msi` builds | no, and the pre-release rule above predicts it fails at `0.1.0-rc.5` |
+| Linux `deb` + `appimage` build, and the apt list is sufficient | no |
+| `actions/setup-node@v6` and the npm cache key resolve on the runners | no |
+| The artifacts flatten without collision into `upload-release` | no — the names are unique by construction, but only a run shows it |
+| The signing gate skips cleanly with no secrets present | no — the expressions are correct by inspection, and the repository holds no Apple secrets to test the true branch either way |
 
 ## Prepared Dispatch Command — Not Dispatched
 
@@ -306,8 +513,10 @@ run.
    matrix entry, which is already present and only needs an authorized
    dispatch on a pushed ref.
 2. Windows and Linux CLI archives need the authorized dispatch.
-3. Windows and Linux GUI bundles need a new workflow job; no dispatch can
-   produce them.
+3. Windows and Linux GUI bundles now have a workflow job (batch P2, above);
+   they need an authorized dispatch on a pushed ref, and the Windows `.msi`
+   half additionally needs a version without an `rc.N` pre-release or a WiX
+   version override.
 4. Signing needs a Developer ID identity plus `signingIdentity` and
    entitlements in `apps/gui/src-tauri/tauri.conf.json`; notarization needs
    credentials and a `notarytool` step.
