@@ -98,10 +98,15 @@ pub use operator_git::{
     OperatorGitResultProjection,
 };
 pub use permission::{
-    PermissionActionProjection, PermissionChoice, PermissionDockProjection, PermissionIntent,
-    PermissionIntentResult, PermissionOutcomeProjection, PermissionRequestProjection,
-    PermissionTargetProjection,
+    PermissionActionProjection, PermissionChoice, PermissionDockProjection,
+    PermissionInputFieldProjection, PermissionIntent, PermissionIntentResult,
+    PermissionOutcomeProjection, PermissionRequestProjection, PermissionTargetProjection,
+    StandingApprovalIntentResult, StandingApprovalProjection, StandingApprovalsProjection,
 };
+
+/// The Core capability that carries the standing `Always` scope and the `Edit`
+/// decision (`runtime.approval_scopes`, C15, GUI-CORE-019).
+pub const APPROVAL_SCOPES_CAPABILITY: &str = "runtime.approval_scopes";
 
 pub use plan::{
     D15_ALREADY_DECIDED_CODE, D15_ALREADY_HANDED_OFF_CODE, D15_AMBIGUOUS_OWNER_CODE,
@@ -970,6 +975,36 @@ fn permission_send_intent(
         .send_permission_intent_and_wait(&command_id, intent, Duration::from_millis(250))
 }
 
+/// The standing `Always` rules in force (`runtime.approval_scopes`, C15).
+#[tauri::command]
+fn standing_approvals(
+    state: tauri::State<'_, DesktopState>,
+) -> Result<StandingApprovalsProjection, String> {
+    Ok(state
+        .adapter
+        .lock()
+        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?
+        .as_ref()
+        .ok_or_else(|| "Core adapter is not connected".to_string())?
+        .standing_approvals())
+}
+
+/// Sends one `RevokeStandingApproval` and waits for its ordered receipt.
+#[tauri::command]
+fn revoke_standing_approval(
+    command_id: String,
+    rule_id: String,
+    state: tauri::State<'_, DesktopState>,
+) -> Result<StandingApprovalIntentResult, String> {
+    state
+        .adapter
+        .lock()
+        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?
+        .as_mut()
+        .ok_or_else(|| "Core adapter is not connected".to_string())?
+        .revoke_standing_approval_and_wait(&command_id, &rule_id, Duration::from_millis(250))
+}
+
 #[tauri::command]
 fn permission_poll(
     state: tauri::State<'_, DesktopState>,
@@ -1386,6 +1421,8 @@ pub fn run_with_adapter(adapter: Option<GuiCoreAdapter>) {
             select_model,
             permission_send_intent,
             permission_poll,
+            standing_approvals,
+            revoke_standing_approval,
             d2_decisions,
             d2_send_intent,
             d10_lane_monitor,

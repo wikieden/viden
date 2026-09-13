@@ -1,5 +1,9 @@
 import type { PaletteWorkspaceFiles } from "../components/command_palette";
 import type { PermissionIntent, PermissionIntentResult } from "../components/permission_dock";
+import type {
+  StandingApprovalIntentResult,
+  StandingApprovalsProjection,
+} from "../models/workspace";
 import type { WorkspaceDiffProjection } from "../models/diff_review";
 import type {
   EvidenceArchiveProjection,
@@ -409,6 +413,25 @@ export interface CoreClient {
   d16SendIntent(commandId: string, intent: D16Intent): Promise<D16IntentResult>;
   /** Drains ordered Core events while a session control is still pending. */
   d16Poll(selectedSessionId: string | null): Promise<D16IntentResult>;
+
+  /**
+   * The standing `Always` rules in force (`runtime.approval_scopes`, C15).
+   *
+   * Empty with the capability present means no rule is installed; empty
+   * without it means nobody could answer, and the panel prints the two
+   * differently.
+   */
+  standingApprovals(): Promise<StandingApprovalsProjection>;
+  /**
+   * Sends one `RevokeStandingApproval` and resolves with Core's own answer.
+   *
+   * The revocation is what makes an Always grant safe to make, so it ships
+   * beside it rather than later.
+   */
+  revokeStandingApproval(
+    commandId: string,
+    ruleId: string,
+  ): Promise<StandingApprovalIntentResult>;
   /** D14's diagnostic mode: one raw replay page through the Core cursor. */
   d14AuditTimeline(after: string | null, limit: number): Promise<D14AuditTimelineProjection>;
 

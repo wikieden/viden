@@ -277,6 +277,10 @@ const PERMISSION_REQUEST: NonNullable<
   defaultAction: "deny",
   auditId: "audit-shell",
   blockedByPlan: false,
+  editable: false,
+  revisedFrom: null,
+  inputFields: [],
+  editBlock: null,
   actions: [
     { kind: "once", available: true, sessionId: null, paths: [], code: null },
     {

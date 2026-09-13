@@ -67,6 +67,7 @@ use crate::evidence_view::{
     EvidenceRowProjection,
 };
 use crate::operator_git::OperatorGitResultProjection;
+use crate::permission::{StandingApprovalProjection, StandingApprovalsProjection};
 use crate::plan::{
     D15DecisionProjection, D15PlanAuthorProjection, D15PlanHandoffProjection, D15PlanProjection,
     D15PlanRoleCountProjection, D15PlanSectionProjection, D15PlanStepProjection,
@@ -307,16 +308,21 @@ impl RuntimeProjection {
             .map(|approval| {
                 let blocked_by_plan =
                     approval.is_mutating && view.snapshot.work_mode == WorkMode::Plan;
+                // What this client can do with an `Edit`: Core says whether the
+                // request is editable, and the preview parse says whether the
+                // fields can be presented exactly. Both are required, and a
+                // failed parse withdraws the control rather than offering a
+                // revision built from a guess (GUI-CORE-035).
+                let input_fields = parse_permission_input_fields(&approval.input_preview);
+                let edit_block = match (approval.editable, input_fields.is_some()) {
+                    (true, false) => Some("GUI-CORE-035"),
+                    _ => None,
+                };
+                let input_fields = input_fields.unwrap_or_default();
+                let edit_available = approval.editable && edit_block.is_none() && !blocked_by_plan;
                 let mut actions = approval
                     .allowed_scopes
                     .iter()
-                    // `runtime.approval_scopes` (GUI-CORE-019) added the
-                    // standing scope on the Core side. The dock's Always
-                    // control goes live in GUI batch G9; until then the
-                    // disabled row below stays the one the operator sees, so
-                    // the offered scope is skipped here rather than drawn
-                    // twice.
-                    .filter(|scope| !matches!(scope, ApprovalScope::Always))
                     .map(|scope| match scope {
                         ApprovalScope::Once => PermissionActionProjection {
                             kind: "once".to_string(),
@@ -339,34 +345,55 @@ impl RuntimeProjection {
                             paths: paths.clone(),
                             code: None,
                         },
-                        // Filtered out above; the arm exists because the match
-                        // must be total, and it mirrors the disabled row the
-                        // dock already draws so the two can never disagree.
+                        // Live since C15. Core offers it only when the risk is
+                        // below `High` and the mode is not `Plan`, so the mere
+                        // presence of the scope in `allowed_scopes` is the
+                        // permission to draw it — the client re-derives none of
+                        // those rules.
                         ApprovalScope::Always => PermissionActionProjection {
                             kind: "always".to_string(),
-                            available: false,
+                            available: !blocked_by_plan,
                             session_id: None,
                             paths: Vec::new(),
-                            code: Some("GUI-CORE-003"),
+                            code: None,
                         },
                     })
                     .collect::<Vec<_>>();
-                // The design names Always/Edit, but schema 1 has no corresponding
-                // decision variants. Keep them visible and fail closed.
-                actions.extend([
-                    PermissionActionProjection {
+                // Always is a *scope*, so it appears above only when Core
+                // offered it; a request without it gets the disabled row naming
+                // Core's own refusal reason rather than no row at all, because
+                // the design draws the tier and hiding it would erase it.
+                if !approval
+                    .allowed_scopes
+                    .iter()
+                    .any(|scope| matches!(scope, ApprovalScope::Always))
+                {
+                    actions.push(PermissionActionProjection {
                         kind: "always".to_string(),
                         available: false,
                         session_id: None,
                         paths: Vec::new(),
-                        code: Some("GUI-CORE-003"),
-                    },
+                        code: Some("scope_not_offered"),
+                    });
+                }
+                actions.extend([
                     PermissionActionProjection {
                         kind: "edit".to_string(),
-                        available: false,
+                        available: edit_available,
                         session_id: None,
                         paths: Vec::new(),
-                        code: Some("GUI-CORE-003"),
+                        code: if edit_available {
+                            None
+                        } else if let Some(block) = edit_block {
+                            Some(block)
+                        } else if !approval.editable {
+                            // Core marks editable only the flat text inputs an
+                            // operator can safely revise; a patch body is never
+                            // one, and that is a decision, not a gap.
+                            Some("not_editable")
+                        } else {
+                            None
+                        },
                     },
                     PermissionActionProjection {
                         kind: "deny".to_string(),
@@ -407,6 +434,10 @@ impl RuntimeProjection {
                     decision_context: decision_context_projection(
                         approval.decision_context.as_ref(),
                     ),
+                    editable: approval.editable,
+                    revised_from: approval.revised_from.clone(),
+                    input_fields,
+                    edit_block,
                     actions,
                 }
             });
@@ -414,7 +445,43 @@ impl RuntimeProjection {
             work_mode: view.snapshot.work_mode.cli_name().to_string(),
             permission_level: view.snapshot.permission_level.cli_name().to_string(),
             request,
+            standing: self.standing_approvals(),
         })
+    }
+
+    /// The standing `Always` rules in force (`runtime.approval_scopes`, C15).
+    ///
+    /// Empty with the capability present means no rule is installed; empty
+    /// without it means nobody could answer. The list keeps Core's own ordering
+    /// and never sorts or groups: a rule's position is a durable fact about
+    /// when it was granted.
+    pub fn standing_approvals(&self) -> StandingApprovalsProjection {
+        let capability_available = self.confirmed.as_ref().is_some_and(|confirmed| {
+            confirmed
+                .capabilities
+                .iter()
+                .any(|capability| capability.0 == crate::APPROVAL_SCOPES_CAPABILITY)
+        });
+        let rules = self
+            .view()
+            .map(|view| {
+                view.standing_approvals
+                    .iter()
+                    .map(|rule| StandingApprovalProjection {
+                        rule_id: rule.rule_id.clone(),
+                        tool_name: rule.tool_name.clone(),
+                        rule_content: rule.rule_content.clone(),
+                        granted_at: rule.granted_at,
+                        granted_in_workspace: rule.granted_in_workspace.clone(),
+                        audit_id: rule.audit_id.clone(),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        StandingApprovalsProjection {
+            capability_available,
+            rules,
+        }
     }
 
     /// Projects the D2 decision queue.
@@ -2584,6 +2651,44 @@ fn agent_board_switch_block(
         return Some(crate::D16_NO_MODEL_CODE.to_string());
     }
     None
+}
+
+/// Parses Core's `input_preview` back into the `ToolInput` pairs an `Edit`
+/// decision has to send.
+///
+/// Core publishes the *rendering* of the tool input (`viden-permissions`,
+/// `render_prompt_input`: one `  key: value` line per entry) and no structured
+/// map, so a client that offers Edit has to recover the pairs from it. That is
+/// display-text parsing, and it is done here rather than in the view, once,
+/// strictly, and fail-closed: any line that is not exactly two spaces, a key
+/// with no colon in it, `": "`, and the rest of the line returns `None` and the
+/// Edit control is withdrawn with `GUI-CORE-035`. A value that contains a
+/// newline fails this check by construction, which is the point — a revision
+/// built from a half-parsed preview would send Core an input the operator never
+/// wrote. The register entry asks Core to publish the map itself.
+fn parse_permission_input_fields(
+    preview: &str,
+) -> Option<Vec<crate::PermissionInputFieldProjection>> {
+    // `render_prompt_input`'s own sentinel for a tool called with no input.
+    if preview.trim() == "<no input>" {
+        return Some(Vec::new());
+    }
+    if preview.is_empty() {
+        return Some(Vec::new());
+    }
+    let mut fields = Vec::new();
+    for line in preview.split('\n') {
+        let body = line.strip_prefix("  ")?;
+        let (key, value) = body.split_once(": ")?;
+        if key.is_empty() || key.contains(':') || key.trim() != key {
+            return None;
+        }
+        fields.push(crate::PermissionInputFieldProjection {
+            key: key.to_string(),
+            value: value.to_string(),
+        });
+    }
+    Some(fields)
 }
 
 /// Whether one plan belongs to the owner this view is scoped to.

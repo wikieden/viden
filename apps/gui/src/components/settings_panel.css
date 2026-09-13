@@ -398,3 +398,62 @@
 .gset-restore:hover:not(:disabled) {
   color: var(--fg-primary);
 }
+
+/*
+ * Standing approvals (`runtime.approval_scopes`, C15, G9).
+ *
+ * The list sits in the permission card because that is the decision it came
+ * from, and each row carries its own Revoke: a rule that outlives the process
+ * and cannot be taken back is not a decision the operator made.
+ */
+.gset-row-block {
+  display: grid;
+  gap: var(--sp-2);
+}
+
+.gset-standing {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--sp-2);
+}
+
+.gset-standing li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.gset-standing li .gset-value {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.gset-action {
+  font-family: var(--font-sans);
+  font-size: var(--fs-xs);
+  color: var(--fg-secondary);
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: var(--sp-1) var(--sp-2);
+  min-height: 28px;
+  cursor: pointer;
+}
+
+.gset-action:hover:not(:disabled) {
+  color: var(--fg-primary);
+  border-color: var(--fg-muted);
+}
+
+.gset-action:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.gset-action:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

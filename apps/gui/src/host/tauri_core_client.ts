@@ -99,6 +99,9 @@ export function createTauriCoreClient(): CoreClient {
     d16AgentBoard: (selectedSessionId) => invoke("d16_agent_board", { selectedSessionId }),
     d16SendIntent: (commandId, intent) => invoke("d16_send_intent", { commandId, intent }),
     d16Poll: (selectedSessionId) => invoke("d16_poll", { selectedSessionId }),
+    standingApprovals: () => invoke("standing_approvals"),
+    revokeStandingApproval: (commandId, ruleId) =>
+      invoke("revoke_standing_approval", { commandId, ruleId }),
     d14AuditTimeline: (after, limit) => invoke("d14_audit_timeline", { after, limit }),
     d14AuditQuery: (commandId, scope) => invoke("d14_audit_query", { commandId, scope }),
     d14AuditLoadOlder: (commandId) => invoke("d14_audit_load_older", { commandId }),

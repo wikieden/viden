@@ -86,3 +86,67 @@
   color: var(--fg-muted);
   font: var(--fs-xs)/var(--lh-ui) var(--font-mono);
 }
+
+/*
+ * The inline revision editor (`runtime.approval_scopes`, C15, G9).
+ *
+ * It sits inside the card, under the option row, so the operator revises the
+ * input beside the facts they read it in rather than in a modal that hides the
+ * risk, the target and the policy reason behind it.
+ */
+.gperm .gperm-revision {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--gold);
+}
+
+.gperm .gperm-editor {
+  display: grid;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  border-top: 1px solid var(--border-soft);
+}
+
+.gperm .gperm-editor-head,
+.gperm .gperm-editor-note {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--fg-muted);
+}
+
+.gperm .gperm-editor-note {
+  color: var(--fg-faint);
+}
+
+.gperm .gperm-editor-row {
+  display: grid;
+  grid-template-columns: minmax(0, 8rem) minmax(0, 1fr);
+  gap: var(--sp-2);
+  align-items: center;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+}
+
+.gperm .gperm-editor-row .k {
+  color: var(--fg-muted);
+  overflow-wrap: anywhere;
+}
+
+.gperm .gperm-editor-row input {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--fg-primary);
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: var(--sp-1) var(--sp-2);
+  min-height: 30px;
+  min-width: 0;
+}
+
+.gperm .gperm-editor-row input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}

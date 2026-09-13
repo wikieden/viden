@@ -53,7 +53,7 @@ const EMPTY_PROJECTION = {
 
 const PERMISSION_PROJECTION = {
   ...D1_PROJECTION,
-  permissionDock: {
+  permissionDock: { standing: { capabilityAvailable: true, rules: [] },
     workMode: "build",
     permissionLevel: "ask",
     request: {
@@ -72,6 +72,10 @@ const PERMISSION_PROJECTION = {
       defaultAction: "deny",
       auditId: "audit-shell",
       blockedByPlan: false,
+      editable: false,
+      revisedFrom: null,
+      inputFields: [],
+      editBlock: null,
       actions: [
         {
           kind: "once" as const,

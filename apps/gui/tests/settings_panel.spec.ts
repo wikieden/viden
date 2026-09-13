@@ -2,7 +2,11 @@
 
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
-import { renderSettingsPanel } from "../src/components/settings_panel";
+import {
+  renderSettingsPanel,
+  type SettingsPanelHandlers,
+  type SettingsPanelModel,
+} from "../src/components/settings_panel";
 import { renderD1Cockpit } from "../src/screens/d1_cockpit";
 import {
   createPreferenceState,
@@ -76,6 +80,7 @@ describe("settings panel", () => {
         available: true,
         saving: false,
         outcome: null,
+        standing: null,
         controls: null,
       },
       spies,
@@ -110,6 +115,7 @@ describe("settings panel", () => {
         available: true,
         saving: false,
         outcome: null,
+        standing: null,
         controls: null,
       },
       spies,
@@ -128,7 +134,7 @@ describe("settings panel", () => {
     const state = { resolved: RESOLVED, draft: { skin: "ice" as const }, dirty: true };
     const controller = renderSettingsPanel(
       anchorButton(),
-      { locale: "en", state, available: true, saving: false, outcome: null, controls: null },
+      { locale: "en", state, available: true, saving: false, outcome: null, controls: null, standing: null },
       spies,
     );
 
@@ -156,6 +162,7 @@ describe("settings panel", () => {
         available: true,
         saving: false,
         outcome,
+        standing: null,
         controls: null,
       },
       handlers(),
@@ -180,6 +187,7 @@ describe("settings panel", () => {
         available: true,
         saving: false,
         outcome: { status: "confirmed", resolved: RESOLVED, persisted: false, diagnostics: [] },
+        standing: null,
         controls: null,
       },
       handlers(),
@@ -199,6 +207,7 @@ describe("settings panel", () => {
         available: false,
         saving: false,
         outcome: null,
+        standing: null,
         controls: null,
       },
       handlers(),
@@ -223,6 +232,7 @@ describe("settings panel", () => {
         available: true,
         saving: true,
         outcome: null,
+        standing: null,
         controls: null,
       },
       handlers(),
@@ -246,6 +256,7 @@ describe("settings panel", () => {
         available: true,
         saving: false,
         outcome: null,
+        standing: null,
         controls: null,
       },
       spies,
@@ -272,6 +283,7 @@ describe("settings panel", () => {
         available: true,
         saving: false,
         outcome: null,
+        standing: null,
         controls: null,
       },
       spies,
@@ -292,6 +304,7 @@ describe("settings panel", () => {
         available: true,
         saving: false,
         outcome: null,
+        standing: null,
         controls: null,
       },
       handlers(),
@@ -539,5 +552,127 @@ describe("cockpit settings entry", () => {
       expect(alert?.textContent).toBe("plan mode denies ui_preferences_reset");
     });
     controller.dispose();
+  });
+});
+
+describe("the settings panel lists the standing approvals in force", () => {
+  const RULE = {
+    ruleId: "rule_approval_scopes",
+    toolName: "shell",
+    ruleContent: "command=cargo fmt --all -- --check",
+    grantedAt: 1_700_004_002,
+    grantedInWorkspace: "workspace_contract_v1",
+    auditId: "audit_approval_scopes_always",
+  };
+
+  function mount(
+    standing: SettingsPanelModel["standing"],
+    extra: Partial<SettingsPanelHandlers> = {},
+  ) {
+    const spies = { ...handlers(), ...extra };
+    const controller = renderSettingsPanel(
+      anchorButton(),
+      {
+        locale: "en",
+        state: { resolved: RESOLVED, draft: {}, dirty: false },
+        available: true,
+        saving: false,
+        outcome: null,
+        controls: null,
+        standing,
+      },
+      spies,
+    );
+    return { root: controller.root, spies };
+  }
+
+  test("names the capability when Core publishes no approval scopes", () => {
+    const { root } = mount({
+      capabilityAvailable: false,
+      rules: [],
+      busy: false,
+      outcome: null,
+    });
+    expect(
+      root.querySelector<HTMLElement>("[data-settings-standing-absent='capability']")?.textContent,
+    ).toContain("runtime.approval_scopes");
+  });
+
+  test("distinguishes an empty list from an unanswerable one", () => {
+    const { root } = mount({
+      capabilityAvailable: true,
+      rules: [],
+      busy: false,
+      outcome: null,
+    });
+    expect(
+      root.querySelector<HTMLElement>("[data-settings-standing-absent='empty']")?.textContent,
+    ).toContain("No standing rule");
+  });
+
+  test("prints Core's own rule key and revokes by rule id", () => {
+    const onRevokeStanding = vi.fn();
+    const { root } = mount(
+      { capabilityAvailable: true, rules: [RULE], busy: false, outcome: null },
+      { onRevokeStanding },
+    );
+    const row = root.querySelector<HTMLElement>(
+      "[data-settings-standing-rule='rule_approval_scopes']",
+    );
+    expect(row?.textContent).toContain("command=cargo fmt --all -- --check");
+    expect(row?.textContent).toContain("workspace_contract_v1");
+    root
+      .querySelector<HTMLButtonElement>("[data-settings-standing-revoke='rule_approval_scopes']")!
+      .click();
+    expect(onRevokeStanding).toHaveBeenCalledWith("rule_approval_scopes");
+  });
+
+  test("links the grant to the audit row it wrote", () => {
+    const onOpenStandingTrail = vi.fn();
+    const { root } = mount(
+      { capabilityAvailable: true, rules: [RULE], busy: false, outcome: null },
+      { onOpenStandingTrail },
+    );
+    root
+      .querySelector<HTMLButtonElement>(
+        "[data-settings-standing-trail='audit_approval_scopes_always']",
+      )!
+      .click();
+    expect(onOpenStandingTrail).toHaveBeenCalledWith("audit_approval_scopes_always");
+  });
+
+  test("disables Revoke with no handler and while one is in flight", () => {
+    const { root: unbound } = mount({
+      capabilityAvailable: true,
+      rules: [RULE],
+      busy: false,
+      outcome: null,
+    });
+    expect(
+      unbound.querySelector<HTMLButtonElement>("[data-settings-standing-revoke]")!.disabled,
+    ).toBe(true);
+
+    const { root: busy } = mount(
+      { capabilityAvailable: true, rules: [RULE], busy: true, outcome: null },
+      { onRevokeStanding: vi.fn() },
+    );
+    expect(
+      busy.querySelector<HTMLButtonElement>("[data-settings-standing-revoke]")!.disabled,
+    ).toBe(true);
+  });
+
+  test("renders Core's refusal verbatim", () => {
+    const { root } = mount(
+      {
+        capabilityAvailable: true,
+        rules: [RULE],
+        busy: false,
+        outcome: { state: "rejected", reason: "standing rule `rule_x` is not installed" },
+      },
+      { onRevokeStanding: vi.fn() },
+    );
+    const alert = root.querySelector<HTMLElement>("[data-settings-standing-outcome='rejected']");
+    expect(alert?.textContent).toBe("standing rule `rule_x` is not installed");
+    expect(alert?.getAttribute("role")).toBe("alert");
   });
 });

@@ -174,6 +174,10 @@ export function fakeCoreClient(overrides: Partial<CoreClient> = {}): CoreClient 
     d16AgentBoard: async () => IDLE_AGENT_BOARD,
     d16SendIntent: unreachable("d16_send_intent"),
     d16Poll: unreachable("d16_poll"),
+    // No standing rule and no capability: a shell route spec must not depend
+    // on a Core that publishes approval scopes.
+    standingApprovals: async () => ({ capabilityAvailable: false, rules: [] }),
+    revokeStandingApproval: unreachable("revoke_standing_approval"),
     d15SendIntent: unreachable("d15_send_intent"),
     d15Poll: unreachable("d15_poll"),
     d14AuditTimeline: unreachable("d14_audit_timeline"),

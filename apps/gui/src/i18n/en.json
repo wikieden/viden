@@ -833,5 +833,19 @@
   "d16.switch.start": "Start the replacement",
   "d16.switch.endFirst": "end the session first",
   "d16.switch.foot": "Viden has no single switch-model command — this is what actually happens.",
-  "d16.note": "Pause keeps the session alive and holds what you type; it cancels the prompt in flight and denies the approval that prompt was waiting on. Kill ends it with no grace and discards held input. Both are recorded before the session state changes."
+  "d16.note": "Pause keeps the session alive and holds what you type; it cancels the prompt in flight and denies the approval that prompt was waiting on. Kill ends it with no grace and discards held input. Both are recorded before the session state changes.",
+  "d1.permission.revisedFrom": "This request revises {request}; Core re-evaluated the narrowed input and still wants a decision.",
+  "d1.permission.editHead": "Revise the tool input. Core decides the revision afresh through the same gate.",
+  "d1.permission.editSend": "Send the revision",
+  "d1.permission.editNote": "Every key travels, including the ones you left alone: Core evaluates the whole input, not a patch of it.",
+  "d1.permission.editUnavailable": "Core marked this request editable, but its input preview could not be parsed exactly, so no revision is offered (GUI-CORE-035).",
+  "d1.permission.notEditable": "Core does not accept a revision for this tool: only flat text inputs are editable, never a patch body.",
+  "d1.permission.scopeNotOffered": "Core did not offer a standing rule for this request; high-risk requests and plan mode never get one.",
+  "settings.standing": "Standing approvals",
+  "settings.standing.detail": "Rules an Always decision installed. They hold across sessions and repositories until revoked.",
+  "settings.standing.empty": "No standing rule is installed.",
+  "settings.standing.unavailable": "Core publishes no {capability}, so no standing rule can be listed or revoked.",
+  "settings.standing.revoke": "Revoke",
+  "settings.standing.trail": "Open the audit trail",
+  "settings.standing.granted": "granted {at} in {workspace}"
 }

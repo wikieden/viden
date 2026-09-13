@@ -424,6 +424,15 @@ export interface D1RenderOptions {
     read: (selectedSessionId: string | null) => Promise<D16AgentBoardProjection>;
   };
   /**
+   * Sends one `RevokeStandingApproval` (`runtime.approval_scopes`, C15, G9).
+   *
+   * The revocation ships beside the grant deliberately: a standing rule
+   * outlives the process, so a client that could install one and not remove one
+   * would offer a decision the operator cannot take back. Absent leaves the
+   * control disabled rather than hidden.
+   */
+  revokeStandingApproval?: (ruleId: string) => Promise<{ state: string; reason: string | null }>;
+  /**
    * Mounts one of the six secondary D-screens inside the cockpit's centre
    * pane (`D-RAILNAV`, resolved by the `0.3.4` plan in favour of the D1
    * flagship's own in-page view switching).
@@ -1027,6 +1036,10 @@ export function renderD1Cockpit(
   /** Whether Core published `runtime.agent_session_control`. Null until read. */
   let boardCapability: boolean | null = null;
   let boardReadInFlight = false;
+  /** True while a `RevokeStandingApproval` is unanswered. */
+  let revokeInFlight = false;
+  /** Core's last answer to a revocation, or null before any this session. */
+  let revokeOutcome: { state: string; reason: string | null } | null = null;
   /**
    * Core's last word on the operator action side.
    *
@@ -3327,9 +3340,48 @@ export function renderD1Cockpit(
               enabled: projection.composer.editable && !shouldShowWelcome(),
               busy: controlInFlight || sending || Boolean(pendingCommandId),
             },
+        // The standing rules come straight off the permission dock's own Core
+        // read, so the list and the dock's Always control can never disagree
+        // about what is installed.
+        standing: {
+          capabilityAvailable: projection.permissionDock.standing.capabilityAvailable,
+          rules: projection.permissionDock.standing.rules,
+          busy: revokeInFlight,
+          outcome: revokeOutcome,
+        },
       },
       {
         onControl: (intent: ComposerControlIntent) => sendControl(intent),
+        onRevokeStanding: options.revokeStandingApproval
+          ? (ruleId) => {
+              if (revokeInFlight) return;
+              revokeInFlight = true;
+              revokeOutcome = null;
+              remountSettingsPanel();
+              void options
+                .revokeStandingApproval!(ruleId)
+                .then((outcome) => {
+                  revokeOutcome = outcome;
+                })
+                .catch((error: unknown) => {
+                  // A host failure is a refusal in its own words, never a
+                  // silent success on a rule that is still installed.
+                  revokeOutcome = {
+                    state: "rejected",
+                    reason: error instanceof Error ? error.message : String(error),
+                  };
+                })
+                .finally(() => {
+                  revokeInFlight = false;
+                  remountSettingsPanel();
+                });
+            }
+          : undefined,
+        // `D-AUDIT`'s link runs one way: the trail is opened by the object
+        // the audit row names, which for a standing grant is the rule itself.
+        onOpenStandingTrail: options.onOpenAuditTrail
+          ? (auditId) => options.onOpenAuditTrail?.({ kind: "approval", id: auditId })
+          : undefined,
         onDraft: (update: PreferenceDraft) => {
           preferenceState = updatePreferenceDraft(preferenceState, update);
           // A new edit supersedes the previous result; keeping a stale

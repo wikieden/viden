@@ -153,7 +153,7 @@ function shellProjection(
       // No Core count yet. `0` would read as an empty decision queue.
       pendingDecisionCount: null,
     },
-    permissionDock: { workMode: "—", permissionLevel: "—", request: null },
+    permissionDock: { standing: { capabilityAvailable: true, rules: [] }, workMode: "—", permissionLevel: "—", request: null },
     recovery: {
       connection: connectionState,
       state: shellState,
@@ -437,6 +437,14 @@ export async function hydrateShellFromCore(
             // Same shape for the board: the rail reads it for its slot and its
             // "awaiting you" badge before anyone opens the view.
             board: { read: (sessionId: string | null) => boardPort(sessionId) },
+            // The revocation that makes an Always grant safe to make.
+            revokeStandingApproval: async (ruleId: string) => {
+              const result = await core.revokeStandingApproval(
+                `gui-standing-revoke-${crypto.randomUUID()}`,
+                ruleId,
+              );
+              return result.outcome;
+            },
             onNavigate: (route: string) => {
               // What is left here is the two flows that really do replace the
               // window: D11 project intake and the D4 Lane wizard. Every other

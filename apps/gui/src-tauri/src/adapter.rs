@@ -3511,6 +3511,104 @@ impl GuiCoreAdapter {
     /// Kept for the fact families whose confirmation is a projection refresh
     /// rather than an ordered receipt; a review verdict polls with a zero
     /// budget here and only drains what Core already delivered.
+    /// Whether Core's handshake published `runtime.approval_scopes`.
+    pub fn supports_approval_scopes(&self) -> bool {
+        self.supports(crate::APPROVAL_SCOPES_CAPABILITY)
+    }
+
+    /// The standing `Always` rules in force, with no Core traffic.
+    pub fn standing_approvals(&self) -> crate::StandingApprovalsProjection {
+        self.projection.standing_approvals()
+    }
+
+    /// Sends one `RevokeStandingApproval` and waits for the ordered receipt.
+    ///
+    /// The revocation is the half that makes the grant safe to make, so it is
+    /// confirmed by `StandingApprovalRevoked` naming the same rule rather than
+    /// by the acceptance: a rule is gone when Core says the file and the engine
+    /// both dropped it, not when the command was queued.
+    pub fn revoke_standing_approval_and_wait(
+        &mut self,
+        command_id: &str,
+        rule_id: &str,
+        event_timeout: Duration,
+    ) -> Result<crate::StandingApprovalIntentResult, String> {
+        if !self.supports_approval_scopes() {
+            return Err(format!(
+                "Core publishes no {}, so no standing rule can be revoked",
+                crate::APPROVAL_SCOPES_CAPABILITY
+            ));
+        }
+        // A rule Core no longer publishes is refused here rather than sent as a
+        // command Core would have to reject.
+        if !self
+            .standing_approvals()
+            .rules
+            .iter()
+            .any(|rule| rule.rule_id == rule_id)
+        {
+            return Err(format!(
+                "standing rule `{rule_id}` is not published by Core"
+            ));
+        }
+        self.client
+            .send(RuntimeCommandEnvelope {
+                schema_version: FRONTEND_SCHEMA_V1,
+                client_id: "viden-gui".to_string(),
+                command_id: command_id.to_string(),
+                // A standing rule spans every workspace and Lane, so the
+                // revocation is not addressed to one Lane owner.
+                owner: RuntimeOwner::default(),
+                command: RuntimeCommand::RevokeStandingApproval {
+                    rule_id: rule_id.to_string(),
+                },
+            })
+            .map_err(|error| error.to_string())?;
+        let mut outcome = D1OutcomeProjection::pending();
+        let mut received = false;
+        for _ in 0..8 {
+            let event = match self
+                .receive_event_until(if received {
+                    Duration::ZERO
+                } else {
+                    event_timeout
+                })
+                .map_err(|error| error.to_string())?
+            {
+                Some(event) => event,
+                None => break,
+            };
+            received = true;
+            let RuntimeWireEvent::Known(known) = &event.event else {
+                continue;
+            };
+            match &known.kind {
+                RuntimeEventKind::CommandRejected {
+                    command_id: rejected,
+                    reason,
+                } if rejected == command_id => {
+                    outcome = D1OutcomeProjection::rejected(reason.clone());
+                    break;
+                }
+                RuntimeEventKind::StandingApprovalRevoked { rule_id: gone, .. }
+                    if gone == rule_id =>
+                {
+                    outcome = D1OutcomeProjection::confirmed();
+                    break;
+                }
+                _ => {}
+            }
+        }
+        if received {
+            self.refresh_projection()
+                .map_err(|error| error.to_string())?;
+        }
+        Ok(crate::StandingApprovalIntentResult {
+            projection: self.standing_approvals(),
+            outcome,
+        })
+    }
+
     /// Whether Core's handshake published `runtime.agent_session_control`.
     pub fn supports_agent_session_control(&self) -> bool {
         self.supports(crate::AGENT_SESSION_CONTROL_CAPABILITY)
@@ -4027,6 +4125,10 @@ impl GuiCoreAdapter {
                         request_id: request_id.clone(),
                         choice,
                         feedback,
+                        // D2's decision queue sends no revision: the inline
+                        // editor lives in the D1 dock, where the operator can
+                        // see the fields they are revising.
+                        revised_input: None,
                     },
                 )?;
                 self.client.send(envelope).map_err(|e| e.to_string())?;
@@ -4437,11 +4539,21 @@ impl GuiCoreAdapter {
         command_id: &str,
         intent: PermissionIntent,
     ) -> Result<RuntimeCommandEnvelope, String> {
-        let PermissionIntent::Respond {
-            request_id,
-            choice,
-            feedback,
-        } = intent;
+        let (request_id, choice, feedback, revised_input) = match intent {
+            PermissionIntent::Respond {
+                request_id,
+                choice,
+                feedback,
+                revised_input,
+            } => (request_id, choice, feedback, revised_input),
+            // A revocation is not a decision on a pending request, so it never
+            // reaches this builder; the caller routes it to its own command.
+            PermissionIntent::Revoke { .. } => {
+                return Err(
+                    "a standing-approval revocation is not an approval response".to_string()
+                );
+            }
+        };
         let view = self
             .projection
             .view()
@@ -4467,6 +4579,7 @@ impl GuiCoreAdapter {
                                 PermissionChoice::RepoAllowlist,
                                 ApprovalScope::RepoAllowlist { .. }
                             )
+                            | (PermissionChoice::Always, ApprovalScope::Always)
                     )
                 })
                 .cloned()
@@ -4479,12 +4592,28 @@ impl GuiCoreAdapter {
         let decision = match choice {
             PermissionChoice::Once
             | PermissionChoice::Session
-            | PermissionChoice::RepoAllowlist => ApprovalDecision::Allow {
+            | PermissionChoice::RepoAllowlist
+            | PermissionChoice::Always => ApprovalDecision::Allow {
                 scope: exact_scope(choice)?,
             },
             PermissionChoice::Deny => ApprovalDecision::Deny,
-            PermissionChoice::Always | PermissionChoice::Edit => {
-                return Err("GUI-CORE-003: typed approval action is unavailable".to_string());
+            PermissionChoice::Edit => {
+                // Core decides what is editable; the client refuses to send a
+                // revision Core said it would not accept rather than letting
+                // Core answer that question with a rejection.
+                if !request.editable {
+                    return Err(format!(
+                        "approval `{request_id}` is not editable, so no revision can be sent"
+                    ));
+                }
+                let revised = revised_input
+                    .ok_or_else(|| "an Edit decision requires a revised input".to_string())?;
+                if revised.is_empty() {
+                    return Err("an Edit decision requires a revised input".to_string());
+                }
+                ApprovalDecision::Edit {
+                    revised_input: revised.into_iter().collect(),
+                }
             }
         };
         Ok(RuntimeCommandEnvelope {
@@ -6577,6 +6706,7 @@ mod tests {
                     request_id,
                     choice: PermissionChoice::Once,
                     feedback: None,
+                    revised_input: None,
                 },
                 Duration::from_millis(250),
             )
@@ -6699,6 +6829,7 @@ mod tests {
                     request_id,
                     choice: PermissionChoice::Once,
                     feedback: None,
+                    revised_input: None,
                 },
                 Duration::from_millis(250),
             )
@@ -6806,6 +6937,7 @@ mod tests {
                     request_id,
                     choice: PermissionChoice::Once,
                     feedback: None,
+                    revised_input: None,
                 },
                 Duration::from_millis(250),
             )
