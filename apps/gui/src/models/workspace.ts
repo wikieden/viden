@@ -59,9 +59,9 @@ export interface PermissionDockProjection {
      */
     revisedFrom: string | null;
     /**
-     * The tool input's key/value pairs, recovered by the host from Core's own
-     * `input_preview` rendering. Empty when the parse was not exact, which is
-     * what `editBlock` names (GUI-CORE-036).
+     * Core's own typed tool input (`ApprovalRequestView.input`, C16). Empty
+     * when Core published none, which with `editable` true is what `editBlock`
+     * names (`D1-EDIT-NO-INPUT`).
      */
     inputFields: Array<{ key: string; value: string }>;
     /** Why Edit is withheld although Core marked the request editable. */

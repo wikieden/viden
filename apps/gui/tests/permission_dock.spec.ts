@@ -221,24 +221,24 @@ describe("Permission Dock", () => {
     });
   });
 
-  test("withdraws Edit when Core marked it editable and the preview will not parse", () => {
-    const unparseable: PermissionDockProjection = {
+  test("withdraws Edit when Core marked it editable and published no input", () => {
+    const withoutInput: PermissionDockProjection = {
       ...PROJECTION,
       request: {
         ...PROJECTION.request!,
         inputFields: [],
-        editBlock: "GUI-CORE-036",
+        editBlock: "D1-EDIT-NO-INPUT",
         actions: PROJECTION.request!.actions.map((action) =>
           action.kind === "edit"
-            ? { ...action, available: false, code: "GUI-CORE-036" }
+            ? { ...action, available: false, code: "D1-EDIT-NO-INPUT" }
             : action,
         ),
       },
     };
-    const { root } = setup(unparseable);
+    const { root } = setup(withoutInput);
     const edit = root.querySelector<HTMLButtonElement>("[data-permission-action='edit']")!;
     expect(edit.disabled).toBe(true);
-    expect(edit.getAttribute("aria-label")).toContain("could not be parsed exactly");
+    expect(edit.getAttribute("aria-label")).toContain("published no tool input");
   });
 
   test("shows a revision linked to the request it replaces", () => {

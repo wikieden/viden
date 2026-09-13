@@ -202,7 +202,7 @@ URL 与尺寸，不在该运行时之外调用浏览器自动化。
 | `board-killed-retry` | `…/qa.html?state=board-killed-retry` | 同一个会话的终结态：状态 `killed`，诊断为 `killed by owner`，暂停 / 恢复 / 终止 / 停止 / 换模型全部禁用并标注，**重试是唯一仍然可用的控件**，对话列表里是被清空的暂存输入 |
 | `board-switch-model-two-step` | `…/qa.html?state=board-switch-model-two-step` | 换模型按它真实的样子画出：`换模型` 读作「两步」，下方面板分别写明第一步（结束会话）与第二步（`StartAgentSession { model, load_session_id }`）是两次独立发送。没有单个按钮，也没有契约并不具备的原子性宣称 |
 | `board-no-lane` | `…/qa.html?state=board-no-lane` | 是缺失，不是空看板：没有 Lane 的工作区直接这么说，说明看板不会凭空造一个，并重申会话永远显示在拥有它的 Lane 之下。详情面板保持为空，而不是画一个占位 agent |
-| `dock-always-edit` | `…/qa.html?state=dock-always-edit` | `C15` / G9：权限坞完整的档位列表——`Y · 一次`、`A · 本会话`、`Shift+A · 始终`、`E · 编辑`、`N · 拒绝`，恰好是 `D-PERM` 的 `y · a · ⇧A · e · n`——内联修订编辑器打开在投影从 Core 自己的预览里还原出的 `command` 字段上，并写明所有键都会回传，因为 Core 评估的是完整输入而不是补丁 |
+| `dock-always-edit` | `…/qa.html?state=dock-always-edit` | `C15` / G9：权限坞完整的档位列表——`Y · 一次`、`A · 本会话`、`Shift+A · 始终`、`E · 编辑`、`N · 拒绝`，恰好是 `D-PERM` 的 `y · a · ⇧A · e · n`——内联修订编辑器打开在 `command` 字段上，取自 Core 自己的 `ApprovalRequestView.input`，并写明所有键都会回传，因为 Core 评估的是完整输入而不是补丁 |
 | `dock-edit-revised-from` | `…/qa.html?state=dock-edit-revised-from` | Core 从那次「编辑」产生的请求：预览里是收窄后的输入，紧接其下是那行金色文字，把它链接到它所替代的 `approval_scopes_wide`，而不是在第一条之上再堆一条不相干的提示 |
 | `standing-approvals-revoke` | `…/qa.html?state=standing-approvals-revoke` | 设置面板的权限卡片列出 Core 自己的常驻规则：`shell · command=cargo fmt --all -- --check`，带授予时所在的工作区与时间，旁边是**撤销**，以及按授予时写下的审计 id 指向 D14 的**打开审计轨迹** |
 | `d4-agent-binding-started` | `…/qa.html?state=d4-agent-binding-started` | `C15` / G9b：绑定已经上路。第 4 步停在回执上而不是直接离开去驾驶舱，`Agent 会话` 读作 `Core 已启动 Agent 会话 agent-session-starter。`——Core 自己的 `StarterLaneSessionOutcome::Started`——旁边是**打开 Agent 看板**；路由、门禁、目标、工作树、基线版本与变更策略都从回执读出，而不是从已被清空的预览 |

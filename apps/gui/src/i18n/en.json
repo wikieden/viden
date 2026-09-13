@@ -851,7 +851,7 @@
   "d1.permission.editHead": "Revise the tool input. Core decides the revision afresh through the same gate.",
   "d1.permission.editSend": "Send the revision",
   "d1.permission.editNote": "Every key travels, including the ones you left alone: Core evaluates the whole input, not a patch of it.",
-  "d1.permission.editUnavailable": "Core marked this request editable, but its input preview could not be parsed exactly, so no revision is offered (GUI-CORE-036).",
+  "d1.permission.editUnavailable": "Core marked this request editable and published no tool input for it, so no revision is offered (D1-EDIT-NO-INPUT).",
   "d1.permission.notEditable": "Core does not accept a revision for this tool: only flat text inputs are editable, never a patch body.",
   "d1.permission.scopeNotOffered": "Core did not offer a standing rule for this request; high-risk requests and plan mode never get one.",
   "settings.standing": "Standing approvals",

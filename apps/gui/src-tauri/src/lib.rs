@@ -99,10 +99,11 @@ pub use operator_git::{
     OperatorGitResultProjection,
 };
 pub use permission::{
-    PermissionActionProjection, PermissionChoice, PermissionDockProjection,
-    PermissionInputFieldProjection, PermissionIntent, PermissionIntentResult,
-    PermissionOutcomeProjection, PermissionRequestProjection, PermissionTargetProjection,
-    StandingApprovalIntentResult, StandingApprovalProjection, StandingApprovalsProjection,
+    EDIT_WITHOUT_INPUT_CODE, PermissionActionProjection, PermissionChoice,
+    PermissionDockProjection, PermissionInputFieldProjection, PermissionIntent,
+    PermissionIntentResult, PermissionOutcomeProjection, PermissionRequestProjection,
+    PermissionTargetProjection, StandingApprovalIntentResult, StandingApprovalProjection,
+    StandingApprovalsProjection,
 };
 
 /// The Core capability that carries the standing `Always` scope and the `Edit`
