@@ -2,7 +2,7 @@
 use std::sync::OnceLock;
 use std::sync::{Arc, Mutex};
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     fs::{self, File},
     io::Read,
     path::{Path, PathBuf},
@@ -71,6 +71,13 @@ pub(crate) struct QueuedRuntimeInput {
     id: String,
     content: String,
     created_at: u64,
+    /// The owner the entry was queued by, published on the view.
+    ///
+    /// `None` for the session queue, whose entries belong to no Lane and no
+    /// Agent session; `Some` for a Lane's queue, where it is the exact owner
+    /// the Lane's turns run under, so an owner-scoped client matches the
+    /// queued row without inferring it (GUI-CORE-010).
+    owner: Option<RuntimeOwner>,
 }
 
 /// Core's session follow-up queue, shared between the accept path and the
@@ -214,6 +221,17 @@ impl QueuedRuntimeInput {
             id: fresh_id("queued"),
             content,
             created_at: now_timestamp(),
+            // A follow-up queued on the built-in engine belongs to no Lane and
+            // no Agent session; Core has no owner to publish for it.
+            owner: None,
+        }
+    }
+
+    /// The same entry, queued for one Lane (C18).
+    fn for_owner(content: String, owner: RuntimeOwner) -> Self {
+        Self {
+            owner: Some(owner),
+            ..Self::new(content)
         }
     }
 
@@ -222,11 +240,60 @@ impl QueuedRuntimeInput {
             id: self.id.clone(),
             content_preview: truncate_for_preview(&self.content, 500),
             created_at: Some(self.created_at),
-            // A follow-up queued on the built-in engine belongs to no Lane and
-            // no Agent session; Core has no owner to publish for it. Lane input
-            // is queued by the Lane worker, which does attach its exact owner.
-            owner: None,
+            owner: self.owner.clone(),
         }
+    }
+}
+
+/// Every Lane's own follow-up queue, keyed by Lane id (C18, compatibility
+/// follow-up 16's Core half).
+///
+/// Separate from [`SessionInputQueue`] because the two are drained by different
+/// turns: only a completed *session*-scoped turn may spend the session queue,
+/// and only a completed turn owned by a Lane may spend that Lane's. One map
+/// rather than one queue per Lane worker because the runtime — not
+/// `crates/lanes` — is what runs a Lane's native turn: `run_supervised_input`
+/// resolves the Lane's execution scope and brackets the turn (C17), so the
+/// queue that turn releases has to live where that turn is run.
+///
+/// Shared between the accept path and the supervisor worker for exactly the
+/// reason the session queue is: the worker is occupied by the very turn the
+/// follow-up is queued behind, so the entry must be pushed and announced
+/// without it.
+///
+/// Not durable. A queued entry is a prompt that has not been sent, and a Core
+/// that restarts never sends it — the same rule `held_session_inputs` follows.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct LaneInputQueues {
+    lanes: Arc<Mutex<BTreeMap<String, Vec<QueuedRuntimeInput>>>>,
+}
+
+impl LaneInputQueues {
+    /// Appends one entry to `lane_id`'s queue and returns the view the
+    /// acknowledgement publishes.
+    pub(crate) fn push(
+        &self,
+        lane_id: &str,
+        content: String,
+        owner: RuntimeOwner,
+    ) -> QueuedInputView {
+        let queued = QueuedRuntimeInput::for_owner(content, owner);
+        let view = queued.view();
+        if let Ok(mut lanes) = self.lanes.lock() {
+            lanes.entry(lane_id.to_string()).or_default().push(queued);
+        }
+        view
+    }
+
+    /// Removes and returns `lane_id`'s oldest entry as `(id, content)`.
+    pub(crate) fn take_oldest(&self, lane_id: &str) -> Option<(String, String)> {
+        let mut lanes = self.lanes.lock().ok()?;
+        let entries = lanes.get_mut(lane_id)?;
+        if entries.is_empty() {
+            return None;
+        }
+        let input = entries.remove(0);
+        Some((input.id, input.content))
     }
 }
 
