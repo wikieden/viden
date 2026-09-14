@@ -1643,3 +1643,325 @@ committed change, with audit and evidence recorded":
   than the one `0.3.4` was blocked by. Exit criterion 1 is met as to the
   candidate being driven natively; it is not met as to the full task, and this
   document does not pretend otherwise.
+
+## Native GUI Run — 2026-09-14 (0.3.5 candidate `22124903`, E3c)
+
+This is E3c: the Lane half of the real task driven through the native cockpit
+on the `0.3.5` candidate after H5, G9b, G10 and DS2. Branch
+`claude/evidence-e3c` in `.worktrees/evidence-e3c`, base the integration branch
+`claude/int-0.3.5` at `22124903c4e21778ad6046fd6779aecf24837bb1` — every
+`0.3.5` batch through DS2, so H5's defect 22/23/24 fixes, G9b's agent binding,
+G10's token-mapping fixes and DS2's light-skin token fix are all in the bundle
+under test.
+
+The host screen was unlocked and `CGSessionCopyCurrentDictionary()` was read
+before every keystroke and click batch; `CGSSessionScreenIsLocked` was `0` at
+every one of them, from `2026-09-14T02:06:28Z` to `2026-09-14T04:11:29Z`.
+
+**The batch's headline: the Lane's turn is closed.** H5's fix holds natively.
+The popover TASK became a turn on the fallback provider, twice, in two separate
+application sessions, and everything the agent turn gates opened behind it — the
+tool approval with Core's typed hunks, allow-once, the inline tool diff, the
+archived patch in EvidenceView, D14 reading back the Lane-path *and* the
+runtime-path `approval.allow_once`, C15's `Always` with its standing rule and
+its revoke, and C16's typed `Edit` revision with the `revised_from` link. What
+this run could not finish is the source-control half **with a Lane selected**,
+because the commit bar refuses against a Lane that is not the selected one
+(defect 30, which is E3b defect 25's named suspect), and the Plan Studio and
+Agent Board flows, for the reasons named per step.
+
+One blocker found here was a GUI client defect and was fixed in this batch under
+the launch authorization, red-first, in its own commit: defect 27.
+
+### The application under test
+
+`npm ci` added 97 packages in 4 s. `npx tauri build --bundles app` PASSED —
+`Finished \`release\` profile [optimized] target(s) in 1m 16s` — and produced
+`target/release/bundle/macos/Viden.app` at `2026-09-14T02:08:21Z`:
+
+| Fact | Value |
+| --- | --- |
+| `CFBundleShortVersionString` | `0.1.0-rc.5` |
+| `CFBundleIdentifier` | `dev.viden.gui` |
+| `CFBundleExecutable` | `viden-gui` |
+| Architecture | `Mach-O 64-bit executable arm64` |
+| Executable size | 42,858,160 bytes |
+| Bundle size | 42 MB |
+| Signature | ad-hoc, linker-signed, `TeamIdentifier=not set`, `Sealed Resources=none` |
+
+The bundle still carries `0.1.0-rc.5`. The plan's version table targets
+`0.1.0-rc.6` for this milestone and no batch has taken that bump; R1 owns it.
+Recorded here because a native evidence run names the version it drove.
+
+The bundle was rebuilt once mid-run, after the defect 27 fix, with the same
+result (`Finished \`release\` profile [optimized] target(s) in 1m 03s`,
+`2026-09-14T03:19:26Z`). It was launched from the bundle, never installed,
+signed with an identity, notarized or distributed. Every launch ran with
+`VIDEN_HOME` pointed at a scratch directory, so this repository's own `.viden/`
+was never read or written. Launched PIDs, in order: 95394, 23420, 29576. All
+three were killed by this batch; none exited on its own.
+
+### Fixture
+
+One fresh temporary Git repository under the run's scratch directory, with one
+commit `5a8b132` ("Add the fixture README"), a five-line `README.md`, a
+`.gitignore` covering `.viden/` and `.worktrees/`, and a `.viden/config.toml`
+selecting `provider = "fallback"` / `model = "test-local"`. Core minted
+`.viden/project.toml` `prj_1789351944807166000` at the bootstrap. A bare
+`origin` was created in the scratch directory and never used, because no push
+became reachable (defect 30).
+
+### One deviation from the scripted task, and why
+
+**The Lane-worktree change for the source-control half was made out of band**,
+as in E3a and E3b, and for a reason this run can now state precisely: the
+product's own `edit_file` *does* run, under its approval, with the Lane
+selected and Core's `turn_owner` naming the Lane — and it writes into the
+**workspace root**, not the Lane worktree (defect 28). The Lane worktree
+therefore cannot be dirtied by the product on this candidate. Everything
+downstream of the dirty tree — Core's sample, the file list, the `Local` flag —
+is real GUI-driven Core behaviour over a real change; the authorship of that
+one change is not the product's.
+
+### Step by step
+
+Every frame was captured twice by window id and the second kept, and every PNG
+listed was viewed before it was listed. Frames live under `native-0.3.5/` with
+the `e3c-` prefix.
+
+| # | Step | Reached | Result / reason | Frames |
+| --- | --- | --- | --- | --- |
+| 1 | Welcome | yes | `No project open`, `Open project ⌘ O`, `Core adapter is not connected`; eleven rail slots including `Plan Studio` and `Agent Board`, all disabled while unbound; `MODE — · PERM — · CONTEXT — · EVENTS #0 · LANE — · LATENCY — · TOKENS — · DIAG 0× · REQ —` | [`01`](native-0.3.5/e3c-01-welcome.png) |
+| 2 | **`⌘O` bind, native panel path** | yes | `⌘O`, `⌘⇧G`, the path pasted, `Return`, `Return`. The first attempt bound nothing because the keystrokes reached another application: the harness note below is new and absolute | [`02`](native-0.3.5/e3c-02-open-panel-goto.png) |
+| 3 | **Cockpit bound** | yes | Dock `Provider fallback`, `Model test-local`, `Mode build`, `Permission ask`, `Tokens 0`; `Lines +0 −0` / `No changes`; `Showing Workspace root`, `Branch main`, the fixture path as `Worktree`, `Ahead 0`, `Behind 0`, `Working tree Clean`; `MODE build · PERM ask · EVENTS #7 · LANE — · DIAG 0× · REQ 0 req / 0 err`. The zero-Lane strip draws `No Lanes yet`, `＋`, the path and `Build` each in its own space with the dock open — **defect 19, natively, again** | [`03`](native-0.3.5/e3c-03-cockpit-bound.png) |
+| 4 | **`⌘L` New Lane, built-in agent, TASK** | yes | `Viden Agent built-in` selected; Codex, Claude Agent and Kiro CLI disabled under `Probe did not answer within 15s.` with `Retry ACP check` beside them; `Checking ACP agents… each probe is given up to 15s.` never stood open-ended. With the TASK entered, `Create lane ↵` read `enabled=true` and the branch became `⌁ vd/edit-the-fixture-readme-he`. **Defects 14 and 15, natively, on a host with no ACP binary** | [`04`](native-0.3.5/e3c-04-new-lane-popover.png), [`05`](native-0.3.5/e3c-05-new-lane-task-set.png) |
+| 5 | **A Core `lane_create` approval with C15's full tier list** | yes | `Approve lane_create · lane_create`, `Medium risk`, `branch: viden/lane_1789352091587813000 path: …/.worktrees/lane_…`, `Reason: lane mutation policy requires approval`, `Audit: audit_1789352092704825000`, over `Y · Once` / `Allow repo paths` / **`Shift+A · Always · scope_not_offered`** / **`E · Edit · not_editable`** / `N · Deny`. Both disabled tiers carry **Core's own refusal sentences**, not a `GUI-CORE-*` placeholder — **register 019, closed on the GUI, live** | [`06`](native-0.3.5/e3c-06-lane-create-approval.png) |
+| 6 | **D2 shows it and decides it** | yes | `Decision Center`, `1 awaiting you`, `GATE APPROVALS · 1`, the card `Approve lane_create prj_… · lane_… · pending · medium`, `TOOL INPUT PREVIEW`, `EVIDENCE Core published no evidence for this decision.` `Approve once` released the effect and the card **left the queue**: `0 awaiting you`, `GATE APPROVALS · 0`, `Core is holding no decision for you.` **Defect 16's first half, natively** | [`07`](native-0.3.5/e3c-07-d2-lane-create-pending.png), [`08`](native-0.3.5/e3c-08-lane-created-d2-cleared.png) |
+| 7 | **The Lane, created under that approval** | yes | Tab strip `lane_1789352091587813000 coder starter…`, sidebar row `lane_… Viden · draft`, `LANE lane_1789352091587813000 — draft —`, titlebar `1 worktree`, dock `Showing Lane worktree` with the Lane's branch and worktree, `LANE OUTPUT` carrying Core's own `HEAD is now at 5a8b132 Add the fixture README` / `Preparing worktree (new branch 'viden/lane_…')`. Verified out of band: the worktree exists and `git branch` lists `viden/lane_1789352091587813000`. **The sidebar row naming `Viden` is G9b's agent binding travelling; `lane-agent-bindings.jsonl` carries `agent_id: "viden"`** | [`09`](native-0.3.5/e3c-09-lane-task-became-a-turn.png) |
+| 8 | **The popover TASK becomes a turn — defect 22 closed** | yes | The composer freed (`Prompt`, `Send message enabled`, **no `Cancel active turn`**), `EVENTS` advanced `#19 → #44`, `LATENCY 19ms avg 19ms`, `REQ 1 req / 0 err`. Verified byte for byte in the scratch session JSONL: `turn_owner` set with `lane_id: lane_1789352091587813000` and `turn_id: turn_1789352172234403000`, the user message `Edit the fixture README heading in the Lane`, a cost row `outcome: success` on `fallback` / `test-local`, the assistant reply, `task_updated` `status: done` / `activity: provider turn complete`, then `turn_owner` cleared. **H5's fix holds natively**, and reproduced again in the second application session for the second Lane | [`09`](native-0.3.5/e3c-09-lane-task-became-a-turn.png) |
+| 9 | **Composer `tool edit_file path=README.md old=Fixture new=Edited`** | yes | The submit left, Core raised `Approve edit_file · edit_file`, `Medium risk`, `TOOL INPUT PREVIEW new: Edited old: Fixture path: README.md`, **Core's typed C1 hunks** `@@ -1,5 +1,5 @@` with `-# E3c Fixture` / `+# E3c Edited`, over `Y · Once` / `Allow repo paths` / `Shift+A · Always` (**enabled**) / `E · Edit · not_editable` / `N · Deny`. `LIVE WORK APPROVE EDIT_FILE`, `Core is working; no owner-scoped status is available. typed`, `0:40`, `Cancel turn · Esc`, and the composer label switched to `Queue follow-up` | [`10`](native-0.3.5/e3c-10-tool-approval-hunks.png) |
+| 10 | **Allow once, and the inline tool diff** | yes | `Y · Once` released it. The transcript drew `▸ Modified README.md +1 −1`, expandable to `README.md`, `@@ -1,5 +1,5 @@`, `-# E3c Fixture` / `+# E3c Edited` with per-line numbering. The composer freed and `Cancel active turn` left with the turn — **defect 24, natively, in both directions** | [`11`](native-0.3.5/e3c-11-after-allow-once.png), [`12`](native-0.3.5/e3c-12-inline-tool-diff.png) |
+| 11 | Check run | **no** | Core offered none for this tool call; nothing was inferred | — |
+| 12 | **EvidenceView archived patch — follow-up 14** | yes | `± Patch · native lane lane_… edit: README.md (+1/-1)`, `evidence id patch-tool_1789352339666433000`, `kind patch`, `source native`, **`path README.md`**, `owner lane lane_1789352091587813000`, `canonical item ctxi_…`, `bundle ctx-main-session_…`, `source hash f4aa16edd7def41430e7e74bf07acaccd11bda1063cfa0fb38f9501b9d7f9b5c`, `producer native · coder`, `verification verified`, `canonical quality pass`, and `Archive complete — Core published every entry matching this scope.` **The path label is the file's own path, canonical and correct** | [`13`](native-0.3.5/e3c-13-evidence-archived-patch.png) |
+| 13 | Defect 10 — the archived patch's rendered diff calling the file a rename | **no** | `Open in review` navigates to the working-tree DiffReview, not to the patch's own rendered diff, and the Lane worktree was clean because the edit landed in the workspace root (defect 28). Nothing was rendered, so nothing can be said about the rename shape | [`14`](native-0.3.5/e3c-14-archived-patch-review.png) |
+| 14 | **D14 shows `approval.allow_once` for BOTH paths — follow-up 15** | yes | `Audit trail 2`, `Outcomes on the loaded page · 2 success 2`, `approval.allow_once operator success · permission · approval_1789352339708803000 · tool · edit_file · job · gui-d1-39b14aaf-… · scope=allow_once` beside `approval.allow_once operator success · permission · lane-approval_1789352092704824000 · tool · lane_create · job · gui-d1-dc9c6b60-… · lane · lane_1789352091587813000 · scope=allow_once`, and `Core reports the audit timeline is complete.` Verified byte for byte against the scratch `audit.jsonl`, with the ids the two requests had already shown on screen. **The Lane path and the runtime path, side by side** | [`15`](native-0.3.5/e3c-15-d14-audit-allow-once.png) |
+| 15 | **Queue a follow-up while a turn runs, then see it drain — follow-up 16** | **no** | The label reads `Queue follow-up` and the submit is **refused**: `Not sent. This client is still waiting for Core's answer to submit_user_input, asked 0s ago. Your message is kept. submit_user_input carries an effect, so the wait is never abandoned here: only Core's answer records whether it ran.` After the approval was decided the composer was cleared and the kept text was never sent — no such message exists in the session JSONL. See defect 29 | [`16`](native-0.3.5/e3c-16-followup-queued.png) |
+| 16 | **Defect 23's visible refusal** | yes | The alert above is that refusal, and a second shape appeared later naming `set_work_mode`. **Defect 23, closed and confirmed natively, twice** | [`16`](native-0.3.5/e3c-16-followup-queued.png), [`26`](native-0.3.5/e3c-26-set-work-mode-slot-held.png) |
+| 17 | **A medium-risk request answered `Always` (C15)** | yes | `Shift+A · Always` on a second `edit_file`. The edit applied (`# E3c Requeued`) and the audit store took `audit_1789352746460919000 approval.always … args {"scope":"always"}` | [`17`](native-0.3.5/e3c-17-always-granted.png) |
+| 18 | **The repeat auto-allowed** | yes, with the scope named | A *different* input (`old=Requeued new=AutoAllowed`) asked again — Core keys the standing rule on the whole tool input, so `1 awaiting you` and a fresh `audit_1789353002795519000`. The **identical** input (`old=Edited new=Requeued`) was **auto-allowed**: no request on screen, no new audit row, the turn ran to its own typed failure `edit_file could not find the target text`. C15's `Always` works and is input-scoped, which the settings panel states plainly | [`18`](native-0.3.5/e3c-18-always-not-matched-by-a-new-input.png), [`20`](native-0.3.5/e3c-20-identical-input-auto-allowed.png) |
+| 19 | **The settings standing list, and the revoke (C15)** | yes for the effect, **no** for the list | `Settings · Core-owned preferences` → `Standing approvals`, `Rules an Always decision installed. They hold across sessions and repositories until revoked.`, the row `edit_file · new=Requeued old=Edited …`, `granted 1789352875 in ws_65ba50067a87fc27`, `Revoke`, `Open the audit trail`. `Revoke` then `Save` wrote `audit_1789353306646568000 approval.revoke … args {"scope":"always"}`, and the identical input **asked again**, so Core revoked it. The panel, reopened, **still lists the revoked rule with its `Revoke` button**. See defect 31 | [`19`](native-0.3.5/e3c-19-standing-approvals.png), [`21`](native-0.3.5/e3c-21-revoke-pressed-rule-still-listed.png), [`22`](native-0.3.5/e3c-22-after-save-rule-still-listed.png) |
+| 20 | **An editable request revised with `E`, and the `revised_from` link (C16)** | yes | `tool shell command=echo …` raised `Approve shell · shell`, `Scope: Once, Always, Edit`, with **`E · Edit` enabled** — `shell` is in `EDITABLE_APPROVAL_TOOLS` where `edit_file` is not, and the disabled tier says so in Core's own words. `E` opened a **typed** revision surface: one `AXTextField` named `command`, value `echo`, not a raw blob. Set to `pwd` and `Send the revision`: Core raised a **new** request carrying **`This request revises approval_1789353592354218000; Core re-evaluated the narrowed input and still wants a decision.`**, and the audit store took `audit_1789353592354220000 approval.edit … args {"revised_input":"command=pwd","scope":"edit"}`. **C16's typed input and the `revised_from` link, natively** | [`23`](native-0.3.5/e3c-23-shell-editable-approval.png), [`24`](native-0.3.5/e3c-24-edit-typed-input.png), [`25`](native-0.3.5/e3c-25-revised-from.png) |
+| 21 | **Plan mode** | yes, after the defect 27 fix | The work-mode pill's popover is a real popover: the first attempt held the client's one command slot for the life of the process (defect 27, fixed in this batch). On the rebuilt bundle the switch settled, `MODE plan` with **`PERM read_only`** — Core's own work-mode/permission coupling, applied as Core truth and never as a client edit — and a composer submit immediately afterwards left and ran a turn with no slot-busy alert | [`26`](native-0.3.5/e3c-26-set-work-mode-slot-held.png), [`28`](native-0.3.5/e3c-28-plan-mode-slot-free.png), [`29`](native-0.3.5/e3c-29-plan-mode-read-only.png) |
+| 22 | Plan Studio: an `update_plan` proposal in D15, Accept, Hand off refused in plan mode, Build, Hand off, D13's DAG | **no** | Two named reasons. `update_plan` reached Core and Core answered with its own typed refusal — `` `plan` is not a JSON array of plan steps `` — and the well-formed JSON could not be entered, because the composer applies macOS automatic quote substitution and turns a `"` into a `”` (defect 32, with a one-line reproduction). Separately, once Core reported execution stopped for the Lane, the rail highlighted `Plan Studio` and the centre kept the recovery surface (defect 33) | [`30`](native-0.3.5/e3c-30-plan-studio-not-rendered.png) |
+| 23 | Agent Board: the Lane's session rows, Pause → Paused, Resume, Kill → Killed, Retry | **no** | The built-in `Viden Agent` runs provider turns, not `runtime.agent_session_control` Agent sessions; no ACP adapter is installed on this host, so no session row could exist to pause or kill. Not a defect, and not evidence either | — |
+| 24 | **DiffReview over the Lane's dirty tree** | yes | `Re-read the workspace diff` refreshed Core's sample: dock `Lines +2 −0`, `M README.md +2 −0`, `Showing Lane worktree` with the **selected** Lane's branch and worktree, `Working tree Dirty`. **The total, the file list and the `Local` flag agree — defect 20, natively** | [`32`](native-0.3.5/e3c-32-diffreview-lane.png) |
+| 25 | DiffReview commit **with the Lane selected**, `Commit & Push ⇡`, the `git_push` half (defect 25), set upstream, push accepted | **no** | `Open the commit bar` is **disabled**, carrying Core's own refusal: `No commit or push can be sent from here: D1-OPERATOR-GIT-OWNER: Lane \`lane_1789352091587813000\` does not have one exact Core operator git owner` — while the status bar's `LANE` reads `lane_1789357518367069000`. The commit bar refuses against a Lane that is **not the selected one**. That is exactly the Lane-scoped routing E3b named as defect 25's remaining suspect, and it is now observed; see defect 30. No push entry point became reachable, so the bare `origin` was never used | [`32`](native-0.3.5/e3c-32-diffreview-lane.png) |
+| 26 | **Defect 24 — no `Cancel active turn` on an idle Lane** | yes | Absent on every idle frame (`09`, `11`, `12`, `28`) and present only while Core reported the turn (`10`, `16`, `18`, `23`). **Closed, confirmed natively, in both directions** | [`09`](native-0.3.5/e3c-09-lane-task-became-a-turn.png), [`10`](native-0.3.5/e3c-10-tool-approval-hunks.png) |
+| 27 | **Defect 26 — relaunch bound via `VIDEN_GUI_WORKSPACE` against a home holding Lanes** | yes, **not reproduced** | The process started, took about fifteen seconds to enter the Accessibility tree, and then **rendered the full cockpit**: both Lane tabs, the bound dock, `2 worktrees`, `MODE build · PERM ask · EVENTS #9`. CPU settled at 10.3 % over 55 s, not the 21–27 % burn for three minutes E3b recorded. **Defect 26 does not reproduce on this candidate** | [`35`](native-0.3.5/e3c-35-workspace-env-relaunch.png) |
+| 28 | **Focus mode `⌘.` and the `Esc` return** | yes | The control hid the context dock and gave the centre the full window width with the titlebar, rail, composer and status bar retained. `Esc` returned the rail to `Conversation` with the chrome retained and focus mode still on, which is what `0.3.4` recorded | [`33`](native-0.3.5/e3c-33-focus-mode.png), [`34`](native-0.3.5/e3c-34-esc-return.png) |
+
+### Defects And Gaps Found By E3c
+
+Numbering continues from the twenty-six above. Each was reproduced, not
+inferred. One was fixed here, under the launch authorization; the rest were
+numbered and stopped.
+
+27. **A composer control never settles its command, so the cockpit's one
+    command slot stays occupied for the life of the process** (GUI, blocking).
+    **Fixed 2026-09-14 in this batch** (`fix(gui): settle a composer control
+    against the owner Core stamps`). `composer_control_envelope`
+    (`apps/gui/src-tauri/src/adapter.rs:5155`) sends `RuntimeOwner::default()`
+    on purpose — a work-mode, permission-level or model change mutates
+    workspace-level runtime state, not one Lane's execution. Core's
+    `stamp_workspace_identity`
+    (`crates/runtime/src/runtime_supervisor.rs:5789`) then **completes** that
+    bare owner with the `workspace_id` and `project_id` it published, before
+    the acceptance is emitted. `PendingD1::acceptance_owner_matches`
+    (`adapter.rs:633`) compared the sent owner with the stamped one for
+    equality, so the pending was never `accepted`; without acceptance the
+    `SnapshotUpdated` that confirms it is ignored
+    (`matches_business_fact`, `adapter.rs:700-706`). The mode changed on
+    screen — Core ran it — and the client waited forever for a receipt it had
+    already drained. Natively: `MODE plan` with
+    `Not sent. This client is still waiting for Core's answer to
+    set_work_mode, asked 28s ago.` on every subsequent submit, unchanged after
+    50 s. The acceptance now also matches the workspace completion Core
+    stamps, mirroring Core's rule exactly and nothing wider: only the two ids
+    the client left empty may differ, so a Lane-scoped envelope is still
+    refused. RED, against live in-process Core:
+    `assertion \`left == right\` failed: a composer control whose bare owner
+    Core completed must still free the client's one command slot /
+    left: Some("control-owner-mode") / right: None`, with the same run
+    asserting the mode did reach `plan`. Tests:
+    `apps/gui/src-tauri/src/adapter.rs`
+    `a_workspace_level_composer_control_settles_against_the_owner_core_stamps`
+    and
+    `a_bare_pending_accepts_the_stamped_workspace_owner_and_refuses_a_lane_owner`.
+    The two adapter-discovery reads send the same bare owner and had the same
+    hole; they were masked because `PendingD1Kind::is_abandonable` releases
+    them.
+28. **A tool called in a Lane-owned turn runs against the workspace root, not
+    the Lane worktree** (Core, blocking for the Lane half). With
+    `lane_1789352091587813000` selected and Core's own `turn_owner` carrying
+    `lane_id: lane_1789352091587813000`, `tool edit_file path=README.md`
+    reported `path: …/scratchpad/e3c/fixture/README.md` and left the Lane
+    worktree clean; `git status` in the workspace root showed ` M README.md`
+    and in the Lane worktree showed nothing. The product says so itself: `tool
+    shell command=pwd`, in the same Lane, printed
+    `…/scratchpad/e3c/fixture` — the workspace root. The client sent the owner
+    correctly (the `turn_owner` meta proves it reached Core), so the
+    resolution site is Core's: the turn's tool working directory is the
+    session's `canonical_root`
+    (`crates/runtime/src/frontend_services.rs`, the session engine's root),
+    not the owning Lane's `worktree`
+    (`crates/lanes/src/lane_supervisor.rs`, the record that carries it).
+    Numbered and stopped here; no `crates/**` file was edited.
+29. **A follow-up cannot be queued during a turn; the label promises a queue,
+    the submit is refused, and the kept text is discarded** (GUI). The
+    composer label switches to `Queue follow-up` the moment Core reports the
+    turn, but `sendComposerIntent` still goes through the one command slot,
+    which the first `SubmitUserInput` holds until Core answers it — and Core
+    does not answer while the turn waits on an approval. The refusal is
+    honest (defect 23's alert, and it says `Your message is kept`), but the
+    promise above it is not, and after the approval was decided the composer
+    re-rendered empty: `Summarise what you just changed` never reached the
+    session JSONL. Core has `RuntimeCommand::QueueFollowUp` and publishes
+    `InputQueued`, and `PendingD1Kind::Queue` already matches it
+    (`apps/gui/src-tauri/src/adapter.rs:646`), so the contract is there; the
+    cockpit does not route the busy-composer submit to it. **Compatibility
+    follow-up 16 is therefore unmet on the GUI.**
+30. **The operator-git owner does not follow the Lane selection** (GUI,
+    blocking for the source-control half with a Lane). With
+    `lane_1789357518367069000` selected — the status bar, the titlebar and the
+    context dock all name it — the commit bar is disabled carrying
+    `D1-OPERATOR-GIT-OWNER: Lane \`lane_1789352091587813000\` does not have one
+    exact Core operator git owner`, which is the **other** Lane in the
+    workspace. Re-selecting either Lane does not change the name in the
+    refusal. This is precisely the suspect E3b left for E3c under defect 25 —
+    `GuiCoreAdapter::operator_git_owner` and
+    `RuntimeProjection::permission_dock_for_owner` — and it explains why E3b's
+    `git_push` half reached no decidable surface with a Lane selected while
+    H5's in-process probe, which used a workspace target, found the approval
+    arriving correctly. **Defect 25 stays open and this is its located cause
+    on the client side**; the `git_push` half itself was not re-driven,
+    because no commit-bar entry point was reachable.
+31. **The settings standing-approvals list still shows a rule Core has
+    revoked** (GUI, honesty). `Revoke` then `Save` wrote
+    `audit_1789353306646568000 approval.revoke … {"scope":"always"}` and the
+    rule stopped applying — the identical tool input asked for approval again
+    — but the panel, closed and reopened, still lists
+    `edit_file · new=Requeued old=Edited …`, `granted 1789352875 in
+    ws_65ba50067a87fc27`, with its `Revoke` button. The operator is shown a
+    standing rule that no longer stands.
+32. **The composer applies macOS automatic quote substitution, so a typed
+    double quote becomes a curly quote** (GUI, blocking for any tool argument
+    or code the operator types). Minimal reproduction: setting the composer to
+    `A"b"c` reads back as `A”b"c` (`U+201D` for the first quote). It corrupted
+    every `update_plan` payload this run attempted, twice, at the same offset,
+    and Core answered each with its own typed parse refusal. Any JSON, any
+    quoted shell argument and any code snippet sent through the composer is
+    affected. The entry path here was the accessibility value setter, which
+    WebKit routes through the same editing pipeline a human keystroke uses, so
+    the substitution is the webview's and not the harness's; a confirmation
+    with real keystrokes is owed, because this host's input source is a Pinyin
+    IME and `keystroke` on it produced `X"有"` rather than `X"y"z`.
+33. **With Core reporting execution stopped, the rail selects a centre view
+    and the centre keeps the recovery surface** (GUI). After a tool call
+    failed, the centre drew `AGENT STOPPED` / `Core reports that execution has
+    stopped.` over Core's own fact controls — `Reconnect · GUI-CORE-003`,
+    `Inspect facts`, `Restart agent · no_retryable_session`, `Close Lane`,
+    `Restore checkpoint · GUI-CORE-003`, every unbacked one disabled and
+    labelled, which is right. What is wrong is that pressing `Plan Studio` or
+    `Diff review` afterwards highlighted the rail slot and left the centre on
+    the recovery surface, so both registered centre views were unreachable for
+    the rest of that Lane's life. The `Esc` return worked from that state.
+34. **A restored Lane has no execution owner after a relaunch** (GUI or Core,
+    blocking for restart). Rebinding the same workspace through `⌘O` against a
+    `VIDEN_HOME` holding a created Lane restores the Lane row, its branch and
+    its worktree, and then refuses everything: `The selected Lane has no sole
+    Core execution owner.`, the composer and its three pills disabled, the
+    commit bar disabled. `lane-agent-bindings.jsonl` holds the binding with
+    the **previous** process's `session_id`, and the new process mints a new
+    session, so the exact-owner predicate finds none. A Lane created before a
+    restart is therefore read-only forever. This is the operable half of what
+    E3b numbered 26; the blank-window half does not reproduce (step 27).
+
+### Verdicts on defects 22–26
+
+| # | Verdict on the candidate |
+| --- | --- |
+| 22 | **Closed, confirmed natively, twice.** The popover TASK becomes a turn on the fallback provider: the composer frees, `EVENTS` advances, the turn settles, and the session JSONL carries the whole turn under the Lane owner |
+| 23 | **Closed, confirmed natively, twice.** A refused submit renders a `role=alert` naming the held command (`submit_user_input`, then `set_work_mode`), its age, and that an effect's wait is never abandoned client-side |
+| 24 | **Closed, confirmed natively, in both directions.** `Cancel active turn` is absent on an idle Lane and present only while Core reports an active turn |
+| 25 | **Still open; its client-side cause is now located.** The commit bar never became reachable with a Lane selected, because the operator-git owner resolves to a different Lane than the one selected (defect 30). The `git_push` half itself was not re-driven |
+| 26 | **Not reproduced.** A `VIDEN_GUI_WORKSPACE` launch against a home holding two Lanes rendered the full cockpit. The operable half of the same restart problem is real and is numbered 34 |
+
+### Verdicts on compatibility follow-ups 14–16
+
+| # | Verdict on the candidate |
+| --- | --- |
+| 14 | **Closed, natively.** The archived patch is canonical and its path label is the file's own path: `kind patch`, `source native`, `path README.md`, `owner lane lane_…`, `verification verified`, `canonical quality pass` |
+| 15 | **Closed, natively, for both paths.** D14 shows `approval.allow_once` for `tool · lane_create` and for `tool · edit_file` on the same loaded page, each durable in `audit.jsonl` under the id its request had already shown |
+| 16 | **Unmet on the GUI.** The composer advertises `Queue follow-up` during a turn and then refuses the submit, and the kept text is discarded rather than queued or sent. See defect 29 |
+
+### Observations, not defects
+
+- **Front the process before every keystroke batch, and verify it.** The first
+  `⌘O` bind of this run went to another application entirely: the keystrokes
+  were sent with `Claude` frontmost and the Viden panel never saw them, which
+  the breadcrumb caught (`README.md 155 bytes` — a previous batch's fixture —
+  rather than `182 bytes`). E3b's rule was about not capturing between typing
+  and `Return`; this one is narrower and earlier: read
+  `name of first process whose frontmost is true` and assert it is
+  `viden-gui` before sending anything.
+- **An Accessibility walk dismisses the composer-control popovers.** The
+  work-mode, permission and model pills open a real popover; any `axtree`-style
+  walk between the opening click and the choice closes it, so the pill looked
+  inert through five different attempts. A popover choice is two real clicks
+  with no Accessibility read in between, and the frame that proves the popover
+  opened must be a window-id capture taken before the walk.
+- **Address the window by name, not by index.** While a composer popover is
+  open the process owns a second, unnamed `layer=20` window, and
+  `first window of process` selects it; every walk then returns the popover's
+  own 161-line tree and every control "disappears". The helpers in this
+  batch's scratch directory use `first window whose name is "Viden"`.
+- **The window leaves the Accessibility tree after a full re-render.** Six
+  `-1719` answers across the run, each immediately after a click that caused a
+  centre-view switch, an approval decision or a Lane selection, each
+  recovering with the process alive 3–10 s later. Unchanged from E3b's
+  reading; defect 18 is still not a self-termination in this batch's evidence.
+- **The pinned permission dock overlays the Decision Center's own list.**
+  Reproduced exactly as E3b recorded it, in D2, with both copies decidable.
+- **The bundle is still `0.1.0-rc.5`.** The plan targets `rc.6` for this
+  milestone and no batch has taken the bump.
+
+### What This Means For Plan Goal 4, Per Surface
+
+`docs/release-0.3.3-plan.md` goal 4, carried into `0.3.4` as goal 6 — "one real
+local-first development task completes through the GUI, from intake to a
+committed change, with audit and evidence recorded":
+
+- **Through the TUI — met, end to end**, unchanged from the 2026-09-12 record.
+- **Through the native GUI window on the `0.3.5` candidate — the agent half is
+  now open, and the Lane's source-control half has closed behind it.** E3b
+  could not start a turn in a created Lane; E3c starts one from the popover's
+  own TASK field, and behind it reaches the tool approval with Core's typed
+  hunks, allow-once, the inline tool diff, the archived patch, D14 reading back
+  both approval paths, C15's `Always` and its revoke, and C16's typed `Edit`
+  with the `revised_from` link. That is everything the `0.3.5` trust contract
+  adds, evidenced natively.
+- **What the cockpit still cannot do is finish the task inside the Lane.** The
+  agent's edit lands in the workspace root rather than the Lane worktree
+  (defect 28), and the commit bar refuses against the wrong Lane (defect 30),
+  so no Lane-scoped commit and no push was reachable in this run. E3b reached
+  a Lane-scoped stage and commit; it did so before either defect could be
+  observed, over a tree dirtied out of band, and the two records should be read
+  together rather than as a regression claim.
+- **The honest aggregate:** the `0.3.5` trust surfaces — the Lane-path audit
+  row, the approval scopes, the editable revision, the archived patch, the
+  audit timeline — are **closed and evidenced natively**. Goal 4's own
+  end-to-end claim is **still not met on the GUI**, for two newly located and
+  differently-shaped reasons rather than for the one that blocked `0.3.4` and
+  `0.3.5`'s first attempt. Exit criterion 1 is met as to the candidate being
+  driven natively and as to the Lane's turn; it is not met as to the full task,
+  and this document does not pretend otherwise.
