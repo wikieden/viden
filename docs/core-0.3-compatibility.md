@@ -1699,6 +1699,97 @@ Follow-up added and closed 2026-09-13 by batch C16, from H4's native GUI re-run
    is unchanged, so no capability, count, event shape, or fixture moved; the
    GUI keeps its own 15 s client-side bound as defense in depth.
 
+Follow-ups added and closed 2026-09-14 by batch C17, from the E3c native GUI
+run (`docs/release-evidence/gui-trusted-delivery/checkpoints.md`, defects 28
+and 34):
+
+20. **A tool called in a Lane-owned turn ran against the workspace root**
+   (Core, blocking for the Lane half, found during E3c, 2026-09-14). With a
+   Lane selected and Core's own `turn_owner` carrying its `lane_id`,
+   `tool edit_file path=README.md` reported a path under the workspace root
+   and left the Lane worktree clean; `tool shell command=pwd` in the same Lane
+   printed the workspace root. The client sent the owner correctly, so the
+   resolution site was Core's. Root cause:
+   `run_one_supervised_native_turn` opened the turn's attribution window with
+   the owner it was given, but the tool loop several frames below it never saw
+   that owner — `crates/runtime/src/runtime_loop.rs` built every
+   `ToolExecutionContext` from `SessionEngine::cwd`, the session's workspace
+   root, whatever the turn's scope was. E3c named
+   `crates/runtime/src/frontend_services.rs` as the suspect; that module reads
+   workspace files and diffs and is not the tool working directory. The real
+   sites were `runtime_loop.rs:604` (the approval's `decision_context`
+   preview), `:702` (the registry execution) and `:844` (the post-edit LSP
+   diagnostics).
+   **Closed 2026-09-14 by C17.** The native turn context now carries the root
+   it was opened with — `NativeTurnContext::tool_root`
+   (`crates/runtime/src/work_evidence.rs:101`), resolved once per turn by
+   `native_turn_tool_root` (`:435`) and read back by `active_tool_root`
+   (`:468`). A turn owned by a Lane whose durable record names a worktree runs
+   in that worktree; a session turn, a Lane with no worktree (a non-Git
+   workspace, where the root *is* the Lane's execution scope), and a worktree
+   that is missing, unreadable or no longer contained all keep the workspace
+   root. Resolved once at `begin_native_turn` rather than per call, so a Lane
+   archived mid-turn cannot move the second tool call's directory out from
+   under the first. Containment is re-checked at the consuming end even though
+   `resolve_lane_target` (`crates/lanes/src/lane_runtime.rs:403`) already
+   refuses to create a worktree outside the repository root, and the re-check
+   is load-bearing: `PermissionEngine` normalizes a relative tool path against
+   the *root* (`crates/permissions/src/lib.rs:383`), so a tool root outside it
+   would let a path the gate judged in-scope land outside the workspace. All
+   three sites read the one value, because an operator who approves a preview
+   of one file and gets a change to another has been lied to. The archived
+   `patch` row keeps the tool input's own relative path, so follow-up 14 stays
+   closed and the evidence archive's label still agrees with the file. No
+   event, capability, count, or client-facing field: which tree a Lane's turn
+   runs in is Core's to know, not a client's to be told. Tests:
+   `crates/runtime/src/tests/lane_execution_scope_tests.rs:200` (worktree) and
+   `:340` (a Lane with no worktree).
+21. **A restored Lane had no execution owner after a relaunch** (Core,
+   blocking for restart, found during E3c, 2026-09-14). Rebinding the same
+   workspace against a `VIDEN_HOME` holding a created Lane restored the Lane
+   row, its branch and its worktree, and then refused everything: the composer,
+   its three pills, and the commit bar were all disabled behind
+   `The selected Lane has no sole Core execution owner.` A Lane created before
+   a restart was read-only for the rest of its life. Two independent causes.
+   First, the snapshot prefix republishes `LaneUpdated` for every durable Lane
+   and deliberately publishes no owner
+   (`crates/runtime/src/runtime_contract.rs:2103`), so
+   `exact_owner_binding` and its siblings found none. Second,
+   `lane-agent-bindings.jsonl` still named the previous process's session while
+   the new process minted a different one, so even with an owner in hand
+   `run_supervised_input`'s reservation
+   (`crates/runtime/src/runtime_supervisor.rs:5209`) refused the submit as
+   `lane_already_bound_to_agent_session`.
+   **Closed 2026-09-14 by C17, and this is the contract:** at hydration Core
+   gives every restored non-terminal Lane an execution owner in this process
+   *and* re-stamps its durable Lane-agent row onto the same session. Both
+   halves are required and neither is sufficient — the event is what a client
+   derives the owner from, the durable row is what the submit path reserves
+   against. `rebind_restored_lanes_to_this_session`
+   (`crates/runtime/src/runtime_supervisor.rs:3748`) runs once at supervisor
+   start, over the Lanes the snapshot prefix rebuilt, and emits
+   `LaneRuntimeOwnerBound` naming this process's session; the reducer already
+   keeps a Lane's first valid owner for the life of the view
+   (`crates/types/src/runtime.rs:2023`), so a worker spawned later publishes
+   its binding and does not displace this one, and a terminal Lane still drops
+   its owner. `WorkflowStore::rebind_lane_agent_session`
+   (`crates/workflows/src/stores.rs:287`) appends the superseding row; the
+   earlier row stays, because the log is append-only, and
+   `reduce_lane_agent_bindings` (`:440`) now reads the last row for a Lane as
+   its current session. `bind_lane_agent_once` keeps its strict refusal — while
+   a process lives a second claimant really is an error — and the re-stamp may
+   change only the session, never the agent. Two different *agents* claiming
+   one Lane is still a conflict that fails the whole read, which is the
+   invariant that log exists to protect. A Lane an external agent owns is
+   skipped, both halves: its ACP session is itself durable and
+   `publish_reactivated_agent_session_owner`
+   (`crates/runtime/src/runtime_supervisor.rs:3868`) republishes it with the
+   session's own owner, which a hydration owner would pre-empt. No capability,
+   count, or event-shape change, and no fixture moved. Test:
+   `crates/runtime/src/tests/lane_execution_scope_tests.rs:414`. Two
+   `lane_supervisor_tests` cases asserted the old "a restored Lane has no
+   binding" behaviour and now assert this contract under names that say so.
+
 
 The `context-budgets` fixture backs the frontend-neutral facade export of
 `ContextScope` and `ContextBudgetRecord`. A budget belongs to a Lane only

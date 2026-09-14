@@ -1816,6 +1816,26 @@ numbered and stopped.
     not the owning Lane's `worktree`
     (`crates/lanes/src/lane_supervisor.rs`, the record that carries it).
     Numbered and stopped here; no `crates/**` file was edited.
+    **Fixed 2026-09-14 by Core batch C17** (`fix(runtime): run a Lane-owned
+    turn's tools in the Lane worktree`). The resolution site was one step
+    further in than E3c's suspect: `frontend_services.rs` reads workspace files
+    and diffs and is not the tool working directory. The turn opened its
+    attribution window with the right owner, but the tool loop several frames
+    below built every `ToolExecutionContext` from `SessionEngine::cwd` —
+    `crates/runtime/src/runtime_loop.rs:604` (the approval's
+    `decision_context` preview), `:702` (the registry execution) and `:844`
+    (the post-edit LSP diagnostics). The native turn context now carries the
+    root it was opened with, `NativeTurnContext::tool_root`
+    (`crates/runtime/src/work_evidence.rs:101`), resolved once per turn by
+    `native_turn_tool_root` (`:435`) from the durable Lane record and read back
+    by `active_tool_root` (`:468`); all three sites read that one value, so the
+    file an operator approves and the file that changes cannot differ. A Lane
+    with no worktree still runs in the workspace root, and containment is
+    re-checked at the consuming end because `PermissionEngine` normalizes a
+    relative tool path against the root. No event, capability, count, or
+    fixture moved. Tests:
+    `crates/runtime/src/tests/lane_execution_scope_tests.rs:200` and `:340`.
+    Compatibility follow-up 20.
 29. **A follow-up cannot be queued during a turn; the label promises a queue,
     the submit is refused, and the kept text is discarded** (GUI). The
     composer label switches to `Queue follow-up` the moment Core reports the
@@ -1885,6 +1905,27 @@ numbered and stopped.
     session, so the exact-owner predicate finds none. A Lane created before a
     restart is therefore read-only forever. This is the operable half of what
     E3b numbered 26; the blank-window half does not reproduce (step 27).
+    **Fixed 2026-09-14 by Core batch C17** (`fix(runtime): re-bind restored
+    Lanes to the new session at hydration`). It was Core's, and it had two
+    independent causes, both of which had to go: the snapshot prefix
+    republishes `LaneUpdated` for every durable Lane and deliberately published
+    no owner (`crates/runtime/src/runtime_contract.rs:2103`), so the
+    exact-owner predicate found none; and `lane-agent-bindings.jsonl` still
+    named the dead session, so even with an owner in hand
+    `run_supervised_input`'s reservation
+    (`crates/runtime/src/runtime_supervisor.rs:5209`) refused the submit.
+    Core now, at hydration, emits `LaneRuntimeOwnerBound` for every restored
+    non-terminal Lane naming this process's session
+    (`rebind_restored_lanes_to_this_session`,
+    `crates/runtime/src/runtime_supervisor.rs:3748`) *and* appends a
+    superseding durable binding row for it
+    (`WorkflowStore::rebind_lane_agent_session`,
+    `crates/workflows/src/stores.rs:287`); the old row stays, because the log
+    is append-only. A Lane owned by an external agent is skipped, both halves,
+    so a restored ACP continuation keeps its own owner. No capability, count,
+    event shape, or fixture moved. Test:
+    `crates/runtime/src/tests/lane_execution_scope_tests.rs:414`.
+    Compatibility follow-up 21.
 
 ### Verdicts on defects 22–26
 

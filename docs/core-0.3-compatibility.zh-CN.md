@@ -1296,6 +1296,73 @@ E2 的第四项发现属于客户端侧，记录在它该在的地方而不是�
    `:8905`、`:8984`。直接的 `handle_runtime_command` 契约路径未改动，因此没有 capability、
    计数、事件形状或 fixture 发生移动；GUI 保留其 15 秒客户端侧上限作为纵深防御。
 
+2026-09-14 由批次 C17 依据 E3c 原生 GUI 复跑
+（`docs/release-evidence/gui-trusted-delivery/checkpoints.zh-CN.md`，缺陷 28 与 34）
+新增并同时关闭的后续项：
+
+20. **Lane 拥有的轮次中调用的工具运行在工作区根目录**（Core，对 Lane 半程属阻塞，
+   E3c 期间发现，2026-09-14）。在选中某条 Lane、且 Core 自己的 `turn_owner` 携带其
+   `lane_id` 的情况下，`tool edit_file path=README.md` 报告的是工作区根目录下的路径，
+   Lane worktree 保持干净；同一条 Lane 中的 `tool shell command=pwd` 打印的也是工作区
+   根目录。客户端正确地发送了 owner，因此解析点在 Core 这边。根因：
+   `run_one_supervised_native_turn` 用收到的 owner 打开了轮次的归属窗口，但下方数层调用
+   栈的工具循环从未看到该 owner —— `crates/runtime/src/runtime_loop.rs` 无论轮次作用域
+   如何，都用 `SessionEngine::cwd`（会话的工作区根目录）构造每一个
+   `ToolExecutionContext`。E3c 点名的疑犯是
+   `crates/runtime/src/frontend_services.rs`；该模块读取工作区文件与 diff，并不是工具的
+   工作目录。真正的站点是 `runtime_loop.rs:604`（审批的 `decision_context` 预览）、
+   `:702`（注册表执行）与 `:844`（编辑后的 LSP 诊断）。
+   **已于 2026-09-14 由 C17 关闭。** 原生轮次上下文现在携带它被打开时所用的根目录 ——
+   `NativeTurnContext::tool_root`（`crates/runtime/src/work_evidence.rs:101`），由
+   `native_turn_tool_root`（`:435`）每轮解析一次，并由 `active_tool_root`（`:468`）
+   读回。若轮次的 owner 所指 Lane 的持久记录写有 worktree，则该轮次在那个 worktree 中
+   运行；会话轮次、没有 worktree 的 Lane（非 Git 工作区中，根目录*就是*该 Lane 的执行
+   作用域），以及缺失、不可读或不再被包含的 worktree，一律保留工作区根目录。解析发生在
+   `begin_native_turn` 一次而非每次调用，这样轮次中途被归档的 Lane 不会把第二次工具调用
+   的目录从第一次脚下抽走。尽管 `resolve_lane_target`
+   （`crates/lanes/src/lane_runtime.rs:403`）已经拒绝在仓库根目录之外创建 worktree，
+   消费端仍再次检查包含关系，而且这次检查是承重的：`PermissionEngine` 是相对*根目录*
+   规范化工具的相对路径（`crates/permissions/src/lib.rs:383`），因此位于根目录之外的
+   工具根会让权限门判定为「在作用域内」的路径落到工作区之外。三个站点读同一个值，因为
+   让操作者批准了某个文件的预览、却改动了另一个文件，等于对他撒谎。归档的 `patch` 行仍
+   保留工具输入自身的相对路径，因此后续项 14 保持关闭，证据归档的路径标签依旧与文件一致。
+   没有事件、capability、计数或面向客户端的字段变化：Lane 的轮次在哪棵树中运行是 Core
+   应当知道的事，而不是需要告诉客户端的事。测试：
+   `crates/runtime/src/tests/lane_execution_scope_tests.rs:200`（worktree）与 `:340`
+   （没有 worktree 的 Lane）。
+21. **重启后被恢复的 Lane 没有执行 owner**（Core，对重启属阻塞，E3c 期间发现，
+   2026-09-14）。对着持有已创建 Lane 的 `VIDEN_HOME` 重新绑定同一个工作区，会恢复 Lane
+   行、它的分支与 worktree，然后拒绝一切：输入框、它的三颗药丸与提交栏全部禁用，背后是
+   `The selected Lane has no sole Core execution owner.`。重启前创建的 Lane 在余下的生命
+   周期里都是只读的。有两个彼此独立的成因。其一，快照前缀为每条持久 Lane 重新发布
+   `LaneUpdated`，且刻意不发布 owner（`crates/runtime/src/runtime_contract.rs:2103`），
+   于是 `exact_owner_binding` 及其同类找不到任何 owner。其二，
+   `lane-agent-bindings.jsonl` 仍然指名上一个进程的 session，而新进程铸造了另一个，
+   因此即便手里有 owner，`run_supervised_input` 的预留
+   （`crates/runtime/src/runtime_supervisor.rs:5209`）也会以
+   `lane_already_bound_to_agent_session` 拒绝该提交。
+   **已于 2026-09-14 由 C17 关闭，契约如下：** 在 hydration 时，Core 为每一条被恢复的
+   非终态 Lane 在本进程中赋予一个执行 owner，*并且*把它持久的 Lane-agent 行重新盖章到
+   同一个 session 上。两半都必需，任何一半都不充分 —— 事件是客户端据以推导 owner 的东西，
+   持久行是提交路径据以预留的东西。`rebind_restored_lanes_to_this_session`
+   （`crates/runtime/src/runtime_supervisor.rs:3748`）在 supervisor 启动时对快照前缀重建
+   出的 Lane 运行一次，发出指名本进程 session 的 `LaneRuntimeOwnerBound`；reducer 本来
+   就在视图生命周期内保留一条 Lane 的第一个有效 owner
+   （`crates/types/src/runtime.rs:2023`），因此之后启动的 worker 发布自己的绑定但不会取代
+   这一个，而终态 Lane 仍会丢弃其 owner。`WorkflowStore::rebind_lane_agent_session`
+   （`crates/workflows/src/stores.rs:287`）追加那条取代性的行；更早的行保留原地，因为该
+   日志是只追加的，而 `reduce_lane_agent_bindings`（`:440`）现在把一条 Lane 的最后一行
+   读作其当前 session。`bind_lane_agent_once` 保持其严格拒绝 —— 在一个进程存活期间，第二
+   个主张者确实是错误 —— 而重新盖章只能改变 session，永远不能改变 agent。两个不同的
+   *agent* 主张同一条 Lane 仍然是让整次读取失败的冲突，那正是该日志存在所要守护的不变式。
+   由外部 agent 拥有的 Lane 两半都跳过：它的 ACP session 本身就是持久的，
+   `publish_reactivated_agent_session_owner`
+   （`crates/runtime/src/runtime_supervisor.rs:3868`）会用该 session 自己的 owner 重新发布
+   它，而 hydration owner 会抢在前面。没有 capability、计数或事件形状变化，也没有 fixture
+   发生移动。测试：`crates/runtime/src/tests/lane_execution_scope_tests.rs:414`。两个
+   `lane_supervisor_tests` 用例原先断言「被恢复的 Lane 没有绑定」的旧行为，现在断言这条
+   契约，并以能说明这一点的名字重命名。
+
 `context-budgets` fixture 为 `ContextScope` 与 `ContextBudgetRecord` 的 frontend-neutral
 facade 导出提供依据。Budget 只能通过该 Lane 精确绑定的 runtime owner 所指名的 typed task
 scope 归属到 Lane；"取最近一条 budget" 永远不是有效归属，fixture 中两个 scope 刻意互不相交。

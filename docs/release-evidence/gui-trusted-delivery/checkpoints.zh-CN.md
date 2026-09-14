@@ -1534,6 +1534,21 @@ GUI 驱动的 Core 行为，作用在一次真实改动上；只有这一次改�
     （`crates/runtime/src/frontend_services.rs`，会话引擎的根），而不是所属 Lane 的
     `worktree`（`crates/lanes/src/lane_supervisor.rs`，承载它的那条记录）。此处
     编号并停止；未编辑任何 `crates/**` 文件。
+    **已于 2026-09-14 由 Core 批次 C17 修复**（`fix(runtime): run a Lane-owned
+    turn's tools in the Lane worktree`）。真正的解析点比 E3c 点名的疑犯再往里一层：
+    `frontend_services.rs` 读取工作区文件与 diff，并不是工具的工作目录。回合用正确的
+    owner 打开了归属窗口，但下方数层的工具循环用 `SessionEngine::cwd` 构造每一个
+    `ToolExecutionContext` —— `crates/runtime/src/runtime_loop.rs:604`（审批的
+    `decision_context` 预览）、`:702`（注册表执行）与 `:844`（编辑后的 LSP 诊断）。
+    原生回合上下文现在携带它被打开时所用的根目录 `NativeTurnContext::tool_root`
+    （`crates/runtime/src/work_evidence.rs:101`），由 `native_turn_tool_root`
+    （`:435`）从持久 Lane 记录每轮解析一次，并由 `active_tool_root`（`:468`）读回；
+    三个站点读同一个值，因此操作者批准的文件与实际改动的文件不可能不同。没有 worktree
+    的 Lane 仍在工作区根目录中运行，并且在消费端再次检查包含关系，因为
+    `PermissionEngine` 是相对根目录规范化工具的相对路径。没有事件、capability、计数或
+    fixture 发生移动。测试：
+    `crates/runtime/src/tests/lane_execution_scope_tests.rs:200` 与 `:340`。
+    兼容性后续项 20。
 29. **回合进行中无法排队跟进；标签承诺了一个队列，提交被拒绝，被保留的文本被
     丢弃**（GUI）。Core 一报告回合，编辑器标签就切换为 `Queue follow-up`，但
     `sendComposerIntent` 依然走那唯一的命令槽，而第一条 `SubmitUserInput` 在 Core
@@ -1586,6 +1601,20 @@ GUI 驱动的 Core 行为，作用在一次真实改动上；只有这一次改�
     铸造了新的会话，于是"唯一所有者"谓词找不到任何一个。因此重启之前创建的 Lane
     从此只读。这是 E3b 编号为 26 的问题中"可操作性"的那一半；"空白窗口"的那一半
     不复现（步骤 27）。
+    **已于 2026-09-14 由 Core 批次 C17 修复**（`fix(runtime): re-bind restored
+    Lanes to the new session at hydration`）。它属于 Core，并且有两个彼此独立、都必须
+    消除的成因：快照前缀为每条持久 Lane 重新发布 `LaneUpdated`，且刻意不发布 owner
+    （`crates/runtime/src/runtime_contract.rs:2103`），于是"唯一所有者"谓词找不到任何
+    一个；而 `lane-agent-bindings.jsonl` 仍指名已死的 session，因此即便手里有 owner，
+    `run_supervised_input` 的预留（`crates/runtime/src/runtime_supervisor.rs:5209`）
+    也会拒绝该提交。Core 现在在 hydration 时为每一条被恢复的非终态 Lane 发出指名本进程
+    session 的 `LaneRuntimeOwnerBound`（`rebind_restored_lanes_to_this_session`，
+    `crates/runtime/src/runtime_supervisor.rs:3748`），*并且*为它追加一条取代性的持久
+    绑定行（`WorkflowStore::rebind_lane_agent_session`，
+    `crates/workflows/src/stores.rs:287`）；旧行保留原地，因为该日志是只追加的。由外部
+    agent 拥有的 Lane 两半都跳过，因此被恢复的 ACP 续接保留它自己的 owner。没有
+    capability、计数、事件形状或 fixture 发生移动。测试：
+    `crates/runtime/src/tests/lane_execution_scope_tests.rs:414`。兼容性后续项 21。
 
 ### 对缺陷 22–26 的裁定
 
