@@ -418,7 +418,7 @@ impl crate::SessionEngine {
     /// A turn whose owner names a Lane executes inside that Lane's worktree:
     /// the worktree is the Lane's whole reason to exist, and a Lane-owned tool
     /// that wrote the workspace root would put one Lane's work in another
-    /// scope's tree — which is exactly what `0.3.5` shipped. Everything else
+    /// scope's tree — which is what the `0.3.5` candidate did. Everything else
     /// keeps the session's workspace root, including a Lane whose `worktree`
     /// is `None`: a non-Git workspace has no second tree to run in, and the
     /// root *is* that Lane's execution scope.

@@ -387,7 +387,6 @@ fn lane_runtime_owner_hydrated_start_binds_this_session_and_stays_exact() {
             owner: hydrated_owner,
         }]
     );
-    let _ = exact_owner;
 }
 
 #[test]
@@ -887,7 +886,6 @@ fn lane_runtime_owner_restart_binds_the_new_session_and_never_the_stale_one() {
             .lane_runtime_owners
             .is_empty()
     );
-    let _ = hydrated_owner;
 }
 
 #[test]
