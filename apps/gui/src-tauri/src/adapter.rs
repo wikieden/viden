@@ -346,6 +346,20 @@ pub fn open_local_workspace(root: impl AsRef<Path>) -> Result<GuiCoreAdapter, St
     open_workspace_with_host(&host, root)
 }
 
+/// Opens a workspace against a Core whose session home is named explicitly.
+///
+/// The shipped launch path uses [`open_local_workspace`], whose `LocalCoreHost`
+/// resolves the user's real session home. A harness must never write there, so
+/// the shell-path tests bind a temporary one through this entry point and the
+/// production path stays unchanged.
+pub fn open_local_workspace_with_session_home(
+    root: impl AsRef<Path>,
+    session_home: impl AsRef<Path>,
+) -> Result<GuiCoreAdapter, String> {
+    let host = LocalCoreHost::with_session_home(session_home.as_ref());
+    open_workspace_with_host(&host, root)
+}
+
 fn open_workspace_with_host(
     host: &LocalCoreHost,
     root: impl AsRef<Path>,
