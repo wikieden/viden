@@ -440,13 +440,15 @@ export async function hydrateShellFromCore(
             // "awaiting you" badge before anyone opens the view.
             board: { read: (sessionId: string | null) => boardPort(sessionId) },
             // The revocation that makes an Always grant safe to make.
-            revokeStandingApproval: async (ruleId: string) => {
-              const result = await core.revokeStandingApproval(
+            // Core's whole answer, not just its verdict: the list it carries
+            // is the freshest standing-approval fact this client has, and
+            // dropping it was what left a revoked rule on screen (E3c
+            // defect 31).
+            revokeStandingApproval: async (ruleId: string) =>
+              await core.revokeStandingApproval(
                 `gui-standing-revoke-${crypto.randomUUID()}`,
                 ruleId,
-              );
-              return result.outcome;
-            },
+              ),
             onNavigate: (route: string) => {
               // What is left here is the two flows that really do replace the
               // window: D11 project intake and the D4 Lane wizard. Every other

@@ -321,3 +321,94 @@ describe("defect 29 — a submit while a turn runs is queued, not refused", () =
     controller.dispose();
   });
 });
+
+/* ---- defect 31: the standing list mirrors Core's revoke ---- */
+
+describe("defect 31 — a revoked standing rule leaves the settings list", () => {
+  const RULE = {
+    ruleId: "rule_edit_file",
+    toolName: "edit_file",
+    ruleContent: "edit_file(new=Requeued old=Edited)",
+    grantedAt: 1_789_352_875,
+    grantedInWorkspace: "ws_65ba50067a87fc27",
+    auditId: "audit_1789352746460919000",
+  };
+
+  /** The cockpit projection Core published before the revoke. */
+  function installed(): D1CockpitProjection {
+    const base = projection();
+    return {
+      ...base,
+      permissionDock: {
+        ...base.permissionDock,
+        standing: { capabilityAvailable: true, rules: [RULE] },
+      },
+    };
+  }
+
+  test("the row leaves on Core's own answer, without waiting for another snapshot", async () => {
+    const view = installed();
+    // Core's answer: the rule is gone. The native run's cockpit projection was
+    // never refreshed after this, because the revoke's own drain consumed the
+    // `StandingApprovalRevoked` and a quiet Core produced no later wake — so
+    // the panel kept listing a rule that no longer stood.
+    const revokeStandingApproval = vi.fn(async () => ({
+      projection: { capabilityAvailable: true, rules: [] },
+      outcome: { state: "confirmed", reason: null },
+    }));
+    const { root, controller } = mount(view, {
+      revokeStandingApproval,
+      preferences: {
+        isAvailable: async () => true,
+        save: async () => ({ status: "unavailable" }),
+        restore: async () => ({ status: "unavailable" }),
+      },
+    });
+    await flush();
+
+    root.querySelector<HTMLButtonElement>("[data-settings-toggle]")!.click();
+    await flush();
+    const panel = (): HTMLElement => document.querySelector<HTMLElement>("[data-settings-panel]")!;
+    expect(panel().querySelector("[data-settings-standing-rule='rule_edit_file']")).not.toBeNull();
+
+    panel()
+      .querySelector<HTMLButtonElement>("[data-settings-standing-revoke='rule_edit_file']")!
+      .click();
+    await flush();
+
+    expect(revokeStandingApproval).toHaveBeenCalledWith("rule_edit_file");
+    expect(panel().querySelector("[data-settings-standing-rule='rule_edit_file']")).toBeNull();
+    expect(panel().querySelector("[data-settings-standing-absent='empty']")).not.toBeNull();
+    controller.dispose();
+  });
+
+  test("a refused revoke leaves the rule listed, because it still stands", async () => {
+    const view = installed();
+    const revokeStandingApproval = vi.fn(async () => ({
+      projection: { capabilityAvailable: true, rules: [RULE] },
+      outcome: { state: "rejected", reason: "Core refused the revoke." },
+    }));
+    const { root, controller } = mount(view, {
+      revokeStandingApproval,
+      preferences: {
+        isAvailable: async () => true,
+        save: async () => ({ status: "unavailable" }),
+        restore: async () => ({ status: "unavailable" }),
+      },
+    });
+    await flush();
+    root.querySelector<HTMLButtonElement>("[data-settings-toggle]")!.click();
+    await flush();
+    const panel = (): HTMLElement => document.querySelector<HTMLElement>("[data-settings-panel]")!;
+    panel()
+      .querySelector<HTMLButtonElement>("[data-settings-standing-revoke='rule_edit_file']")!
+      .click();
+    await flush();
+
+    expect(panel().querySelector("[data-settings-standing-rule='rule_edit_file']")).not.toBeNull();
+    expect(
+      panel().querySelector<HTMLElement>("[data-settings-standing-outcome='rejected']")?.textContent,
+    ).toContain("Core refused the revoke.");
+    controller.dispose();
+  });
+});

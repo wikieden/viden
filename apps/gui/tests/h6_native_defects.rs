@@ -11,6 +11,9 @@
 //!    `QueueFollowUp` carries it and `InputQueued` confirms it, and it waits
 //!    in its own pending rather than behind the unanswered submit that is
 //!    holding the D1 slot (defect 29).
+//! 3. **A revoked standing rule leaves the list.** The revoke answers with
+//!    the `standing_approvals` Core holds afterwards, which is what the
+//!    settings panel renders (defect 31).
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -19,7 +22,7 @@ use serde::Deserialize;
 use viden_core::{
     FRONTEND_SCHEMA_V1, LaneRuntimeOwnerBinding, QueuedInputView, RuntimeCommand, RuntimeEvent,
     RuntimeEventEnvelope, RuntimeEventKind, RuntimeOwner, RuntimeSnapshot, RuntimeViewState,
-    RuntimeWireEvent, TurnSource, TurnView,
+    RuntimeWireEvent, StandingApprovalView, TurnSource, TurnView,
 };
 use viden_gui::{D1Intent, GuiCoreAdapter};
 
@@ -261,5 +264,47 @@ fn a_follow_up_queues_while_the_submit_that_started_the_turn_is_still_unanswered
         still_open.pending_command_id.as_deref(),
         Some("gui-h6-submit"),
         "settling the queue must never free the submit's slot: they are two commands"
+    );
+}
+
+/* ---- defect 31: a revoked standing rule leaves the list ---- */
+
+#[test]
+fn the_revoke_answers_with_the_standing_list_core_holds_afterwards() {
+    let mut view = fixture_view();
+    view.standing_approvals.push(StandingApprovalView {
+        rule_id: "rule_edit_file".into(),
+        tool_name: "edit_file".into(),
+        rule_content: "edit_file(new=Requeued old=Edited)".into(),
+        granted_at: 1_789_352_875,
+        granted_in_workspace: "ws_65ba50067a87fc27".into(),
+        audit_id: "audit_1789352746460919000".into(),
+    });
+    let client =
+        TestCoreClient::new(view, Arc::new(Mutex::new(Vec::new()))).with_envelope(envelope(
+            40,
+            RuntimeOwner::default(),
+            RuntimeEventKind::StandingApprovalRevoked {
+                rule_id: "rule_edit_file".to_string(),
+                audit_id: "audit_1789353306646568000".to_string(),
+                owner: RuntimeOwner::default(),
+            },
+        ));
+    let mut adapter = GuiCoreAdapter::new(Box::new(client));
+    adapter.connect().expect("connect the test client");
+    assert_eq!(
+        adapter.standing_approvals().rules.len(),
+        1,
+        "the rule is installed before it is revoked"
+    );
+
+    let result = adapter
+        .revoke_standing_approval_and_wait("gui-h6-revoke", "rule_edit_file", TIMEOUT)
+        .expect("the revoke is sent");
+
+    assert_eq!(result.outcome.state, "confirmed");
+    assert!(
+        result.projection.rules.is_empty(),
+        "the answer carries the list Core holds after the revoke, which is what the panel renders"
     );
 }

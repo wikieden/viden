@@ -113,6 +113,8 @@ import {
   currentProjectLabel,
   type D1CockpitProjection,
   type D6RecoveryProjection,
+  type StandingApprovalIntentResult,
+  type StandingApprovalsProjection,
 } from "../models/workspace";
 import { renderDiffReview } from "./diff_review";
 import type { WorkspaceDiffProjection } from "../models/diff_review";
@@ -481,7 +483,7 @@ export interface D1RenderOptions {
    * would offer a decision the operator cannot take back. Absent leaves the
    * control disabled rather than hidden.
    */
-  revokeStandingApproval?: (ruleId: string) => Promise<{ state: string; reason: string | null }>;
+  revokeStandingApproval?: (ruleId: string) => Promise<StandingApprovalIntentResult>;
   /**
    * Mounts one of the six secondary D-screens inside the cockpit's centre
    * pane (`D-RAILNAV`, resolved by the `0.3.4` plan in favour of the D1
@@ -884,6 +886,19 @@ export function renderD1Cockpit(
    * the turn are two commands, and reporting one as the other would tell the
    * operator the wrong thing about which is waiting (E3c defect 29).
    */
+  /**
+   * Core's own standing-approval list as of the last revoke answer.
+   *
+   * E3c defect 31. The panel read the list off the cockpit projection, and the
+   * revoke's own drain consumes the `StandingApprovalRevoked` that would have
+   * refreshed it — so on a quiet Core no later wake ever arrived and the panel,
+   * closed and reopened, kept listing a rule Core had already dropped. The
+   * revoke answers with the list Core holds *after* the revoke, and that is
+   * the freshest Core fact the client has until the next projection replaces
+   * it. It is Core's answer mirrored, never a client-side removal: a refused
+   * revoke comes back with the rule still in it, and the row stays.
+   */
+  let standingAfterRevoke: StandingApprovalsProjection | null = null;
   let queuePending: D1PendingCommandProjection | null = null;
   let queueInFlight = false;
   let errorMessage: string | null = null;
@@ -1752,6 +1767,8 @@ export function renderD1Cockpit(
       if (disposed) return;
       const nextKey = JSON.stringify(next);
       if (nextKey === projectionKey) return;
+      // A newer Core read outranks the revoke's answer, which is older.
+      standingAfterRevoke = null;
       projection = next;
       if (!selectedLaneId) setSelectedLane(next.selectedLaneId);
       if (
@@ -1803,6 +1820,7 @@ export function renderD1Cockpit(
       const nextKey = JSON.stringify(result.projection);
       const projectionChanged = nextKey !== projectionKey;
       if (projectionChanged) {
+        standingAfterRevoke = null;
         projection = result.projection;
         if (!selectedLaneId) setSelectedLane(result.projection.selectedLaneId);
         {
@@ -3788,8 +3806,9 @@ export function renderD1Cockpit(
         // read, so the list and the dock's Always control can never disagree
         // about what is installed.
         standing: {
-          capabilityAvailable: projection.permissionDock.standing.capabilityAvailable,
-          rules: projection.permissionDock.standing.rules,
+          capabilityAvailable: (standingAfterRevoke ?? projection.permissionDock.standing)
+            .capabilityAvailable,
+          rules: (standingAfterRevoke ?? projection.permissionDock.standing).rules,
           busy: revokeInFlight,
           outcome: revokeOutcome,
         },
@@ -3804,8 +3823,12 @@ export function renderD1Cockpit(
               remountSettingsPanel();
               void options
                 .revokeStandingApproval!(ruleId)
-                .then((outcome) => {
-                  revokeOutcome = outcome;
+                .then((result) => {
+                  revokeOutcome = result.outcome;
+                  // Core's list after the revoke, mirrored exactly: a
+                  // confirmed revoke comes back without the rule, and a
+                  // refusal comes back with it still installed.
+                  standingAfterRevoke = result.projection;
                 })
                 .catch((error: unknown) => {
                   // A host failure is a refusal in its own words, never a
