@@ -629,8 +629,38 @@ impl PendingD1 {
             (PendingD1Kind::PreviewDefaultLane, RuntimeCommand::PreviewStarterLane { request }) => {
                 envelope.owner.lane_id.as_deref() == Some(request.lane_id.as_str())
             }
-            _ => envelope.owner == self.owner,
+            _ => {
+                envelope.owner == self.owner
+                    || self.owner_is_the_workspace_completion_core_stamps(envelope)
+            }
         }
+    }
+
+    /// Whether the envelope carries the owner Core stamps on a command the
+    /// client deliberately sent bare.
+    ///
+    /// Composer controls and adapter discovery are workspace-level, not
+    /// Lane-level, so they send `RuntimeOwner::default()`. Core's
+    /// `stamp_workspace_identity` then fills `workspace_id` and `project_id`
+    /// in with the workspace it published — and only those two, and only when
+    /// the client named neither — before the acceptance is emitted. Comparing
+    /// the sent owner with the stamped one for equality therefore never
+    /// matched, the pending was never accepted, the `SnapshotUpdated` that
+    /// would confirm it was ignored, and the cockpit's one command slot stayed
+    /// occupied for the life of the process (E3c defect 27). This mirrors
+    /// Core's rule exactly and nothing wider: every other field must still be
+    /// what the client sent, so a Lane-scoped envelope is still refused.
+    fn owner_is_the_workspace_completion_core_stamps(
+        &self,
+        envelope: &RuntimeEventEnvelope,
+    ) -> bool {
+        self.owner.workspace_id.is_empty()
+            && self.owner.project_id.is_empty()
+            && RuntimeOwner {
+                workspace_id: String::new(),
+                project_id: String::new(),
+                ..envelope.owner.clone()
+            } == self.owner
     }
 
     fn business_owner_matches(&self, envelope: &RuntimeEventEnvelope) -> bool {
@@ -6761,6 +6791,58 @@ mod tests {
         }
     }
 
+    /// The E3c defect 27 fix mirrors Core's stamping rule and nothing wider:
+    /// a bare pending accepts the workspace ids Core filled in, and still
+    /// refuses an envelope scoped to a Lane, which is a different owner's
+    /// command wearing the same command id.
+    #[test]
+    fn a_bare_pending_accepts_the_stamped_workspace_owner_and_refuses_a_lane_owner() {
+        let pending = PendingD1 {
+            command_id: "ctl-mode".to_string(),
+            owner: RuntimeOwner::default(),
+            kind: PendingD1Kind::SetWorkMode,
+            accepted: false,
+            sent_at: Instant::now(),
+        };
+        let command = viden_core::RuntimeCommand::SetWorkMode {
+            mode: viden_core::WorkMode::Plan,
+        };
+        let envelope = |owner: RuntimeOwner| viden_core::RuntimeEventEnvelope {
+            schema_version: viden_core::FRONTEND_SCHEMA_V1,
+            owner,
+            cursor: viden_core::EventCursor {
+                stream_id: String::new(),
+                sequence: 1,
+            },
+            event: viden_core::RuntimeWireEvent::Known(viden_core::RuntimeEvent::new(
+                1,
+                viden_core::RuntimeEventKind::CommandAccepted {
+                    command_id: "ctl-mode".to_string(),
+                    command: command.clone(),
+                },
+            )),
+        };
+
+        let stamped = RuntimeOwner {
+            workspace_id: "ws_1".to_string(),
+            project_id: "prj_1".to_string(),
+            ..RuntimeOwner::default()
+        };
+        assert!(
+            pending.acceptance_owner_matches(&envelope(stamped.clone()), &command),
+            "Core fills the two ids the client left bare"
+        );
+
+        let lane_scoped = RuntimeOwner {
+            lane_id: Some("lane_1".to_string()),
+            ..stamped
+        };
+        assert!(
+            !pending.acceptance_owner_matches(&envelope(lane_scoped), &command),
+            "a Lane-scoped envelope is a different owner and is never accepted"
+        );
+    }
+
     #[test]
     fn agent_start_reconciles_from_the_projected_session() {
         let lane_id = "lane-reconciled".to_string();
@@ -7147,6 +7229,57 @@ mod tests {
             "a receipt drained by the desktop pump must still free the client's one command slot"
         );
         assert_eq!(created.outcome.state, "confirmed");
+
+        drop(adapter);
+        drop(host);
+        std::fs::remove_dir_all(session_home).expect("remove temporary session home");
+        std::fs::remove_dir_all(project).expect("remove temporary project");
+    }
+
+    /// E3c defect 27, against live Core: a composer control never settles its
+    /// command, so the cockpit's one command slot stays occupied for the life
+    /// of the process and every later composer submit is refused with defect
+    /// 23's alert.
+    ///
+    /// `composer_control_envelope` sends `RuntimeOwner::default()` on purpose:
+    /// a work-mode, permission-level or model change mutates workspace-level
+    /// runtime state, not one Lane's execution. Core then *completes* that bare
+    /// owner with the workspace identity it published
+    /// (`stamp_workspace_identity`, `crates/runtime/src/runtime_supervisor.rs`)
+    /// before emitting, so the `CommandAccepted` the client is waiting for
+    /// carries the `workspace_id` and `project_id` the client left empty.
+    /// Comparing the two owners for equality therefore never accepts the
+    /// pending, and without acceptance the `SnapshotUpdated` that confirms it
+    /// is ignored. The mode changes on screen — Core ran it — and the client
+    /// waits forever for a receipt it already drained.
+    #[test]
+    fn a_workspace_level_composer_control_settles_against_the_owner_core_stamps() {
+        let session_home = temp_dir("control-owner-session-home");
+        let project = temp_dir("control-owner-project");
+        initialize_git_repository(&project);
+        let host = LocalCoreHost::with_session_home(&session_home);
+        let mut adapter = open_workspace_with_host(&host, &project).expect("open local workspace");
+
+        let result = adapter
+            .send_composer_control_and_wait(
+                "control-owner-mode",
+                crate::ComposerControlIntent::SetWorkMode {
+                    mode: "plan".to_string(),
+                },
+                None,
+                Duration::from_millis(250),
+            )
+            .expect("work-mode control dispatches through live Core");
+
+        assert_eq!(
+            result.projection.environment.work_mode, "plan",
+            "Core ran the command; only its receipt is at issue"
+        );
+        assert_eq!(
+            result.pending_command_id, None,
+            "a composer control whose bare owner Core completed must still free the client's one command slot"
+        );
+        assert_eq!(result.outcome.state, "confirmed");
 
         drop(adapter);
         drop(host);
