@@ -257,7 +257,7 @@ fn spawn_pump(
                 }
                 Ok(Some(false)) => {}
                 Ok(None) => thread::sleep(PUMP_TIMEOUT),
-                Err(()) => break,
+                Err(_) => break,
             }
         }
     })
@@ -475,7 +475,7 @@ fn the_commit_and_push_pair_runs_through_the_shell_with_a_lane_selected() {
     let result = pushed.result.as_ref().expect("Core answered the push");
     assert_eq!(result.action, "push");
     assert_eq!(
-        result.failure_class.as_deref(),
+        result.failure_class,
         Some("no_upstream"),
         "the fixture has no remote, so Core's typed refusal is NoUpstream"
     );
@@ -565,6 +565,15 @@ fn a_follow_up_submitted_during_a_turn_is_never_reported_as_queued_unless_core_s
 
 /* ---- defect 37: a dropped connection is retried, and says so ---- */
 
+/// The recovery surface exactly as the webview sees it: the cockpit read the
+/// shell already ships, whose `recovery` block the adapter fills from the
+/// connection state and its own reconnect schedule.
+fn cockpit_recovery(state: &DesktopState) -> viden_gui::D6RecoveryProjection {
+    shell::d1_cockpit(state, None)
+        .expect("the cockpit reads back even while the transport is severed")
+        .recovery
+}
+
 /// E3d defect 37, in-process: the transport is severed mid-session and the
 /// host must both *say* so and *try again*.
 ///
@@ -600,10 +609,7 @@ fn a_severed_core_connection_is_logged_and_retried_with_a_visible_countdown() {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         pump_core_events_once(&state, PUMP_TIMEOUT).expect("the pump round runs");
-        let attempted = shell::d6_recovery(&state)
-            .expect("read the recovery surface through the shell")
-            .reconnect
-            .is_some();
+        let attempted = cockpit_recovery(&state).reconnect.is_some();
         if attempted {
             break;
         }
@@ -613,7 +619,7 @@ fn a_severed_core_connection_is_logged_and_retried_with_a_visible_countdown() {
         );
     }
 
-    let recovery = shell::d6_recovery(&state).expect("read the recovery surface through the shell");
+    let recovery = cockpit_recovery(&state);
     assert_ne!(
         recovery.connection,
         D6ConnectionState::Live,
@@ -645,8 +651,7 @@ fn a_severed_core_connection_is_logged_and_retried_with_a_visible_countdown() {
     let recovered_by = Instant::now() + Duration::from_secs(30);
     loop {
         pump_core_events_once(&state, PUMP_TIMEOUT).expect("the pump round runs");
-        let recovery =
-            shell::d6_recovery(&state).expect("read the recovery surface through the shell");
+        let recovery = cockpit_recovery(&state);
         if recovery.connection == D6ConnectionState::Live {
             assert!(
                 recovery.reconnect.is_none(),

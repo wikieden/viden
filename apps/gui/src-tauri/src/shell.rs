@@ -57,6 +57,27 @@ pub const COMMAND_EVENT_TIMEOUT: Duration = Duration::from_millis(250);
 /// order of magnitude better than the 250 ms wake latency it replaces.
 pub const PUMP_DRAIN: Duration = Duration::from_millis(20);
 
+/// Why a pump round could not run at all.
+///
+/// A poisoned adapter mutex means a command panicked while holding it, so
+/// nothing the pump reads afterwards can be trusted and the loop stops. It is
+/// its own type rather than `()` so a caller reading the signature learns that
+/// much without reading the body.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PumpRoundError {
+    LockPoisoned,
+}
+
+impl std::fmt::Display for PumpRoundError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::LockPoisoned => formatter.write_str("GUI Core adapter lock is poisoned"),
+        }
+    }
+}
+
+impl std::error::Error for PumpRoundError {}
+
 /// The gap [`pump_core_events_once`] leaves the lock free after every round.
 ///
 /// The guarantee belongs to the function rather than to its callers: a loop
@@ -251,15 +272,6 @@ pub fn d6_send_intent(
     })
 }
 
-/// The recovery surface with no Core traffic, including the host's own bounded
-/// reconnect (E3d defect 37).
-///
-/// The cockpit reads this on every ordered wake, which is what makes the
-/// countdown move without anyone pressing anything.
-pub fn d6_recovery(state: &DesktopState) -> Result<crate::D6RecoveryProjection, String> {
-    with_adapter(state, |adapter| Ok(adapter.d6_recovery()))
-}
-
 /* ---- the desktop event pump ---- */
 
 /// One round of the desktop pump: drain ordered Core events off the UI thread
@@ -285,14 +297,14 @@ pub fn d6_recovery(state: &DesktopState) -> Result<crate::D6RecoveryProjection, 
 pub fn pump_core_events_once(
     state: &DesktopState,
     event_timeout: Duration,
-) -> Result<Option<bool>, ()> {
+) -> Result<Option<bool>, PumpRoundError> {
     let round = {
         let mut guard = match state.adapter.try_lock() {
             Ok(guard) => guard,
             // A command is in the adapter. Nothing is lost: Core's events stay
             // queued, and this round simply does not take them.
             Err(TryLockError::WouldBlock) => return Ok(Some(false)),
-            Err(TryLockError::Poisoned(_)) => return Err(()),
+            Err(TryLockError::Poisoned(_)) => return Err(PumpRoundError::LockPoisoned),
         };
         match guard.as_mut() {
             Some(adapter) => {

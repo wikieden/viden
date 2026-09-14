@@ -141,7 +141,7 @@ pub use projection::{
 pub use recent_work::{
     RECENT_WORK_CAPABILITY, RecentProjectProjection, RecentSessionProjection, RecentWorkResult,
 };
-pub use shell::{DesktopState, pump_core_events_once};
+pub use shell::{DesktopState, PumpRoundError, pump_core_events_once};
 pub use transcript_rows::{
     TRANSCRIPT_ROWS_CAPABILITY, TRANSCRIPT_ROWS_NO_OWNER_CODE, TRANSCRIPT_ROWS_PAGE_LIMIT,
     TranscriptRowProjection, TranscriptRowsProjection,
@@ -1310,16 +1310,6 @@ fn d6_recover(state: tauri::State<'_, DesktopState>) -> Result<D6RecoveryProject
     shell::d6_recover(&state)
 }
 
-/// The recovery surface with no Core traffic (E3d defect 37).
-///
-/// The cockpit reads it on every ordered wake so the host's own reconnect
-/// countdown moves without the operator pressing anything — and so a
-/// connection that came back stops claiming it is still down.
-#[tauri::command]
-fn d6_recovery(state: tauri::State<'_, DesktopState>) -> Result<D6RecoveryProjection, String> {
-    shell::d6_recovery(&state)
-}
-
 #[tauri::command]
 fn d6_send_intent(
     command_id: String,
@@ -1418,7 +1408,6 @@ pub fn run_with_adapter(adapter: Option<GuiCoreAdapter>) {
             d14_audit_poll,
             agent_content,
             d6_recover,
-            d6_recovery,
             d6_send_intent
         ])
         .setup(|app| {
@@ -1458,7 +1447,7 @@ fn spawn_core_event_pump(app: tauri::AppHandle) {
                         thread::sleep(Duration::from_millis(250));
                         continue;
                     }
-                    Err(()) => break,
+                    Err(_) => break,
                 }
             };
             if advanced {
