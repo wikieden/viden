@@ -14,7 +14,8 @@
 //! The shell path is webview -> `main.ts` port -> `invoke` -> this function ->
 //! adapter, woken only by the pump, and that is the path under test here.
 
-use std::sync::Mutex;
+use std::sync::{Mutex, TryLockError};
+use std::thread;
 use std::time::Duration;
 
 use crate::{
@@ -41,6 +42,29 @@ impl DesktopState {
 
 /// The wait every command gives Core's ordered answer before it returns.
 pub const COMMAND_EVENT_TIMEOUT: Duration = Duration::from_millis(250);
+
+/// How long one pump round may hold the adapter lock for its drain.
+///
+/// E3d defect 35. Every Tauri command runs on a thread that is not the pump's,
+/// and both take this one mutex. The pump used to hold it across a 250 ms
+/// blocking receive and re-acquire it the instant it let go, and
+/// `std::sync::Mutex` promises no fairness — so the operator's own gesture
+/// could queue behind a background drain indefinitely. `Stage all` pressing
+/// cleanly and nothing happening is what that looks like from the outside: the
+/// `invoke` never reached the adapter, so nothing was ever sent.
+///
+/// Short enough that a command rarely waits for a whole round, and still an
+/// order of magnitude better than the 250 ms wake latency it replaces.
+pub const PUMP_DRAIN: Duration = Duration::from_millis(20);
+
+/// The gap [`pump_core_events_once`] leaves the lock free after every round.
+///
+/// The guarantee belongs to the function rather than to its callers: a loop
+/// that simply calls it in a `while` cannot starve a command, because the
+/// function itself does not return until the lock has been unheld for this
+/// long. A caller that could skip the gap would be a caller that could
+/// reintroduce defect 35.
+pub const PUMP_YIELD: Duration = Duration::from_millis(5);
 
 const LOCK_UNAVAILABLE: &str = "GUI Core adapter lock is unavailable";
 const NOT_CONNECTED: &str = "Core adapter is not connected";
@@ -192,19 +216,42 @@ pub fn d2_decisions(
 
 /* ---- the desktop event pump ---- */
 
-/// One iteration of the desktop pump: drain ordered Core events off the UI
-/// thread and report whether Core advanced.
+/// One round of the desktop pump: drain ordered Core events off the UI thread
+/// and report whether Core advanced.
 ///
 /// `None` means no workspace is bound yet — the caller waits rather than
 /// burning the CPU on an empty lock — and `Some(false)` means the drain came
-/// back empty. `Err` means the lock is gone and the pump must stop.
+/// back empty, was skipped because a command held the lock, or both. `Err`
+/// means the lock is poisoned and the pump must stop.
+///
+/// Two rules keep the operator's own command ahead of this background drain
+/// (E3d defect 35), and both live here rather than in the caller:
+///
+/// * the lock is *tried*, never waited for — a command holding it is
+///   answering a gesture, and the events it does not drain this round are
+///   still queued for the next one;
+/// * the round does not return until the lock has been released for
+///   [`PUMP_YIELD`], so a command blocked on it has an unlocked mutex to
+///   acquire before the pump asks again.
 pub fn pump_core_events_once(
     state: &DesktopState,
     event_timeout: Duration,
 ) -> Result<Option<bool>, ()> {
-    let mut guard = state.adapter.lock().map_err(|_| ())?;
-    match guard.as_mut() {
-        Some(adapter) => Ok(Some(adapter.pump_events(event_timeout))),
-        None => Ok(None),
-    }
+    let round = {
+        let mut guard = match state.adapter.try_lock() {
+            Ok(guard) => guard,
+            // A command is in the adapter. Nothing is lost: Core's events stay
+            // queued, and this round simply does not take them.
+            Err(TryLockError::WouldBlock) => return Ok(Some(false)),
+            Err(TryLockError::Poisoned(_)) => return Err(()),
+        };
+        match guard.as_mut() {
+            Some(adapter) => Some(adapter.pump_events(event_timeout)),
+            None => None,
+        }
+    };
+    // Outside the guard, unconditionally: this is the window the command
+    // thread needs, and a round that skipped the drain still has to leave it.
+    thread::sleep(PUMP_YIELD);
+    Ok(round)
 }

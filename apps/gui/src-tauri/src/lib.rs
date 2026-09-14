@@ -1426,13 +1426,17 @@ pub const CORE_EVENT_WAKE: &str = "viden://core-advanced";
 ///
 /// The adapter lock is held only for the bounded drain, never across an emit,
 /// so a command issued from the UI thread cannot be blocked behind a wake.
+/// `pump_core_events_once` owns the fairness rule this loop depends on — it
+/// tries the lock rather than waiting for it, and leaves it free for
+/// `shell::PUMP_YIELD` after every round — because a pump that could hold the
+/// adapter against the operator's own gesture is E3d defect 35.
 fn spawn_core_event_pump(app: tauri::AppHandle) {
     thread::spawn(move || {
         loop {
             let advanced = {
                 use tauri::Manager;
                 let state = app.state::<DesktopState>();
-                match pump_core_events_once(&state, Duration::from_millis(250)) {
+                match pump_core_events_once(&state, shell::PUMP_DRAIN) {
                     Ok(Some(advanced)) => advanced,
                     // No workspace is bound yet; wait for one without burning
                     // the CPU on an empty lock.

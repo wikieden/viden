@@ -32,7 +32,7 @@ use viden_gui::{
 };
 
 /// The pump's own bounded receive, the same one `spawn_core_event_pump` uses.
-const PUMP_TIMEOUT: Duration = Duration::from_millis(250);
+const PUMP_TIMEOUT: Duration = viden_gui::shell::PUMP_DRAIN;
 
 /// E3d's own follow-up text, kept verbatim so the assertion names what the
 /// native run lost.
