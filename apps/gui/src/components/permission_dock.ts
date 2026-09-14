@@ -5,6 +5,7 @@ import type {
   PermissionDockProjection,
 } from "../models/workspace";
 import "./permission_dock.css";
+import { verbatimField } from "../ui/verbatim_field";
 
 export type { PermissionChoice, PermissionDockProjection } from "../models/workspace";
 
@@ -374,7 +375,7 @@ export function renderPermissionDock(
     // Core's own key, printed raw: it is the contract's vocabulary for what
     // this value means to the tool.
     name.textContent = field.key;
-    const input = document.createElement("input");
+    const input = verbatimField(document.createElement("input"));
     input.type = "text";
     input.dataset.permissionEditField = field.key;
     input.value = field.value;

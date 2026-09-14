@@ -12,6 +12,7 @@ import {
   type EvidenceRowProjection,
 } from "../models/evidence";
 import "./evidence_view.css";
+import { verbatimField } from "../ui/verbatim_field";
 
 /**
  * EvidenceView — the in-cockpit archive of what the Lanes actually produced.
@@ -304,7 +305,7 @@ export function renderEvidenceView(
   const find = document.createElement("div");
   find.className = "evfind";
 
-  const searchBox = document.createElement("input");
+  const searchBox = verbatimField(document.createElement("input"));
   searchBox.type = "search";
   searchBox.className = "search";
   searchBox.dataset.evidenceSearch = "true";

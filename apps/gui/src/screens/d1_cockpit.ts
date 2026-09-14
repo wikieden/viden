@@ -113,6 +113,8 @@ import {
   currentProjectLabel,
   type D1CockpitProjection,
   type D6RecoveryProjection,
+  type StandingApprovalIntentResult,
+  type StandingApprovalsProjection,
 } from "../models/workspace";
 import { renderDiffReview } from "./diff_review";
 import type { WorkspaceDiffProjection } from "../models/diff_review";
@@ -130,6 +132,7 @@ import {
 } from "../models/operator_git";
 import { renderD6Recovery, type SendD6Intent } from "./d6_recovery";
 import "./d1_cockpit.css";
+import { verbatimField } from "../ui/verbatim_field";
 
 export type { D1Intent } from "../models/composer";
 export { BoundedTranscript } from "../models/transcript";
@@ -407,6 +410,19 @@ export interface D1RenderOptions {
   agentProbe?: {
     abandon: () => Promise<D1IntentResult>;
   };
+  /**
+   * Queues one follow-up behind a turn Core is already running
+   * (`QueueFollowUp`, E3c defect 29).
+   *
+   * Its own port rather than a `D1Intent`, because it is the one composer
+   * command that must not wait for the single D1 command slot: the submit that
+   * started the turn holds that slot until Core answers it, and Core does not
+   * answer while the turn waits on an approval. Absent leaves the composer on
+   * its ordinary prompt — the `Queue follow-up` label is only shown where the
+   * queue can actually be sent, because a label that promises a queue and then
+   * refuses is the defect itself.
+   */
+  queueFollowUp?: (laneId: string, content: string) => Promise<D1IntentResult>;
   operatorGit?: {
     read: (laneId: string | null) => Promise<OperatorGitProjection>;
     run: (
@@ -468,7 +484,7 @@ export interface D1RenderOptions {
    * would offer a decision the operator cannot take back. Absent leaves the
    * control disabled rather than hidden.
    */
-  revokeStandingApproval?: (ruleId: string) => Promise<{ state: string; reason: string | null }>;
+  revokeStandingApproval?: (ruleId: string) => Promise<StandingApprovalIntentResult>;
   /**
    * Mounts one of the six secondary D-screens inside the cockpit's centre
    * pane (`D-RAILNAV`, resolved by the `0.3.4` plan in favour of the D1
@@ -817,6 +833,24 @@ export function renderD1Cockpit(
 ): D1Controller {
   let projection = initial;
   let selectedLaneId = initial.selectedLaneId;
+  /**
+   * Moves the Lane selection and re-reads everything that is scoped to it.
+   *
+   * E3c defect 30. `selectLane` did this correctly; the selection also moves
+   * on three other paths — Core's own `selectedLaneId` arriving in a
+   * projection, the Lane a creation resumed into, and a retried Agent session
+   * — and each of those used to assign the field directly, leaving the commit
+   * bar holding the previous Lane's answer. One funnel means a path added
+   * later cannot reintroduce that: the assignment and the re-read are the same
+   * call. `changed` is what the richer `selectLane` needs to know before it
+   * resets the transcript.
+   */
+  const setSelectedLane = (laneId: string | null): boolean => {
+    if (selectedLaneId === laneId) return false;
+    selectedLaneId = laneId;
+    readOperatorGit();
+    return true;
+  };
   let focusedConversation = conversationForLane(initial, initial.selectedLaneId);
   let transcriptLaneId = initial.selectedLaneId;
   let projectionKey = JSON.stringify(initial);
@@ -845,6 +879,29 @@ export function renderD1Cockpit(
   let slotBusyRefusal: { kind: string; age: string; abandonable: boolean } | null = null;
   let submittedDraft: string | null = null;
   let composerDispatchQueued = false;
+  /**
+   * The unanswered `QueueFollowUp`, if one is out.
+   *
+   * Tracked separately from `pendingCommand` for the same reason the host
+   * keeps a separate pending: a queued follow-up and the submit that started
+   * the turn are two commands, and reporting one as the other would tell the
+   * operator the wrong thing about which is waiting (E3c defect 29).
+   */
+  /**
+   * Core's own standing-approval list as of the last revoke answer.
+   *
+   * E3c defect 31. The panel read the list off the cockpit projection, and the
+   * revoke's own drain consumes the `StandingApprovalRevoked` that would have
+   * refreshed it — so on a quiet Core no later wake ever arrived and the panel,
+   * closed and reopened, kept listing a rule Core had already dropped. The
+   * revoke answers with the list Core holds *after* the revoke, and that is
+   * the freshest Core fact the client has until the next projection replaces
+   * it. It is Core's answer mirrored, never a client-side removal: a refused
+   * revoke comes back with the rule still in it, and the row stays.
+   */
+  let standingAfterRevoke: StandingApprovalsProjection | null = null;
+  let queuePending: D1PendingCommandProjection | null = null;
+  let queueInFlight = false;
   let errorMessage: string | null = null;
   /**
    * The design's post-deny redirect: once the operator denies an ask, the
@@ -1097,6 +1154,23 @@ export function renderD1Cockpit(
    * action this client may not be able to send.
    */
   let operatorGitState: OperatorGitProjection = IDLE_OPERATOR_GIT;
+  /**
+   * Which Lane `operatorGitState` was read for, or `null` before any read
+   * answered.
+   *
+   * E3c defect 30. The owner an operator action may act as is a fact about one
+   * Lane, so an answer read for a different Lane is not a weaker answer — it is
+   * an answer to another question. The native run showed one Lane's
+   * `D1-OPERATOR-GIT-OWNER` refusal while the status bar, the titlebar and the
+   * dock all named the other, because the selection had moved through a path
+   * that never re-read. The scope is recorded beside the answer so the render
+   * can tell "Core says no owner for the Lane you selected" from "nobody has
+   * asked about the Lane you selected yet", which are different sentences.
+   * `{ laneId: null }` is the workspace target and is a real scope, so the
+   * wrapper — not a bare `string | null` — is what distinguishes it from
+   * "unread".
+   */
+  let operatorGitScope: { laneId: string | null } | null = null;
   /**
    * The commit message draft.
    *
@@ -1694,8 +1768,10 @@ export function renderD1Cockpit(
       if (disposed) return;
       const nextKey = JSON.stringify(next);
       if (nextKey === projectionKey) return;
+      // A newer Core read outranks the revoke's answer, which is older.
+      standingAfterRevoke = null;
       projection = next;
-      if (!selectedLaneId) selectedLaneId = next.selectedLaneId;
+      if (!selectedLaneId) setSelectedLane(next.selectedLaneId);
       if (
         selectedLaneId &&
         next.lanes.length === 0 &&
@@ -1703,7 +1779,7 @@ export function renderD1Cockpit(
       ) {
         // The whole project is back to zero Lanes; a stale selection would
         // pin the composer on a fail-closed notice forever.
-        selectedLaneId = next.selectedLaneId;
+        setSelectedLane(next.selectedLaneId);
       }
       focusedConversation = conversationForLane(next, selectedLaneId);
       noteRedirectAgainst(next);
@@ -1745,8 +1821,9 @@ export function renderD1Cockpit(
       const nextKey = JSON.stringify(result.projection);
       const projectionChanged = nextKey !== projectionKey;
       if (projectionChanged) {
+        standingAfterRevoke = null;
         projection = result.projection;
-        if (!selectedLaneId) selectedLaneId = result.projection.selectedLaneId;
+        if (!selectedLaneId) setSelectedLane(result.projection.selectedLaneId);
         {
           const next = result.projection;
           if (
@@ -1756,7 +1833,7 @@ export function renderD1Cockpit(
           ) {
             // The whole project is back to zero Lanes; a stale selection would
             // pin the composer on a fail-closed notice forever.
-            selectedLaneId = next.selectedLaneId;
+            setSelectedLane(next.selectedLaneId);
           }
         }
         focusedConversation = conversationForLane(result.projection, selectedLaneId);
@@ -2125,11 +2202,17 @@ export function renderD1Cockpit(
   /// sending anything. Every action control reads the answer.
   const readOperatorGit = (): void => {
     if (!options.operatorGit) return;
+    // The question is asked about the selection as it is now. A later
+    // selection asks its own, and the answer that comes back out of order is
+    // dropped rather than painted over the newer question (defect 30).
+    const laneId = selectedLaneId ?? null;
+    operatorGitScope = null;
     void options.operatorGit
-      .read(selectedLaneId)
+      .read(laneId)
       .then((state) => {
-        if (disposed) return;
+        if (disposed || laneId !== (selectedLaneId ?? null)) return;
         operatorGitState = state;
+        operatorGitScope = { laneId };
         render(false);
       })
       .catch(() => {
@@ -2137,6 +2220,27 @@ export function renderD1Cockpit(
         // Leaving the last known state keeps the controls disabled without
         // claiming a reason that may not be true.
       });
+  };
+
+  /**
+   * The action state for the Lane that is selected *now* (defect 30).
+   *
+   * An answer read for another Lane says nothing about this one, so nothing
+   * from it is carried over except the capability, which is a fact about this
+   * Core build rather than about any Lane. Every control stays visible and
+   * disabled, labelled with a sentence that names the selection instead of
+   * another Lane — the honesty rule the commit bar already follows for an
+   * absent capability and an absent owner.
+   */
+  const operatorGitForSelection = (): OperatorGitProjection => {
+    if (operatorGitScope && operatorGitScope.laneId === (selectedLaneId ?? null)) {
+      return operatorGitState;
+    }
+    return {
+      ...IDLE_OPERATOR_GIT,
+      capabilityAvailable: operatorGitState.capabilityAvailable,
+      ownerUnavailableReason: translate(locale, "d1.review.actionOwnerUnread", {}),
+    };
   };
 
   /**
@@ -2156,6 +2260,7 @@ export function renderD1Cockpit(
       .then((state) => {
         if (disposed) return;
         operatorGitState = state;
+        operatorGitScope = { laneId: laneId ?? null };
       })
       .catch((error: unknown) => {
         if (disposed) return;
@@ -2249,6 +2354,7 @@ export function renderD1Cockpit(
       .then((state) => {
         if (disposed) return;
         operatorGitState = state;
+        operatorGitScope = { laneId: laneId ?? null };
       })
       .catch(() => undefined)
       .finally(() => {
@@ -3237,6 +3343,12 @@ export function renderD1Cockpit(
    */
   const refuseOccupiedCommandSlot = (): void => {
     if (!pendingCommandId) return;
+    // Nothing left this client, so there is no submitted draft to retire when
+    // the *other* command finally confirms. E3c defect 29's second half: the
+    // refused text was recorded as submitted, and the unrelated confirmation
+    // that arrived later cleared the composer under it, so the message the
+    // operator was promised would be kept was discarded instead.
+    submittedDraft = null;
     const kind = pendingCommand?.kind ?? pendingCommandId;
     slotBusyRefusal = {
       kind,
@@ -3303,6 +3415,83 @@ export function renderD1Cockpit(
 
   const sendIntent = (intent: D1Intent, onRejected?: () => void): void => {
     void sendAndWait(intent, onRejected);
+  };
+
+  /**
+   * Whether a follow-up can actually be queued for the selection right now.
+   *
+   * E3c defect 29. The composer switched its label to `Queue follow-up` on
+   * Core's `busy` alone and then refused the submit, which is a promise the
+   * client could not keep. The label and the route now read the same
+   * predicate, so the offer exists exactly where the command does.
+   */
+  const queueFollowUpAvailable = (): boolean =>
+    !!options.queueFollowUp && !!selectedLaneId && projection.composer.busy;
+
+  /**
+   * Sends one `QueueFollowUp` and applies Core's ordered answer.
+   *
+   * It does not wait for the D1 command slot: the submit holding that slot is
+   * the turn this follow-up is queued behind. One queue at a time, because the
+   * answer is the only record of whether Core accepted the input — a second
+   * sent hopefully would be a second message the operator cannot account for.
+   * The queued row itself is never drawn from here: it comes from Core's
+   * `InputQueued` through `liveWork.queuedInputs`, and leaves when Core drains
+   * it (compatibility follow-up 16).
+   */
+  const queueComposerFollowUp = (laneId: string, content: string): void => {
+    const port = options.queueFollowUp;
+    if (!port) return;
+    if (queueInFlight || queuePending) {
+      // The queue's own slot is occupied. Defect 23's refusal applies here
+      // unchanged, and the text stays in the composer.
+      slotBusyRefusal = {
+        kind: queuePending?.kind ?? "queue_follow_up",
+        age: slotBusyAge(queuePending?.ageMs ?? 0),
+        // A queued input is an effect: Core's answer is the only record of
+        // whether it was accepted, so the wait is never abandoned here.
+        abandonable: false,
+      };
+      draft = content;
+      submittedDraft = null;
+      render(true);
+      return;
+    }
+    queueInFlight = true;
+    slotBusyRefusal = null;
+    errorMessage = null;
+    submittedDraft = content;
+    render(true);
+    void port(laneId, content)
+      .then((result) => {
+        if (disposed) return;
+        queuePending = result.pendingCommand ?? null;
+        // Core's facts, applied through the same funnel every other answer
+        // uses. The queue's pending is deliberately *not* published as the D1
+        // slot: the submit still holds that one.
+        controller.applyProjection(result.projection);
+        if (result.outcome.state === "rejected") {
+          errorMessage = result.outcome.reason ?? "Core rejected the follow-up.";
+          draft = content;
+          submittedDraft = null;
+          return;
+        }
+        if (draft === submittedDraft) draft = "";
+        submittedDraft = null;
+      })
+      .catch((error: unknown) => {
+        if (disposed) return;
+        // A host failure is this client's error, never Core's refusal, and it
+        // never eats the text.
+        root.dataset.d1Error = String(error);
+        errorMessage = String(error);
+        draft = content;
+        submittedDraft = null;
+      })
+      .finally(() => {
+        queueInFlight = false;
+        if (!disposed) render(true);
+      });
   };
 
   const sendComposerIntent = (intent: D1Intent, onRejected?: () => void): void => {
@@ -3378,6 +3567,13 @@ export function renderD1Cockpit(
     // The correction has been sent, so the prompt goes back to inviting a
     // message. A submit blocked above never gets here, and never clears it.
     denyRedirect = null;
+    if (queueFollowUpAvailable()) {
+      // Core reports a turn for this Lane, so this is a follow-up and not a
+      // second submit. It carries `QueueFollowUp` and waits in its own
+      // pending; the D1 slot stays where it is (E3c defect 29).
+      queueComposerFollowUp(selectedLaneId, content);
+      return;
+    }
     const route = conversationForLane(projection, selectedLaneId);
     if (route?.kind === "acp" && !projection.composer.busy) {
       sendComposerIntent(
@@ -3459,7 +3655,9 @@ export function renderD1Cockpit(
     // exact confirmed Lane and releases the command slot, while retaining its
     // sole Agent task locally.
     pendingLaneStart = null;
-    selectedLaneId = pending.laneId;
+    // The Lane a creation resumed into is a selection like any other: the
+    // commit bar must ask about *this* Lane before it can refuse for it.
+    setSelectedLane(pending.laneId);
     if (pending.agentId === null) {
       focusedConversation = { kind: "native", laneId: pending.laneId };
       submittedDraft = pending.task;
@@ -3609,8 +3807,9 @@ export function renderD1Cockpit(
         // read, so the list and the dock's Always control can never disagree
         // about what is installed.
         standing: {
-          capabilityAvailable: projection.permissionDock.standing.capabilityAvailable,
-          rules: projection.permissionDock.standing.rules,
+          capabilityAvailable: (standingAfterRevoke ?? projection.permissionDock.standing)
+            .capabilityAvailable,
+          rules: (standingAfterRevoke ?? projection.permissionDock.standing).rules,
           busy: revokeInFlight,
           outcome: revokeOutcome,
         },
@@ -3625,8 +3824,12 @@ export function renderD1Cockpit(
               remountSettingsPanel();
               void options
                 .revokeStandingApproval!(ruleId)
-                .then((outcome) => {
-                  revokeOutcome = outcome;
+                .then((result) => {
+                  revokeOutcome = result.outcome;
+                  // Core's list after the revoke, mirrored exactly: a
+                  // confirmed revoke comes back without the rule, and a
+                  // refusal comes back with it still installed.
+                  standingAfterRevoke = result.projection;
                 })
                 .catch((error: unknown) => {
                   // A host failure is a refusal in its own words, never a
@@ -3872,15 +4075,12 @@ export function renderD1Cockpit(
   /// across Lanes, and the focused conversation is re-derived from the Lane
   /// owner Core published.
   function selectLane(laneId: string): void {
-    selectedLaneId = laneId;
+    // The funnel owns the assignment and the owner re-read; everything below
+    // is the rest of what an in-cockpit selection means.
+    setSelectedLane(laneId);
     transcriptLaneId = null;
     transcript.reset([]);
     focusedConversation = conversationForLane(projection, laneId);
-    // The owner an operator action may act as is the *selected* Lane's, so a
-    // selection change re-reads it. Without this the commit bar would keep the
-    // previous Lane's availability — and, worse, could look enabled for a Lane
-    // Core published no binding for.
-    readOperatorGit();
     // The ordered transcript is owner-scoped, so a selection change is a
     // different conversation and is re-read rather than filtered locally.
     readTranscriptRows();
@@ -4325,9 +4525,25 @@ export function renderD1Cockpit(
       focusedAcp !== null &&
       focusedAcp !== undefined &&
       ["starting", "running", "waiting_approval", "completed"].includes(focusedAcp.status);
-    const showRecovery =
+    // One read of the action state per frame, scoped to the Lane on screen.
+    const operatorGitSelection = operatorGitForSelection();
+    const recoveryActive =
       !["live", "gate_queue_clear", "empty"].includes(projection.recovery.state) &&
       !(projection.recovery.state === "agent_stopped" && focusedAcpOwnsLiveSurface);
+    /**
+     * E3c defect 33. The recovery surface is what the *conversation* slot
+     * shows when Core reports the Lane cannot make progress — it is not a
+     * modal over the cockpit. It used to outrank every registered centre view,
+     * so once Core reported execution stopped, `Plan Studio`, `Diff review`,
+     * the Agent Board, Evidence and Audit each highlighted their rail slot and
+     * left the recovery surface in the pane: both registered views were
+     * unreachable for the rest of that Lane's life, and a Lane that has
+     * stopped is exactly when an operator needs to read its plan and its diff.
+     * Scoping it to the transcript keeps it reachable — `Esc` and a view's own
+     * Close return there, and its Core-backed fact controls keep their labels
+     * — without letting it hold a pane another view was opened into.
+     */
+    const showRecovery = recoveryActive && centerView === "transcript";
     // The composer only exists on the work surface, and only Core can say it
     // is editable. The rail's `Work` slot is offered a focus target only when
     // there will actually be one.
@@ -4367,7 +4583,7 @@ export function renderD1Cockpit(
                 : { type: "fetch", remote: null },
             )
         : undefined,
-      syncState: operatorGitState,
+      syncState: operatorGitSelection,
       onOpenProjectPicker: projectPickerAvailable
         ? () => openProjectPicker("titlebar")
         : undefined,
@@ -4467,7 +4683,7 @@ export function renderD1Cockpit(
         selectLane(laneId);
       },
       onRetryAgent: (sessionId, laneId) => {
-        selectedLaneId = laneId;
+        setSelectedLane(laneId);
         focusedConversation = conversationForLane(projection, laneId);
         sendIntent({ type: "retry_agent_session", laneId, sessionId });
       },
@@ -4569,7 +4785,7 @@ export function renderD1Cockpit(
           actions: !options.operatorGit
             ? undefined
             : {
-                state: operatorGitState,
+                state: operatorGitSelection,
                 message: commitMessage,
                 pairStopped: commitPairStopped,
                 onMessageChange: (next) => {
@@ -4951,10 +5167,13 @@ export function renderD1Cockpit(
     const composerRegion = document.createElement("section");
     composerRegion.className = "d1-composer";
     const composerLabel = document.createElement("label");
-    composerLabel.textContent = projection.composer.busy || composerDispatchQueued
+    // The label promises only what this client can send. `busy` alone used to
+    // switch it, and the submit underneath was then refused by the occupied
+    // command slot (E3c defect 29).
+    composerLabel.textContent = queueFollowUpAvailable()
       ? translate(locale, "d1.composer.queue", {})
       : translate(locale, "d1.composer.prompt", {});
-    const composer = document.createElement("textarea");
+    const composer = verbatimField(document.createElement("textarea"));
     composer.dataset.composer = "true";
     composer.rows = 3;
     composer.value = draft;
@@ -5172,15 +5391,15 @@ export function renderD1Cockpit(
         // commit against.
         available:
           !!options.operatorGit &&
-          operatorGitState.capabilityAvailable &&
-          operatorGitState.ownerAvailable &&
+          operatorGitSelection.capabilityAvailable &&
+          operatorGitSelection.ownerAvailable &&
           !!contextDockProjection.contextDock.source,
         reason: !options.operatorGit
           ? translate(locale, "d1.dock.unbound", {})
-          : !operatorGitState.capabilityAvailable
+          : !operatorGitSelection.capabilityAvailable
             ? "runtime.operator_git"
-            : !operatorGitState.ownerAvailable
-              ? (operatorGitState.ownerUnavailableReason ??
+            : !operatorGitSelection.ownerAvailable
+              ? (operatorGitSelection.ownerUnavailableReason ??
                 translate(locale, "d1.topbar.sync.noOwner", {}))
               : !contextDockProjection.contextDock.source
                 ? translate(locale, "d1.context.noSource", {})

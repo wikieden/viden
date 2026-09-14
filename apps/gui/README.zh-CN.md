@@ -1424,6 +1424,76 @@ Lane 也会宣称有可取消的回合——正是这句断言让 H4 把被占�
 `NoUpstream` 类型化结果结算。因此原生失败属于工作区目标探针未覆盖的其他原因，
 留给 E3c。
 
+### H6 —— E3c 原生缺陷的客户端一半
+
+批次 H6（2026-09-14）关闭了 E3c 缺陷 29–33 的 GUI 一侧，以及缺陷 34 的客户端一
+半。记录与逐条判定在
+`docs/release-evidence/gui-trusted-delivery/checkpoints.md`；下面写的是行为上
+变了什么。这些都没有在原生环境里重新跑过——那是 E3d 的事——旁边的帧都是无头抓
+取的。
+
+**owner 属于某一条 Lane，关于它的答案也一样。** 提交栏显示的是某一条 Lane 的
+`D1-OPERATOR-GIT-OWNER` 拒绝，而状态栏、标题栏与上下文坞指的都是另一条，于是选
+中 Lane 时提交或推送的入口从来无法抵达（缺陷 30）。宿主是对的：
+`operator_git_owner` 按 Lane 从 Core 发布的绑定解析，问 Lane B 就答 Lane B。
+Webview 不是。`selectLane` 会重读 owner，但选中项还会经由另外三条路径移动——
+Core 自己的 `selectedLaneId` 随投影到达、创建流程恢复进入的那条 Lane、以及重试
+的 Agent 会话——而每一条都直接给字段赋值。现在所有赋值都走同一个
+`setSelectedLane` 漏斗，读取会记下它问的是哪条 Lane，被更新选中项取代的乱序答案
+会被丢弃，渲染也根本不再展示限定在另一条 Lane 上的答案。
+
+这就是 E3b 缺陷 25 的客户端成因。进程内的实时 Core 探针现在把「选中 Lane」的这
+一对命令端到端跑通——Core 创建 Lane、Core 绑定它的执行 owner、客户端以该 owner
+对这条 Lane 的工作树做 stage、commit 与 push——而 `git_push` 那一半抵达了权限坞
+并以 Core 自己的类型化 `no_upstream` 落定
+（`the_push_half_of_commit_and_push_reaches_a_decidable_surface_with_a_lane_selected`）。
+原生确认仍欠 E3d。
+
+**标签只能承诺客户端发得出的东西。** Core 一报告回合，输入区就切到
+`Queue follow-up`，然后拒绝它下面的提交，因为 `sendComposerIntent` 走的是唯一的
+D1 命令槽——而启动这个回合的 `SubmitUserInput` 会一直占着它直到 Core 应答，且回
+合在等审批时 Core 不会应答（缺陷 29）。Core 本来就有 `QueueFollowUp`、本来就发
+布 `InputQueued`，`PendingD1Kind::Queue` 本来就与之匹配；缺的是一个让它等待的
+pending。`queue_follow_up_and_wait` 以该 Lane 的精确提交 owner 发出，在
+`pending_queue` 里等待，由每条命令都走的同一个 `reconcile_ambient_pendings` 漏
+斗落定，因此排队落定永不释放提交的槽位，反之亦然。标签读的是路由读的同一个判
+据。兼容性后续项 16 在 GUI 上已满足。
+
+**被拒绝的提交从未发出，因此不得据此注销任何东西。** 被拒的文本被记成了「已提
+交」，等到**另一条**命令最终确认时，输入区就在它下面被清空了：E3c 的
+`Summarise what you just changed` 从未进入会话 JSONL。现在拒绝会清掉已提交草
+稿，因为根本没有提交可注销。
+
+**Core 的回答包含它的列表，而不只是它的结论。** `Revoke` 写下了 Core 的
+`approval.revoke` 行，规则也不再生效，但设置面板——关掉再打开——仍然列着它（缺
+陷 31）。面板读的是驾驶舱投影，而没有任何东西刷新它：撤销自己的排空消费掉了
+`StandingApprovalRevoked`，而在安静的 Core 上不会再有后续唤醒到来。宿主本来就
+用撤销之后 Core 持有的 `standing_approvals` 作答；是外壳把这一半丢了。现在整个
+回答都会到达面板，是镜像而不是编辑——被拒绝的撤销回来时规则仍在，行也就留着。
+
+**能承载工具参数的操作者输入是逐字的。** 输入区施加了 macOS 的自动引号替换：
+`A"b"c` 读回来是 `A”b"c`，这让 E3c 尝试的每一份 `update_plan` 负载都被破坏（缺
+陷 32）。`verbatimField` 关掉 `autocorrect`、`autocapitalize`、`spellcheck` 与
+`autocomplete`，客户端里每一个文本字段都经由它创建；一条守卫测试会走查源码，因
+此后来新增的字段在变成逐字之前都会失败。E3c 测到的是无障碍取值通道，而 WebKit
+把它和真实按键送进同一条编辑流水线；按键确认是 E3d 的事，若替换后的引号仍然挺过
+这些属性，剩下的设置就是 webview 的，属于外壳而不属于页面。
+
+**恢复界面属于对话槽位。** 在 Core 报告执行已停止时，按下 `Plan Studio` 或
+`Diff review` 只会点亮导航槽而把恢复界面留在面板里，于是两个已注册的中间视图在
+那条 Lane 余下的生命里都无法抵达（缺陷 33）——而 Lane 停下来的时候，恰恰是操作
+者需要读它的计划与差异的时候。现在它被限定在 `centerView === "transcript"`：依
+然可达，其基于 Core 的事实控件与标签不变，也不再占着别的视图打开进来的面板。
+
+**一条 Lane 的执行 owner 是它最新的绑定。** `exact_lane_owner` 要求恰好一条绑
+定，否则拒绝，于是同时带着恢复 Lane 的前一进程绑定与重启新铸绑定的视图，根本解
+析不出 owner。现在它读该 Lane 的最后一条绑定，那是 Core 关于谁拥有它的最新说
+法；owner 指向另一条 Lane 的绑定仍然被拒绝而不是归一化。**这并不关闭缺陷 34。**
+Core 自己的视图归约器保留一条 Lane 的**第一条**有效绑定并丢弃后来的
+（`RuntimeViewState::apply_event`，`crates/types/src/runtime.rs`），因此这里读到
+的视图仍可能只带着那条过期绑定。重启后的 Lane 要有 owner，重新绑定必须是视图最
+终持有的那一条，而那一半属于 Core。
+
 ## Agent 看板（G9）
 
 `D-PLANBOARD` 对 Agent 看板的注册方式与规划工作台相同：它是驾驶舱的**中央面

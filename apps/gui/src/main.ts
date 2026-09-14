@@ -419,6 +419,7 @@ export async function hydrateShellFromCore(
             loadWorkspaceFiles,
             workspaceDiff: workspaceDiffPort,
             agentProbe: agentProbePort,
+            queueFollowUp: queueFollowUpPort,
             operatorGit: operatorGitPort,
             layout: layoutPort,
             transcriptRows: transcriptRowsPort,
@@ -439,13 +440,15 @@ export async function hydrateShellFromCore(
             // "awaiting you" badge before anyone opens the view.
             board: { read: (sessionId: string | null) => boardPort(sessionId) },
             // The revocation that makes an Always grant safe to make.
-            revokeStandingApproval: async (ruleId: string) => {
-              const result = await core.revokeStandingApproval(
+            // Core's whole answer, not just its verdict: the list it carries
+            // is the freshest standing-approval fact this client has, and
+            // dropping it was what left a revoked rule on screen (E3c
+            // defect 31).
+            revokeStandingApproval: async (ruleId: string) =>
+              await core.revokeStandingApproval(
                 `gui-standing-revoke-${crypto.randomUUID()}`,
                 ruleId,
-              );
-              return result.outcome;
-            },
+              ),
             onNavigate: (route: string) => {
               // What is left here is the two flows that really do replace the
               // window: D11 project intake and the D4 Lane wizard. Every other
@@ -1043,6 +1046,17 @@ export async function hydrateShellFromCore(
       const agentProbePort = {
         abandon: async () => await core.d1AbandonProbe(),
       };
+
+      /**
+       * The follow-up a composer submit becomes while Core reports a turn
+       * (E3c defect 29).
+       *
+       * Deliberately not routed through the D1 send path: that one waits for
+       * the single command slot, and the submit that started the turn is what
+       * holds it.
+       */
+      const queueFollowUpPort = async (laneId: string, content: string) =>
+        await core.d1QueueFollowUp(`gui-d1-queue-${crypto.randomUUID()}`, laneId, content);
 
       const operatorGitPort = {
         read: async (laneId: string | null) => await core.operatorGit(laneId),

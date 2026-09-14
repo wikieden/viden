@@ -266,6 +266,7 @@
   "d1.review.commitTooLong": "\u63d0\u4ea4\u4fe1\u606f\u4e3a {bytes} \u5b57\u8282\uff0cCore \u7684\u4e0a\u9650\u662f {limit}\u3002",
   "d1.review.actionUnavailable": "\u64cd\u4f5c\u8005\u6e90\u7801\u7ba1\u7406\u52a8\u4f5c\u4e0d\u53ef\u7528\uff1aCore \u672a\u53d1\u5e03 {capability}\u3002",
   "d1.review.actionNoOwner": "\u672a\u9009\u4e2d\u4efb\u4f55 Lane\uff0c\u672c\u5ba2\u6237\u7aef\u6ca1\u6709\u53ef\u4f9b\u4ee3\u884c\u7684 Core owner\u3002",
+  "d1.review.actionOwnerUnread": "\u5c1a\u672a\u8bfb\u53d6\u6240\u9009 Lane \u7684 Core owner\u3002",
   "d1.review.actionBusy": "\u5df2\u6709\u4e00\u4e2a\u6e90\u7801\u7ba1\u7406\u52a8\u4f5c\u5728\u6267\u884c\u3002",
   "d1.review.actionAwaitingApproval": "\u7b49\u5f85\u6743\u9650\u51b3\u7b56\u3002",
   "d1.review.actionAwaitingApprovalDetail": "{action} \u6b63\u5728\u6743\u9650\u5750\u5e2d\u7b49\u5f85\u6279\u51c6\u3002",

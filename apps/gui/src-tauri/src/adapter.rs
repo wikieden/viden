@@ -84,6 +84,19 @@ pub struct GuiCoreAdapter {
     pub(crate) d4_receipt: Option<viden_core::StarterLaneReceipt>,
     pub(crate) d4_outcome: D4OutcomeProjection,
     pending_d1: Option<PendingD1>,
+    /// The in-flight `QueueFollowUp`, in its own slot.
+    ///
+    /// E3c defect 29. A follow-up typed while a turn runs is a different Core
+    /// command from the submit that started the turn, and Core answers it
+    /// while that submit is still unanswered — a turn waiting on an approval
+    /// holds `SubmitUserInput` open for as long as the operator takes to
+    /// decide. Queueing through `pending_d1` therefore refused every
+    /// follow-up the composer promised, so the queue keeps its own pending:
+    /// one unanswered submit and one unanswered queue are two commands, not a
+    /// contended slot. It is settled by the same funnel every other pending
+    /// is, and by Core's own `InputQueued`.
+    pending_queue: Option<PendingD1>,
+    queue_outcome: D1OutcomeProjection,
     d1_outcome: D1OutcomeProjection,
     /// One merge-gate decision at a time. Gate decisions are project-scoped
     /// rather than Lane-scoped, so they keep their own slot instead of
@@ -1953,6 +1966,8 @@ impl GuiCoreAdapter {
             d4_receipt: None,
             d4_outcome: D4OutcomeProjection::idle(),
             pending_d1: None,
+            pending_queue: None,
+            queue_outcome: D1OutcomeProjection::idle(),
             d1_outcome: D1OutcomeProjection::idle(),
             pending_d12: None,
             d12_outcome: D1OutcomeProjection::idle(),
@@ -5046,6 +5061,103 @@ impl GuiCoreAdapter {
         })
     }
 
+    /// Sends one `QueueFollowUp` for the selected Lane and waits for Core's
+    /// ordered answer, without touching the D1 command slot.
+    ///
+    /// E3c defect 29. The composer switches its label to `Queue follow-up` the
+    /// moment Core reports a turn, and the *only* honest way to keep that
+    /// promise is a command that does not queue behind the submit which
+    /// started the turn. Core has `QueueFollowUp`, publishes `InputQueued`,
+    /// and answers it while the submit is still open; what was missing was a
+    /// pending of its own to wait in.
+    ///
+    /// The owner is the same exact Lane owner a submit uses — a follow-up is
+    /// work for that Lane, so it is refused rather than sent when Core has
+    /// bound no owner for it. An unanswered queue refuses the next one: its
+    /// answer is the only record of whether the input was accepted, so the
+    /// client never sends a second and hopes.
+    pub fn queue_follow_up_and_wait(
+        &mut self,
+        command_id: &str,
+        lane_id: &str,
+        content: &str,
+        event_timeout: Duration,
+    ) -> Result<D1IntentResult, String> {
+        if let Some(pending) = &self.pending_queue {
+            return Err(format!(
+                "follow-up `{}` is still queued",
+                pending.command_id
+            ));
+        }
+        if content.trim().is_empty() {
+            return Err("D1 composer content is empty".to_string());
+        }
+        let owner = self.exact_submit_owner(lane_id)?;
+        self.client
+            .send(RuntimeCommandEnvelope {
+                schema_version: FRONTEND_SCHEMA_V1,
+                client_id: "viden-gui".to_string(),
+                command_id: command_id.to_string(),
+                owner: owner.clone(),
+                command: RuntimeCommand::QueueFollowUp {
+                    content: content.to_string(),
+                },
+            })
+            .map_err(|error| error.to_string())?;
+        self.pending_queue = Some(PendingD1 {
+            command_id: command_id.to_string(),
+            owner,
+            kind: PendingD1Kind::Queue,
+            accepted: false,
+            sent_at: Instant::now(),
+        });
+        self.queue_outcome = D1OutcomeProjection::pending();
+        self.poll_queue_follow_up(lane_id, event_timeout)
+    }
+
+    /// Drains ordered Core events while a follow-up is still queued.
+    ///
+    /// The result carries the *queue's* pending and outcome, never the D1
+    /// slot's: a caller that mixed the two would report the unanswered submit
+    /// as the reason the follow-up has not landed.
+    pub fn poll_queue_follow_up(
+        &mut self,
+        lane_id: &str,
+        event_timeout: Duration,
+    ) -> Result<D1IntentResult, String> {
+        let mut received = false;
+        let mut receive_failed = false;
+        for _ in 0..8 {
+            let event = match self.receive_event_until(event_timeout) {
+                Ok(Some(event)) => event,
+                Ok(None) => break,
+                Err(_) => {
+                    receive_failed = true;
+                    break;
+                }
+            };
+            received = true;
+            if self.reconcile_ambient_pendings(&event) && self.pending_queue.is_none() {
+                break;
+            }
+        }
+        if received && !receive_failed {
+            self.refresh_projection()
+                .map_err(|error| error.to_string())?;
+        }
+        Ok(D1IntentResult {
+            projection: self
+                .d1_cockpit(Some(lane_id))
+                .ok_or_else(|| "Core has not published a D1 projection".to_string())?,
+            pending_command_id: self
+                .pending_queue
+                .as_ref()
+                .map(|pending| pending.command_id.clone()),
+            pending_command: self.pending_queue.as_ref().map(PendingD1::projection),
+            outcome: self.queue_outcome.clone(),
+        })
+    }
+
     /// Stops waiting for an unanswered adapter *read* and frees the slot.
     ///
     /// Defects 14 and 15 (E3a). Core answers one command at a time and gives
@@ -6058,25 +6170,39 @@ impl GuiCoreAdapter {
         self.exact_lane_owner(lane_id, "submit")
     }
 
-    /// Raw same-Lane binding cardinality is authoritative; malformed duplicates block all routing.
+    /// The Lane's execution owner: the **latest** binding Core published for
+    /// it, and only when that binding's owner names the Lane.
+    ///
+    /// `lane_runtime_owners` is an ordered list of Core's own statements, so
+    /// the last one is Core's most recent word on who owns this Lane — the
+    /// same "last write wins on the id" rule Core's reducer applies to a
+    /// standing approval. Reading the first instead is what E3c defect 34 is
+    /// about on the client side: a Lane created before a relaunch carries the
+    /// previous process's binding, and a client that either refuses on two or
+    /// prefers the stale one leaves that Lane read-only forever.
+    ///
+    /// This alone does not close defect 34. Core's own view reducer
+    /// (`RuntimeViewState::apply_event`, `crates/types/src/runtime.rs`) keeps
+    /// a Lane's *first* valid binding and drops a later one, so the view this
+    /// reads can still carry only the stale binding; the rebinding has to be
+    /// the one the view ends up holding, which is Core's half.
+    ///
+    /// A malformed payload is still refused rather than normalized: a binding
+    /// whose owner names another Lane is untrusted protocol input, not an
+    /// authority, and acting as it would record a mutation under an owner
+    /// Core never bound to this Lane.
     fn exact_lane_owner(&self, lane_id: &str, purpose: &str) -> Result<RuntimeOwner, String> {
         let view = self
             .projection
             .view()
             .ok_or_else(|| "Core has not published a D1 projection".to_string())?;
-        let runtime = view
-            .lane_runtime_owners
+        view.lane_runtime_owners
             .iter()
-            .filter(|binding| binding.lane_id == lane_id)
-            .collect::<Vec<_>>();
-        match runtime.as_slice() {
-            [binding] if binding.owner.lane_id.as_deref() == Some(lane_id) => {
-                Ok(binding.owner.clone())
-            }
-            _ => Err(format!(
-                "Lane `{lane_id}` does not have one exact Core {purpose} owner"
-            )),
-        }
+            .rev()
+            .find(|binding| binding.lane_id == lane_id)
+            .filter(|binding| binding.owner.lane_id.as_deref() == Some(lane_id))
+            .map(|binding| binding.owner.clone())
+            .ok_or_else(|| format!("Lane `{lane_id}` does not have one exact Core {purpose} owner"))
     }
 
     fn exact_agent_session(
@@ -6340,7 +6466,8 @@ impl GuiCoreAdapter {
         self.observe_pending_d15(event);
         self.observe_pending_d16(event);
         self.observe_d4(event);
-        self.observe_pending_d1(event)
+        let queued = self.observe_pending_queue(event);
+        self.observe_pending_d1(event) || queued
     }
 
     /// Settles the in-flight Plan Studio command against one ordered event.
@@ -6395,6 +6522,33 @@ impl GuiCoreAdapter {
             D12Observation::Rejected(reason) => {
                 self.pending_d16 = None;
                 self.d16_outcome = D1OutcomeProjection::rejected(reason);
+            }
+        }
+    }
+
+    /// Settles the in-flight `QueueFollowUp` against one ordered event.
+    ///
+    /// Its own observer for the same reason it has its own pending: the queue
+    /// and the submit that started the turn are both out at once, and settling
+    /// one must never free the other's slot. `PendingD1Kind::Queue` already
+    /// matched Core's `InputQueued` before anything routed to it; this is what
+    /// routes to it (E3c defect 29).
+    fn observe_pending_queue(&mut self, event: &RuntimeEventEnvelope) -> bool {
+        let observation = self
+            .pending_queue
+            .as_mut()
+            .map_or(D1Observation::Continue, |pending| pending.observe(event));
+        match observation {
+            D1Observation::Continue => false,
+            D1Observation::Confirmed => {
+                self.pending_queue = None;
+                self.queue_outcome = D1OutcomeProjection::confirmed();
+                true
+            }
+            D1Observation::Rejected(reason) => {
+                self.pending_queue = None;
+                self.queue_outcome = D1OutcomeProjection::rejected(reason);
+                true
             }
         }
     }
@@ -7389,6 +7543,185 @@ mod tests {
         // not the held D1 command slot of defect 22; it stays open for E3c.
         decide_operator_git_approval(&mut adapter, "gui-git-push-allow");
         let settled = adapter.operator_git(None);
+        assert_eq!(
+            settled.outcome.state, "confirmed",
+            "the push settles once its approval is answered"
+        );
+        let result = settled.result.as_ref().expect("Core answered the push");
+        assert_eq!(result.action, "push");
+        assert_eq!(
+            result.failure_class,
+            Some("no_upstream"),
+            "the fixture has no remote, so Core's typed refusal is NoUpstream"
+        );
+
+        drop(adapter);
+        drop(host);
+        std::fs::remove_dir_all(session_home).expect("remove temporary session home");
+        std::fs::remove_dir_all(project).expect("remove temporary project");
+    }
+
+    /// E3c defect 30, against live Core: the same pair as above, but with a
+    /// **Lane selected**, which is the shape the native run could never reach.
+    ///
+    /// H5's probe used the workspace target and found the `git_push` approval
+    /// arriving correctly, so defect 25 stayed open with the Lane-scoped
+    /// routing named as its remaining suspect. E3c observed that suspect: the
+    /// commit bar refused against a Lane that was not the selection, so no
+    /// entry point to the push ever became reachable. This drives the Lane
+    /// target end to end — Core creates the Lane, Core binds its execution
+    /// owner, the client acts *as* that owner on that Lane's worktree — and
+    /// asserts the second half reaches the dock and settles with Core's own
+    /// typed outcome. The native confirmation is E3d's; this is the client
+    /// cause closed.
+    #[test]
+    fn the_push_half_of_commit_and_push_reaches_a_decidable_surface_with_a_lane_selected() {
+        let session_home = temp_dir("lane-pair-session-home");
+        let project = temp_dir("lane-pair-project");
+        initialize_git_repository(&project);
+        let host = LocalCoreHost::with_session_home(&session_home);
+        let mut adapter = open_workspace_with_host(&host, &project).expect("open local workspace");
+
+        let preview = adapter
+            .send_d1_intent_and_wait(
+                "lane-pair-preview",
+                crate::D1Intent::PreviewDefaultLane {
+                    preset: "coder".to_string(),
+                },
+                Duration::from_millis(250),
+            )
+            .expect("preview default Lane through live Core")
+            .projection
+            .starter_lane_previews
+            .into_iter()
+            .next()
+            .expect("Core publishes a starter Lane preview");
+
+        let create = adapter
+            .send_d1_intent_and_wait(
+                "lane-pair-create",
+                crate::D1Intent::CreateStarterLane {
+                    lane_id: preview.lane_id.clone(),
+                    preset: "coder".to_string(),
+                    branch: preview.branch.clone(),
+                    preview_id: preview.preview_id.clone(),
+                    content_sha256: preview.content_sha256.clone(),
+                },
+                Duration::from_millis(250),
+            )
+            .expect("request starter Lane creation through live Core");
+        let request_id = create
+            .projection
+            .permission_dock
+            .request
+            .expect("Core requests approval before creating a worktree")
+            .id;
+        adapter
+            .send_permission_intent_and_wait(
+                "lane-pair-create-allow",
+                PermissionIntent::Respond {
+                    request_id,
+                    choice: PermissionChoice::Once,
+                    feedback: None,
+                    revised_input: None,
+                },
+                Duration::from_millis(250),
+            )
+            .expect("allow starter Lane creation once");
+        for _ in 0..8 {
+            if !adapter.pump_events(Duration::from_millis(250)) {
+                break;
+            }
+        }
+        adapter
+            .poll_d1(Some(&preview.lane_id), Duration::from_millis(250))
+            .expect("observe the created Lane");
+
+        let lane_id = preview.lane_id.as_str();
+        // The owner the commit bar resolves *is* the selected Lane's, which is
+        // the assertion defect 30 is about. Without it the pair below could
+        // not be sent at all.
+        let selected = adapter.operator_git(Some(lane_id));
+        assert!(
+            selected.owner_available,
+            "Core bound an execution owner for the Lane it just created: {:?}",
+            selected.owner_unavailable_reason
+        );
+
+        // Core's own record of where this Lane's tree lives. The pair acts on
+        // that worktree, not on the workspace root.
+        let worktree = adapter
+            .projection
+            .view()
+            .and_then(|view| view.lane_sources.get(lane_id).cloned())
+            .and_then(|source| source.worktree)
+            .map(PathBuf::from)
+            .expect("Core publishes the Lane's worktree");
+        std::fs::write(worktree.join("README.md"), "# Edited in the Lane\n")
+            .expect("dirty the Lane worktree");
+
+        adapter
+            .run_operator_git_action_and_wait(
+                "lane-pair-stage",
+                Some(lane_id),
+                OperatorGitIntent::Stage { paths: Vec::new() },
+                Duration::from_millis(250),
+            )
+            .expect("stage is sent for the Lane target");
+        decide_operator_git_approval(&mut adapter, "lane-pair-stage-allow");
+
+        adapter
+            .run_operator_git_action_and_wait(
+                "lane-pair-commit",
+                Some(lane_id),
+                OperatorGitIntent::Commit {
+                    message: "Edit the Lane README".to_string(),
+                },
+                Duration::from_millis(250),
+            )
+            .expect("commit is sent for the Lane target");
+        decide_operator_git_approval(&mut adapter, "lane-pair-commit-allow");
+        let committed = adapter.operator_git(Some(lane_id));
+        assert_eq!(
+            committed.outcome.state, "confirmed",
+            "the commit half settles before the push is sent: {:?}",
+            committed.outcome
+        );
+
+        // The second half, exactly as `advanceCommitPair` sends it.
+        adapter
+            .run_operator_git_action_and_wait(
+                "lane-pair-push",
+                Some(lane_id),
+                OperatorGitIntent::Push {
+                    remote: None,
+                    set_upstream: false,
+                },
+                Duration::from_millis(250),
+            )
+            .expect("push is sent for the Lane target");
+        for _ in 0..8 {
+            if !adapter.pump_events(Duration::from_millis(250)) {
+                break;
+            }
+        }
+        let pushing = adapter.operator_git(Some(lane_id));
+        let dock = adapter.permission_dock();
+        assert!(
+            pushing.awaiting_approval,
+            "the second approval of the pair is pending on Core, not missing: outcome={:?}",
+            pushing.outcome
+        );
+        assert!(
+            dock.as_ref().is_some_and(|dock| dock
+                .request
+                .as_ref()
+                .is_some_and(|request| request.tool_name == "git_push")),
+            "the permission dock renders the `git_push` request itself"
+        );
+
+        decide_operator_git_approval(&mut adapter, "lane-pair-push-allow");
+        let settled = adapter.operator_git(Some(lane_id));
         assert_eq!(
             settled.outcome.state, "confirmed",
             "the push settles once its approval is answered"

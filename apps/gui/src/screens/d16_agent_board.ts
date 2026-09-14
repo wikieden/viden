@@ -16,6 +16,7 @@ import {
 } from "../models/board";
 import type { D14AuditProjection } from "./d14_audit_timeline";
 import "./d16_agent_board.css";
+import { verbatimField } from "../ui/verbatim_field";
 
 /**
  * D16 Agent Board — the cockpit's centre-pane view over the Lane/session
@@ -499,7 +500,7 @@ export function renderD16AgentBoard(
     const twoText = document.createElement("span");
     twoText.textContent = t("d16.switch.stepTwo", { session: session.sessionId });
     two.append(twoNumber, twoText);
-    const field = document.createElement("input");
+    const field = verbatimField(document.createElement("input"));
     field.type = "text";
     field.className = "abswap-model";
     field.dataset.d16SwitchModel = "true";

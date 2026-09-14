@@ -1523,3 +1523,37 @@ on step 4 shows Core's facts rather than em-dashes about a Lane that exists.
 No PNG here is under 30 KB — the smallest is `d4-agent-binding-started` (dark,
 en) at 90,037 bytes, which is the D4 wizard on a dark ground and legitimately
 the sparsest frame.
+
+## H6 captures — the E3c native defects
+
+Captured 2026-09-14 with headless Chrome
+(`--headless --window-size=1440,1180 --virtual-time-budget=6000`) against the
+vite dev server on port 4173, then viewed. No native window was launched and no
+keystroke was sent: E3d re-proves these natively.
+
+| File | State | Viewport | Mode | Locale |
+| --- | --- | --- | --- | --- |
+| [h6-queue-follow-up-1440x1180-dark-en.png](h6-queue-follow-up-1440x1180-dark-en.png) | h6-queue-follow-up | 1440x1180 | dark | en |
+| [h6-queue-follow-up-1440x1180-light-zh-CN.png](h6-queue-follow-up-1440x1180-light-zh-CN.png) | h6-queue-follow-up | 1440x1180 | light | zh-CN |
+| [h6-recovery-conversation-1440x1180-dark-en.png](h6-recovery-conversation-1440x1180-dark-en.png) | h6-recovery-conversation | 1440x1180 | dark | en |
+| [h6-recovery-centre-view-1440x1180-dark-en.png](h6-recovery-centre-view-1440x1180-dark-en.png) | h6-recovery-centre-view | 1440x1180 | dark | en |
+| [h6-standing-revoked-1440x1180-dark-en.png](h6-standing-revoked-1440x1180-dark-en.png) | h6-standing-revoked | 1440x1180 | dark | en |
+
+| State | What the capture must show |
+| --- | --- |
+| `h6-queue-follow-up` | Core reports a turn for the selected Lane and the queue port is bound, so the composer label reads `Queue follow-up` — the label and the route read one predicate now, and a label with no queue behind it is what E3c defect 29 was. The work-status strip carries `1 queued · runs after the current turn` and the live-work bar carries the queued preview, both from Core's own `InputQueued`; the client draws no queued row of its own |
+| `h6-recovery-conversation` | The same Lane with the conversation slot selected: Core reports execution stopped, and the recovery surface owns that slot with Core's own sentence. This is the half that makes the next capture mean something — nothing was hidden, it was scoped |
+| `h6-recovery-centre-view` | The identical projection with the rail's Plan Studio pressed: the centre carries D15 and the cockpit chrome is intact. Before H6 the recovery surface outranked every registered centre view, so `Plan Studio` and `Diff review` highlighted their rail slot and changed nothing (defect 33) |
+| `h6-standing-revoked` | The settings panel after `Revoke` was answered: `Standing approvals` reads `No standing rule is installed.` because Core's own post-revoke `standing_approvals` is what the panel renders. Before H6 the shell kept only the verdict and threw the list away, so the revoked rule stayed on screen with its `Revoke` button (defect 31) |
+
+The zh-CN/light frame is the locale and skin proof for the composer label,
+which is the one H6 state whose copy changed: `排队后续输入` over the same Core
+facts, with `1 项排队 · 在当前回合之后运行` in the strip.
+
+Defect 30's change is a selection funnel and defect 32's is a set of input
+attributes; neither has a frame of its own, because neither alters what is
+drawn in any single state. Both are covered by
+`tests/h6_native_defects.spec.ts` and `tests/h6_native_defects.rs`.
+
+No PNG here is under 30 KB — the smallest is
+`h6-recovery-conversation-1440x1180-dark-en` at 140,924 bytes.

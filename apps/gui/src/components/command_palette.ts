@@ -4,6 +4,7 @@ import { EVIDENCE_READS_CAPABILITY } from "../models/evidence";
 import type { D1CockpitProjection } from "../models/workspace";
 import { createCanonicalGuiIcon, type CanonicalGuiIcon } from "./activity_rail";
 import "./command_palette.css";
+import { verbatimField } from "../ui/verbatim_field";
 
 /**
  * The ⌘K command palette.
@@ -702,7 +703,7 @@ export function renderCommandPalette(
   sigil.className = "pr";
   sigil.ariaHidden = "true";
   sigil.textContent = "⌘";
-  const field = document.createElement("input");
+  const field = verbatimField(document.createElement("input"));
   field.type = "text";
   field.className = "q";
   field.dataset.paletteInput = "true";

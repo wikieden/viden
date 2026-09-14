@@ -1329,3 +1329,35 @@ server），随后由作者逐张查看 —— 全部三张，一张一张地看
 这里没有任何 PNG 小于 30 KB —— 最小的是 90,037 字节的
 `d4-agent-binding-started`（深色、en），那是深色底上的 D4 向导，本来就是最稀疏的
 一帧。
+
+## H6 截图 —— E3c 原生缺陷
+
+2026-09-14 用无头 Chrome
+（`--headless --window-size=1440,1180 --virtual-time-budget=6000`）对着 4173 端口
+上的 vite 开发服务器抓取，逐张看过。没有启动原生窗口，也没有发送任何按键：E3d 会在
+原生环境里重新验证这些。
+
+| 文件 | 状态 | 视口 | 模式 | 语言 |
+| --- | --- | --- | --- | --- |
+| [h6-queue-follow-up-1440x1180-dark-en.png](h6-queue-follow-up-1440x1180-dark-en.png) | h6-queue-follow-up | 1440x1180 | 深色 | en |
+| [h6-queue-follow-up-1440x1180-light-zh-CN.png](h6-queue-follow-up-1440x1180-light-zh-CN.png) | h6-queue-follow-up | 1440x1180 | 浅色 | zh-CN |
+| [h6-recovery-conversation-1440x1180-dark-en.png](h6-recovery-conversation-1440x1180-dark-en.png) | h6-recovery-conversation | 1440x1180 | 深色 | en |
+| [h6-recovery-centre-view-1440x1180-dark-en.png](h6-recovery-centre-view-1440x1180-dark-en.png) | h6-recovery-centre-view | 1440x1180 | 深色 | en |
+| [h6-standing-revoked-1440x1180-dark-en.png](h6-standing-revoked-1440x1180-dark-en.png) | h6-standing-revoked | 1440x1180 | 深色 | en |
+
+| 状态 | 截图必须展示什么 |
+| --- | --- |
+| `h6-queue-follow-up` | Core 报告所选 Lane 有回合在跑，且排队端口已绑定，因此输入框标签是 `Queue follow-up` —— 标签与路由现在读同一个判据，而标签背后没有排队命令，正是 E3c 缺陷 29。工作状态条上是 `1 queued · runs after the current turn`，实时工作条上是排队内容的预览，两者都来自 Core 自己的 `InputQueued`；客户端不自绘任何排队行 |
+| `h6-recovery-conversation` | 同一条 Lane，选中对话槽位：Core 报告执行已停止，恢复界面用 Core 自己的句子占据该槽位。正是这一半让下一张截图有意义 —— 没有任何东西被隐藏，只是被限定了范围 |
+| `h6-recovery-centre-view` | 同一份投影，按下导航栏的 Plan Studio：中间区承载 D15，驾驶舱外壳完整。H6 之前恢复界面压过每一个注册的中间视图，因此 `Plan Studio` 与 `Diff review` 只会点亮导航槽而什么都不改（缺陷 33） |
+| `h6-standing-revoked` | `Revoke` 得到应答之后的设置面板：`Standing approvals` 显示 `No standing rule is installed.`，因为面板渲染的是 Core 自己在撤销之后的 `standing_approvals`。H6 之前外壳只留下结论、丢掉了列表，于是被撤销的规则连同它的 `Revoke` 按钮一起留在屏幕上（缺陷 31） |
+
+zh-CN/浅色那一帧是输入框标签的语言与皮肤证据，这也是 H6 里唯一改了文案的状态：同一
+批 Core 事实之上是 `排队后续输入`，状态条上是 `1 项排队 · 在当前回合之后运行`。
+
+缺陷 30 改的是选中漏斗，缺陷 32 改的是一组输入属性；两者都没有自己的帧，因为它们都
+不改变任何单一状态下画出来的东西。两者分别由
+`tests/h6_native_defects.spec.ts` 与 `tests/h6_native_defects.rs` 覆盖。
+
+这里没有任何 PNG 小于 30 KB —— 最小的是 140,924 字节的
+`h6-recovery-conversation-1440x1180-dark-en`。

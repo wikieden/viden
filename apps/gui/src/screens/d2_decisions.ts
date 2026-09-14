@@ -3,6 +3,7 @@ import type { Locale } from "../i18n/catalog";
 import type { DiffDocumentProjection } from "../models/diff_review";
 import type { D14AuditScope } from "./d14_audit_timeline";
 import "./d2_decisions.css";
+import { verbatimField } from "../ui/verbatim_field";
 
 /// D2 Decision Center.
 ///
@@ -424,7 +425,7 @@ export function renderD2Decisions(
       const caption = document.createElement("span");
       caption.className = "d2-ph";
       caption.textContent = copy.reviewFeedbackLabel;
-      const input = document.createElement("textarea");
+      const input = verbatimField(document.createElement("textarea"));
       input.className = "d2-review-input";
       input.dataset.d2ReviewFeedback = "true";
       input.rows = 2;

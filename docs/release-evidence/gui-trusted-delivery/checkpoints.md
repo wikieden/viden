@@ -2006,3 +2006,47 @@ committed change, with audit and evidence recorded":
   `0.3.5`'s first attempt. Exit criterion 1 is met as to the candidate being
   driven natively and as to the Lane's turn; it is not met as to the full task,
   and this document does not pretend otherwise.
+
+## Defects 29–33 And The Client Half Of 34 — H6 (2026-09-14, on `claude/gui-native-defects-h6`)
+
+Branch `claude/gui-native-defects-h6` in `.worktrees/gui-native-defects-h6`,
+base `claude/int-0.3.5` at `b868f5c8` (the commit that merged E3c's evidence).
+No native window was launched and no keystroke was sent in this batch: every
+frame below is a headless capture, and **E3d re-proves all of it natively**.
+Defect 28 and the Core half of 34 are not touched here; they are Core's, and
+batch C17 owns them.
+
+Each fix is red-first, one defect per commit, with the failing text recorded in
+the commit it belongs to.
+
+### Verdicts
+
+| # | Verdict | Commit | Where | Test |
+| --- | --- | --- | --- | --- |
+| 25 | **Client cause fixed (H6); native confirmation owed to E3d.** The commit bar never became reachable with a Lane selected because the operator-git owner resolved to a different Lane (defect 30). With that fixed, the in-process live-Core probe drives the Lane-selected pair end to end and the `git_push` half reaches the permission dock and settles with Core's typed `no_upstream` | `eacdbf68` | `apps/gui/src-tauri/src/adapter.rs` (the probe) | `the_push_half_of_commit_and_push_reaches_a_decidable_surface_with_a_lane_selected` |
+| 29 | **Fixed.** A submit while Core reports a turn now carries `RuntimeCommand::QueueFollowUp`, waits in its own `pending_queue` rather than behind the unanswered submit holding the D1 slot, and is confirmed by Core's `InputQueued`. The `Queue follow-up` label reads the same predicate the route does, so it is shown only where the queue can be sent. A follow-up refused by its own occupied queue renders defect 23's alert and **keeps the text**: the refusal now clears the submitted draft, which is what let an unrelated confirmation clear the composer under it. The queued row is unchanged and is Core's own `InputQueued` through `liveWork.queuedInputs`. **Compatibility follow-up 16 is met on the GUI** | `87d20d96` | `apps/gui/src-tauri/src/adapter.rs` (`queue_follow_up_and_wait`, `observe_pending_queue`, `pending_queue`), `apps/gui/src-tauri/src/lib.rs` (`d1_queue_follow_up`), `apps/gui/src/screens/d1_cockpit.ts` (`queueComposerFollowUp`, `queueFollowUpAvailable`, `refuseOccupiedCommandSlot`) | `a_follow_up_queues_while_the_submit_that_started_the_turn_is_still_unanswered`; `tests/h6_native_defects.spec.ts` "defect 29" |
+| 30 | **Fixed.** The host was already right — `operator_git_owner` resolves per Lane from the binding Core published. The webview was not: `selectLane` re-read the owner, but the selection also moves when Core's own `selectedLaneId` arrives in a projection, when a creation resumes into its Lane, and on a retried Agent session, and each assigned the field directly. Every assignment goes through one `setSelectedLane` funnel now, the read records which Lane it asked about, an out-of-order answer for a superseded selection is dropped, and the render refuses to show an answer scoped to another Lane at all | `eacdbf68` | `apps/gui/src/screens/d1_cockpit.ts` (`setSelectedLane`, `readOperatorGit`, `operatorGitForSelection`, `operatorGitScope`) | `the_operator_git_owner_is_resolved_against_the_selected_lane_alone`; `tests/h6_native_defects.spec.ts` "defect 30" |
+| 31 | **Fixed.** The host already answered a revoke with the `standing_approvals` Core holds afterwards; the shell kept only the verdict and threw the list away, and nothing else refreshed the cockpit projection — the revoke's own drain consumes the `StandingApprovalRevoked`, and a quiet Core produces no later wake. The whole answer now reaches the settings panel and is rendered until a newer projection replaces it. It is Core mirrored, not a client-side removal: a refused revoke comes back with the rule installed and the row stays | `76f0f0b5` | `apps/gui/src/main.ts` (`revokeStandingApproval`), `apps/gui/src/screens/d1_cockpit.ts` (`standingAfterRevoke`) | `the_revoke_answers_with_the_standing_list_core_holds_afterwards`; `tests/h6_native_defects.spec.ts` "defect 31" |
+| 32 | **Attributes set; keystroke confirmation owed to E3d.** `verbatimField` turns off `autocorrect`, `autocapitalize`, `spellcheck` and `autocomplete`, and every text field in the client is created through it — the composer, the Lane task, the commit message, the approval Edit field, the plan reject reason, the D2 review note, the D4 Lane id and branch, the D11 path and config draft, the D12 reason, the D16 field, and the palette and evidence search boxes. `spellcheck="false"` is the load-bearing one, because WebKit's substitution passes ride the text-checking pipeline. What E3c measured was the accessibility value setter, which WebKit routes through the same editing pipeline a keystroke uses; if a substituted quote survives these attributes the remaining setting is the webview's and belongs to the shell rather than to the page | `e7fac8d1` | `apps/gui/src/ui/verbatim_field.ts`, and the fourteen call sites it is applied at | `tests/h6_native_defects.spec.ts` "defect 32", including a guard that walks the client source so a field added later fails until it is verbatim |
+| 33 | **Fixed.** The recovery surface is what the *conversation* slot shows, not a modal over the cockpit. It outranked every registered centre view, so with Core reporting execution stopped, `Plan Studio` and `Diff review` highlighted their rail slot and changed nothing. It is scoped to `centerView === "transcript"` now: still reachable, with its Core-backed fact controls and their labels unchanged | `94f86dfb` | `apps/gui/src/screens/d1_cockpit.ts` (`recoveryActive` / `showRecovery`) | `tests/h6_native_defects.spec.ts` "defect 33" |
+| 34 (client half) | **Client derivation fixed; the defect stays open on Core.** While the Lane has no exact owner the refusal names what is missing in Core's own words, and that is kept. `exact_lane_owner` required exactly one binding and refused otherwise, so a view carrying both a restored Lane's previous-process binding and the one a relaunch mints resolved no owner at all; it reads the **latest** binding for the Lane now, and still refuses a binding whose owner names another Lane. This alone does not close 34: Core's own view reducer keeps a Lane's *first* valid binding and drops a later one (`RuntimeViewState::apply_event`, `crates/types/src/runtime.rs`), so the view the client reads can still carry only the stale binding. For a relaunched Lane to have an owner, the rebinding has to be the one the view ends up holding — **a Core fact, owned by C17** | `83091072` | `apps/gui/src-tauri/src/adapter.rs` (`exact_lane_owner`) | `a_lane_with_two_published_bindings_resolves_its_latest_execution_owner`, `a_binding_whose_owner_names_another_lane_is_still_refused` |
+
+### Evidence
+
+Headless captures at 1440x1180, listed and described in
+[`apps/gui/evidence/main-window-interactions/EVIDENCE.md`](../../../apps/gui/evidence/main-window-interactions/EVIDENCE.md)
+under "H6 captures": the queued composer in dark/en and light/zh-CN, the
+recovery surface in the conversation slot and Plan Studio in the centre from
+the identical projection, and the settings panel after an answered revoke.
+Defect 30's change is a selection funnel and defect 32's is a set of input
+attributes; neither alters what is drawn in any single state, so neither has a
+frame, and both are covered by the tests named above.
+
+### What is still owed
+
+- **E3d, natively:** the Lane-selected `Commit & Push` pair, a composer
+  follow-up queued and drained during a live turn, a real-keystroke check that
+  a typed `"` stays `U+0022`, a centre view opened over a stopped Lane, and the
+  settings list after a revoke.
+- **C17, on Core:** defect 28's tool working directory, and the half of defect
+  34 that decides which binding a relaunched Lane's view carries.

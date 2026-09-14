@@ -888,6 +888,29 @@ fn d1_abandon_probe(state: tauri::State<'_, DesktopState>) -> Result<D1IntentRes
         .abandon_pending_probe(Duration::from_millis(250))
 }
 
+/// Queues one follow-up behind a turn that is already running.
+///
+/// E3c defect 29. Deliberately not routed through `d1_send_intent`: that one
+/// refuses while the single D1 command slot is occupied, and the command this
+/// one sends exists precisely because the submit that started the turn is
+/// still holding that slot. `QueueFollowUp` waits in its own pending and is
+/// confirmed by Core's own `InputQueued`.
+#[tauri::command]
+fn d1_queue_follow_up(
+    command_id: String,
+    lane_id: String,
+    content: String,
+    state: tauri::State<'_, DesktopState>,
+) -> Result<D1IntentResult, String> {
+    state
+        .adapter
+        .lock()
+        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?
+        .as_mut()
+        .ok_or_else(|| "Core adapter is not connected".to_string())?
+        .queue_follow_up_and_wait(&command_id, &lane_id, &content, Duration::from_millis(250))
+}
+
 #[tauri::command]
 fn d1_poll(
     selected_lane_id: Option<String>,
@@ -1435,6 +1458,7 @@ pub fn run_with_adapter(adapter: Option<GuiCoreAdapter>) {
             d1_cockpit,
             d1_send_intent,
             d1_abandon_probe,
+            d1_queue_follow_up,
             d1_poll,
             set_work_mode,
             set_permission_level,

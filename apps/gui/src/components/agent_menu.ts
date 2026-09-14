@@ -1,6 +1,7 @@
 import { translate, type Locale } from "../i18n/catalog";
 import { createAgentLogo, resolveAgentLogoKind, type AgentLogoKind } from "./agent_logo";
 import "./agent_menu.css";
+import { verbatimField } from "../ui/verbatim_field";
 
 export type AgentMenuSelection = { kind: "native" } | { kind: "acp"; agentId: string };
 
@@ -296,7 +297,7 @@ export function renderAgentMenu(
   const taskLabel = document.createElement("label");
   taskLabel.className = "agent-menu-task";
   taskLabel.textContent = translate(model.locale, "d1.task.label", {});
-  const task = document.createElement("textarea");
+  const task = verbatimField(document.createElement("textarea"));
   task.dataset.laneTask = "true";
   task.rows = 4;
   task.value = taskDraft;
