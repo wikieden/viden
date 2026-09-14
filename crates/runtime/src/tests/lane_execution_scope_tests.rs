@@ -400,3 +400,136 @@ fn sha256_of(path: &Path) -> String {
     use sha2::{Digest, Sha256};
     format!("{:x}", Sha256::digest(fs::read(path).unwrap()))
 }
+
+/// Defect 34. A Lane created before a restart must have exactly one Core
+/// execution owner after it, naming the *new* process's session, and a
+/// Lane-owned submit against that owner must become a turn.
+///
+/// Before the fix the restored Lane had no binding at all — the snapshot
+/// prefix republishes `LaneUpdated` for every durable Lane and deliberately
+/// publishes no owner — so every client predicate that requires exactly one
+/// owner found none, and the durable `lane-agent-bindings` row still named the
+/// dead session, so the submit was refused as already bound.
+#[test]
+fn a_restored_lane_regains_one_execution_owner_naming_the_new_session() {
+    let repo = committed_repo("lane_restore_owner_repo");
+    let home = temp_dir("lane_restore_owner_home");
+    let lane_id = "lane-restore-owner";
+
+    // First process: create the Lane and run one Lane-owned turn, which is
+    // what writes the durable Lane-agent binding under this session.
+    let first_session = {
+        let provider = Box::new(SequenceProvider::new(vec![vec![
+            ModelEvent::AssistantText {
+                content: "first".to_string(),
+            },
+        ]]));
+        let engine = SessionEngine::new_with_home(&repo, provider, Some(home.clone())).unwrap();
+        let session_id = engine.session_id().to_string();
+        let supervisor = RuntimeSupervisor::start(engine);
+        let owner = RuntimeOwner {
+            workspace_id: "workspace-restore".to_string(),
+            project_id: "project-restore".to_string(),
+            lane_id: Some(lane_id.to_string()),
+            session_id: Some(session_id.clone()),
+            task_id: None,
+            turn_id: None,
+        };
+        create_lane(
+            &supervisor,
+            &owner,
+            lane_record(lane_id, Some(&format!(".worktrees/{lane_id}"))),
+        );
+        supervisor
+            .send_command_from_owner(
+                owner,
+                "first-turn",
+                RuntimeCommand::SubmitUserInput {
+                    content: "hello".to_string(),
+                },
+            )
+            .unwrap();
+        collect_until(&supervisor, "the first process's turn", |events| {
+            events
+                .iter()
+                .any(|event| matches!(&event.kind, RuntimeEventKind::TurnFinished { .. }))
+        });
+        drop(supervisor);
+        session_id
+    };
+
+    // Second process: the same VIDEN_HOME, a new session.
+    let provider = Box::new(SequenceProvider::new(vec![vec![
+        ModelEvent::AssistantText {
+            content: "second".to_string(),
+        },
+    ]]));
+    let engine = SessionEngine::new_with_home(&repo, provider, Some(home)).unwrap();
+    let second_session = engine.session_id().to_string();
+    assert_ne!(
+        first_session, second_session,
+        "the restart mints a new session, which is the whole premise"
+    );
+    let supervisor = RuntimeSupervisor::start(engine);
+
+    let view = supervisor.snapshot_envelope().unwrap().view;
+    assert!(
+        view.lanes.iter().any(|lane| lane.id == lane_id),
+        "the Lane row is restored"
+    );
+    let bindings = view
+        .lane_runtime_owners
+        .iter()
+        .filter(|binding| binding.lane_id == lane_id)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        bindings.len(),
+        1,
+        "a restored Lane has exactly one Core execution owner, got {:?}",
+        view.lane_runtime_owners
+    );
+    let restored_owner = bindings[0].owner.clone();
+    assert_eq!(
+        restored_owner.lane_id.as_deref(),
+        Some(lane_id),
+        "the binding's owner names its own Lane"
+    );
+    assert_eq!(
+        restored_owner.session_id.as_deref(),
+        Some(second_session.as_str()),
+        "the restored owner names the new process's session, not the dead one"
+    );
+
+    // And the owner a client derives from that binding can actually work.
+    supervisor
+        .send_command_from_owner(
+            restored_owner,
+            "restored-turn",
+            RuntimeCommand::SubmitUserInput {
+                content: "work after the restart".to_string(),
+            },
+        )
+        .unwrap();
+    let events = collect_until(&supervisor, "the restored Lane's turn", |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::TurnFinished { .. } | RuntimeEventKind::CommandRejected { .. }
+            )
+        })
+    });
+    let rejection = events.iter().find_map(|event| match &event.kind {
+        RuntimeEventKind::CommandRejected { reason, .. } => Some(reason.clone()),
+        _ => None,
+    });
+    assert_eq!(
+        rejection, None,
+        "a Lane-owned submit against the restored owner is accepted"
+    );
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(&event.kind, RuntimeEventKind::TurnStarted { .. })),
+        "the accepted submit became a turn"
+    );
+}
