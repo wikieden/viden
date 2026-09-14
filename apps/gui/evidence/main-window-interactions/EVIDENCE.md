@@ -1557,3 +1557,20 @@ drawn in any single state. Both are covered by
 
 No PNG here is under 30 KB — the smallest is
 `h6-recovery-conversation-1440x1180-dark-en` at 140,924 bytes.
+
+## H7 captures (native, 2026-09-14)
+
+Window-id captures from the `0.1.0-rc.5` bundle built on
+`claude/gui-shell-regressions-h7`, driven natively while the host screen was
+unlocked. Each frame was taken twice and the second kept; every one was viewed
+before it was listed. The run's own record, including the screen-lock lines and
+the audit rows, is in
+[`docs/release-evidence/gui-trusted-delivery/checkpoints.md`](../../../../docs/release-evidence/gui-trusted-delivery/checkpoints.md)
+under "Defects 35–38 — H7".
+
+| Frame | What it shows |
+| --- | --- |
+| `h7-01-followup-sent-not-acknowledged.png` | Defect 36, closed on the client. A turn is stopped on its own `edit_file` approval, the composer label reads `Queue follow-up`, and the submitted follow-up is **still in the box** under `Sent, but Core has not acknowledged the follow-up. Your message is kept.` `EVENTS #49`, no queued row — because Core published none |
+| `h7-02-stage-raises-git-add.png` | Defect 35, closed. `Stage all` with the Lane selected raises Core's own `git_add`: the Decision Center reads `1 awaiting you`, the card names the project and the Lane, `TOOL INPUT PREVIEW all: true`, and the audit id the decision will be written to. E3d had `0 awaiting you` and no `git_*` row at all |
+| `h7-03-stage-completed.png` | The same action settled: `Stage completed · viden/lane_… ↑0 ↓0 · uncommitted changes remain`, over Core's own unified hunk `-# H7 Fixture` / `+# Edited Fixture`, with `Commit` and `Commit & Push ⇡` live |
+| `h7-04-push-half-no-approval.png` | Defect 25, still open. After two commits landed through the pair, the `git_push` half stands on `Push is waiting for approval in the permission dock.` with `Commit & Push ⇡` disabled, and no `git_push` approval and no `source.push` row ever arrive |

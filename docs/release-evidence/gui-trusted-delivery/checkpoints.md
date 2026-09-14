@@ -2341,3 +2341,142 @@ committed change, with audit and evidence recorded":
   Exit criterion 1 is met as to the candidate being driven natively, as to the
   Lane's turn, and as to the Lane's work landing in the Lane; it is not met as
   to the full task, and this document does not pretend otherwise.
+
+## Defects 35–38 — H7 (2026-09-14, on `claude/gui-shell-regressions-h7`)
+
+Branch `claude/gui-shell-regressions-h7` in `.worktrees/gui-shell-regressions-h7`,
+base `claude/int-0.3.5` at `1963f8d1` (the commit that merged E3d's evidence).
+The native confirmation this batch was narrowly allowed to take **was taken**.
+The screen was locked at the first check
+(`time=2026-09-14T08:23:46Z CGSSessionScreenIsLocked=1 onConsole=1`), unlocked
+before the run began (`time=2026-09-14T08:31:04Z CGSSessionScreenIsLocked=0`),
+read `CGSSessionScreenIsLocked=0` at every keystroke and click batch from
+`08:31:30Z` to `08:58:20Z`, and locked again at `09:02:25Z`, which is where the
+native driving stopped. Launched PIDs, in order: 22821, 29999; both were killed
+by this batch and neither exited on its own. Both launches ran with
+`VIDEN_HOME` under the run's scratch directory, so this repository's own
+`.viden/` was never read or written.
+
+**The batch's headline: H6 did not introduce defect 35, and neither did any
+other batch — the desktop pump has always held the adapter mutex against the
+operator's own gesture, and E3d is the run that finally lost a command to it.**
+H6's tests passed because they exercised the cockpit against a mocked port and
+the adapter directly. Neither of those layers has a pump. The shipped path is
+webview -> `main.ts` port -> Tauri `invoke` -> the `lib.rs` command -> the
+adapter, every command runs on a thread that is not the pump's, and both take
+the one `DesktopState` adapter mutex. `spawn_core_event_pump` held that mutex
+across a 250 ms blocking receive and re-acquired it the instant it let go;
+`std::sync::Mutex` promises no fairness, so a command could queue behind the
+drain indefinitely.
+
+### The harness, and what it found before any fix
+
+`apps/gui/tests/h7_shell_path.rs` drives the production command bodies — now
+in `apps/gui/src-tauri/src/shell.rs`, one body per `#[tauri::command]`, each
+command delegating to it — against a real `LocalCoreHost` over a temporary
+session home and a temporary Git fixture, with a real pump thread running
+beside it on the same `DesktopState`. Nothing in it reads or writes this
+repository's `.viden/`.
+
+Against the base it did not fail; it **hung**. Forty no-traffic `operator_git`
+reads, which do nothing but take the adapter lock, did not complete in 120 s
+and the harness watchdog aborted the binary (`signal: 6, SIGABRT`). A `sample`
+of the stuck process is unambiguous:
+
+| Thread | Where, in samples |
+| --- | --- |
+| The command thread | `shell::d1_poll` -> `with_adapter_mut` -> `Mutex::lock`, **1359 of 1384** |
+| The pump thread | `pump_core_events_once` -> `pump_events` -> `receive_event`, holding that lock, **1382 of 1384** |
+
+Every symptom E3d recorded for 35, 37 and 38 is a read that never answered, and
+the process stayed alive through all of them.
+
+### Verdicts
+
+| # | Verdict | Commit | Where | Test |
+| --- | --- | --- | --- | --- |
+| 35 | **Fixed, and confirmed natively.** Not a Lane-scoping fault and not H6's: the stage never left the client because the `invoke` carrying it never reached the adapter. `pump_core_events_once` now *tries* the lock rather than waiting for it — a command holding it is answering a gesture, and the events this round does not drain stay queued — and does not return until the lock has been free for `PUMP_YIELD`, so a blocked command has an unlocked mutex to take. The drain window drops from 250 ms to `PUMP_DRAIN`, which also cuts the wake latency by an order of magnitude. Through the shell with the pump running, the Lane-scoped stage is on the wire as Core's own `stage` verb, Core's `git_add` approval reaches the dock, and answering it completes the action. Natively: `Stage all` raises `git_add` in the Decision Center, answering it stages the file, and `source.stage` is written to `audit.jsonl` twice over the run | `22eb5af4` | `apps/gui/src-tauri/src/shell.rs` (`pump_core_events_once`, `PUMP_DRAIN`, `PUMP_YIELD`), `apps/gui/src-tauri/src/lib.rs:1447` (`spawn_core_event_pump`) | `the_desktop_pump_leaves_the_adapter_lock_free_for_the_operators_own_command`, `a_lane_scoped_stage_reaches_the_permission_dock_through_the_shell` |
+| 25 | **Still open, and now past the staging wall.** With the stage decidable, E3b's steps 19–21 run end to end through the shell with a Lane selected: stage under `git_add`, commit under `git_commit`, and the `git_push` half of `Commit & Push` reaching the dock and settling with Core's own typed `no_upstream`. Natively the stage and both commits go through with Core's own approvals and durable audit rows, and the `git_push` half then raises no approval at all — the same wall E3b step 22 hit. Still open, and not on the client side of the stage path | `22eb5af4` | as above | `the_commit_and_push_pair_runs_through_the_shell_with_a_lane_selected` |
+| 36 | **Client half fixed and confirmed natively; the follow-up stays unmet on Core, and is now named.** The client retired a draft it had only *sent*: `queueComposerFollowUp` cleared the composer on any outcome that was not `rejected`, and `queue_follow_up_and_wait` returns `pending` as soon as the command leaves the client, before Core has published anything. The cockpit now marks nothing as submitted on the send, polls the queue's own pending through a new `d1_queue_follow_up_poll` route, retires the text only on a `confirmed` outcome backed by Core's `InputQueued`, and otherwise renders a `role=alert` saying the follow-up was sent and not acknowledged — with the text still in the box. **The other half is Core's:** its accept path for `RuntimeCommand::QueueFollowUp` is guarded `owner.lane_id.is_none()` (`crates/runtime/src/runtime_supervisor.rs:1612`), so it pushes and announces a *session*-scoped follow-up immediately and lets a Lane-scoped one fall through into the single supervisor worker's channel — the worker the unanswered turn is occupying. No `CommandAccepted`, no `InputQueued`, no event at all, which is exactly the `EVENTS #49` before and after that E3d recorded. The GUI sends the Lane's exact submit owner because a follow-up is work for that Lane | `a324ade6` | `apps/gui/src/screens/d1_cockpit.ts:3479` (`queueComposerFollowUp`), `apps/gui/src-tauri/src/shell.rs:182` and `apps/gui/src-tauri/src/lib.rs:877` (`d1_queue_follow_up_poll`), `apps/gui/src/main.ts` (`queueFollowUpPort`) | `a_follow_up_submitted_during_a_turn_is_never_reported_as_queued_unless_core_said_so`; `tests/h7_shell_regressions.spec.ts` "defect 36" |
+| 37 | **Logging and retry added; the drop itself is attributed, not proven.** Two things were missing and both are here. The log was never going to appear at `RUST_LOG=info`: this workspace has **no `log` or `tracing` subscriber anywhere**, so a level filter had nothing to enable. `connection_log` writes one `key=value` line per *transition* to stderr unconditionally, never per poll, and `set_connection` is now the only place the state changes. And nothing retried: Core publishes no reconnect command (`GUI-CORE-003`), so the retry is the host re-running the handshake and snapshot it already owns — `maintain_connection`, once per pump round, on a bounded 1/2/4/8/16 s backoff, with the attempt, the countdown, the last transport error verbatim and the give-up state carried on `D6RecoveryProjection.reconnect` and rendered beside `CONNECTING`. **The drop's own cause is not claimed.** The most likely one is the lock starvation above: every symptom E3d recorded — an inert composer, `No Lanes yet`, a state that did not clear across six checks over 60 s, a live process — is a read that never answered. If it recurs, the log says which | `0a5d55ec` | `apps/gui/src-tauri/src/connection_log.rs`, `apps/gui/src-tauri/src/adapter.rs:6737` (`set_connection`) and `:6767` (`maintain_connection`), `apps/gui/src-tauri/src/d6.rs` (`D6ReconnectProjection`), `apps/gui/src/screens/d6_recovery.ts` | `a_severed_core_connection_is_logged_and_retried_with_a_visible_countdown`; `tests/h7_shell_regressions.spec.ts` "defect 37" |
+| 38 | **Not reproduced in-process. No fix claimed.** The first Lane's execution is stopped through the recovery surface's own `close_lane` control, a second Lane is created beside it, and both halves of what the native run found inert hold: the new Lane has a Core execution owner, and a read scoped to the *other* Lane resolves to that other Lane with the new one still in the list. E3d observed it once, in the process that later lost its Core connection, and every symptom in it — `The selected Lane has no sole Core execution owner.`, `Close Lane · no_exact_lane`, `Waiting for the selected Lane context.`, a sidebar click that moved nothing — is a read that never answered, which is the shape of the starvation fixed here | `8f194708` | `apps/gui/src-tauri/src/shell.rs` (`d6_send_intent`) | `a_lane_created_beside_a_stopped_lane_keeps_its_owner` |
+
+### The native confirmation
+
+One fresh temporary Git repository under the run's scratch directory, one
+commit `895cdd9` ("Add the fixture README"), a `.gitignore` covering `.viden/`
+and `.worktrees/`, and a `.viden/config.toml` selecting `provider = "fallback"`
+/ `model = "test-local"`. Core minted `prj_1789374856626993000` in
+`ws_76287ed4d61b938e`. One Lane, `lane_1789375075442733000`. The bind was taken
+at launch through `VIDEN_GUI_WORKSPACE`, the same product path E3c step 27 and
+E3d drove. Every frame was captured twice by window id, the second kept, and
+every PNG listed was viewed before it was listed.
+
+| # | Step | Reached | Result | Frame |
+| --- | --- | --- | --- | --- |
+| 1 | `+ New Lane`, built-in agent, TASK, `Create lane ↵`, Core's `lane_create` approval, `Y · Once` | yes | `lane_1789375075442733000`, `⎇ 1 worktree`, Core's own `Preparing worktree (new branch 'viden/lane_1789375075442733000')` | — |
+| 2 | Composer `tool edit_file path=README.md old=H7 new=Edited` | yes | `Approve edit_file · edit_file`, `Medium risk`, `new: Edited old: H7 path: README.md`, `Core is working; no owner-scoped status is available. typed`, and the composer label switched to `Queue follow-up` | [`01`](../../../apps/gui/evidence/main-window-interactions/h7-01-followup-sent-not-acknowledged.png) |
+| 3 | **Defect 36 — a follow-up submitted while that turn waits on its approval** | yes, **client half closed** | `Summarise what you just changed` was submitted. The composer **kept the text**, `Sent, but Core has not acknowledged the follow-up. Your message is kept.` rendered as a `role=alert` beneath it, no queued row was drawn, and `EVENTS` stayed `#49`. E3d's silence is gone and E3c's honesty is back; **follow-up 16 remains unmet, and the unmet half is Core's** | [`01`](../../../apps/gui/evidence/main-window-interactions/h7-01-followup-sent-not-acknowledged.png) |
+| 4 | `Y · Once` on the `edit_file`, then the Lane worktree out of band | yes | ` M README.md`, `# Edited Fixture` — the product's own edit, in the **Lane worktree** | — |
+| 5 | **Defect 35 — `Stage all` with the Lane selected** | yes, **closed** | The commit bar renders, `Stage all` presses, and the Decision Center reads **`1 awaiting you`** with `Approve git_add prj_1789374856626993000 · lane_1789375075442733000 · pending · low`, `TOOL INPUT PREVIEW all: true`, Core's own `GUI-CORE-012` note, and `Decision and reason are written to audit audit_…`. E3d had `0 awaiting you` and no `git_*` row at all | [`02`](../../../apps/gui/evidence/main-window-interactions/h7-02-stage-raises-git-add.png) |
+| 6 | `Approve once` on the `git_add` | yes | ` M README.md` -> `M  README.md`, and the commit bar renders `Stage completed · viden/lane_1789375075442733000 ↑0 ↓0 · uncommitted changes remain` over Core's own unified hunk `-# H7 Fixture` / `+# Edited Fixture`. Durable in `audit.jsonl`: `source.stage` `phase: authorized` `tool: git_add`, then `source.stage` `phase: completed` | [`03`](../../../apps/gui/evidence/main-window-interactions/h7-03-stage-completed.png) |
+| 7 | **Commit under its own approval** | yes | `Approve once` on the `git_commit` committed `ad8b445 Edit the fixture README heading in the Lane`; the Lane worktree went clean. `audit.jsonl`: `source.commit` `phase: authorized` `tool: git_commit`, then `phase: completed` | — |
+| 8 | **`Commit & Push ⇡` — the commit half** | yes | A second change was staged and committed the same way through the pair: `d798e8a Add the push-leg line`, with its own `git_add` and `git_commit` approvals and four more durable rows | — |
+| 9 | The `git_push` half, `NoUpstream`, set upstream, push accepted | **no** | The commit bar stands on `Push is waiting for approval in the permission dock.` with `Commit & Push ⇡` disabled, the Decision Center reads `0 awaiting you`, and **no `git_push` approval and no `source.push` row ever appeared** — watched for 60 s. The fourteen rows in `audit.jsonl` are four `approval.allow_once`, two `source.stage` pairs and two `source.commit` pairs, and nothing else. **This is defect 25, unchanged and still open** | [`04`](../../../apps/gui/evidence/main-window-interactions/h7-04-push-half-no-approval.png) |
+
+**So the wall moved exactly one step.** E3d could not stage; this run stages,
+commits, and does it twice, with Core's own approvals and Core's own durable
+audit rows. What it still cannot do is push, and the `git_push` half fails the
+way E3b step 22 and E3d recorded it: the action is sent, the bar says it is
+waiting, and no approval is ever raised. Defect 35 is closed; defect 25 is not,
+and its remaining cause is not on the client side of the stage path.
+
+### Observations, not defects
+
+- **An approval has a five-minute life, and this run lost one to it.** The
+  first `git_add` approval was raised correctly and then expired while the run
+  was reading state; answering it afterwards returned Core's own
+  `approval ... is no longer pending`. The stage after it then stood on
+  `Stage sent · waiting for Core.` with no approval at all, and only a relaunch
+  cleared it — so **an operator-git action whose approval expires can leave the
+  next one unable to raise its own**, which was not driven further here and is
+  recorded rather than numbered. Every leg that answered its approval promptly
+  went through on the first try.
+- **The permission dock does not render a Lane-scoped `git` approval; the
+  Decision Center does.** Both `git_add` approvals appeared in D2 and not in
+  the D1 dock, which is where E3b found them too. Not investigated, and not
+  claimed as a defect.
+- **The connection log is live in the shipped bundle.** Both launches wrote
+  `viden-gui core-connection state from=disconnected to=connecting` and
+  `... to=live` to the process's stderr with no configuration, which is what
+  defect 37's entry promised.
+
+### The static half
+
+`apps/gui/tests/shell_port_contract.spec.ts` walks the sources for the three
+joints of the shell path that are matched by name at runtime and silent when
+they drift: every `invoke` name against `generate_handler!`, every `CoreClient`
+member against its Tauri implementation, and every `D1RenderOptions` port
+against the object `main.ts` hands `renderD1Cockpit`. None of them is a type
+error — the options bag is optional by design — and an unwired port is
+`undefined` at a call site guarded with `if (!port) return`, which is a silent
+no-op rather than a rejected promise. It found one gap in this batch's own
+work, a `d6_recovery` command no port called, and that command is gone
+(`9766e279`).
+
+### Verdict on compatibility follow-up 16
+
+| # | Verdict on the candidate |
+| --- | --- |
+| 16 | **Still unmet on the GUI, and no longer silent.** The composer keeps the operator's text, announces that the follow-up was sent and not acknowledged, and never reports a queue Core did not confirm. Meeting the follow-up needs Core to accept a Lane-scoped `QueueFollowUp` on its accept path the way it already accepts a session-scoped one (`crates/runtime/src/runtime_supervisor.rs:1612`); no GUI change can substitute for it, and none was attempted |
+
+### What is still owed
+
+- **E3e, natively:** the `git_push` half of `Commit & Push`, `NoUpstream`, the
+  upstream and the push — defect 25, the only step of the source-control half
+  this run could not reach; defect 31's `Always`/revoke leg and the Plan Studio
+  leg, both still not driven since E3c; and the expired-approval observation
+  above, which was recorded rather than pursued.
+- **On Core:** the Lane-scoped `QueueFollowUp` accept path (defect 36's other
+  half, compatibility follow-up 16), and whatever keeps the `git_push` half
+  from raising an approval (defect 25).

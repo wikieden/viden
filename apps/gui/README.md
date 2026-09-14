@@ -1901,7 +1901,8 @@ for it to wait in. `queue_follow_up_and_wait` sends it as the Lane's exact
 submit owner and waits in `pending_queue`, settled by the same
 `reconcile_ambient_pendings` funnel every other command uses, so settling the
 queue never frees the submit's slot and vice versa. The label reads the same
-predicate the route does. Compatibility follow-up 16 is met on the GUI.
+predicate the route does. H6 read that as compatibility follow-up 16 being met
+on the GUI; E3d found otherwise and H7 records why — see the H7 section below.
 
 **A refused submit never left, so nothing about it may be retired.** The
 refused text was recorded as submitted, and when the *other* command finally
@@ -1950,6 +1951,100 @@ reducer keeps a Lane's *first* valid binding and drops a later one
 this reads can still carry only the stale binding. For a relaunched Lane to have
 an owner, the rebinding has to be the one the view ends up holding, and that
 half is Core's.
+
+### H7 — H6's tests proved the wrong layer, and the pump was holding the lock
+
+Batch H7 (2026-09-14) closed the GUI side of E3d's defects 35 and 36, added
+what defect 37 needed to be diagnosable, and could not reproduce 38. The record
+and the per-defect verdicts are in
+`docs/release-evidence/gui-trusted-delivery/checkpoints.md`; what follows is
+the behaviour that changed.
+
+**A test that never takes the lock cannot find a client that never gets it.**
+H6's tests passed while the shipped client dropped a stage on the floor,
+because they exercised the cockpit against a mocked port and the adapter
+directly. Neither of those layers has a pump. The shipped path is webview ->
+`main.ts` port -> Tauri `invoke` -> the `lib.rs` command -> the adapter; every
+command runs on a thread that is not the pump's; and both take the one
+`DesktopState` adapter mutex. `spawn_core_event_pump` held that mutex across a
+250 ms blocking receive and re-acquired it the instant it let go, and
+`std::sync::Mutex` promises no fairness — so the operator's own gesture could
+queue behind a background drain indefinitely. `Stage all` pressing cleanly and
+nothing happening is what that looks like from the outside: the `invoke`
+carrying it never reached the adapter, so nothing was ever sent, nothing was
+ever approved, and the surface kept rendering the last read that did answer.
+
+`pump_core_events_once` owns the rule now rather than its callers. It *tries*
+the lock instead of waiting for it — a command holding it is answering a
+gesture, and the events this round does not drain stay queued for the next —
+and it does not return until the lock has been free for `PUMP_YIELD`, so a
+blocked command has an unlocked mutex to take. The drain window drops from
+250 ms to `PUMP_DRAIN`, which cuts the wake latency by an order of magnitude
+as well.
+
+**The shell path now has a harness of its own.** `shell.rs` holds one body per
+`#[tauri::command]`, each command delegating to it, so `h7_shell_path.rs` can
+call exactly what the webview invokes: against a real `LocalCoreHost` over a
+temporary session home and a temporary Git fixture, on the same `DesktopState`
+the commands lock, with a real pump thread running beside it. Against this
+batch's base that harness did not fail — it hung, and its watchdog aborted the
+binary after forty no-traffic reads went 120 s without the lock. Beside it,
+`shell_port_contract.spec.ts` walks the sources for the three joints that are
+matched by name at runtime: every `invoke` against `generate_handler!`, every
+`CoreClient` member against its Tauri implementation, and every
+`D1RenderOptions` port against the object `main.ts` hands the cockpit. None of
+those is a type error, and an unwired port is `undefined` at a call site
+guarded with `if (!port) return` — a silent no-op, which is how a follow-up
+goes missing.
+
+**A draft is retired by Core's answer, not by the client's send.** The composer
+cleared on any queue outcome that was not `rejected`, and
+`queue_follow_up_and_wait` returns `pending` the moment the command leaves the
+client — before Core has published anything at all. It marks nothing as
+submitted on the send now, polls the queue's own pending through
+`d1_queue_follow_up_poll`, retires the text only on a `confirmed` outcome
+backed by Core's `InputQueued`, and otherwise says the follow-up was sent and
+not acknowledged with the text still in the box. **Compatibility follow-up 16
+is still unmet on the GUI, and the reason is Core's**: its accept path for
+`QueueFollowUp` is guarded `owner.lane_id.is_none()`, so it acknowledges a
+session-scoped follow-up immediately and lets a Lane-scoped one fall through
+into the single supervisor worker's channel — the worker the unanswered turn
+is occupying. The GUI sends the Lane's exact submit owner because a follow-up
+is work for that Lane, and no client change substitutes for the accept path.
+
+**A connection that drops says what it is doing about it.** `RUST_LOG=info`
+produced zero bytes for E3d because this workspace has no `log` or `tracing`
+subscriber anywhere; a level filter had nothing to enable. `connection_log`
+writes one `key=value` line to stderr per *transition* — connect, classified
+drop, reconnect attempt, its result, giving up — never per poll, and
+`set_connection` is the only place the state changes. And nothing retried: Core
+publishes no reconnect command (`GUI-CORE-003`), so the retry is the host
+re-running the handshake and snapshot it already owns, once per pump round, on
+a bounded 1/2/4/8/16 s backoff, with the attempt, the countdown, the last
+transport error verbatim and the give-up state rendered beside `CONNECTING`. An
+operator can act on "it gave up" and cannot act on a dot. Whether that is what
+E3d actually hit is not claimed: every symptom it recorded is a read that never
+answered, which is the starvation above.
+
+**Defect 38 did not reproduce.** A Lane created beside a Lane whose execution
+was stopped through the recovery surface's own control has an execution owner,
+and a read scoped to the other Lane resolves to that other Lane. No fix is
+claimed. E3d observed it once, in the process that later lost its Core
+connection, and everything it recorded there is also a read that never
+answered.
+
+**Driven natively, the wall moved exactly one step.** The batch's narrow native
+confirmation ran on the built `0.1.0-rc.5` bundle while the host screen was
+unlocked. `Stage all` with a Lane selected raises Core's own `git_add` in the
+Decision Center, answering it stages the file, the commit lands under
+`git_commit`, and a second change goes through the same pair — eight durable
+`source.stage` / `source.commit` rows in `audit.jsonl` where E3d had none at
+all. A follow-up submitted while that Lane's turn waited on an approval kept
+its text and said so. What the run still could not do is push: the `git_push`
+half stands on `Push is waiting for approval in the permission dock.` and no
+approval is ever raised, which is E3b step 22 and E3d unchanged. Defect 35 is
+closed; defect 25 is not.
+
 
 ## Agent Board (G9)
 
