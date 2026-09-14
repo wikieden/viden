@@ -419,6 +419,7 @@ export async function hydrateShellFromCore(
             loadWorkspaceFiles,
             workspaceDiff: workspaceDiffPort,
             agentProbe: agentProbePort,
+            queueFollowUp: queueFollowUpPort,
             operatorGit: operatorGitPort,
             layout: layoutPort,
             transcriptRows: transcriptRowsPort,
@@ -1043,6 +1044,17 @@ export async function hydrateShellFromCore(
       const agentProbePort = {
         abandon: async () => await core.d1AbandonProbe(),
       };
+
+      /**
+       * The follow-up a composer submit becomes while Core reports a turn
+       * (E3c defect 29).
+       *
+       * Deliberately not routed through the D1 send path: that one waits for
+       * the single command slot, and the submit that started the turn is what
+       * holds it.
+       */
+      const queueFollowUpPort = async (laneId: string, content: string) =>
+        await core.d1QueueFollowUp(`gui-d1-queue-${crypto.randomUUID()}`, laneId, content);
 
       const operatorGitPort = {
         read: async (laneId: string | null) => await core.operatorGit(laneId),

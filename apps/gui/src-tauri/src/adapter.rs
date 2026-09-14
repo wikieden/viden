@@ -84,6 +84,19 @@ pub struct GuiCoreAdapter {
     pub(crate) d4_receipt: Option<viden_core::StarterLaneReceipt>,
     pub(crate) d4_outcome: D4OutcomeProjection,
     pending_d1: Option<PendingD1>,
+    /// The in-flight `QueueFollowUp`, in its own slot.
+    ///
+    /// E3c defect 29. A follow-up typed while a turn runs is a different Core
+    /// command from the submit that started the turn, and Core answers it
+    /// while that submit is still unanswered — a turn waiting on an approval
+    /// holds `SubmitUserInput` open for as long as the operator takes to
+    /// decide. Queueing through `pending_d1` therefore refused every
+    /// follow-up the composer promised, so the queue keeps its own pending:
+    /// one unanswered submit and one unanswered queue are two commands, not a
+    /// contended slot. It is settled by the same funnel every other pending
+    /// is, and by Core's own `InputQueued`.
+    pending_queue: Option<PendingD1>,
+    queue_outcome: D1OutcomeProjection,
     d1_outcome: D1OutcomeProjection,
     /// One merge-gate decision at a time. Gate decisions are project-scoped
     /// rather than Lane-scoped, so they keep their own slot instead of
@@ -1953,6 +1966,8 @@ impl GuiCoreAdapter {
             d4_receipt: None,
             d4_outcome: D4OutcomeProjection::idle(),
             pending_d1: None,
+            pending_queue: None,
+            queue_outcome: D1OutcomeProjection::idle(),
             d1_outcome: D1OutcomeProjection::idle(),
             pending_d12: None,
             d12_outcome: D1OutcomeProjection::idle(),
@@ -5046,6 +5061,103 @@ impl GuiCoreAdapter {
         })
     }
 
+    /// Sends one `QueueFollowUp` for the selected Lane and waits for Core's
+    /// ordered answer, without touching the D1 command slot.
+    ///
+    /// E3c defect 29. The composer switches its label to `Queue follow-up` the
+    /// moment Core reports a turn, and the *only* honest way to keep that
+    /// promise is a command that does not queue behind the submit which
+    /// started the turn. Core has `QueueFollowUp`, publishes `InputQueued`,
+    /// and answers it while the submit is still open; what was missing was a
+    /// pending of its own to wait in.
+    ///
+    /// The owner is the same exact Lane owner a submit uses — a follow-up is
+    /// work for that Lane, so it is refused rather than sent when Core has
+    /// bound no owner for it. An unanswered queue refuses the next one: its
+    /// answer is the only record of whether the input was accepted, so the
+    /// client never sends a second and hopes.
+    pub fn queue_follow_up_and_wait(
+        &mut self,
+        command_id: &str,
+        lane_id: &str,
+        content: &str,
+        event_timeout: Duration,
+    ) -> Result<D1IntentResult, String> {
+        if let Some(pending) = &self.pending_queue {
+            return Err(format!(
+                "follow-up `{}` is still queued",
+                pending.command_id
+            ));
+        }
+        if content.trim().is_empty() {
+            return Err("D1 composer content is empty".to_string());
+        }
+        let owner = self.exact_submit_owner(lane_id)?;
+        self.client
+            .send(RuntimeCommandEnvelope {
+                schema_version: FRONTEND_SCHEMA_V1,
+                client_id: "viden-gui".to_string(),
+                command_id: command_id.to_string(),
+                owner: owner.clone(),
+                command: RuntimeCommand::QueueFollowUp {
+                    content: content.to_string(),
+                },
+            })
+            .map_err(|error| error.to_string())?;
+        self.pending_queue = Some(PendingD1 {
+            command_id: command_id.to_string(),
+            owner,
+            kind: PendingD1Kind::Queue,
+            accepted: false,
+            sent_at: Instant::now(),
+        });
+        self.queue_outcome = D1OutcomeProjection::pending();
+        self.poll_queue_follow_up(lane_id, event_timeout)
+    }
+
+    /// Drains ordered Core events while a follow-up is still queued.
+    ///
+    /// The result carries the *queue's* pending and outcome, never the D1
+    /// slot's: a caller that mixed the two would report the unanswered submit
+    /// as the reason the follow-up has not landed.
+    pub fn poll_queue_follow_up(
+        &mut self,
+        lane_id: &str,
+        event_timeout: Duration,
+    ) -> Result<D1IntentResult, String> {
+        let mut received = false;
+        let mut receive_failed = false;
+        for _ in 0..8 {
+            let event = match self.receive_event_until(event_timeout) {
+                Ok(Some(event)) => event,
+                Ok(None) => break,
+                Err(_) => {
+                    receive_failed = true;
+                    break;
+                }
+            };
+            received = true;
+            if self.reconcile_ambient_pendings(&event) && self.pending_queue.is_none() {
+                break;
+            }
+        }
+        if received && !receive_failed {
+            self.refresh_projection()
+                .map_err(|error| error.to_string())?;
+        }
+        Ok(D1IntentResult {
+            projection: self
+                .d1_cockpit(Some(lane_id))
+                .ok_or_else(|| "Core has not published a D1 projection".to_string())?,
+            pending_command_id: self
+                .pending_queue
+                .as_ref()
+                .map(|pending| pending.command_id.clone()),
+            pending_command: self.pending_queue.as_ref().map(PendingD1::projection),
+            outcome: self.queue_outcome.clone(),
+        })
+    }
+
     /// Stops waiting for an unanswered adapter *read* and frees the slot.
     ///
     /// Defects 14 and 15 (E3a). Core answers one command at a time and gives
@@ -6340,7 +6452,8 @@ impl GuiCoreAdapter {
         self.observe_pending_d15(event);
         self.observe_pending_d16(event);
         self.observe_d4(event);
-        self.observe_pending_d1(event)
+        let queued = self.observe_pending_queue(event);
+        self.observe_pending_d1(event) || queued
     }
 
     /// Settles the in-flight Plan Studio command against one ordered event.
@@ -6395,6 +6508,33 @@ impl GuiCoreAdapter {
             D12Observation::Rejected(reason) => {
                 self.pending_d16 = None;
                 self.d16_outcome = D1OutcomeProjection::rejected(reason);
+            }
+        }
+    }
+
+    /// Settles the in-flight `QueueFollowUp` against one ordered event.
+    ///
+    /// Its own observer for the same reason it has its own pending: the queue
+    /// and the submit that started the turn are both out at once, and settling
+    /// one must never free the other's slot. `PendingD1Kind::Queue` already
+    /// matched Core's `InputQueued` before anything routed to it; this is what
+    /// routes to it (E3c defect 29).
+    fn observe_pending_queue(&mut self, event: &RuntimeEventEnvelope) -> bool {
+        let observation = self
+            .pending_queue
+            .as_mut()
+            .map_or(D1Observation::Continue, |pending| pending.observe(event));
+        match observation {
+            D1Observation::Continue => false,
+            D1Observation::Confirmed => {
+                self.pending_queue = None;
+                self.queue_outcome = D1OutcomeProjection::confirmed();
+                true
+            }
+            D1Observation::Rejected(reason) => {
+                self.pending_queue = None;
+                self.queue_outcome = D1OutcomeProjection::rejected(reason);
+                true
             }
         }
     }

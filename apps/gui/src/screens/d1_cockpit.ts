@@ -407,6 +407,19 @@ export interface D1RenderOptions {
   agentProbe?: {
     abandon: () => Promise<D1IntentResult>;
   };
+  /**
+   * Queues one follow-up behind a turn Core is already running
+   * (`QueueFollowUp`, E3c defect 29).
+   *
+   * Its own port rather than a `D1Intent`, because it is the one composer
+   * command that must not wait for the single D1 command slot: the submit that
+   * started the turn holds that slot until Core answers it, and Core does not
+   * answer while the turn waits on an approval. Absent leaves the composer on
+   * its ordinary prompt — the `Queue follow-up` label is only shown where the
+   * queue can actually be sent, because a label that promises a queue and then
+   * refuses is the defect itself.
+   */
+  queueFollowUp?: (laneId: string, content: string) => Promise<D1IntentResult>;
   operatorGit?: {
     read: (laneId: string | null) => Promise<OperatorGitProjection>;
     run: (
@@ -863,6 +876,16 @@ export function renderD1Cockpit(
   let slotBusyRefusal: { kind: string; age: string; abandonable: boolean } | null = null;
   let submittedDraft: string | null = null;
   let composerDispatchQueued = false;
+  /**
+   * The unanswered `QueueFollowUp`, if one is out.
+   *
+   * Tracked separately from `pendingCommand` for the same reason the host
+   * keeps a separate pending: a queued follow-up and the submit that started
+   * the turn are two commands, and reporting one as the other would tell the
+   * operator the wrong thing about which is waiting (E3c defect 29).
+   */
+  let queuePending: D1PendingCommandProjection | null = null;
+  let queueInFlight = false;
   let errorMessage: string | null = null;
   /**
    * The design's post-deny redirect: once the operator denies an ask, the
@@ -3301,6 +3324,12 @@ export function renderD1Cockpit(
    */
   const refuseOccupiedCommandSlot = (): void => {
     if (!pendingCommandId) return;
+    // Nothing left this client, so there is no submitted draft to retire when
+    // the *other* command finally confirms. E3c defect 29's second half: the
+    // refused text was recorded as submitted, and the unrelated confirmation
+    // that arrived later cleared the composer under it, so the message the
+    // operator was promised would be kept was discarded instead.
+    submittedDraft = null;
     const kind = pendingCommand?.kind ?? pendingCommandId;
     slotBusyRefusal = {
       kind,
@@ -3367,6 +3396,83 @@ export function renderD1Cockpit(
 
   const sendIntent = (intent: D1Intent, onRejected?: () => void): void => {
     void sendAndWait(intent, onRejected);
+  };
+
+  /**
+   * Whether a follow-up can actually be queued for the selection right now.
+   *
+   * E3c defect 29. The composer switched its label to `Queue follow-up` on
+   * Core's `busy` alone and then refused the submit, which is a promise the
+   * client could not keep. The label and the route now read the same
+   * predicate, so the offer exists exactly where the command does.
+   */
+  const queueFollowUpAvailable = (): boolean =>
+    !!options.queueFollowUp && !!selectedLaneId && projection.composer.busy;
+
+  /**
+   * Sends one `QueueFollowUp` and applies Core's ordered answer.
+   *
+   * It does not wait for the D1 command slot: the submit holding that slot is
+   * the turn this follow-up is queued behind. One queue at a time, because the
+   * answer is the only record of whether Core accepted the input — a second
+   * sent hopefully would be a second message the operator cannot account for.
+   * The queued row itself is never drawn from here: it comes from Core's
+   * `InputQueued` through `liveWork.queuedInputs`, and leaves when Core drains
+   * it (compatibility follow-up 16).
+   */
+  const queueComposerFollowUp = (laneId: string, content: string): void => {
+    const port = options.queueFollowUp;
+    if (!port) return;
+    if (queueInFlight || queuePending) {
+      // The queue's own slot is occupied. Defect 23's refusal applies here
+      // unchanged, and the text stays in the composer.
+      slotBusyRefusal = {
+        kind: queuePending?.kind ?? "queue_follow_up",
+        age: slotBusyAge(queuePending?.ageMs ?? 0),
+        // A queued input is an effect: Core's answer is the only record of
+        // whether it was accepted, so the wait is never abandoned here.
+        abandonable: false,
+      };
+      draft = content;
+      submittedDraft = null;
+      render(true);
+      return;
+    }
+    queueInFlight = true;
+    slotBusyRefusal = null;
+    errorMessage = null;
+    submittedDraft = content;
+    render(true);
+    void port(laneId, content)
+      .then((result) => {
+        if (disposed) return;
+        queuePending = result.pendingCommand ?? null;
+        // Core's facts, applied through the same funnel every other answer
+        // uses. The queue's pending is deliberately *not* published as the D1
+        // slot: the submit still holds that one.
+        controller.applyProjection(result.projection);
+        if (result.outcome.state === "rejected") {
+          errorMessage = result.outcome.reason ?? "Core rejected the follow-up.";
+          draft = content;
+          submittedDraft = null;
+          return;
+        }
+        if (draft === submittedDraft) draft = "";
+        submittedDraft = null;
+      })
+      .catch((error: unknown) => {
+        if (disposed) return;
+        // A host failure is this client's error, never Core's refusal, and it
+        // never eats the text.
+        root.dataset.d1Error = String(error);
+        errorMessage = String(error);
+        draft = content;
+        submittedDraft = null;
+      })
+      .finally(() => {
+        queueInFlight = false;
+        if (!disposed) render(true);
+      });
   };
 
   const sendComposerIntent = (intent: D1Intent, onRejected?: () => void): void => {
@@ -3442,6 +3548,13 @@ export function renderD1Cockpit(
     // The correction has been sent, so the prompt goes back to inviting a
     // message. A submit blocked above never gets here, and never clears it.
     denyRedirect = null;
+    if (queueFollowUpAvailable()) {
+      // Core reports a turn for this Lane, so this is a follow-up and not a
+      // second submit. It carries `QueueFollowUp` and waits in its own
+      // pending; the D1 slot stays where it is (E3c defect 29).
+      queueComposerFollowUp(selectedLaneId, content);
+      return;
+    }
     const route = conversationForLane(projection, selectedLaneId);
     if (route?.kind === "acp" && !projection.composer.busy) {
       sendComposerIntent(
@@ -5016,7 +5129,10 @@ export function renderD1Cockpit(
     const composerRegion = document.createElement("section");
     composerRegion.className = "d1-composer";
     const composerLabel = document.createElement("label");
-    composerLabel.textContent = projection.composer.busy || composerDispatchQueued
+    // The label promises only what this client can send. `busy` alone used to
+    // switch it, and the submit underneath was then refused by the occupied
+    // command slot (E3c defect 29).
+    composerLabel.textContent = queueFollowUpAvailable()
       ? translate(locale, "d1.composer.queue", {})
       : translate(locale, "d1.composer.prompt", {});
     const composer = document.createElement("textarea");

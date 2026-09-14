@@ -309,6 +309,21 @@ export interface CoreClient {
   d1SendIntent(commandId: string, intent: D1Intent): Promise<D1IntentResult>;
   d1Poll(selectedLaneId: string | null, waitForEvent: boolean): Promise<D1IntentResult>;
   /**
+   * Queues one follow-up for a Lane whose turn is already running
+   * (`QueueFollowUp`, E3c defect 29).
+   *
+   * Its own entry point rather than a flag on `d1SendIntent`, because it is
+   * the one composer command that must *not* wait for the single D1 slot: the
+   * submit that started the turn holds that slot until Core answers it, and
+   * Core does not answer while the turn waits on an approval. The result
+   * carries the queue's own pending and outcome, never the submit's.
+   */
+  d1QueueFollowUp(
+    commandId: string,
+    laneId: string,
+    content: string,
+  ): Promise<D1IntentResult>;
+  /**
    * Stops waiting for an unanswered `ProbeAgentAdapter` and frees Core's one
    * command slot (defects 14, 15).
    *

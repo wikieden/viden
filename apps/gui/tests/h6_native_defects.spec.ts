@@ -200,3 +200,124 @@ describe("defect 30 — the commit bar resolves the selected Lane's owner", () =
     controller.dispose();
   });
 });
+
+/* ---- defect 29: a submit behind a live turn is a queued follow-up ---- */
+
+describe("defect 29 — a submit while a turn runs is queued, not refused", () => {
+  /** Core reporting a live turn for the selected Lane, as E3c's step 15 was. */
+  function running(): D1CockpitProjection {
+    const base = projection();
+    return {
+      ...base,
+      composer: { ...base.composer, editable: true, busy: true, canSubmitImmediately: false },
+    };
+  }
+
+  function queued(next: D1CockpitProjection): D1IntentResult {
+    return {
+      projection: next,
+      pendingCommandId: null,
+      pendingCommand: null,
+      outcome: { state: "confirmed", reason: null },
+    };
+  }
+
+  test("the composer's send carries QueueFollowUp and never touches the D1 slot", async () => {
+    const view = running();
+    const queueFollowUp = vi.fn(async () => queued(view));
+    const send = vi.fn(async () => free(view));
+    const { root, controller } = mount(view, { queueFollowUp }, send);
+    await flush();
+
+    const input = root.querySelector<HTMLTextAreaElement>("[data-composer]")!;
+    input.value = "Summarise what you just changed";
+    input.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    root.querySelector<HTMLButtonElement>("[data-composer-send]")!.click();
+    await flush();
+
+    expect(queueFollowUp).toHaveBeenCalledTimes(1);
+    expect(queueFollowUp.mock.calls[0]).toEqual([
+      "lane-core",
+      "Summarise what you just changed",
+    ]);
+    expect(send).not.toHaveBeenCalled();
+    controller.dispose();
+  });
+
+  test("the label promises a queue only where the queue can be sent", async () => {
+    const view = running();
+    const withPort = mount(view, { queueFollowUp: vi.fn(async () => queued(view)) });
+    await flush();
+    expect(withPort.root.querySelector("label")!.textContent).toContain("Queue follow-up");
+    withPort.controller.dispose();
+
+    // The same Core state with no queue port: the promise is not made.
+    const withoutPort = mount(view, {});
+    await flush();
+    expect(withoutPort.root.querySelector("label")!.textContent).not.toContain(
+      "Queue follow-up",
+    );
+    withoutPort.controller.dispose();
+  });
+
+  test("a follow-up refused by its own occupied queue keeps the text", async () => {
+    const view = running();
+    // The host answers with the queue still pending: the next follow-up has
+    // nowhere to go, and defect 23's refusal applies unchanged.
+    const queueFollowUp = vi.fn(async () => ({
+      projection: view,
+      pendingCommandId: "gui-d1-queue-1",
+      pendingCommand: {
+        commandId: "gui-d1-queue-1",
+        kind: "queue_follow_up",
+        ageMs: 3_000,
+        abandonable: false,
+      },
+      outcome: { state: "pending" as const, reason: null },
+    }));
+    const { root, controller } = mount(view, { queueFollowUp });
+    await flush();
+
+    const type = (text: string): void => {
+      const input = root.querySelector<HTMLTextAreaElement>("[data-composer]")!;
+      input.value = text;
+      input.dispatchEvent(new InputEvent("input", { bubbles: true }));
+      root.querySelector<HTMLButtonElement>("[data-composer-send]")!.click();
+    };
+    type("first follow-up");
+    await flush();
+    type("second follow-up");
+    await flush();
+
+    expect(queueFollowUp).toHaveBeenCalledTimes(1);
+    const alert = root.querySelector<HTMLElement>("[data-d1-slot-busy]");
+    expect(alert).not.toBeNull();
+    expect(alert!.textContent).toContain("queue_follow_up");
+    expect(root.querySelector<HTMLTextAreaElement>("[data-composer]")!.value).toBe(
+      "second follow-up",
+    );
+    controller.dispose();
+  });
+
+  test("the queued row is Core's own InputQueued fact, and leaves when Core drains it", async () => {
+    const view = running();
+    const { root, controller } = mount(view, {
+      queueFollowUp: vi.fn(async () => queued(view)),
+    });
+    await flush();
+    // The fixture's own queued input, which is where `InputQueued` lands. The
+    // client draws no queued row of its own: a locally invented one would
+    // survive a rejection Core never accepted.
+    const bar = (): HTMLElement => root.querySelector<HTMLElement>("[data-live-work-bar]")!;
+    expect(bar().textContent).toContain("continue");
+
+    const drained: D1CockpitProjection = {
+      ...view,
+      liveWork: { ...view.liveWork, queuedInputs: [] },
+    };
+    controller.applyProjection(drained);
+    await flush();
+    expect(bar().textContent).not.toContain("continue");
+    controller.dispose();
+  });
+});
