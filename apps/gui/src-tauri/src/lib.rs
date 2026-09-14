@@ -3,6 +3,7 @@
 mod adapter;
 mod agent_content;
 mod board;
+mod connection_log;
 mod d1;
 mod d10;
 mod d12;
@@ -41,6 +42,7 @@ pub use board::{
     D16ControlProjection, D16ConversationProjection, D16DetailProjection, D16EvidenceProjection,
     D16Intent, D16IntentResult, D16LaneProjection, D16SessionProjection, D16SwitchModelProjection,
 };
+pub use connection_log::CONNECTION_LOG_PREFIX;
 pub use d1::{
     ComposerControlIntent, D1_OWNER_CAPABILITY, D1_OWNER_CARDINALITY_CODE,
     D1AgentSessionInputProjection, D1AgentSessionProjection, D1ChecklistItemProjection,
@@ -66,7 +68,8 @@ pub use d4::{
     D4SessionOutcomeProjection,
 };
 pub use d6::{
-    D6ActionProjection, D6ConnectionState, D6Intent, D6IntentResult, D6RecoveryProjection, D6State,
+    D6ActionProjection, D6ConnectionState, D6Intent, D6IntentResult, D6ReconnectProjection,
+    D6RecoveryProjection, D6State,
 };
 pub use d10::{
     D10_EVENT_TICKER_LIMIT, D10AgentProjection, D10EvidenceProjection, D10LaneMonitorProjection,
@@ -1304,15 +1307,17 @@ fn d2_send_intent(
 
 #[tauri::command]
 fn d6_recover(state: tauri::State<'_, DesktopState>) -> Result<D6RecoveryProjection, String> {
-    let mut guard = state
-        .adapter
-        .lock()
-        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?;
-    let adapter = guard
-        .as_mut()
-        .ok_or_else(|| "Core adapter is not connected".to_string())?;
-    adapter.recover().map_err(|error| error.to_string())?;
-    Ok(adapter.d6_recovery())
+    shell::d6_recover(&state)
+}
+
+/// The recovery surface with no Core traffic (E3d defect 37).
+///
+/// The cockpit reads it on every ordered wake so the host's own reconnect
+/// countdown moves without the operator pressing anything — and so a
+/// connection that came back stops claiming it is still down.
+#[tauri::command]
+fn d6_recovery(state: tauri::State<'_, DesktopState>) -> Result<D6RecoveryProjection, String> {
+    shell::d6_recovery(&state)
 }
 
 #[tauri::command]
@@ -1419,6 +1424,7 @@ pub fn run_with_adapter(adapter: Option<GuiCoreAdapter>) {
             d14_audit_poll,
             agent_content,
             d6_recover,
+            d6_recovery,
             d6_send_intent
         ])
         .setup(|app| {

@@ -66,6 +66,10 @@ const COPY = {
     connection_label: "Connection",
     state_label: "State",
     hint_label: "Hint",
+    reconnect_attempt: "Reconnect attempt {attempt} of {max}.",
+    reconnect_next: "Next attempt in {seconds}s.",
+    reconnect_running: "Reconnecting now.",
+    reconnect_gave_up: "The host stopped reconnecting after {attempts} attempts.",
   },
   "zh-CN": {
     empty: ["空工作区", "Core 尚未提供可用 Lane。"],
@@ -93,6 +97,10 @@ const COPY = {
     connection_label: "连接",
     state_label: "状态",
     hint_label: "提示",
+    reconnect_attempt: "第 {attempt} 次重连尝试，共 {max} 次。",
+    reconnect_next: "{seconds} 秒后重试。",
+    reconnect_running: "正在重新连接。",
+    reconnect_gave_up: "主机在 {attempts} 次尝试后停止重连。",
   },
 } as const;
 
@@ -196,6 +204,47 @@ export function renderD6Recovery(
     detail.className = "d6-detail";
     detail.textContent = projection.detail ?? projection.hint ?? copy.facts;
     stage.append(tag, title, detail);
+
+    // E3d defect 37. `CONNECTING` on its own is a spinner: it says something is
+    // happening and never says whether anything still is. The host's own retry
+    // schedule is rendered beside it, ending in the sentence that says it
+    // stopped — an operator can act on "it gave up" and cannot act on a dot.
+    const retry = projection.reconnect;
+    if (retry) {
+      const line = document.createElement("p");
+      line.className = "d6-detail";
+      line.dataset.d6Reconnect = "true";
+      line.setAttribute("role", "status");
+      if (retry.gaveUp) {
+        line.dataset.d6ReconnectGaveUp = "true";
+        line.textContent = copy.reconnect_gave_up.replace(
+          "{attempts}",
+          String(retry.attempts),
+        );
+      } else {
+        const attempt = copy.reconnect_attempt
+          .replace("{attempt}", String(retry.attempts))
+          .replace("{max}", String(retry.maxAttempts));
+        const next =
+          retry.nextAttemptInMs === null
+            ? copy.reconnect_running
+            : copy.reconnect_next.replace(
+                "{seconds}",
+                String(Math.max(1, Math.ceil(retry.nextAttemptInMs / 1000))),
+              );
+        line.textContent = `${attempt} ${next}`;
+      }
+      stage.append(line);
+      if (retry.lastError) {
+        const cause = document.createElement("p");
+        cause.className = "d6-detail";
+        cause.dataset.d6ReconnectError = "true";
+        // The host's own words, unedited: an operator told only that something
+        // failed has nothing to look up.
+        cause.textContent = retry.lastError;
+        stage.append(cause);
+      }
+    }
 
     const facts = document.createElement("dl");
     facts.className = "d6-facts";

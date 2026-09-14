@@ -24,6 +24,11 @@ pub struct TestCoreClient {
     stream_id: String,
     /// Replay batches served in order to `replay`, oldest first.
     replay_batches: VecDeque<ReplayBatch>,
+    /// A severed transport: once set, every `recv`, `snapshot` and `discover`
+    /// fails with it. Shared so a test can cut the wire after handing the
+    /// client to the adapter, which is how a mid-session drop happens
+    /// (E3d defect 37).
+    severed: Arc<Mutex<Option<CoreClientError>>>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -50,7 +55,21 @@ impl TestCoreClient {
             send_error: None,
             stream_id: "gui-test".to_string(),
             replay_batches: VecDeque::new(),
+            severed: Arc::new(Mutex::new(None)),
         }
+    }
+
+    /// The handle a test keeps so it can cut the transport mid-session.
+    ///
+    /// Setting it makes every later `discover`, `recv` and `snapshot` fail,
+    /// which is a dropped Core rather than an absent one. Clearing it lets a
+    /// reconnect succeed, so a test can drive the whole state machine.
+    pub fn severed_handle(&self) -> Arc<Mutex<Option<CoreClientError>>> {
+        Arc::clone(&self.severed)
+    }
+
+    fn severed_error(&self) -> Option<CoreClientError> {
+        self.severed.lock().ok().and_then(|held| held.clone())
     }
 
     pub fn with_replay_batch(mut self, batch: ReplayBatch) -> Self {
@@ -134,6 +153,9 @@ impl TestCoreClient {
 
 impl CoreClient for TestCoreClient {
     fn discover(&mut self) -> Result<CoreHandshake, CoreClientError> {
+        if let Some(error) = self.severed_error() {
+            return Err(error);
+        }
         // Keep each test transport's explicitly selected capability set while
         // preserving the production handshake's schema and metadata.
         let mut wire =
@@ -156,6 +178,9 @@ impl CoreClient for TestCoreClient {
         &mut self,
         _timeout: Duration,
     ) -> Result<Option<RuntimeEventEnvelope>, CoreClientError> {
+        if let Some(error) = self.severed_error() {
+            return Err(error);
+        }
         let Some(next) = self.events.pop_front() else {
             return Ok(None);
         };
@@ -169,6 +194,9 @@ impl CoreClient for TestCoreClient {
     }
 
     fn snapshot(&mut self) -> Result<RuntimeSnapshotEnvelope, CoreClientError> {
+        if let Some(error) = self.severed_error() {
+            return Err(error);
+        }
         Ok(self.envelope())
     }
 

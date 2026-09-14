@@ -19,6 +19,10 @@ import {
   type D1Intent,
   type D1IntentResult,
 } from "../src/screens/d1_cockpit";
+import {
+  renderD6Recovery,
+  type D6RecoveryProjection,
+} from "../src/screens/d6_recovery";
 import { D1_PROJECTION } from "./support/d1_projection";
 
 const LANE = "lane-core";
@@ -182,5 +186,74 @@ describe("defect 36 — the composer never retires a draft it has not confirmed 
     expect(rejection!.textContent).toContain("queue_follow_up_owner_mismatch");
     expect(composer(root).value).toBe(FOLLOW_UP);
     controller.dispose();
+  });
+});
+
+/* ---- defect 37: a dropped connection says what it is doing about it ---- */
+
+describe("defect 37 — CONNECTING carries the host's own retry, not a spinner", () => {
+  const disconnected = (
+    reconnect: D6RecoveryProjection["reconnect"],
+  ): D6RecoveryProjection => ({
+    connection: "connecting",
+    state: "connecting",
+    detail: "core transport error: core pipe closed",
+    hint: null,
+    recoverable: true,
+    businessSuccessBlocked: true,
+    usedTokens: null,
+    hardTokenLimit: null,
+    missingCapabilities: [],
+    reconnect,
+    actions: [
+      { kind: "reconnect", available: false, code: "GUI-CORE-003" },
+      { kind: "inspect", available: true, code: "presentation_only" },
+    ],
+  });
+
+  function stage(projection: D6RecoveryProjection) {
+    document.body.innerHTML = '<main id="stage"></main>';
+    const root = document.querySelector<HTMLElement>("#stage")!;
+    renderD6Recovery(root, projection, async () => projection, "en");
+    return { root };
+  }
+
+  test("a scheduled attempt is named and counted down", () => {
+    const { root } = stage(
+      disconnected({
+        attempts: 2,
+        maxAttempts: 6,
+        nextAttemptInMs: 3_400,
+        gaveUp: false,
+        lastError: "core transport error: core pipe closed",
+      }),
+    );
+    const line = root.querySelector<HTMLElement>("[data-d6-reconnect]");
+    expect(line, "a dropped connection says what is being done about it").not.toBeNull();
+    expect(line!.textContent).toContain("attempt 2 of 6");
+    expect(line!.textContent).toContain("4s");
+    expect(root.querySelector("[data-d6-reconnect-error]")!.textContent).toContain(
+      "core pipe closed",
+    );
+  });
+
+  test("giving up is said out loud rather than left as a spinner", () => {
+    const { root } = stage(
+      disconnected({
+        attempts: 6,
+        maxAttempts: 6,
+        nextAttemptInMs: null,
+        gaveUp: true,
+        lastError: null,
+      }),
+    );
+    const line = root.querySelector<HTMLElement>("[data-d6-reconnect-gave-up]");
+    expect(line, "an operator can act on `it gave up` and cannot act on a dot").not.toBeNull();
+    expect(line!.textContent).toContain("6 attempts");
+  });
+
+  test("a live connection renders no countdown at all", () => {
+    const { root } = stage({ ...disconnected(null), connection: "live", state: "live" });
+    expect(root.querySelector("[data-d6-reconnect]")).toBeNull();
   });
 });

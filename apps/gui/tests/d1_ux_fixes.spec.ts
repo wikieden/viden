@@ -73,6 +73,7 @@ function projection(overrides: Partial<D1CockpitProjection> = {}): D1CockpitProj
       usedTokens: null,
       hardTokenLimit: null,
       missingCapabilities: [],
+      reconnect: null,
       actions: [],
     },
     unavailableFeatures: [],

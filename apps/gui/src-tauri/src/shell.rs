@@ -229,6 +229,26 @@ pub fn d2_decisions(
     })
 }
 
+/* ---- D6 recovery ---- */
+
+/// Re-reads Core's snapshot and returns the recovery surface, as the D6
+/// `Reconnect` control does.
+pub fn d6_recover(state: &DesktopState) -> Result<crate::D6RecoveryProjection, String> {
+    with_adapter_mut(state, |adapter| {
+        adapter.recover().map_err(|error| error.to_string())?;
+        Ok(adapter.d6_recovery())
+    })
+}
+
+/// The recovery surface with no Core traffic, including the host's own bounded
+/// reconnect (E3d defect 37).
+///
+/// The cockpit reads this on every ordered wake, which is what makes the
+/// countdown move without anyone pressing anything.
+pub fn d6_recovery(state: &DesktopState) -> Result<crate::D6RecoveryProjection, String> {
+    with_adapter(state, |adapter| Ok(adapter.d6_recovery()))
+}
+
 /* ---- the desktop event pump ---- */
 
 /// One round of the desktop pump: drain ordered Core events off the UI thread
@@ -248,6 +268,9 @@ pub fn d2_decisions(
 /// * the round does not return until the lock has been released for
 ///   [`PUMP_YIELD`], so a command blocked on it has an unlocked mutex to
 ///   acquire before the pump asks again.
+///
+/// It is also where a dropped connection is retried, because the pump is the
+/// only thread that runs without an operator behind it (E3d defect 37).
 pub fn pump_core_events_once(
     state: &DesktopState,
     event_timeout: Duration,
@@ -261,7 +284,14 @@ pub fn pump_core_events_once(
             Err(TryLockError::Poisoned(_)) => return Err(()),
         };
         match guard.as_mut() {
-            Some(adapter) => Some(adapter.pump_events(event_timeout)),
+            Some(adapter) => {
+                // The pump is the only thread that runs on its own, so a
+                // connection nobody is holding open is its to get back
+                // (E3d defect 37). Cheap when the connection is live: it
+                // returns before doing anything.
+                let reconnected = adapter.maintain_connection();
+                Some(adapter.pump_events(event_timeout) || reconnected)
+            }
             None => None,
         }
     };

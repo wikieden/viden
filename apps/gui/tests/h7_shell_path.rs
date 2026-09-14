@@ -25,11 +25,21 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use viden_core::{CoreClientError, RuntimeSnapshot, RuntimeViewState};
 use viden_gui::{
-    D1CockpitProjection, D1Intent, DesktopState, OperatorGitIntent, OperatorGitProjection,
-    PermissionChoice, PermissionIntent, open_local_workspace_with_session_home,
-    pump_core_events_once, shell,
+    D1CockpitProjection, D1Intent, D6ConnectionState, DesktopState, GuiCoreAdapter,
+    OperatorGitIntent, OperatorGitProjection, PermissionChoice, PermissionIntent,
+    open_local_workspace_with_session_home, pump_core_events_once, shell,
 };
+
+mod support;
+use support::TestCoreClient;
+
+/// The frozen contract fixture, used only as a valid snapshot for the severed
+/// transport: defect 37 is about the connection, not about what Core published.
+const D1_FIXTURE: &str = include_str!(
+    "../../../crates/types/tests/fixtures/frontend-contract-v1/d1-vertical-slice.json"
+);
 
 /// The pump's own bounded receive, the same one `spawn_core_event_pump` uses.
 const PUMP_TIMEOUT: Duration = viden_gui::shell::PUMP_DRAIN;
@@ -550,6 +560,105 @@ fn a_follow_up_submitted_during_a_turn_is_never_reported_as_queued_unless_core_s
         ),
         "rejected" => {}
         other => panic!("unexpected queue outcome `{other}`"),
+    }
+}
+
+/* ---- defect 37: a dropped connection is retried, and says so ---- */
+
+/// E3d defect 37, in-process: the transport is severed mid-session and the
+/// host must both *say* so and *try again*.
+///
+/// The native run fell back to `◌ CONNECTING` with `DIAG 1x`, an inert
+/// composer and a `LANES` panel reading `No Lanes yet`, stayed there across six
+/// checks over 60 s, and only a kill and relaunch recovered it — while the
+/// process wrote **zero bytes** with `RUST_LOG=info` set. Two things were
+/// missing and both are here: a transition log that does not depend on a level
+/// filter this workspace has no subscriber for, and a bounded retry whose
+/// state the recovery surface can render instead of a spinner.
+#[test]
+fn a_severed_core_connection_is_logged_and_retried_with_a_visible_countdown() {
+    let sent = Arc::new(Mutex::new(Vec::new()));
+    let fixture: serde_json::Value = serde_json::from_str(D1_FIXTURE).expect("parse D1 fixture");
+    let snapshot = serde_json::from_value::<RuntimeSnapshot>(fixture["initial_snapshot"].clone())
+        .expect("read the fixture snapshot");
+    let client = TestCoreClient::new(RuntimeViewState::new(snapshot), sent);
+    let severed = client.severed_handle();
+    let mut adapter = GuiCoreAdapter::new(Box::new(client));
+    adapter.connect().expect("the fixture transport connects");
+    assert_eq!(adapter.d6_recovery().connection, D6ConnectionState::Live);
+
+    let state = DesktopState::new(Some(adapter));
+
+    // Cut the wire the way a mid-session drop cuts it: nothing is torn down,
+    // the next read simply fails.
+    *severed.lock().expect("sever the transport") =
+        Some(CoreClientError::Transport("core pipe closed".into()));
+
+    // The pump notices on the round whose drain fails, and retries on the next
+    // one. Two rounds, then — and the retry is the pump's own, with no
+    // operator behind it, which is the whole point.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        pump_core_events_once(&state, PUMP_TIMEOUT).expect("the pump round runs");
+        let attempted = shell::d6_recovery(&state)
+            .expect("read the recovery surface through the shell")
+            .reconnect
+            .is_some();
+        if attempted {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the pump never attempted a reconnect against a severed transport"
+        );
+    }
+
+    let recovery = shell::d6_recovery(&state).expect("read the recovery surface through the shell");
+    assert_ne!(
+        recovery.connection,
+        D6ConnectionState::Live,
+        "a severed transport is not a live connection"
+    );
+    let retry = recovery
+        .reconnect
+        .as_ref()
+        .expect("the host says what it is doing about the drop");
+    assert_eq!(retry.attempts, 1, "the pump attempted the reconnect itself");
+    assert!(!retry.gave_up, "one failure is not giving up");
+    assert!(
+        retry.next_attempt_in_ms.is_some(),
+        "an operator is told when the next attempt is, not left on a spinner"
+    );
+    assert_eq!(
+        retry
+            .last_error
+            .as_deref()
+            .map(|error| error.contains("core pipe closed")),
+        Some(true),
+        "the host's own words reach the surface: {:?}",
+        retry.last_error
+    );
+
+    // And it recovers on its own once the transport comes back, without the
+    // kill and relaunch E3d needed.
+    *severed.lock().expect("restore the transport") = None;
+    let recovered_by = Instant::now() + Duration::from_secs(30);
+    loop {
+        pump_core_events_once(&state, PUMP_TIMEOUT).expect("the pump round runs");
+        let recovery =
+            shell::d6_recovery(&state).expect("read the recovery surface through the shell");
+        if recovery.connection == D6ConnectionState::Live {
+            assert!(
+                recovery.reconnect.is_none(),
+                "a live connection has no countdown left to render"
+            );
+            return;
+        }
+        assert!(
+            Instant::now() < recovered_by,
+            "the host never reconnected to a transport that came back: {:?}",
+            recovery.reconnect
+        );
     }
 }
 

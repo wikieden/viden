@@ -47,6 +47,7 @@ const EMPTY_PROJECTION = {
     usedTokens: null,
     hardTokenLimit: null,
     missingCapabilities: ["runtime.recent_work"],
+    reconnect: null,
     actions: [],
   },
 };

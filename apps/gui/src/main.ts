@@ -171,6 +171,7 @@ function shellProjection(
       usedTokens: null,
       hardTokenLimit: null,
       missingCapabilities: [],
+      reconnect: null,
       actions: [],
     },
     unavailableFeatures: [],

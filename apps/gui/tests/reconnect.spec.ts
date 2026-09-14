@@ -20,6 +20,7 @@ test("reconnect stays recovering and blocks success until Core publishes a live 
     usedTokens: null,
     hardTokenLimit: null,
     missingCapabilities: [],
+    reconnect: null,
     actions: [{ kind: "reconnect", available: true, code: "core_client" }],
   };
   const live: D6RecoveryProjection = {
