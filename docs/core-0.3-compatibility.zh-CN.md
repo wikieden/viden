@@ -1235,11 +1235,34 @@ Homebrew。
    与 `InputQueued` 立刻发布，而此时轮次仍在运行。`InputDequeued` 仍属于启动该轮次的
    排空动作，因此两者不再共享同一瞬间。worker 只被告知它可能需要排空，通过
    `SupervisorMessage::SessionFollowUpQueued`（`:1973`），武装排空的规则原地未动；
-   supervisor 仍是单个 worker。Lane 作用域未被触碰 —— Lane 的追加提示由它自己的
-   worker 持有并排空 —— 直接契约路径仍然自己完成整个确认，因此冻结的
-   `queued-follow-up` fixture 逐字节一致。测试：
-   `crates/runtime/src/tests/turn_lifecycle_tests.rs:657`。没有 capability、计数或
-   事件形状变化。
+   supervisor 仍是单个 worker。C12 没有触碰 Lane 作用域，依据的是「Lane 的追加提示
+   由它自己的 worker 持有并排空」这一判断；见下面的 C18 说明，该判断被证伪。直接
+   契约路径仍然自己完成整个确认，因此冻结的 `queued-follow-up` fixture 逐字节一致。
+   测试：`crates/runtime/src/tests/turn_lifecycle_tests.rs:657`。没有 capability、
+   计数或事件形状变化。
+   **Lane 的那一半已于 2026-09-14 由 C18 关闭。** C12 的守卫是
+   `owner.lane_id.is_none()`，因此 Lane 作用域的 `QueueFollowUp` 根本不匹配受理路径
+   的那个分支，而是落入唯一 supervisor worker 的通道 —— 也就是该 Lane 自己那条尚未
+   被回答的回合正占用着的 worker。它什么都不发布：没有 `CommandAccepted`，没有
+   `InputQueued`，没有任何事件，这正是 E3d 记录、H7 指名为 GUI 缺陷 36 的 Core 那
+   一半的「`EVENTS #49` 前后不变」。C12 依据的那条注释只是设想：`crates/lanes` 根本
+   没有队列，而 `crates/lanes::LaneWorker` 运行的是 Lane 的*生命周期副作用*，从不
+   运行它的原生回合。Lane 的条目现在进入 `LaneInputQueues`
+   （`crates/runtime/src/runtime_contract.rs`）——一个由 runtime 拥有的按 Lane 分开
+   的队列，因为解析 Lane 执行作用域并为其回合加起止括号的是 `run_supervised_input`
+   （C17）：一个回合释放的队列必须住在该回合被运行的地方。它在受理路径上发布，并把
+   Lane owner 放在 `QueuedInputView.owner` 上（GUI-CORE-010）；排空由
+   `drain_lane_queue` 在该 Lane 自己 owner 的 `TurnFinished { completed }` 之后进行
+   —— 最旧优先，先 `InputDequeued` 再启动它的回合，并在第一个未完成的条目处停止。
+   各队列保持独立，各有一个武装标记，因此任何 owner 已完成的回合都不会消耗别人的
+   条目；回合失败或被取消的 Lane 保留其队列；杀死某个 Lane 的 Agent 会话会丢弃它，
+   并对每个被丢弃的条目发布 `InputDequeued`。Lane 的队列条目不是持久事实 —— 与
+   `held_session_inputs` 同一条规则 —— 因此重启后的 Core 会丢掉它，客户端必须保住
+   操作者的文本直到 `InputQueued` 到达。测试：
+   `crates/runtime/src/tests/lane_queue_tests.rs` 与
+   `crates/runtime/src/tests/runtime_supervisor_tests.rs`
+   （`runtime_supervisor_kill_discards_the_lanes_follow_up_queue`）。没有
+   capability、计数或事件形状变化；九个冻结基线 fixture 逐字节一致。
 
 E2 的第四项发现属于客户端侧，记录在它该在的地方而不是这里：`/git` 选择器曾把
 `set_upstream: false` 写死，因此本文自身契约所规定的 `NoUpstream` 恢复路径

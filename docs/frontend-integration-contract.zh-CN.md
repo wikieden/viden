@@ -306,7 +306,7 @@ flowchart LR
 | 用户意图 | 前端发送 | Core 负责 |
 | --- | --- | --- |
 | 启动普通 turn | `SubmitUserInput` | provider loop、context bundle、tools、transcript |
-| 工作运行时追加输入 | `QueueFollowUp` | queue ordering，以及一次已完成回合之后的排空：先 `InputDequeued`，再为它单独发布 `TurnStarted { QueuedInput }`。自 Core `0.3.8` 起，会话作用域的追加提示在命令被*受理*时就得到确认，而不是等 worker 处理到它：条目在正在运行的回合仍在运行时就已进入 `RuntimeViewState.queued_inputs` 并发布 `InputQueued`，因此两条事实不再共享同一瞬间 |
+| 工作运行时追加输入 | `QueueFollowUp` | queue ordering，以及一次已完成回合之后的排空：先 `InputDequeued`，再为它单独发布 `TurnStarted { QueuedInput }`。自 Core `0.3.8` 起，会话作用域的追加提示在命令被*受理*时就得到确认，而不是等 worker 处理到它：条目在正在运行的回合仍在运行时就已进入 `RuntimeViewState.queued_inputs` 并发布 `InputQueued`，因此两条事实不再共享同一瞬间。Lane 作用域的追加提示现在同理：为该 Lane 入队，并由该 Lane 自己已完成的回合排空；请匹配 `QueuedInputView.owner`，不要假定只有一个队列 |
 | 取消当前工作 | 携带所选 Lane 精确 bound envelope owner 的 `CancelActiveTurn`，或 `CancelAgentTask` | 精确 owner 校验、request cancellation、task/Lane state，以及一条不释放其后任何排队项的 `TurnFinished { Cancelled }` |
 | 启动受监督 workflow | `StartAgentDag` 然后 `StartAgentTask` | DAG validation、dependencies、workflow events |
 | 修改 mode/permissions | `SetWorkMode`、`SetPermissionLevel` | permission mode mapping 和 policy enforcement |
@@ -879,7 +879,31 @@ active job，因此 `CancelActiveTurn` 能停下它；它经由同一条路径�
 之后运行。请渲染「已排队 · 等待下一次完成的回合」，而不要暗示即将执行。由于 Core
 的 supervisor 只有一个 worker，在回合运行期间发送的 `QueueFollowUp` 在该回合结束时
 仍在途中：一次已完成的会话作用域回合会「武装」排空，因此这样的后续输入在入队时即刻
-运行。Lane 自己的队列属于 Lane worker，未作改动。
+运行。
+
+**Lane 的队列。** 同样自 Core `0.3.8` 起，owner 携带 `lane_id` 的 `QueueFollowUp` 会为
+该 Lane 入队，并适用同一条受理路径规则：在该 Lane 的回合仍在运行时，条目就已进入
+`RuntimeViewState.queued_inputs` 并发布 `InputQueued`。在此之前，这样的命令根本不
+产生任何事件——没有 `CommandAccepted`，没有 `InputQueued`——因为它落入了该 Lane 自己
+那条尚未被回答的回合正占用着的唯一 worker 的通道里。
+
+各队列彼此独立，由不同的回合释放。只有该 Lane 自己 owner 的
+`TurnFinished { completed }` 才排空该 Lane 的队列；一次已完成的会话作用域回合绝不
+消耗 Lane 的条目，一次已完成的 Lane 回合也绝不消耗会话的或别的 Lane 的条目。被排空
+的 Lane 条目以该 Lane 的 owner 作为自己的回合运行，这正是让它的工具落在该 Lane
+worktree 中的原因。
+
+按 owner 读队列，而不是按位置。`RuntimeViewState.queued_inputs` 中的每个条目都携带
+`owner`：会话作用域的条目没有该字段，Lane 的条目携带该 Lane 精确的提交 owner。请据此
+匹配，而不要假定只有一个队列。
+
+三条客户端不得放宽的规则。回合失败或被取消的 Lane **保留**其队列且不运行任何东西，
+与会话队列的行为完全一致——不要暗示即将执行。杀死某个 Lane 的 Agent 会话会**丢弃**
+该 Lane 的队列；丢弃会逐条以 `InputDequeued` 公告，因此已经归约该事件的客户端无需
+特例，而一条指名该条目的 `TurnStarted` 才是区分「排空」与「丢弃」的依据。以及队列
+条目**不是持久事实**：它是一条尚未发送的提示，重启后的 Core 永远不会发送它，也没有
+任何 `InputQueued` 能跨越重启——因此客户端必须保住操作者的文本，直到 Core 自己的
+`InputQueued` 到达，并且必须把「重连后没有重新列出该条目」视作该条目已经不在。
 
 **回合的工具在哪里运行。** owner 携带 `lane_id` 的回合在该 Lane 的 worktree 中执行它的
 工具：相对路径在那里解析，`shell` 命令在那里运行，审批预览在那里读取并哈希文件，编辑后

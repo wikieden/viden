@@ -1620,12 +1620,41 @@ in `docs/release-evidence/gui-trusted-delivery/checkpoints.md` (defects 10 to
    so the two no longer share an instant. The worker is told only that it may
    need to drain, through `SupervisorMessage::SessionFollowUpQueued`
    (`:1973`), which keeps the armed-drain rule exactly where it was; the
-   supervisor is still one worker. Lane scope is untouched — a Lane's
-   follow-ups are held and drained by its own worker — and the direct contract
-   path still owns the whole acknowledgement itself, so the frozen
+   supervisor is still one worker. C12 left Lane scope untouched, on the belief
+   that a Lane's follow-ups were held and drained by its own worker; see the
+   C18 note below, which found that belief false. The direct contract path
+   still owns the whole acknowledgement itself, so the frozen
    `queued-follow-up` fixture is byte-identical. Test:
    `crates/runtime/src/tests/turn_lifecycle_tests.rs:657`. No capability, count,
    or event-shape change.
+   **Lane half closed 2026-09-14 by C18.** C12's guard was
+   `owner.lane_id.is_none()`, so a Lane-scoped `QueueFollowUp` did not match the
+   accept-path arm at all and fell through into the single supervisor worker's
+   channel — the worker the Lane's own unanswered turn was occupying. It
+   published nothing: no `CommandAccepted`, no `InputQueued`, no event, which is
+   the `EVENTS #49` before and after that E3d recorded and H7 named as Core's
+   half of GUI defect 36. The comment C12 relied on was aspirational:
+   `crates/lanes` has no queue, and `crates/lanes::LaneWorker` runs a Lane's
+   *lifecycle effects*, never its native turn. A Lane's entry now goes onto
+   `LaneInputQueues` (`crates/runtime/src/runtime_contract.rs`), a per-Lane queue
+   owned by the runtime, because `run_supervised_input` is what resolves the
+   Lane's execution scope and brackets its turn (C17): the queue a turn releases
+   has to live where that turn is run. It is announced on the accept path with
+   the Lane owner on `QueuedInputView.owner` (GUI-CORE-010), and drained by
+   `drain_lane_queue` on a `TurnFinished { completed }` owned by that Lane —
+   oldest first, `InputDequeued` before the turn it starts, stopping at the
+   first entry whose turn does not complete. The queues stay separate, one
+   arming flag each, so no owner's completed turn spends another's entries; a
+   Lane whose turn failed or was cancelled keeps its queue; killing a Lane's
+   Agent session discards it and announces each discarded entry with
+   `InputDequeued`. A queued Lane entry is not durable — the same rule
+   `held_session_inputs` follows — so a Core that restarts drops it and a client
+   must keep the operator's text until `InputQueued` arrives. Tests:
+   `crates/runtime/src/tests/lane_queue_tests.rs` and
+   `crates/runtime/src/tests/runtime_supervisor_tests.rs`
+   (`runtime_supervisor_kill_discards_the_lanes_follow_up_queue`). No
+   capability, count, or event-shape change; the nine frozen base fixtures are
+   byte-identical.
 
 A fourth E2 finding is client-side and is recorded where it belongs rather than
 here: the `/git` picker hard-coded `set_upstream: false`, so the `NoUpstream`

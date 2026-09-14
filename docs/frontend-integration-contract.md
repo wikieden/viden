@@ -352,7 +352,7 @@ a contract change, not a refactor.
 | User intent | Frontend sends | Core owns |
 | --- | --- | --- |
 | Start a normal turn | `SubmitUserInput` | provider loop, context bundle, tools, transcript |
-| Add input while work runs | `QueueFollowUp` | queue ordering, and the drain behind a completed turn: `InputDequeued` then a `TurnStarted { QueuedInput }` of its own. Since Core `0.3.8`, a session-scoped follow-up is acknowledged when the command is accepted, not when the worker reaches it: the entry is in `RuntimeViewState.queued_inputs` and `InputQueued` is published while the running turn is still running, so the two facts no longer share an instant |
+| Add input while work runs | `QueueFollowUp` | queue ordering, and the drain behind a completed turn: `InputDequeued` then a `TurnStarted { QueuedInput }` of its own. Since Core `0.3.8`, a session-scoped follow-up is acknowledged when the command is accepted, not when the worker reaches it: the entry is in `RuntimeViewState.queued_inputs` and `InputQueued` is published while the running turn is still running, so the two facts no longer share an instant. The same now holds for a Lane-scoped follow-up, queued for that Lane and drained by that Lane's own completed turn; match `QueuedInputView.owner` rather than assuming one queue |
 | Cancel current work | `CancelActiveTurn` with the selected Lane's exact bound envelope owner, or `CancelAgentTask` | exact owner validation, request cancellation, task/Lane state, and a `TurnFinished { Cancelled }` that releases nothing queued behind it |
 | Start supervised workflow | `StartAgentDag` then `StartAgentTask` | DAG validation, dependencies, workflow events |
 | Change mode/permissions | `SetWorkMode`, `SetPermissionLevel` | permission mode mapping and policy enforcement |
@@ -1068,8 +1068,37 @@ nothing runs behind a turn that did not complete. Render "queued · waits for th
 next completed turn" rather than implying imminent execution. Because Core's
 supervisor is a single worker, a `QueueFollowUp` sent while a turn is running is
 still in flight when that turn ends: a completed session-scoped turn arms the
-drain, and such a follow-up runs as soon as it is queued. A Lane's own queue is
-the Lane worker's and is unchanged.
+drain, and such a follow-up runs as soon as it is queued.
+
+**A Lane's queue.** Also since Core `0.3.8`, a `QueueFollowUp` whose owner carries a
+`lane_id` is queued for that Lane, and the same accept-path rule applies: the
+entry is in `RuntimeViewState.queued_inputs` and `InputQueued` is published
+while the Lane's turn is still running. Before this, such a command produced no
+event at all — no `CommandAccepted`, no `InputQueued` — because it fell through
+into the single worker the Lane's own unanswered turn was occupying.
+
+The queues are separate and are released by different turns. Only a
+`TurnFinished { completed }` owned by that Lane drains that Lane's queue; a
+completed session-scoped turn never spends a Lane's entries and a completed Lane
+turn never spends the session's or another Lane's. A drained Lane entry runs as
+its own turn under the Lane's owner, which is what puts its tools in the Lane's
+worktree.
+
+Read the queue by owner, not by position. Each entry in
+`RuntimeViewState.queued_inputs` carries `owner`: absent for a session-scoped
+entry, and the Lane's exact submit owner for a Lane's. Match on that rather than
+assuming one queue.
+
+Three rules a client must not soften. A Lane whose turn failed or was cancelled
+**keeps** its queue and runs nothing, exactly as the session queue behaves — do
+not promise imminent execution. Killing a Lane's Agent session **discards** that
+Lane's queue; the discard is announced entry by entry with `InputDequeued`, so a
+client that reduces that event needs no special case, and a `TurnStarted` naming
+the entry is what distinguishes a drain from a discard. And a queued entry is
+**not durable**: it is a prompt that has not been sent, a Core that restarts
+never sends it, and no `InputQueued` survives a restart — so a client must keep
+the operator's text until Core's own `InputQueued` arrives, and must treat a
+reconnect that does not re-list the entry as the entry being gone.
 
 **Where a turn's tools run.** A turn whose owner carries a `lane_id` executes
 its tools in that Lane's worktree: relative paths resolve there, a `shell`
