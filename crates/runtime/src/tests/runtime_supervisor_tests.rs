@@ -14,7 +14,7 @@ use viden_types::{
     PermissionLevel, PermissionMode, PermissionRule, PermissionRuleSource, PermissionRuleValue,
     ReplayRequest, RuntimeCommand, RuntimeCommandEnvelope, RuntimeEvent, RuntimeEventEnvelope,
     RuntimeEventKind, RuntimeOwner, RuntimeWireEvent, ToolCall, ToolInput, TranscriptPageRequest,
-    WorkMode,
+    TurnSource, WorkMode,
 };
 use viden_workflows::stores::WorkflowStore;
 
@@ -8469,6 +8469,126 @@ fn runtime_supervisor_kill_discards_held_inputs_and_stays_retryable() {
                 if command_id == "cmd_kill_retry" && reason.contains("is still active")
         )),
         "a killed session must accept a retry"
+    );
+
+    unsafe {
+        std::env::remove_var("VIDEN_AGENT_ACP_COMMAND");
+    }
+}
+
+/// Killing a Lane's Agent session discards that Lane's follow-up queue, and
+/// says so on the wire (C18).
+///
+/// The same rule a kill applies to held inputs: the Lane's work is ending, and
+/// a follow-up written for it must not outlive it. The discard is announced —
+/// every entry was published by an `InputQueued` a client has already reduced,
+/// so dropping it silently would leave a queued row in the projection for work
+/// Core has decided never to run. It matters most here: a Lane bound to an
+/// external agent runs no native turn, so the kill is the only thing that can
+/// ever clear its queue.
+#[test]
+fn runtime_supervisor_kill_discards_the_lanes_follow_up_queue() {
+    let _guard = CUSTOM_ACP_ENV_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .expect("custom ACP env lock");
+    let cwd = temp_dir("runtime_supervisor_lane_queue_kill_cwd");
+    let home = temp_dir("runtime_supervisor_lane_queue_kill_home");
+    let script = cwd.join("mock-typed-acp-lane-queue-kill.sh");
+    write_session_control_mock(&script, "remote-lane-queue-kill");
+    unsafe {
+        std::env::set_var(
+            "VIDEN_AGENT_ACP_COMMAND",
+            format!("sh {}", script.display()),
+        );
+    }
+    let engine = SessionEngine::new_with_home(
+        &cwd,
+        Box::new(SequenceProvider::new(Vec::new())),
+        Some(home),
+    )
+    .unwrap();
+    let supervisor = RuntimeSupervisor::start(engine);
+    supervisor
+        .send_command_from_owner(
+            owner_for_lane("lane-queue-kill"),
+            "cmd_lane_queue_kill_start",
+            RuntimeCommand::StartAgentSession {
+                request: AgentSessionRequest {
+                    lane_id: "lane-queue-kill".to_string(),
+                    agent_id: "custom-acp".to_string(),
+                    model: None,
+                    load_session_id: None,
+                    task: "wait for the operator".to_string(),
+                },
+            },
+        )
+        .unwrap();
+    let started = collect_events_until(&supervisor, Duration::from_secs(10), |events| {
+        events
+            .iter()
+            .any(|event| matches!(event.kind, RuntimeEventKind::AgentSessionStarted { .. }))
+    });
+    let session = started
+        .iter()
+        .find_map(|event| match &event.kind {
+            RuntimeEventKind::AgentSessionStarted { session } => Some(session.clone()),
+            _ => None,
+        })
+        .expect("started session");
+    let owner = session.owner.clone();
+
+    supervisor
+        .send_command_from_owner(
+            owner.clone(),
+            "cmd_lane_queue_kill_queue",
+            RuntimeCommand::QueueFollowUp {
+                content: "written for a Lane that is about to be killed".to_string(),
+            },
+        )
+        .unwrap();
+    let queued = collect_events_until(&supervisor, Duration::from_secs(10), |events| {
+        events
+            .iter()
+            .any(|event| matches!(&event.kind, RuntimeEventKind::InputQueued { .. }))
+    });
+    let queued_id = queued
+        .iter()
+        .find_map(|event| match &event.kind {
+            RuntimeEventKind::InputQueued { input } => Some(input.id.clone()),
+            _ => None,
+        })
+        .expect("the queued entry");
+
+    supervisor
+        .send_command_from_owner(
+            owner,
+            "cmd_lane_queue_kill",
+            RuntimeCommand::KillAgentSession {
+                session_id: session.session_id.clone(),
+            },
+        )
+        .unwrap();
+    let killed = collect_events_until(&supervisor, Duration::from_secs(15), |events| {
+        events.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RuntimeEventKind::InputDequeued { input_id } if *input_id == queued_id
+            )
+        })
+    });
+    assert!(
+        !killed.iter().any(|event| matches!(
+            &event.kind,
+            RuntimeEventKind::TurnStarted { turn }
+                if turn.source == TurnSource::QueuedInput { input_id: queued_id.clone() }
+        )),
+        "a discarded entry is never run, got {killed:#?}"
+    );
+    assert!(
+        supervisor.live_view_for_test().queued_inputs.is_empty(),
+        "the discard clears the projection, got {:?}",
+        supervisor.live_view_for_test().queued_inputs
     );
 
     unsafe {

@@ -2067,3 +2067,23 @@ E3d 为 35、37、38 记录的每一个症状，都是一次从未得到回答�
   作台这条腿，自 E3c 起仍未驱动；以及上面那条审批过期的观察。
 - **在 Core 上：** Lane 作用域的 `QueueFollowUp` 受理路径（缺陷 36 的另一半，兼容
   性后续项 16），以及让 `git_push` 那一半无法引发审批的原因（缺陷 25）。
+
+## Core 侧的解决
+
+针对本文件记录在 GUI 名下的缺陷与后续项，Core 侧给出的关闭。Core 的关闭是一项
+进程内声明：该行为由 Core 自己的测试把住，原生确认欠到下一次 GUI 运行。
+
+### C18 —— 2026-09-14，在 `claude/core-lane-queue-c18` 上
+
+| # | 解决 | 证据 |
+| --- | --- | --- |
+| 36（Core 那一半）/ 后续项 16 | **进程内关闭。** 受理路径的 `QueueFollowUp` 分支带有 `owner.lane_id.is_none()` 守卫，因此 Lane 作用域的追加提示根本不匹配它，而是落入唯一 supervisor worker 的通道 —— 也就是该 Lane 那条尚未被回答的回合正占用着的 worker —— 不发布 `CommandAccepted`，不发布 `InputQueued`，不发布任何事件。这正是本文件在 E3d 记录、在 H7 指名的「`EVENTS #49` 前后不变」。Lane 的条目现在进入由 runtime 拥有的按 Lane 分开的队列，在受理路径上发布，并把该 Lane 自己的 owner 放在 `QueuedInputView.owner` 上；排空由该 Lane 自己 owner 的 `TurnFinished { completed }` 触发：先 `InputDequeued`，再为该条目启动它自己的、归属该 Lane 的回合。回合失败或被取消的 Lane 保留队列；杀死该 Lane 的 Agent 会话会丢弃队列并逐条公告；队列条目不是持久事实，不跨越 Core 重启 | `crates/runtime/src/tests/lane_queue_tests.rs`（四条测试，第一条断言确认在该 Lane 的回合仍停在审批上时就已到达）；`runtime_supervisor_kill_discards_the_lanes_follow_up_queue` |
+
+**GUI 仍需要做什么。** 发送路径上没有新增：H7 已经发送该 Lane 精确的提交 owner，也
+已经只在由 Core 的 `InputQueued` 背书的 `confirmed` 结果下才清掉输入区文本，而这正
+是 Core 现在发布的事实。消费时有两点要注意 —— 读 `QueuedInputView.owner`，不要假定
+只有一个队列，因为会话的条目与每个 Lane 的条目彼此独立、由不同的回合释放；以及继续
+把 `InputDequeued` 读作「已离开队列」，因为杀死会话导致的丢弃会发布它，却不会有指名
+该条目的 `TurnStarted`。
+
+**仍然欠下的：** E3e 的原生确认。这里没有任何一项经过真实 GUI 驱动。

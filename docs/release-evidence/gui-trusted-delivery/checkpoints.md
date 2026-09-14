@@ -2480,3 +2480,27 @@ work, a `d6_recovery` command no port called, and that command is gone
 - **On Core:** the Lane-scoped `QueueFollowUp` accept path (defect 36's other
   half, compatibility follow-up 16), and whatever keeps the `git_push` half
   from raising an approval (defect 25).
+
+## Core Resolutions
+
+Core-side closures for defects and follow-ups this file recorded against the
+GUI. A Core closure is an in-process claim: the behaviour is held by Core's own
+tests, and the native confirmation is owed to the next GUI run.
+
+### C18 — 2026-09-14, on `claude/core-lane-queue-c18`
+
+| # | Resolution | Evidence |
+| --- | --- | --- |
+| 36 (Core half) / follow-up 16 | **Closed in-process.** The accept path's `QueueFollowUp` arm was guarded `owner.lane_id.is_none()`, so a Lane-scoped follow-up did not match it and fell through into the single supervisor worker's channel — the worker the Lane's unanswered turn was occupying — publishing no `CommandAccepted`, no `InputQueued`, no event at all. That is the `EVENTS #49` before and after this file recorded at E3d and named at H7. A Lane's entry now goes onto a per-Lane queue the runtime owns, is announced on the accept path with the Lane's own owner on `QueuedInputView.owner`, and is drained by a `TurnFinished { completed }` owned by that Lane: `InputDequeued` first, then the entry's own Lane-owned turn. A failed or cancelled Lane turn keeps the queue; killing the Lane's Agent session discards it and announces each discarded entry; a queued entry is not durable and does not survive a Core restart | `crates/runtime/src/tests/lane_queue_tests.rs` (four tests, the first asserting the acknowledgement arrives while the Lane turn is still parked on its approval); `runtime_supervisor_kill_discards_the_lanes_follow_up_queue` |
+
+**What the GUI must still do.** Nothing new on the send path: H7 already sends
+the Lane's exact submit owner and already retires the composer text only on a
+`confirmed` outcome backed by Core's `InputQueued`, which is exactly the fact
+Core now publishes. Two things to check when consuming it — read
+`QueuedInputView.owner` rather than assuming one queue, since the session's
+entries and each Lane's are separate and are released by different turns; and
+keep treating `InputDequeued` as "left the queue", because a discard on kill
+emits it without a `TurnStarted` naming the entry.
+
+**Still owed:** native confirmation at E3e. Nothing here was driven through the
+real GUI.

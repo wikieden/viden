@@ -451,13 +451,14 @@ enum SupervisorMessage {
         request_id: String,
         response: ApprovalResponse,
     },
-    /// A session follow-up the accept path already pushed and announced.
+    /// A follow-up the accept path already pushed and announced.
     ///
-    /// It carries no content: the entry is in Core's queue before this message
-    /// is sent (compatibility follow-up 16). The worker only has to decide
-    /// whether the drain was already armed by a completed turn, which is the
-    /// one thing the intake side cannot know.
-    SessionFollowUpQueued {
+    /// It carries no content: the entry is in Core's queue — the session's, or
+    /// the Lane's when `owner` names one — before this message is sent
+    /// (compatibility follow-up 16, C18). The worker only has to decide whether
+    /// the drain for that owner was already armed by a completed turn, which is
+    /// the one thing the intake side cannot know.
+    FollowUpQueued {
         owner: RuntimeOwner,
     },
     Snapshot {
@@ -859,6 +860,9 @@ pub struct RuntimeSupervisor {
     /// thread so the accept path can acknowledge an entry while a turn runs
     /// (compatibility follow-up 16).
     session_queue: crate::runtime_contract::SessionInputQueue,
+    /// Every Lane's own follow-up queue, shared with the worker for the same
+    /// reason `session_queue` is (C18, compatibility follow-up 16's Core half).
+    lane_queues: crate::runtime_contract::LaneInputQueues,
     worker_alive: Arc<AtomicBool>,
     worker: Option<JoinHandle<()>>,
 }
@@ -1186,6 +1190,10 @@ impl RuntimeSupervisor {
         // Same rule, same reason: taken before the move so the intake side of
         // the channel writes into the one queue the drain reads from.
         let session_queue = engine.session_input_queue();
+        // Created here rather than taken from the engine: a Lane's queue is not
+        // engine state. The engine owns the built-in session's queue; a Lane's
+        // belongs to the supervisor that runs that Lane's turns (C18).
+        let lane_queues = crate::runtime_contract::LaneInputQueues::default();
         let mut lane_agent_hydration_error = None;
         let mut lane_agent_bindings = match lane_agent_store.load_lane_agent_bindings() {
             Ok(bindings) => bindings
@@ -1360,6 +1368,7 @@ impl RuntimeSupervisor {
         let worker_lane_supervisor = Arc::clone(&lane_supervisor);
         let worker_permission_control = Arc::clone(&permission_control);
         let worker_liveness = Arc::clone(&worker_alive);
+        let worker_lane_queues = lane_queues.clone();
         let worker = thread::spawn(move || {
             run_supervisor_worker(
                 engine,
@@ -1371,6 +1380,7 @@ impl RuntimeSupervisor {
                 worker_approval_timers,
                 worker_lane_supervisor,
                 worker_permission_control,
+                worker_lane_queues,
                 approval_ttl_secs,
                 worker_liveness,
             );
@@ -1389,6 +1399,7 @@ impl RuntimeSupervisor {
             permission_control,
             approval_audit,
             session_queue,
+            lane_queues,
             worker_alive,
             worker: Some(worker),
         }
@@ -1606,11 +1617,22 @@ impl RuntimeSupervisor {
             // here, on the accept path, and the worker is told only that it may
             // need to drain.
             //
-            // Session scope only. A Lane's follow-ups are held and drained by
-            // its own worker, and `drain_session_queue` refuses a Lane owner
-            // for exactly that reason.
-            RuntimeCommand::QueueFollowUp { content } if owner.lane_id.is_none() => {
-                let input = self.session_queue.push(content.clone());
+            // Both scopes, two queues (C18). A Lane-scoped follow-up used to
+            // miss this arm and fall through into the worker's channel — the
+            // worker its own unanswered turn was occupying — so it published
+            // nothing at all: no `CommandAccepted`, no `InputQueued`, which is
+            // the `EVENTS #49` before and after that E3d recorded and H7 named
+            // as Core's half of defect 36. A Lane's entry now goes onto that
+            // Lane's own queue, carrying the Lane owner so an owner-scoped
+            // client matches the row; only a completed turn owned by that Lane
+            // spends it, and the session queue is untouched either way.
+            RuntimeCommand::QueueFollowUp { content } => {
+                let input = match owner.lane_id.as_deref() {
+                    Some(lane_id) => self
+                        .lane_queues
+                        .push(lane_id, content.clone(), owner.clone()),
+                    None => self.session_queue.push(content.clone()),
+                };
                 emit_event(
                     &self.event_bus,
                     owner.clone(),
@@ -1628,7 +1650,7 @@ impl RuntimeSupervisor {
                 );
                 return self
                     .commands
-                    .send(SupervisorMessage::SessionFollowUpQueued { owner })
+                    .send(SupervisorMessage::FollowUpQueued { owner })
                     .map_err(|err| format!("runtime supervisor stopped: {err}"));
             }
             RuntimeCommand::StartAgentSession { ref request }
@@ -2379,6 +2401,7 @@ fn run_supervisor_worker(
     approval_timers: Arc<ApprovalTimerRegistry>,
     lane_supervisor: Arc<LaneSupervisor>,
     permission_control: Arc<Mutex<PermissionControlState>>,
+    lane_queues: crate::runtime_contract::LaneInputQueues,
     approval_ttl_secs: u64,
     worker_alive: Arc<AtomicBool>,
 ) {
@@ -2399,6 +2422,12 @@ fn run_supervisor_worker(
     // it is armed runs as soon as it is queued. Nothing runs behind a failed or
     // cancelled turn either way.
     let mut session_queue_draining = false;
+    // The same arming, per Lane (C18). One flag per queue, because the queues
+    // are separate: a completed session turn says nothing about a Lane's queue
+    // and a completed Lane turn says nothing about the session's or about any
+    // other Lane's. A Lane id is present here only while that Lane's last turn
+    // completed and its queue drained clean.
+    let mut lane_queues_draining: BTreeSet<String> = BTreeSet::new();
     // Inputs accepted while a session is paused, in arrival order
     // (`runtime.agent_session_control`).
     //
@@ -2570,7 +2599,7 @@ fn run_supervisor_worker(
                 install_runtime_event_sink(&mut engine, event_bus.clone(), owner.clone());
                 match command {
                     RuntimeCommand::SubmitUserInput { content } => {
-                        let session_scoped = owner.lane_id.is_none();
+                        let lane_id = owner.lane_id.clone();
                         let draining = run_supervised_input(
                             &mut engine,
                             owner,
@@ -2581,12 +2610,21 @@ fn run_supervisor_worker(
                             &pending_approvals,
                             &approval_timers,
                             &permission_control,
+                            &lane_queues,
                             approval_ttl_secs,
                         );
-                        // A Lane's turn says nothing about the session queue,
-                        // so it must not arm or disarm it.
-                        if session_scoped {
-                            session_queue_draining = draining;
+                        // A turn arms exactly one queue: its own owner's. A
+                        // Lane's turn says nothing about the session queue or
+                        // about another Lane's, and the session's says nothing
+                        // about any Lane's.
+                        match lane_id {
+                            None => session_queue_draining = draining,
+                            Some(lane_id) if draining => {
+                                lane_queues_draining.insert(lane_id);
+                            }
+                            Some(lane_id) => {
+                                lane_queues_draining.remove(&lane_id);
+                            }
                         }
                     }
                     RuntimeCommand::StartAgentTask { task_id } => {
@@ -2718,6 +2756,24 @@ fn run_supervisor_worker(
                         );
                     }
                     RuntimeCommand::KillAgentSession { session_id } => {
+                        // Kill discards the Lane's follow-up queue for the
+                        // reason it discards held inputs: the Lane's work is
+                        // ending, and a follow-up written for it must not
+                        // outlive it. The discard is announced, because every
+                        // entry was published by an `InputQueued` a client has
+                        // already reduced. It matters most for a Lane an
+                        // external agent owns: such a Lane runs no native turn,
+                        // so nothing else will ever clear its queue.
+                        if let Some(lane_id) = owner.lane_id.clone() {
+                            for input_id in lane_queues.discard(&lane_id) {
+                                emit_event(
+                                    &event_bus,
+                                    owner.clone(),
+                                    RuntimeEventKind::InputDequeued { input_id },
+                                );
+                            }
+                            lane_queues_draining.remove(&lane_id);
+                        }
                         run_supervised_agent_session_kill(
                             &engine,
                             owner,
@@ -2827,24 +2883,43 @@ fn run_supervisor_worker(
             }
             // The accept path already pushed the entry and published
             // `InputQueued`; the only decision left is whether a completed turn
-            // had armed the drain, which is worker-local state. Released here
-            // rather than after an unrelated command: the queue is released by
-            // a completed turn and by a new entry landing while it is still
-            // draining, not by whatever else the operator happened to do next.
-            SupervisorMessage::SessionFollowUpQueued { owner } => {
-                if session_queue_draining && owner.lane_id.is_none() {
-                    session_queue_draining = drain_session_queue(
-                        &mut engine,
-                        &owner,
-                        SupervisorShared {
-                            event_bus: &event_bus,
-                            active_control: &active_control,
-                            pending_approvals: &pending_approvals,
-                            approval_timers: &approval_timers,
-                            permission_control: &permission_control,
-                        },
-                        approval_ttl_secs,
-                    );
+            // had armed the drain for that entry's own queue, which is
+            // worker-local state. Released here rather than after an unrelated
+            // command: a queue is released by a completed turn of its own owner
+            // and by a new entry landing while it is still draining, not by
+            // whatever else the operator happened to do next.
+            SupervisorMessage::FollowUpQueued { owner } => {
+                let shared = SupervisorShared {
+                    event_bus: &event_bus,
+                    active_control: &active_control,
+                    pending_approvals: &pending_approvals,
+                    approval_timers: &approval_timers,
+                    permission_control: &permission_control,
+                };
+                let released = match owner.lane_id.clone() {
+                    None if session_queue_draining => {
+                        session_queue_draining =
+                            drain_session_queue(&mut engine, &owner, shared, approval_ttl_secs);
+                        true
+                    }
+                    Some(lane_id) if lane_queues_draining.contains(&lane_id) => {
+                        if drain_lane_queue(
+                            &mut engine,
+                            &owner,
+                            &lane_id,
+                            &lane_queues,
+                            shared,
+                            approval_ttl_secs,
+                        ) {
+                            lane_queues_draining.insert(lane_id);
+                        } else {
+                            lane_queues_draining.remove(&lane_id);
+                        }
+                        true
+                    }
+                    _ => false,
+                };
+                if released {
                     emit_frontend_status_events_if_changed(
                         &event_bus,
                         owner,
@@ -5299,10 +5374,10 @@ fn run_supervised_agent_task(
 
 /// Runs a supervised native turn and everything its completion releases.
 ///
-/// Returns whether the session queue is still draining: `true` after a
-/// completed session-scoped turn whose drain emptied the queue, `false` as soon
-/// as a turn does not complete or the owner is a Lane, whose queue belongs to
-/// the Lane worker rather than to this engine.
+/// Returns whether this owner's queue is still draining: `true` after a
+/// completed turn whose drain emptied the queue it owns — the session's for a
+/// session-scoped owner, that Lane's for a Lane-scoped one — and `false` as
+/// soon as a turn does not complete or a drained entry's turn does not.
 #[allow(clippy::too_many_arguments)]
 fn run_supervised_input(
     engine: &mut SessionEngine,
@@ -5314,6 +5389,7 @@ fn run_supervised_input(
     pending_approvals: &Arc<Mutex<BTreeMap<String, PendingApproval>>>,
     approval_timers: &Arc<ApprovalTimerRegistry>,
     permission_control: &Arc<Mutex<PermissionControlState>>,
+    lane_queues: &crate::runtime_contract::LaneInputQueues,
     approval_ttl_secs: u64,
 ) -> bool {
     match lane_agent_session_binding(event_bus, &owner) {
@@ -5364,12 +5440,21 @@ fn run_supervised_input(
         shared,
         approval_ttl_secs,
     );
-    // A Lane's native turn does not touch this queue: `queued_runtime_inputs`
-    // is the built-in engine's session queue, and a Lane's own follow-ups are
-    // held and drained by the Lane worker.
+    // Each owner drains its own queue and only its own: `queued_runtime_inputs`
+    // is the built-in engine's session queue, and a Lane's follow-ups are in
+    // that Lane's queue (C18). A turn that did not complete drains neither.
     let armed = outcome.drains_queue()
-        && owner.lane_id.is_none()
-        && drain_session_queue(engine, &owner, shared, approval_ttl_secs);
+        && match owner.lane_id.clone() {
+            None => drain_session_queue(engine, &owner, shared, approval_ttl_secs),
+            Some(lane_id) => drain_lane_queue(
+                engine,
+                &owner,
+                &lane_id,
+                lane_queues,
+                shared,
+                approval_ttl_secs,
+            ),
+        };
     // Sampled once for the whole sequence rather than per drained turn: the
     // status lifecycle spawns bounded `git` processes, and a three-entry queue
     // would otherwise sample the same tree three times for one operator
@@ -5414,6 +5499,54 @@ fn drain_session_queue(
             engine,
             owner,
             fresh_id("queued-turn"),
+            None,
+            content,
+            TurnSource::QueuedInput { input_id },
+            shared,
+            approval_ttl_secs,
+        );
+        if !outcome.drains_queue() {
+            return false;
+        }
+    }
+    true
+}
+
+/// Runs every follow-up one Lane's completed turn released.
+///
+/// The Lane twin of [`drain_session_queue`], and deliberately a separate queue
+/// rather than a filter over one: the session queue and each Lane's queue are
+/// released by different turns, so a single queue would let one owner's
+/// completed turn spend another owner's entries. Everything else is the session
+/// rule applied to the Lane's owner — oldest first, `InputDequeued` before the
+/// turn it starts, and the loop stops at the first entry whose turn does not
+/// complete, so a queue is never spent against a Lane that has stopped working.
+///
+/// The turns it starts carry the Lane's own owner, which is what makes them run
+/// in that Lane's execution scope (C17) rather than in the workspace root.
+fn drain_lane_queue(
+    engine: &mut SessionEngine,
+    owner: &RuntimeOwner,
+    lane_id: &str,
+    lane_queues: &crate::runtime_contract::LaneInputQueues,
+    shared: SupervisorShared<'_>,
+    approval_ttl_secs: u64,
+) -> bool {
+    if owner.lane_id.as_deref() != Some(lane_id) {
+        return false;
+    }
+    while let Some((input_id, content)) = lane_queues.take_oldest(lane_id) {
+        emit_event(
+            shared.event_bus,
+            owner.clone(),
+            RuntimeEventKind::InputDequeued {
+                input_id: input_id.clone(),
+            },
+        );
+        let outcome = run_one_supervised_native_turn(
+            engine,
+            owner,
+            fresh_id("queued-lane-turn"),
             None,
             content,
             TurnSource::QueuedInput { input_id },
