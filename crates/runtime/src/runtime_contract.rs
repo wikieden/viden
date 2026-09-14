@@ -295,6 +295,21 @@ impl LaneInputQueues {
         let input = entries.remove(0);
         Some((input.id, input.content))
     }
+
+    /// Drops `lane_id`'s whole queue and returns the ids that were dropped.
+    ///
+    /// The ids are returned rather than thrown away because each was announced
+    /// by an `InputQueued` a client has already reduced; the caller has to
+    /// publish the `InputDequeued` that takes it back out of the projection, or
+    /// a queued row outlives the work it was written for.
+    pub(crate) fn discard(&self, lane_id: &str) -> Vec<String> {
+        self.lanes
+            .lock()
+            .ok()
+            .and_then(|mut lanes| lanes.remove(lane_id))
+            .map(|entries| entries.into_iter().map(|input| input.id).collect())
+            .unwrap_or_default()
+    }
 }
 
 impl SessionEngine {

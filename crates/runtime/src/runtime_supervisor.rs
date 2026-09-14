@@ -2756,6 +2756,24 @@ fn run_supervisor_worker(
                         );
                     }
                     RuntimeCommand::KillAgentSession { session_id } => {
+                        // Kill discards the Lane's follow-up queue for the
+                        // reason it discards held inputs: the Lane's work is
+                        // ending, and a follow-up written for it must not
+                        // outlive it. The discard is announced, because every
+                        // entry was published by an `InputQueued` a client has
+                        // already reduced. It matters most for a Lane an
+                        // external agent owns: such a Lane runs no native turn,
+                        // so nothing else will ever clear its queue.
+                        if let Some(lane_id) = owner.lane_id.clone() {
+                            for input_id in lane_queues.discard(&lane_id) {
+                                emit_event(
+                                    &event_bus,
+                                    owner.clone(),
+                                    RuntimeEventKind::InputDequeued { input_id },
+                                );
+                            }
+                            lane_queues_draining.remove(&lane_id);
+                        }
                         run_supervised_agent_session_kill(
                             &engine,
                             owner,
