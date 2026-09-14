@@ -1860,6 +1860,97 @@ carries it, the Decision Center counts it, and answering it settles the action
 with Core's typed `NoUpstream` outcome. The native failure is therefore
 something the workspace-target probe does not cover, and it stays open for E3c.
 
+### H6 — the client half of the E3c native defects
+
+Batch H6 (2026-09-14) closed the GUI side of E3c's defects 29-33 and the
+client half of 34. The record and the per-defect verdicts are in
+`docs/release-evidence/gui-trusted-delivery/checkpoints.md`; what follows is
+the behaviour that changed. None of it was re-driven natively — E3d does that
+— and the frames beside it are headless.
+
+**An owner belongs to one Lane, and so does the answer about it.** The commit
+bar showed one Lane's `D1-OPERATOR-GIT-OWNER` refusal while the status bar, the
+titlebar and the context dock all named another, so with a Lane selected no
+commit or push entry point was ever reachable (defect 30). The host was right:
+`operator_git_owner` resolves per Lane from the binding Core published, and
+asked about Lane B it answers about Lane B. The webview was not. `selectLane`
+re-read the owner, but the selection also moves on three other paths — Core's
+own `selectedLaneId` arriving in a projection, the Lane a creation resumes
+into, and a retried Agent session — and each assigned the field directly.
+Every assignment now goes through one `setSelectedLane` funnel, the read
+records which Lane it asked about, an out-of-order answer for a superseded
+selection is dropped, and the render refuses to show an answer scoped to
+another Lane at all.
+
+That is E3b defect 25's client-side cause. The in-process live-Core probe now
+drives the Lane-selected pair end to end — Core creates the Lane, Core binds
+its execution owner, the client stages, commits and pushes that Lane's worktree
+as that owner — and the `git_push` half reaches the permission dock and settles
+with Core's own typed `no_upstream`
+(`the_push_half_of_commit_and_push_reaches_a_decidable_surface_with_a_lane_selected`).
+The native confirmation is owed to E3d.
+
+**A label may promise only what the client can send.** The composer switched to
+`Queue follow-up` the moment Core reported a turn and then refused the submit
+underneath it, because `sendComposerIntent` went through the single D1 command
+slot — which the `SubmitUserInput` that started the turn holds until Core
+answers it, and Core does not answer while the turn waits on an approval
+(defect 29). Core already had `QueueFollowUp`, already published `InputQueued`,
+and `PendingD1Kind::Queue` already matched it; what was missing was a pending
+for it to wait in. `queue_follow_up_and_wait` sends it as the Lane's exact
+submit owner and waits in `pending_queue`, settled by the same
+`reconcile_ambient_pendings` funnel every other command uses, so settling the
+queue never frees the submit's slot and vice versa. The label reads the same
+predicate the route does. Compatibility follow-up 16 is met on the GUI.
+
+**A refused submit never left, so nothing about it may be retired.** The
+refused text was recorded as submitted, and when the *other* command finally
+confirmed, the composer cleared under it: E3c's `Summarise what you just
+changed` never reached the session JSONL. A refusal now clears the submitted
+draft, because there is no submission to retire.
+
+**Core's answer includes its list, not only its verdict.** `Revoke` wrote
+Core's `approval.revoke` row and the rule stopped applying, but the settings
+panel — closed and reopened — still listed it (defect 31). The panel read the
+cockpit projection, and nothing refreshed it: the revoke's own drain consumes
+the `StandingApprovalRevoked`, and on a quiet Core no later wake arrives. The
+host already answered with the `standing_approvals` Core holds afterwards; the
+shell threw that half away. The whole answer now reaches the panel, mirrored
+rather than edited — a refused revoke comes back with the rule still installed
+and the row stays.
+
+**An operator field that can carry a tool argument is verbatim.** The composer
+applied macOS automatic quote substitution: `A"b"c` read back as `A”b"c`, which
+corrupted every `update_plan` payload E3c attempted (defect 32). `verbatimField`
+sets `autocorrect`, `autocapitalize`, `spellcheck` and `autocomplete` off, and
+every text field in the client is created through it; a guard test walks the
+source so a field added later fails until it is verbatim too. What E3c measured
+was the accessibility value setter, which WebKit routes through the same editing
+pipeline a keystroke uses; a keystroke confirmation is E3d's, and if a
+substituted quote survives these attributes the remaining setting is the
+webview's and belongs to the shell rather than to the page.
+
+**The recovery surface belongs to the conversation slot.** With Core reporting
+execution stopped, pressing `Plan Studio` or `Diff review` highlighted the rail
+slot and left the recovery surface in the pane, so both registered centre views
+were unreachable for the rest of that Lane's life (defect 33) — and a Lane that
+has stopped is exactly when an operator needs to read its plan and its diff. It
+is scoped to `centerView === "transcript"` now: still reachable, with its
+Core-backed fact controls and their labels unchanged, and no longer holding a
+pane another view was opened into.
+
+**A Lane's execution owner is its latest binding.** `exact_lane_owner` required
+exactly one binding and refused otherwise, so a view carrying both a restored
+Lane's previous-process binding and the one a relaunch mints resolved no owner
+at all. It reads the last binding for the Lane now, which is Core's most recent
+word on who owns it; a binding whose owner names another Lane is still refused
+rather than normalized. **This does not close defect 34.** Core's own view
+reducer keeps a Lane's *first* valid binding and drops a later one
+(`RuntimeViewState::apply_event`, `crates/types/src/runtime.rs`), so the view
+this reads can still carry only the stale binding. For a relaunched Lane to have
+an owner, the rebinding has to be the one the view ends up holding, and that
+half is Core's.
+
 ## Agent Board (G9)
 
 `D-PLANBOARD` registered the Agent Board the same way it registered Plan

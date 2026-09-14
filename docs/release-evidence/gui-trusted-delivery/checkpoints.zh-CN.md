@@ -1653,3 +1653,42 @@ GUI 驱动的 Core 行为，作用在一次真实改动上；只有这一次改�
   在 GUI 上**仍未达成**，其原因是两个新定位、形态各异的缺陷，而不是阻塞 `0.3.4`
   以及 `0.3.5` 首次尝试的那一个。退出标准 1 就"候选版已被原生驱动"以及"Lane 的
   回合"而言已达成；就"完整任务"而言尚未达成，本文档不作任何相反的粉饰。
+
+## 缺陷 29–33 与缺陷 34 的客户端一半 —— H6（2026-09-14，在 `claude/gui-native-defects-h6` 上）
+
+分支 `claude/gui-native-defects-h6`，位于 `.worktrees/gui-native-defects-h6`，
+基底为 `claude/int-0.3.5` 的 `b868f5c8`（合入 E3c 证据的那次提交）。本批次没有启
+动任何原生窗口，也没有发送任何按键：下面每一帧都是无头抓取，**E3d 会在原生环境里
+重新验证全部内容**。缺陷 28 与缺陷 34 的 Core 一半不在这里改动；它们属于 Core，由
+批次 C17 负责。
+
+每处修复都先写失败测试，一个缺陷一次提交，失败文本记录在它所属的提交里。
+
+### 判定
+
+| # | 判定 | 提交 | 位置 | 测试 |
+| --- | --- | --- | --- | --- |
+| 25 | **客户端成因已修（H6）；原生确认仍欠 E3d。** 选中 Lane 时提交栏从来无法抵达，是因为 operator-git owner 解析到了另一条 Lane（缺陷 30）。修好之后，进程内实时 Core 探针把「选中 Lane」的这一对命令端到端跑通，`git_push` 那一半抵达权限坞并以 Core 的类型化 `no_upstream` 落定 | `eacdbf68` | `apps/gui/src-tauri/src/adapter.rs`（探针） | `the_push_half_of_commit_and_push_reaches_a_decidable_surface_with_a_lane_selected` |
+| 29 | **已修。** Core 报告回合时的提交现在携带 `RuntimeCommand::QueueFollowUp`，在自己的 `pending_queue` 里等待，而不是排在占着 D1 槽位、尚未被应答的提交后面，并由 Core 的 `InputQueued` 确认。`Queue follow-up` 标签读的是路由读的同一个判据，因此只在排队真能发出时才显示。被自己已占用的排队槽拒绝的后续输入会渲染缺陷 23 的告警并**保留文本**：拒绝现在会清掉已提交草稿，正是它让一条无关的确认把输入区在文本下面清空了。排队行未变，仍是 Core 自己的 `InputQueued` 经 `liveWork.queuedInputs` 而来。**兼容性后续项 16 在 GUI 上已满足** | `87d20d96` | `apps/gui/src-tauri/src/adapter.rs`（`queue_follow_up_and_wait`、`observe_pending_queue`、`pending_queue`）、`apps/gui/src-tauri/src/lib.rs`（`d1_queue_follow_up`）、`apps/gui/src/screens/d1_cockpit.ts`（`queueComposerFollowUp`、`queueFollowUpAvailable`、`refuseOccupiedCommandSlot`） | `a_follow_up_queues_while_the_submit_that_started_the_turn_is_still_unanswered`；`tests/h6_native_defects.spec.ts` 的「defect 29」 |
+| 30 | **已修。** 宿主本来就是对的——`operator_git_owner` 按 Lane 从 Core 发布的绑定解析。Webview 不是：`selectLane` 会重读 owner，但选中项还会在 Core 自己的 `selectedLaneId` 随投影到达时、在创建流程恢复进入其 Lane 时、以及在重试 Agent 会话时移动，而每一处都直接给字段赋值。现在所有赋值都走同一个 `setSelectedLane` 漏斗，读取会记下它问的是哪条 Lane，被更新选中项取代的乱序答案会被丢弃，渲染也根本不再展示限定在另一条 Lane 上的答案 | `eacdbf68` | `apps/gui/src/screens/d1_cockpit.ts`（`setSelectedLane`、`readOperatorGit`、`operatorGitForSelection`、`operatorGitScope`） | `the_operator_git_owner_is_resolved_against_the_selected_lane_alone`；`tests/h6_native_defects.spec.ts` 的「defect 30」 |
+| 31 | **已修。** 宿主本来就用撤销之后 Core 持有的 `standing_approvals` 作答；外壳只留下结论、把列表丢了，而又没有别的东西刷新驾驶舱投影——撤销自己的排空消费掉了 `StandingApprovalRevoked`，安静的 Core 不会产生后续唤醒。现在整个回答都会到达设置面板，并一直渲染到更新的投影取代它为止。这是镜像 Core，而不是客户端删行：被拒绝的撤销回来时规则仍在，行也就留着 | `76f0f0b5` | `apps/gui/src/main.ts`（`revokeStandingApproval`）、`apps/gui/src/screens/d1_cockpit.ts`（`standingAfterRevoke`） | `the_revoke_answers_with_the_standing_list_core_holds_afterwards`；`tests/h6_native_defects.spec.ts` 的「defect 31」 |
+| 32 | **属性已设置；按键确认仍欠 E3d。** `verbatimField` 关掉 `autocorrect`、`autocapitalize`、`spellcheck` 与 `autocomplete`，客户端里每一个文本字段都经由它创建——输入区、Lane 任务、提交信息、审批 Edit 字段、计划拒绝理由、D2 评审备注、D4 的 Lane id 与分支、D11 的路径与配置草稿、D12 的理由、D16 的字段，以及命令面板与证据的搜索框。`spellcheck="false"` 是起作用的那一个，因为 WebKit 的替换流程骑在文本检查流水线上。E3c 测到的是无障碍取值通道，而 WebKit 把它和真实按键送进同一条编辑流水线；若替换后的引号仍然挺过这些属性，剩下的设置就是 webview 的，属于外壳而不属于页面 | `e7fac8d1` | `apps/gui/src/ui/verbatim_field.ts`，以及它被应用的十四处调用点 | `tests/h6_native_defects.spec.ts` 的「defect 32」，其中包含一条走查客户端源码的守卫，后来新增的字段在变成逐字之前都会失败 |
+| 33 | **已修。** 恢复界面是**对话**槽位展示的东西，不是盖在驾驶舱上的模态。它压过了每一个已注册的中间视图，于是在 Core 报告执行已停止时，`Plan Studio` 与 `Diff review` 只会点亮导航槽而什么都不改。现在它被限定在 `centerView === "transcript"`：依然可达，其基于 Core 的事实控件与标签不变 | `94f86dfb` | `apps/gui/src/screens/d1_cockpit.ts`（`recoveryActive` / `showRecovery`） | `tests/h6_native_defects.spec.ts` 的「defect 33」 |
+| 34（客户端一半） | **客户端推导已修；该缺陷在 Core 一侧仍未关闭。** 在 Lane 没有精确 owner 时，拒绝用 Core 自己的措辞说明缺什么，这一点保留。`exact_lane_owner` 要求恰好一条绑定，否则拒绝，于是同时带着恢复 Lane 的前一进程绑定与重启新铸绑定的视图根本解析不出 owner；现在它读该 Lane 的**最新**绑定，并且仍然拒绝 owner 指向另一条 Lane 的绑定。仅此并不关闭 34：Core 自己的视图归约器保留一条 Lane 的**第一条**有效绑定并丢弃后来的（`RuntimeViewState::apply_event`，`crates/types/src/runtime.rs`），因此客户端读到的视图仍可能只带着那条过期绑定。重启后的 Lane 要有 owner，重新绑定必须是视图最终持有的那一条——**这是 Core 的事实，由 C17 负责** | `83091072` | `apps/gui/src-tauri/src/adapter.rs`（`exact_lane_owner`） | `a_lane_with_two_published_bindings_resolves_its_latest_execution_owner`、`a_binding_whose_owner_names_another_lane_is_still_refused` |
+
+### 证据
+
+1440x1180 的无头抓取，清单与说明在
+[`apps/gui/evidence/main-window-interactions/EVIDENCE.zh-CN.md`](../../../apps/gui/evidence/main-window-interactions/EVIDENCE.zh-CN.md)
+的「H6 截图」一节：深色/en 与浅色/zh-CN 的排队输入区、同一份投影下对话槽位里的
+恢复界面与中间区里的 Plan Studio，以及撤销得到应答之后的设置面板。缺陷 30 改的
+是选中漏斗，缺陷 32 改的是一组输入属性；两者都不改变任何单一状态下画出来的东
+西，因此都没有帧，两者都由上表点名的测试覆盖。
+
+### 仍然欠着什么
+
+- **E3d，在原生环境里：** 选中 Lane 的 `Commit & Push` 这一对、在活动回合中排队
+  并被排空的后续输入、用真实按键确认键入的 `"` 仍是 `U+0022`、在已停止的 Lane 上
+  打开中间视图，以及撤销之后的设置列表。
+- **C17，在 Core 上：** 缺陷 28 的工具工作目录，以及缺陷 34 里决定重启后的 Lane
+  视图携带哪条绑定的那一半。

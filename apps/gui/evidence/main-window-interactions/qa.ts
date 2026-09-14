@@ -514,6 +514,17 @@ interface CockpitOptions {
   projection: D1CockpitProjection;
   /** Present so the rail's gear opens the Settings overlay. */
   preferencesAvailable?: boolean;
+  /**
+   * Binds the `QueueFollowUp` port, which is what makes the composer's
+   * `Queue follow-up` label honest (E3c defect 29). The call never resolves,
+   * so the capture cannot move after it settles.
+   */
+  queueFollowUp?: boolean;
+  /**
+   * Core's answer to a revoke: the standing list it holds afterwards. Present
+   * makes the revoke resolve, which is the state defect 31 is about.
+   */
+  standingAfterRevoke?: StandingApprovalsProjection;
   /** Rejects instead of hanging, for the recovery-alert state. */
   d6Rejects?: boolean;
   /** Present so the command palette's `Jump to` section resolves. */
@@ -685,9 +696,20 @@ function mountCockpit(options: CockpitOptions): D1Controller {
       // One fixed board answer, for the same reason: an ordered wake must not
       // move the badge after the capture settles.
       board: options.board ? { read: async () => options.board! } : undefined,
+      // One fixed queue answer, so a follow-up sent in a capture cannot move
+      // the frame after it settles.
+      queueFollowUp: options.queueFollowUp ? never : undefined,
       // The revocation never resolves, so the control is live and the capture
-      // cannot race a list that emptied itself.
-      revokeStandingApproval: options.standing ? never : undefined,
+      // cannot race a list that emptied itself — unless the state is about the
+      // answer, in which case it resolves to the list Core holds afterwards.
+      revokeStandingApproval: options.standingAfterRevoke
+        ? async () => ({
+            projection: options.standingAfterRevoke!,
+            outcome: { state: "confirmed", reason: null },
+          })
+        : options.standing
+          ? never
+          : undefined,
       onOpenAuditTrail: () => undefined,
       loadRecentWork: options.projectPicker ? async () => RECENT_WORK : undefined,
       // The chooser never resolves, so `Add directory…` cannot advance the
@@ -3634,6 +3656,104 @@ async function renderState(): Promise<void> {
       });
       click("[data-settings-toggle]");
       await waitFor("[data-settings-standing-rule='rule_approval_scopes']");
+      return;
+    }
+
+    case "h6-queue-follow-up": {
+      // E3c defect 29. Core reports a turn for the selected Lane, so the
+      // composer's label is `Queue follow-up` — and it says that only because
+      // the queue port is bound, which is the half that was missing. Beside
+      // it, the live-work bar carries Core's own `InputQueued` row; the client
+      // draws no queued row of its own.
+      const base = d1Base();
+      mountCockpit({
+        projection: {
+          ...base,
+          composer: { ...base.composer, busy: true, canSubmitImmediately: false },
+        },
+        preferencesAvailable: true,
+        queueFollowUp: true,
+      });
+      await waitFor("[data-live-work-bar]");
+      return;
+    }
+
+    case "h6-recovery-conversation": {
+      // The other half of defect 33's pair, and the reason the centre-view
+      // capture means anything: the *same* projection, with the conversation
+      // slot selected, still shows the recovery surface and Core's own fact
+      // controls. Nothing was hidden; it was scoped.
+      const plan = await d15Plan("d15-proposed");
+      const base = d1PlanBase(plan);
+      mountCockpit({
+        projection: {
+          ...base,
+          recovery: {
+            ...base.recovery,
+            state: "agent_stopped",
+            detail: "Core reports that execution has stopped.",
+            recoverable: false,
+            actions: [],
+          },
+        },
+        preferencesAvailable: true,
+        plan,
+      });
+      await waitFor("[data-d6-state='agent_stopped']");
+      return;
+    }
+
+    case "h6-recovery-centre-view": {
+      // E3c defect 33. Core reports execution stopped for the Lane, and the
+      // rail's Plan Studio still switches the centre: the recovery surface
+      // belongs to the conversation slot, not to every pane.
+      const plan = await d15Plan("d15-proposed");
+      const base = d1PlanBase(plan);
+      const cockpit = mountCockpit({
+        projection: {
+          ...base,
+          recovery: {
+            ...base.recovery,
+            state: "agent_stopped",
+            detail: "Core reports that execution has stopped.",
+            recoverable: false,
+            actions: [],
+          },
+        },
+        preferencesAvailable: true,
+        plan,
+        secondaryViews: (route, container) => {
+          if (route !== "d15") throw new Error(`unexpected route ${route}`);
+          renderD15PlanStudio(container, plan, locale, { send: never, reload: never });
+        },
+      });
+      cockpit.openCenterView("d15");
+      await waitFor("[data-secondary-view='d15'] [data-d15-step='step_2']");
+      return;
+    }
+
+    case "h6-standing-revoked": {
+      // E3c defect 31. `Revoke` answered, and the rule is gone from the list
+      // because Core's own post-revoke `standing_approvals` is what the panel
+      // renders — not because the client removed a row it decided was stale.
+      const dock = await scopesDock("dock-always-edit");
+      const standing = (await (
+        await fetch("../gui-screen-restore/projections/standing-approvals.json")
+      ).json()) as StandingApprovalsProjection;
+      const base = d1DockBase(dock);
+      mountCockpit({
+        projection: {
+          ...base,
+          permissionDock: { ...base.permissionDock, standing },
+        },
+        preferencesAvailable: true,
+        standing,
+        standingAfterRevoke: { capabilityAvailable: true, rules: [] },
+      });
+      click("[data-settings-toggle]");
+      await waitFor("[data-settings-standing-revoke='rule_approval_scopes']");
+      click("[data-settings-standing-revoke='rule_approval_scopes']");
+      await waitFor("[data-settings-standing-absent='empty']");
       return;
     }
 
