@@ -240,6 +240,17 @@ pub fn d6_recover(state: &DesktopState) -> Result<crate::D6RecoveryProjection, S
     })
 }
 
+/// Sends one D6 recovery action as the Core command that owns that fact family.
+pub fn d6_send_intent(
+    state: &DesktopState,
+    command_id: &str,
+    intent: crate::D6Intent,
+) -> Result<crate::D6IntentResult, String> {
+    with_adapter_mut(state, |adapter| {
+        adapter.send_d6_intent_and_wait(command_id, intent, COMMAND_EVENT_TIMEOUT)
+    })
+}
+
 /// The recovery surface with no Core traffic, including the host's own bounded
 /// reconnect (E3d defect 37).
 ///

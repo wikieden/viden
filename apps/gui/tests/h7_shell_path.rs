@@ -27,7 +27,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use viden_core::{CoreClientError, RuntimeSnapshot, RuntimeViewState};
 use viden_gui::{
-    D1CockpitProjection, D1Intent, D6ConnectionState, DesktopState, GuiCoreAdapter,
+    D1CockpitProjection, D1Intent, D6ConnectionState, D6Intent, DesktopState, GuiCoreAdapter,
     OperatorGitIntent, OperatorGitProjection, PermissionChoice, PermissionIntent,
     open_local_workspace_with_session_home, pump_core_events_once, shell,
 };
@@ -665,14 +665,34 @@ fn a_severed_core_connection_is_logged_and_retried_with_a_visible_countdown() {
 /* ---- defect 38: a Lane created beside a stopped Lane ---- */
 
 /// E3d defect 38, through the shipped shell: a Lane created while another
-/// Lane's agent is stopped must have an execution owner, and the selection
+/// Lane's execution is stopped must have an execution owner, and the selection
 /// must be able to move off it.
+///
+/// The native run found the new Lane carrying
+/// `The selected Lane has no sole Core execution owner.`, its recovery control
+/// reading `Close Lane · no_exact_lane`, the dock reading
+/// `Waiting for the selected Lane context.`, and clicking the *other* Lane's
+/// row moving nothing across two attempts. It was observed once, in the same
+/// process that later lost its Core connection (defect 37), and every symptom
+/// in it is a read that never answered.
 #[test]
 fn a_lane_created_beside_a_stopped_lane_keeps_its_owner() {
     let harness = ShellHarness::launch("second-lane");
     let first = harness.create_starter_lane("first-lane");
-    let second = harness.create_starter_lane("second-lane");
 
+    // Stop the first Lane's execution, which is the state E3d created the
+    // second Lane in. `close_lane` is the recovery surface's own control.
+    shell::d6_send_intent(
+        harness.state(),
+        "gui-d6-close-first",
+        D6Intent::CloseLane {
+            lane_id: first.clone(),
+        },
+    )
+    .expect("stop the first Lane through the shell");
+    harness.settle(Some(&first));
+
+    let second = harness.create_starter_lane("second-lane");
     let owner_of_second = shell::operator_git(harness.state(), Some(&second))
         .expect("read the second Lane's owner through the shell");
     assert!(
@@ -689,11 +709,8 @@ fn a_lane_created_beside_a_stopped_lane_keeps_its_owner() {
         Some(first.as_str()),
         "the cockpit read for the first Lane resolves to the first Lane"
     );
-    let owner_of_first = shell::operator_git(harness.state(), Some(&first))
-        .expect("read the first Lane's owner through the shell");
     assert!(
-        owner_of_first.owner_available,
-        "the Lane the selection moved back to still has an execution owner: {:?}",
-        owner_of_first.owner_unavailable_reason
+        back.lanes.iter().any(|lane| lane.id == second),
+        "and the second Lane is still in the list it was read beside"
     );
 }

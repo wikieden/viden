@@ -1326,13 +1326,7 @@ fn d6_send_intent(
     intent: D6Intent,
     state: tauri::State<'_, DesktopState>,
 ) -> Result<D6IntentResult, String> {
-    state
-        .adapter
-        .lock()
-        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?
-        .as_mut()
-        .ok_or_else(|| "Core adapter is not connected".to_string())?
-        .send_d6_intent_and_wait(&command_id, intent, Duration::from_millis(250))
+    shell::d6_send_intent(&state, &command_id, intent)
 }
 
 pub fn run() {
