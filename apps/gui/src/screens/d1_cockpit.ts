@@ -1209,6 +1209,11 @@ export function renderD1Cockpit(
    */
   let operatorGitScope: { laneId: string | null } | null = null;
   /**
+   * The last operator-git answer this cockpit re-read the screen for (defect
+   * 25), so an unchanged answer costs nothing.
+   */
+  let operatorGitSignature: string | null = null;
+  /**
    * The commit message draft.
    *
    * Presentation state, held here rather than in the DOM, because an ordered
@@ -2281,14 +2286,48 @@ export function renderD1Cockpit(
   };
 
   /**
+   * Re-reads the cockpit projection after an operator action's own drain.
+   *
+   * E3b defect 25. The shipped desktop wires `onCoreWake`, so `schedulePoll`
+   * returns immediately and the cockpit projection is re-read only when the
+   * background pump emits a wake — and the pump emits a wake only for events
+   * *it* drained. Every operator-git command drains ordered events itself
+   * (`GuiCoreAdapter::poll_operator_git`), so Core's `ApprovalRequested` for a
+   * `git_*` action is consumed inside that command and the pump never sees it.
+   * Core then publishes nothing further until someone answers the approval, so
+   * no later wake arrives either: the commit bar learned about the ask, because
+   * the action projection is the command's own return value, while the
+   * permission dock, the Decision Center and the rail badge stayed on the
+   * projection from before it. `Push is waiting for approval in the permission
+   * dock.` beside `0 awaiting you`, for as long as the operator watched.
+   *
+   * The action projection is not the whole screen, so the command that took the
+   * events owes the rest of it a read. `drainOnce` is the same drain the wake
+   * runs, so nothing here knows a second way to refresh the cockpit.
+   *
+   * Bounded by the answer itself: a drain that brought nothing new brought no
+   * events either, and refreshing on every poll regardless would turn the
+   * cockpit's own `queueMicrotask(noteOperatorGitPending)` into a loop that
+   * polls Core as fast as it can answer.
+   */
+  const refreshCockpitAfterOperatorGit = (): void => {
+    const signature = JSON.stringify(operatorGitState);
+    if (signature === operatorGitSignature) return;
+    operatorGitSignature = signature;
+    queueMicrotask(drainOnce);
+  };
+
+  /**
    * Sends one action and applies Core's ordered answer.
    *
    * One at a time: the commit bar is one surface with one message box, and a
    * second action in flight could only race the first for the same index.
+   * Returns whether the action actually left the client, so a caller that owes
+   * a second half — `advanceCommitPair` — can say so instead of dropping it.
    */
-  const runOperatorGit = (action: OperatorGitActionRequest): void => {
+  const runOperatorGit = (action: OperatorGitActionRequest): boolean => {
     const port = options.operatorGit;
-    if (!port || operatorGitInFlight) return;
+    if (!port || operatorGitInFlight) return false;
     operatorGitInFlight = true;
     commitPairStopped = false;
     const laneId = selectedLaneId;
@@ -2330,12 +2369,17 @@ export function renderD1Cockpit(
         queueMicrotask(noteReviewStaleness);
         queueMicrotask(noteEvidenceStaleness);
         queueMicrotask(noteOperatorGitPending);
+        // Defect 25: the events this command drained are events the pump never
+        // saw, so the dock, the Decision Center and the rail badge are re-read
+        // here rather than left waiting for a wake that is not coming.
+        refreshCockpitAfterOperatorGit();
         // The layout record rides the same wake: a mode or a hidden segment
         // changed anywhere else is Core's fact, and re-reading is what keeps
         // this webview from holding a second copy of it.
         queueMicrotask(() => void refreshLayoutRecord());
         render(false);
       });
+    return true;
   };
 
   /**
@@ -2371,8 +2415,15 @@ export function renderD1Cockpit(
       commitPairStopped = true;
       return;
     }
+    // The push leaves *before* the draft is retired. `runOperatorGit` refuses
+    // while another action is in flight, and a message cleared beside a push
+    // that never left would lose the operator's own text to a half that did not
+    // happen. A drop says so and offers `Push` rather than going quiet.
+    if (!runOperatorGit({ type: "push", remote: null, setUpstream: false })) {
+      commitPairStopped = true;
+      return;
+    }
     commitMessage = "";
-    runOperatorGit({ type: "push", remote: null, setUpstream: false });
   };
 
   /// Drains ordered Core events while an action is still out.
@@ -2401,6 +2452,10 @@ export function renderD1Cockpit(
         // An approval-gated action settles here rather than in `run`, so the
         // same re-sample rule applies to the answer this drain carried.
         if (settledOperatorGitEffect()) readReview();
+        // And the same defect-25 rule: this poll drained ordered events the
+        // pump will not wake on, including the `ApprovalRequested` for the push
+        // `advanceCommitPair` may have just sent.
+        refreshCockpitAfterOperatorGit();
         render(false);
       });
   };
@@ -4875,6 +4930,12 @@ export function renderD1Cockpit(
                       ? { type: "unstage", paths: [path] }
                       : { type: "stage", paths: [path] },
                   ),
+                onPush: () => {
+                  // Defect 25's recovery: the pair's second half, sent on its
+                  // own. The note that offers it is cleared by the answer.
+                  commitPairStopped = false;
+                  runOperatorGit({ type: "push", remote: null, setUpstream: false });
+                },
                 onPushSetUpstream: () =>
                   runOperatorGit({ type: "push", remote: null, setUpstream: true }),
                 onFetch: () => runOperatorGit({ type: "fetch", remote: null }),

@@ -87,6 +87,7 @@ interface MountedActions {
   onCommit: ReturnType<typeof vi.fn>;
   onCommitPush: ReturnType<typeof vi.fn>;
   onToggleStaged: ReturnType<typeof vi.fn>;
+  onPush: ReturnType<typeof vi.fn>;
   onPushSetUpstream: ReturnType<typeof vi.fn>;
   onFetch: ReturnType<typeof vi.fn>;
   onMessageChange: ReturnType<typeof vi.fn>;
@@ -106,6 +107,7 @@ function mount(
     onCommit: vi.fn(),
     onCommitPush: vi.fn(),
     onToggleStaged: vi.fn(),
+    onPush: vi.fn(),
     onPushSetUpstream: vi.fn(),
     onFetch: vi.fn(),
     onMessageChange: vi.fn(),
@@ -120,6 +122,7 @@ function mount(
       onCommit: mounted.onCommit,
       onCommitPush: mounted.onCommitPush,
       onToggleStaged: mounted.onToggleStaged,
+      onPush: mounted.onPush,
       onPushSetUpstream: mounted.onPushSetUpstream,
       onFetch: mounted.onFetch,
     },
@@ -456,6 +459,7 @@ describe("DiffReview per-file staging", () => {
         onCommit: vi.fn(),
         onCommitPush: vi.fn(),
         onToggleStaged: mounted.onToggleStaged,
+        onPush: vi.fn(),
         onPushSetUpstream: vi.fn(),
         onFetch: vi.fn(),
       },

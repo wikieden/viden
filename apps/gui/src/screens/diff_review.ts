@@ -74,6 +74,14 @@ export interface DiffReviewActionHandlers {
   onPushSetUpstream: () => void;
   /** The `NonFastForward` recovery. `pull` is excluded by contract in 0.3.3. */
   onFetch: () => void;
+  /**
+   * The plain push, offered when the pair's own second half never left.
+   *
+   * E3b defect 25's honesty half: a `Commit & Push` whose push could not be
+   * sent must leave the operator a way to send it, not a completed commit that
+   * says nothing about the branch never being published.
+   */
+  onPush: () => void;
 }
 
 export interface DiffReviewHandlers {
@@ -621,6 +629,29 @@ function renderActionState(
       note.dataset.reviewActionTruncated = "true";
       note.textContent = translate(locale, "d1.review.actionOutputTruncated", {});
       block.append(note);
+    }
+    // E3b defect 25. A `Commit & Push` whose commit completed and whose push
+    // never left is the one success that is also a half-done job: the commit
+    // line above is true, and on its own it reads as a published branch. The
+    // note says which half is missing and the control sends it.
+    if (actions?.pairStopped && result.action === "commit") {
+      const note = document.createElement("p");
+      note.className = "review-action-note";
+      note.dataset.reviewPairStopped = "push_not_sent";
+      note.setAttribute("role", "alert");
+      note.textContent = translate(locale, "d1.review.actionPushNotSent", {});
+      block.append(note);
+
+      const push = document.createElement("button");
+      push.type = "button";
+      push.className = "cbtn review-recovery";
+      push.dataset.reviewRecovery = "push";
+      push.textContent = translate(locale, "d1.review.recovery.push", {});
+      const blocked = actionBlockedReason(state, locale);
+      push.disabled = blocked !== null;
+      if (blocked) push.title = blocked;
+      push.addEventListener("click", () => actions.onPush());
+      block.append(push);
     }
     pane.append(block);
     return;
