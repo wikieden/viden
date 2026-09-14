@@ -865,6 +865,19 @@ fn d1_queue_follow_up(
     shell::d1_queue_follow_up(&state, &command_id, &lane_id, &content)
 }
 
+/// Drains ordered Core events while a follow-up is still queued.
+///
+/// E3d defect 36. The send returns while Core has published nothing, and a
+/// client that treated that as queued retired the operator's text on a command
+/// nobody had acknowledged. This is the route back to the queue's own pending.
+#[tauri::command]
+fn d1_queue_follow_up_poll(
+    lane_id: String,
+    state: tauri::State<'_, DesktopState>,
+) -> Result<D1IntentResult, String> {
+    shell::d1_queue_follow_up_poll(&state, &lane_id)
+}
+
 #[tauri::command]
 fn d1_poll(
     selected_lane_id: Option<String>,
@@ -1377,6 +1390,7 @@ pub fn run_with_adapter(adapter: Option<GuiCoreAdapter>) {
             d1_send_intent,
             d1_abandon_probe,
             d1_queue_follow_up,
+            d1_queue_follow_up_poll,
             d1_poll,
             set_work_mode,
             set_permission_level,

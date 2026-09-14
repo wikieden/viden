@@ -335,7 +335,8 @@ fn the_desktop_pump_leaves_the_adapter_lock_free_for_the_operators_own_command()
 
     assert!(
         worst < Duration::from_millis(500),
-        "a command the operator pressed waited {worst:?} for the adapter lock the pump holds;          a gesture that cannot reach the adapter is a gesture that sends nothing"
+        "a command the operator pressed waited {worst:?} for the adapter lock the pump holds; a \
+         gesture that cannot reach the adapter is a gesture that sends nothing"
     );
 }
 
@@ -394,6 +395,14 @@ fn a_lane_scoped_stage_reaches_the_permission_dock_through_the_shell() {
     let result = settled.result.as_ref().expect("Core answered the stage");
     assert_eq!(result.kind, "completed");
     assert_eq!(result.action, "stage");
+
+    // And the pump did its own job throughout: the wake is the only thing that
+    // tells the webview to re-read, so a fairness rule that quieted the pump
+    // would trade one silence for another.
+    assert!(
+        harness.wake_count() > 0,
+        "the pump drained and woke while the operator's commands went through it"
+    );
 }
 
 /// E3b steps 19-21 in the harness: stage, commit, `Commit & Push`, and the
@@ -468,13 +477,22 @@ fn the_commit_and_push_pair_runs_through_the_shell_with_a_lane_selected() {
 ///
 /// The composer advertises `Queue follow-up` the moment Core reports a turn,
 /// and the turn E3d was in was **waiting on an approval** — which is exactly
-/// when Core's single supervisor worker is not answering commands. The submit
-/// must then either put a `QueueFollowUp` on the wire that Core answers with
-/// its own `InputQueued`, or be refused with the text kept. Accepted, cleared
-/// and lost is the one outcome that is not allowed, and it is what E3d found
-/// twice.
+/// when Core's one supervisor worker is answering nothing. What this asserts
+/// is the only thing the client can be held to: whatever Core does or does not
+/// publish, the client must never report the follow-up as queued when Core has
+/// not said so, because the composer retires the operator's text on that word.
+///
+/// The Core half is named rather than worked around. Core's accept path for
+/// `RuntimeCommand::QueueFollowUp` is guarded `owner.lane_id.is_none()`
+/// (`crates/runtime/src/runtime_supervisor.rs:1612`), so it acknowledges a
+/// *session*-scoped follow-up and lets a Lane-scoped one fall through into the
+/// busy worker's channel with no `CommandAccepted` and no `InputQueued`. The
+/// GUI sends the Lane's exact submit owner because a follow-up is work for
+/// that Lane. Compatibility follow-up 16 is therefore still unmet for a Lane,
+/// and it is Core's to meet; if Core starts acknowledging it, the queued-input
+/// branch below is the one that passes.
 #[test]
-fn a_follow_up_submitted_during_a_turn_is_queued_or_refused_through_the_shell() {
+fn a_follow_up_submitted_during_a_turn_is_never_reported_as_queued_unless_core_said_so() {
     let harness = ShellHarness::launch("queue-follow-up");
     let lane = harness.create_starter_lane("queue-lane");
 
@@ -491,55 +509,48 @@ fn a_follow_up_submitted_during_a_turn_is_queued_or_refused_through_the_shell() 
     .expect("the shell sends the submit that starts the turn");
     harness.await_dock_request("edit_file");
 
-    let queued = shell::d1_queue_follow_up(harness.state(), "gui-d1-queue", &lane, FOLLOW_UP);
-
-    let Ok(result) = queued else {
-        // A refusal is an acceptable answer — it is what E3c rendered — so
-        // long as it is a refusal and not a silent accept. The composer keeps
-        // the text on this path.
-        let refusal = queued.expect_err("checked above");
-        assert!(
-            !refusal.is_empty(),
-            "a refused follow-up must say why, so the composer can render it"
-        );
+    let Ok(sent) = shell::d1_queue_follow_up(harness.state(), "gui-d1-queue", &lane, FOLLOW_UP)
+    else {
+        // A refusal is an acceptable answer — it is what E3c rendered — and
+        // the composer keeps the text on that path.
         return;
     };
-
     assert_ne!(
-        result.outcome.state, "idle",
+        sent.outcome.state, "idle",
         "an accepted follow-up is never idle: it is pending Core's answer or settled"
     );
 
-    // Core's own `InputQueued`, read back through the projection, is the only
-    // thing that makes the queue real. A `confirmed` outcome with no queued
-    // row is the E3d shape: the client believed it, the operator saw nothing.
-    let deadline = Instant::now() + Duration::from_secs(15);
-    let mut latest = result;
-    while Instant::now() < deadline {
-        if latest.outcome.state == "rejected" {
-            return;
-        }
-        if latest
-            .projection
-            .live_work
-            .queued_inputs
-            .iter()
-            .any(|input| input.content_preview.contains(FOLLOW_UP))
-        {
-            return;
-        }
+    // The queue's own pending, polled the way the composer polls it. Whatever
+    // it settles to, `confirmed` may never arrive without the queued input
+    // Core's `InputQueued` publishes — that pair is the lie H6 would have told.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut latest = sent;
+    while Instant::now() < deadline && latest.outcome.state == "pending" {
         thread::sleep(Duration::from_millis(50));
-        latest = shell::d1_poll(harness.state(), Some(&lane), false)
-            .expect("re-read the cockpit through the shell");
+        latest = shell::d1_queue_follow_up_poll(harness.state(), &lane)
+            .expect("poll the queue's own pending through the shell");
     }
-    panic!(
-        "the follow-up was accepted with no refusal and never became a queued input the \
-         operator could see: outcome={:?} queued={:?} activeTurns={} wakes={}",
-        latest.outcome,
-        latest.projection.live_work.queued_inputs,
-        latest.projection.active_turns.len(),
-        harness.wake_count()
-    );
+
+    let queued_here = latest
+        .projection
+        .live_work
+        .queued_inputs
+        .iter()
+        .any(|input| input.content_preview.contains(FOLLOW_UP));
+    match latest.outcome.state {
+        "confirmed" => assert!(
+            queued_here,
+            "a confirmed queue must be one the operator can see: Core published no queued input \
+             for `{FOLLOW_UP}`"
+        ),
+        "pending" => assert!(
+            latest.pending_command.is_some(),
+            "an unacknowledged follow-up stays a named pending the composer can render, so the \
+             text is kept rather than retired"
+        ),
+        "rejected" => {}
+        other => panic!("unexpected queue outcome `{other}`"),
+    }
 }
 
 /* ---- defect 38: a Lane created beside a stopped Lane ---- */

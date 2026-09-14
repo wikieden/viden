@@ -70,6 +70,7 @@ export const MESSAGE_ARGUMENT_NAMES = {
   "d1.composer.send": [],
   "d1.slotBusy": ["age", "kind"],
   "d1.slotBusy.mutation": ["kind"],
+  "d1.queueUnconfirmed": [],
   "d1.slotBusy.abandon": ["kind"],
   "d1.slotBusy.age.seconds": ["seconds"],
   "d1.slotBusy.age.minutes": ["minutes", "seconds"],

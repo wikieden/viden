@@ -71,6 +71,7 @@ export function createTauriCoreClient(): CoreClient {
     d1AbandonProbe: () => invoke("d1_abandon_probe", {}),
     d1QueueFollowUp: (commandId, laneId, content) =>
       invoke("d1_queue_follow_up", { commandId, laneId, content }),
+    d1QueueFollowUpPoll: (laneId) => invoke("d1_queue_follow_up_poll", { laneId }),
     d1Poll: (selectedLaneId, waitForEvent) =>
       invoke("d1_poll", { selectedLaneId, waitForEvent }),
 

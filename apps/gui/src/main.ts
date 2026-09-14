@@ -1053,10 +1053,18 @@ export async function hydrateShellFromCore(
        *
        * Deliberately not routed through the D1 send path: that one waits for
        * the single command slot, and the submit that started the turn is what
-       * holds it.
+       * holds it. `poll` is the queue's own pending, because a command this
+       * client sent is not a follow-up Core queued (E3d defect 36).
        */
-      const queueFollowUpPort = async (laneId: string, content: string) =>
-        await core.d1QueueFollowUp(`gui-d1-queue-${crypto.randomUUID()}`, laneId, content);
+      const queueFollowUpPort = {
+        send: async (laneId: string, content: string) =>
+          await core.d1QueueFollowUp(`gui-d1-queue-${crypto.randomUUID()}`, laneId, content),
+        // E3d defect 36. The send resolves while Core has published nothing,
+        // so the queue's own pending is what says whether the follow-up was
+        // taken. Without this route the composer had no answer to wait for and
+        // retired the operator's text on a command nobody had acknowledged.
+        poll: async (laneId: string) => await core.d1QueueFollowUpPoll(laneId),
+      };
 
       const operatorGitPort = {
         read: async (laneId: string | null) => await core.operatorGit(laneId),

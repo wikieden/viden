@@ -81,6 +81,7 @@ function fakeCoreClient(overrides: Partial<CoreClient> = {}): CoreClient {
     d1SendIntent: unreachable("d1_send_intent"),
     d1AbandonProbe: unreachable("d1_abandon_probe"),
     d1QueueFollowUp: unreachable("d1_queue_follow_up"),
+    d1QueueFollowUpPoll: unreachable("d1_queue_follow_up_poll"),
     d1Poll: async () => ({
       projection: D1_PROJECTION,
       pendingCommandId: null,

@@ -232,7 +232,8 @@ describe("defect 29 — a submit while a turn runs is queued, not refused", () =
 
   test("the composer's send carries QueueFollowUp and never touches the D1 slot", async () => {
     const view = running();
-    const queueFollowUp = vi.fn(async () => queued(view));
+    const queueSend = vi.fn(async () => queued(view));
+    const queueFollowUp = { send: queueSend, poll: vi.fn(async () => queued(view)) };
     const send = vi.fn(async () => free(view));
     const { root, controller } = mount(view, { queueFollowUp }, send);
     await flush();
@@ -243,8 +244,8 @@ describe("defect 29 — a submit while a turn runs is queued, not refused", () =
     root.querySelector<HTMLButtonElement>("[data-composer-send]")!.click();
     await flush();
 
-    expect(queueFollowUp).toHaveBeenCalledTimes(1);
-    expect(queueFollowUp.mock.calls[0]).toEqual([
+    expect(queueSend).toHaveBeenCalledTimes(1);
+    expect(queueSend.mock.calls[0]).toEqual([
       "lane-core",
       "Summarise what you just changed",
     ]);
@@ -254,7 +255,9 @@ describe("defect 29 — a submit while a turn runs is queued, not refused", () =
 
   test("the label promises a queue only where the queue can be sent", async () => {
     const view = running();
-    const withPort = mount(view, { queueFollowUp: vi.fn(async () => queued(view)) });
+    const withPort = mount(view, {
+      queueFollowUp: { send: vi.fn(async () => queued(view)), poll: vi.fn(async () => queued(view)) },
+    });
     await flush();
     expect(withPort.root.querySelector("label")!.textContent).toContain("Queue follow-up");
     withPort.controller.dispose();
@@ -272,7 +275,7 @@ describe("defect 29 — a submit while a turn runs is queued, not refused", () =
     const view = running();
     // The host answers with the queue still pending: the next follow-up has
     // nowhere to go, and defect 23's refusal applies unchanged.
-    const queueFollowUp = vi.fn(async () => ({
+    const stillPending = async () => ({
       projection: view,
       pendingCommandId: "gui-d1-queue-1",
       pendingCommand: {
@@ -282,8 +285,11 @@ describe("defect 29 — a submit while a turn runs is queued, not refused", () =
         abandonable: false,
       },
       outcome: { state: "pending" as const, reason: null },
-    }));
-    const { root, controller } = mount(view, { queueFollowUp });
+    });
+    const queueSend = vi.fn(stillPending);
+    const { root, controller } = mount(view, {
+      queueFollowUp: { send: queueSend, poll: vi.fn(stillPending) },
+    });
     await flush();
 
     const type = (text: string): void => {
@@ -297,7 +303,7 @@ describe("defect 29 — a submit while a turn runs is queued, not refused", () =
     type("second follow-up");
     await flush();
 
-    expect(queueFollowUp).toHaveBeenCalledTimes(1);
+    expect(queueSend).toHaveBeenCalledTimes(1);
     const alert = root.querySelector<HTMLElement>("[data-d1-slot-busy]");
     expect(alert).not.toBeNull();
     expect(alert!.textContent).toContain("queue_follow_up");
@@ -310,7 +316,7 @@ describe("defect 29 — a submit while a turn runs is queued, not refused", () =
   test("the queued row is Core's own InputQueued fact, and leaves when Core drains it", async () => {
     const view = running();
     const { root, controller } = mount(view, {
-      queueFollowUp: vi.fn(async () => queued(view)),
+      queueFollowUp: { send: vi.fn(async () => queued(view)), poll: vi.fn(async () => queued(view)) },
     });
     await flush();
     // The fixture's own queued input, which is where `InputQueued` lands. The

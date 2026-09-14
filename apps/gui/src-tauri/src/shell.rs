@@ -173,6 +173,21 @@ pub fn d1_queue_follow_up(
     })
 }
 
+/// Drains ordered Core events while a follow-up is still queued.
+///
+/// E3d defect 36. A `QueueFollowUp` the client has *sent* is not a follow-up
+/// Core has *queued*: only Core's own `InputQueued` says that, and without a
+/// route back to the queue's own pending the webview had no way to learn the
+/// difference. The result carries the queue's outcome, never the submit's.
+pub fn d1_queue_follow_up_poll(
+    state: &DesktopState,
+    lane_id: &str,
+) -> Result<D1IntentResult, String> {
+    with_adapter_mut(state, |adapter| {
+        adapter.poll_queue_follow_up(lane_id, Duration::ZERO)
+    })
+}
+
 pub fn d1_poll(
     state: &DesktopState,
     selected_lane_id: Option<&str>,
