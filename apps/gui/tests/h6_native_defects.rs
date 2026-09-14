@@ -14,6 +14,10 @@
 //! 3. **A revoked standing rule leaves the list.** The revoke answers with
 //!    the `standing_approvals` Core holds afterwards, which is what the
 //!    settings panel renders (defect 31).
+//! 4. **A Lane's execution owner is its latest binding.** The client reads
+//!    Core's most recent statement about who owns the Lane, so a relaunched
+//!    Lane is not read-only forever — the other half is Core's, because its
+//!    own view reducer keeps a Lane's first binding (defect 34, client half).
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -306,5 +310,72 @@ fn the_revoke_answers_with_the_standing_list_core_holds_afterwards() {
     assert!(
         result.projection.rules.is_empty(),
         "the answer carries the list Core holds after the revoke, which is what the panel renders"
+    );
+}
+
+/* ---- defect 34 (client half): a Lane's owner is its latest binding ---- */
+
+#[test]
+fn a_lane_with_two_published_bindings_resolves_its_latest_execution_owner() {
+    let mut view = two_lane_view();
+    // A restored Lane's binding from the process that created it, then the
+    // rebinding a relaunch mints. `lane-agent-bindings.jsonl` holds the first;
+    // the new process mints the second.
+    view.lane_runtime_owners.push(LaneRuntimeOwnerBinding {
+        lane_id: LANE_A.into(),
+        owner: owner_for(LANE_A, "session_before_restart"),
+    });
+    view.lane_runtime_owners.push(LaneRuntimeOwnerBinding {
+        lane_id: LANE_A.into(),
+        owner: owner_for(LANE_A, "session_after_restart"),
+    });
+    let sent = Arc::new(Mutex::new(Vec::new()));
+    let client = TestCoreClient::new(view, Arc::clone(&sent)).with_gap();
+    let mut adapter = GuiCoreAdapter::new(Box::new(client));
+    adapter.connect().expect("connect the test client");
+
+    let resolved = adapter.operator_git(Some(LANE_A));
+    assert!(
+        resolved.owner_available,
+        "two bindings for one Lane is still one Lane with an execution owner: {:?}",
+        resolved.owner_unavailable_reason
+    );
+
+    // Which owner it is, read off the envelope Core would actually receive
+    // rather than off an accessor written for the test.
+    adapter
+        .run_operator_git_action_and_wait(
+            "gui-h6-latest-binding",
+            Some(LANE_A),
+            viden_gui::OperatorGitIntent::Fetch { remote: None },
+            Duration::ZERO,
+        )
+        .expect("the action is sent as the Lane's execution owner");
+    let commands = sent.lock().expect("read the sent commands");
+    assert_eq!(
+        commands
+            .last()
+            .and_then(|envelope| envelope.owner.session_id.as_deref()),
+        Some("session_after_restart"),
+        "the latest binding wins: the stale session a relaunch left behind is not the owner"
+    );
+}
+
+#[test]
+fn a_binding_whose_owner_names_another_lane_is_still_refused() {
+    let mut view = two_lane_view();
+    // A malformed payload, which is untrusted protocol input rather than an
+    // authority: it is refused instead of normalized into an owner Core never
+    // published for this Lane.
+    view.lane_runtime_owners.push(LaneRuntimeOwnerBinding {
+        lane_id: LANE_A.into(),
+        owner: owner_for(LANE_B, "session_lane_d1_review"),
+    });
+    let adapter = connected(view);
+
+    let resolved = adapter.operator_git(Some(LANE_A));
+    assert!(
+        !resolved.owner_available,
+        "a binding whose owner names another Lane is not this Lane's owner"
     );
 }

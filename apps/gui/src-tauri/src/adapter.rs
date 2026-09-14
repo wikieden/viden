@@ -6170,25 +6170,39 @@ impl GuiCoreAdapter {
         self.exact_lane_owner(lane_id, "submit")
     }
 
-    /// Raw same-Lane binding cardinality is authoritative; malformed duplicates block all routing.
+    /// The Lane's execution owner: the **latest** binding Core published for
+    /// it, and only when that binding's owner names the Lane.
+    ///
+    /// `lane_runtime_owners` is an ordered list of Core's own statements, so
+    /// the last one is Core's most recent word on who owns this Lane — the
+    /// same "last write wins on the id" rule Core's reducer applies to a
+    /// standing approval. Reading the first instead is what E3c defect 34 is
+    /// about on the client side: a Lane created before a relaunch carries the
+    /// previous process's binding, and a client that either refuses on two or
+    /// prefers the stale one leaves that Lane read-only forever.
+    ///
+    /// This alone does not close defect 34. Core's own view reducer
+    /// (`RuntimeViewState::apply_event`, `crates/types/src/runtime.rs`) keeps
+    /// a Lane's *first* valid binding and drops a later one, so the view this
+    /// reads can still carry only the stale binding; the rebinding has to be
+    /// the one the view ends up holding, which is Core's half.
+    ///
+    /// A malformed payload is still refused rather than normalized: a binding
+    /// whose owner names another Lane is untrusted protocol input, not an
+    /// authority, and acting as it would record a mutation under an owner
+    /// Core never bound to this Lane.
     fn exact_lane_owner(&self, lane_id: &str, purpose: &str) -> Result<RuntimeOwner, String> {
         let view = self
             .projection
             .view()
             .ok_or_else(|| "Core has not published a D1 projection".to_string())?;
-        let runtime = view
-            .lane_runtime_owners
+        view.lane_runtime_owners
             .iter()
-            .filter(|binding| binding.lane_id == lane_id)
-            .collect::<Vec<_>>();
-        match runtime.as_slice() {
-            [binding] if binding.owner.lane_id.as_deref() == Some(lane_id) => {
-                Ok(binding.owner.clone())
-            }
-            _ => Err(format!(
-                "Lane `{lane_id}` does not have one exact Core {purpose} owner"
-            )),
-        }
+            .rev()
+            .find(|binding| binding.lane_id == lane_id)
+            .filter(|binding| binding.owner.lane_id.as_deref() == Some(lane_id))
+            .map(|binding| binding.owner.clone())
+            .ok_or_else(|| format!("Lane `{lane_id}` does not have one exact Core {purpose} owner"))
     }
 
     fn exact_agent_session(
