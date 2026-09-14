@@ -4527,9 +4527,23 @@ export function renderD1Cockpit(
       ["starting", "running", "waiting_approval", "completed"].includes(focusedAcp.status);
     // One read of the action state per frame, scoped to the Lane on screen.
     const operatorGitSelection = operatorGitForSelection();
-    const showRecovery =
+    const recoveryActive =
       !["live", "gate_queue_clear", "empty"].includes(projection.recovery.state) &&
       !(projection.recovery.state === "agent_stopped" && focusedAcpOwnsLiveSurface);
+    /**
+     * E3c defect 33. The recovery surface is what the *conversation* slot
+     * shows when Core reports the Lane cannot make progress — it is not a
+     * modal over the cockpit. It used to outrank every registered centre view,
+     * so once Core reported execution stopped, `Plan Studio`, `Diff review`,
+     * the Agent Board, Evidence and Audit each highlighted their rail slot and
+     * left the recovery surface in the pane: both registered views were
+     * unreachable for the rest of that Lane's life, and a Lane that has
+     * stopped is exactly when an operator needs to read its plan and its diff.
+     * Scoping it to the transcript keeps it reachable — `Esc` and a view's own
+     * Close return there, and its Core-backed fact controls keep their labels
+     * — without letting it hold a pane another view was opened into.
+     */
+    const showRecovery = recoveryActive && centerView === "transcript";
     // The composer only exists on the work surface, and only Core can say it
     // is editable. The rail's `Work` slot is offered a focus target only when
     // there will actually be one.

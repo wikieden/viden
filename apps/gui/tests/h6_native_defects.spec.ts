@@ -103,6 +103,11 @@ function mount(
   return { root, controller };
 }
 
+/** The same mount, for the tests that need the cockpit's frame element back. */
+function mount2(initial: D1CockpitProjection, options: Record<string, unknown> = {}) {
+  return mount(initial, options);
+}
+
 beforeEach(() => {
   document.body.innerHTML = "";
 });
@@ -547,5 +552,66 @@ describe("defect 32 — operator inputs are verbatim", () => {
       });
     }
     expect(offenders).toEqual([]);
+  });
+});
+
+/* ---- defect 33: a registered centre view outranks the recovery surface ---- */
+
+describe("defect 33 — the recovery surface never blocks a registered centre view", () => {
+  /** Core reporting a stopped agent for the selected Lane, exactly as E3c saw it. */
+  function stopped(): D1CockpitProjection {
+    const base = projection();
+    return {
+      ...base,
+      recovery: {
+        ...base.recovery,
+        connection: "live",
+        state: "agent_stopped",
+        detail: "Core reports that execution has stopped.",
+        recoverable: false,
+        actions: [],
+      },
+    };
+  }
+
+  test("the rail's Plan Studio slot switches the centre while execution is stopped", async () => {
+    const mount = vi.fn();
+    const view = stopped();
+    const { root, controller } = mount2(view, {
+      secondaryViews: { mount },
+      plan: { read: async () => ({ capabilityAvailable: true, proposedCount: 0 }) },
+    });
+    await flush();
+    // The recovery surface owns the conversation slot, which is right.
+    expect(root.querySelector("[data-d6-state]")).not.toBeNull();
+
+    root.querySelector<HTMLButtonElement>('[data-rail-slot="d15"]')!.click();
+    await flush();
+
+    const frame = root.querySelector<HTMLElement>("[data-center-view]") ?? root;
+    expect(frame.dataset.centerView).toBe("d15");
+    expect(mount).toHaveBeenCalledTimes(1);
+    expect(root.querySelector("[data-secondary-view='d15']")).not.toBeNull();
+    expect(root.querySelector("[data-d6-state]")).toBeNull();
+    controller.dispose();
+  });
+
+  test("closing the centre view returns to the recovery surface and its fact controls", async () => {
+    const mount = vi.fn();
+    const view = stopped();
+    const { root, controller } = mount2(view, {
+      secondaryViews: { mount },
+      plan: { read: async () => ({ capabilityAvailable: true, proposedCount: 0 }) },
+    });
+    await flush();
+    root.querySelector<HTMLButtonElement>('[data-rail-slot="d15"]')!.click();
+    await flush();
+    expect(root.querySelector("[data-d6-state]")).toBeNull();
+
+    root.querySelector<HTMLButtonElement>("[data-secondary-close]")!.click();
+    await flush();
+
+    expect(root.querySelector("[data-d6-state]")).not.toBeNull();
+    controller.dispose();
   });
 });
