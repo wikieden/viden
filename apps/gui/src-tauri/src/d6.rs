@@ -97,4 +97,30 @@ pub struct D6RecoveryProjection {
     pub hard_token_limit: Option<u64>,
     pub missing_capabilities: Vec<String>,
     pub actions: Vec<D6ActionProjection>,
+    /// The host's own bounded reconnect, or `None` when the connection is live
+    /// or nothing has been attempted (E3d defect 37).
+    ///
+    /// Core publishes no reconnect command — that gap is `GUI-CORE-003`, and
+    /// the recovery surface's `Reconnect` control stays disabled and labelled
+    /// with it. What this carries is the *host's* retry of the handshake and
+    /// snapshot it already owns: how many attempts have run, how long until the
+    /// next one, and whether it has stopped trying. Without it the cockpit
+    /// renders `Establishing the versioned Core connection.` with no end, which
+    /// is what E3d sat in for the rest of that session.
+    pub reconnect: Option<D6ReconnectProjection>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct D6ReconnectProjection {
+    pub attempts: u32,
+    pub max_attempts: u32,
+    /// Milliseconds until the next attempt, or `None` when one is running or
+    /// the host has given up. The surface renders a countdown from it rather
+    /// than a spinner.
+    pub next_attempt_in_ms: Option<u64>,
+    pub gave_up: bool,
+    /// The last transport failure, verbatim, so the operator is told what the
+    /// host saw instead of only that something is wrong.
+    pub last_error: Option<String>,
 }

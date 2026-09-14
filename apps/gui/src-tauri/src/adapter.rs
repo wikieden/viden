@@ -124,6 +124,13 @@ pub struct GuiCoreAdapter {
     recent_work_receipt: Option<RecentWorkReceipt>,
     connection: D6ConnectionState,
     connection_detail: Option<String>,
+    /// The bounded reconnect the pump drives when the connection is not live.
+    ///
+    /// E3d defect 37: the connection dropped mid-session and the client sat in
+    /// `CONNECTING` forever, because nothing ever tried again. Held here so the
+    /// recovery projection can say how many attempts have run and when the
+    /// next one is, rather than printing a spinner with no end.
+    reconnect: ReconnectState,
     /// D2 queue selection. Presentation state only: it never gates a Core
     /// command and is dropped when Core stops publishing the decision.
     d2_selected: Option<String>,
@@ -346,6 +353,20 @@ pub fn open_local_workspace(root: impl AsRef<Path>) -> Result<GuiCoreAdapter, St
     open_workspace_with_host(&host, root)
 }
 
+/// Opens a workspace against a Core whose session home is named explicitly.
+///
+/// The shipped launch path uses [`open_local_workspace`], whose `LocalCoreHost`
+/// resolves the user's real session home. A harness must never write there, so
+/// the shell-path tests bind a temporary one through this entry point and the
+/// production path stays unchanged.
+pub fn open_local_workspace_with_session_home(
+    root: impl AsRef<Path>,
+    session_home: impl AsRef<Path>,
+) -> Result<GuiCoreAdapter, String> {
+    let host = LocalCoreHost::with_session_home(session_home.as_ref());
+    open_workspace_with_host(&host, root)
+}
+
 fn open_workspace_with_host(
     host: &LocalCoreHost,
     root: impl AsRef<Path>,
@@ -380,6 +401,36 @@ fn default_workspace_root() -> Option<PathBuf> {
     // A desktop launch does not imply that its process or bundle directory is
     // the user's project. Only an explicit launch binding may bypass Welcome.
     std::env::var_os("VIDEN_GUI_WORKSPACE").map(PathBuf::from)
+}
+
+/// The pump's reconnect schedule, in seconds, one entry per failed attempt.
+///
+/// Bounded on purpose (E3d defect 37). An unbounded retry is the same "waiting
+/// forever" the defect is about, wearing a different label; when the schedule
+/// runs out the client says it gave up and the operator decides.
+const RECONNECT_BACKOFF_SECS: [u64; 5] = [1, 2, 4, 8, 16];
+
+/// What the host knows about its own attempt to get the connection back.
+#[derive(Debug, Default)]
+struct ReconnectState {
+    attempts: u32,
+    next_attempt_at: Option<Instant>,
+    gave_up: bool,
+    last_error: Option<String>,
+}
+
+/// One stable word per connection state, for the log and for nothing else.
+///
+/// Deliberately not the serde tag: a log line is a diagnostic contract with a
+/// reader, and tying it to a wire format would let a rename move it silently.
+fn connection_state_name(state: D6ConnectionState) -> &'static str {
+    match state {
+        D6ConnectionState::Disconnected => "disconnected",
+        D6ConnectionState::Connecting => "connecting",
+        D6ConnectionState::Live => "live",
+        D6ConnectionState::Recovering => "recovering",
+        D6ConnectionState::Incompatible => "incompatible",
+    }
 }
 
 struct PendingPermission {
@@ -1981,6 +2032,7 @@ impl GuiCoreAdapter {
             recent_work_receipt: None,
             connection: D6ConnectionState::Disconnected,
             connection_detail: None,
+            reconnect: ReconnectState::default(),
             d2_selected: None,
             pending_d2_review: None,
             pending_d15: None,
@@ -2022,8 +2074,7 @@ impl GuiCoreAdapter {
     }
 
     pub fn connect(&mut self) -> Result<(), CoreClientError> {
-        self.connection = D6ConnectionState::Connecting;
-        self.connection_detail = None;
+        self.set_connection(D6ConnectionState::Connecting, None);
         let handshake = match self.client.discover() {
             Ok(handshake) => handshake,
             Err(error) => {
@@ -2044,8 +2095,7 @@ impl GuiCoreAdapter {
             }
         };
         self.publish(snapshot);
-        self.connection = D6ConnectionState::Live;
-        self.connection_detail = None;
+        self.set_connection(D6ConnectionState::Live, None);
         Ok(())
     }
 
@@ -4410,6 +4460,14 @@ impl GuiCoreAdapter {
     }
 
     pub fn d6_recovery(&self) -> D6RecoveryProjection {
+        let mut projection = self.d6_recovery_without_reconnect();
+        // The countdown belongs beside the state it explains, and both are
+        // written from the same transitions the log records (defect 37).
+        projection.reconnect = self.reconnect_projection();
+        projection
+    }
+
+    fn d6_recovery_without_reconnect(&self) -> D6RecoveryProjection {
         self.projection
             .d6_recovery(
                 self.connection,
@@ -4432,6 +4490,7 @@ impl GuiCoreAdapter {
                 hard_token_limit: None,
                 missing_capabilities: Vec::new(),
                 actions: Vec::new(),
+                reconnect: None,
             })
     }
 
@@ -4528,7 +4587,10 @@ impl GuiCoreAdapter {
     }
 
     pub fn recover(&mut self) -> Result<(), CoreClientError> {
-        self.connection = D6ConnectionState::Recovering;
+        self.set_connection(
+            D6ConnectionState::Recovering,
+            self.connection_detail.clone(),
+        );
         let snapshot = match self.client.snapshot() {
             Ok(snapshot) => snapshot,
             Err(error) => {
@@ -4537,8 +4599,7 @@ impl GuiCoreAdapter {
             }
         };
         self.publish(snapshot);
-        self.connection = D6ConnectionState::Live;
-        self.connection_detail = None;
+        self.set_connection(D6ConnectionState::Live, None);
         Ok(())
     }
 
@@ -6648,13 +6709,12 @@ impl GuiCoreAdapter {
             }
         };
         self.publish(snapshot);
-        self.connection = D6ConnectionState::Live;
-        self.connection_detail = None;
+        self.set_connection(D6ConnectionState::Live, None);
         Ok(())
     }
 
     fn record_connection_error(&mut self, error: &CoreClientError) {
-        self.connection = match error {
+        let next = match error {
             CoreClientError::Compatibility(_) => D6ConnectionState::Incompatible,
             CoreClientError::Transport(_) => D6ConnectionState::Disconnected,
             CoreClientError::Protocol(_)
@@ -6662,7 +6722,129 @@ impl GuiCoreAdapter {
             | CoreClientError::MissingSnapshot
             | CoreClientError::HandshakeRequired => D6ConnectionState::Recovering,
         };
-        self.connection_detail = Some(error.to_string());
+        self.set_connection(next, Some(error.to_string()));
+    }
+
+    /// The one place the connection state changes, and the one place it is
+    /// logged (E3d defect 37).
+    ///
+    /// A transition is written to stderr unconditionally — see
+    /// `connection_log` for why a `RUST_LOG` level was never going to produce
+    /// one — and only a transition is: a state that has not changed says
+    /// nothing new, and a line per poll would bury the drop it exists to show.
+    /// Reaching `Live` also clears the reconnect schedule, because the thing
+    /// it was counting is over.
+    fn set_connection(&mut self, next: D6ConnectionState, detail: Option<String>) {
+        let previous = self.connection;
+        self.connection = next;
+        self.connection_detail = detail;
+        if next == D6ConnectionState::Live {
+            self.reconnect = ReconnectState::default();
+        }
+        if previous != next {
+            crate::connection_log::log_connection(
+                "state",
+                &[
+                    ("from", connection_state_name(previous)),
+                    ("to", connection_state_name(next)),
+                    ("detail", self.connection_detail.as_deref().unwrap_or("")),
+                ],
+            );
+        }
+    }
+
+    /// Retries a dropped Core connection on a bounded backoff, once per pump
+    /// round, and reports whether this round actually attempted one.
+    ///
+    /// E3d defect 37. The client had no reconnect at all: a transport error
+    /// classified the connection and the cockpit then rendered `CONNECTING`
+    /// until the process was killed. Now the attempt is the host's own — Core
+    /// publishes no reconnect command (`GUI-CORE-003`), and this re-runs the
+    /// handshake and snapshot this client already owns — it is bounded, and
+    /// what it is doing is visible in both the log and the recovery
+    /// projection. Giving up is a state too, and it is said out loud rather
+    /// than becoming a spinner that never ends.
+    pub fn maintain_connection(&mut self) -> bool {
+        if self.connection == D6ConnectionState::Live {
+            return false;
+        }
+        // An incompatible schema is not a transport fault, and retrying it
+        // would loop forever against an answer that will not change.
+        if self.connection == D6ConnectionState::Incompatible {
+            return false;
+        }
+        if self.reconnect.gave_up {
+            return false;
+        }
+        if let Some(next_at) = self.reconnect.next_attempt_at
+            && Instant::now() < next_at
+        {
+            return false;
+        }
+        let attempt = self.reconnect.attempts.saturating_add(1);
+        self.reconnect.attempts = attempt;
+        crate::connection_log::log_connection(
+            "reconnect-attempt",
+            &[
+                ("attempt", &attempt.to_string()),
+                ("of", &RECONNECT_BACKOFF_SECS.len().to_string()),
+                ("from", connection_state_name(self.connection)),
+            ],
+        );
+        match self.connect() {
+            Ok(()) => {
+                crate::connection_log::log_connection(
+                    "reconnect-result",
+                    &[("attempt", &attempt.to_string()), ("result", "live")],
+                );
+            }
+            Err(error) => {
+                let detail = error.to_string();
+                crate::connection_log::log_connection(
+                    "reconnect-result",
+                    &[
+                        ("attempt", &attempt.to_string()),
+                        ("result", "failed"),
+                        ("detail", &detail),
+                    ],
+                );
+                self.reconnect.last_error = Some(detail);
+                match RECONNECT_BACKOFF_SECS.get(attempt as usize - 1) {
+                    Some(seconds) => {
+                        self.reconnect.next_attempt_at =
+                            Some(Instant::now() + Duration::from_secs(*seconds));
+                    }
+                    None => {
+                        self.reconnect.gave_up = true;
+                        self.reconnect.next_attempt_at = None;
+                        crate::connection_log::log_connection(
+                            "reconnect-gave-up",
+                            &[("attempts", &attempt.to_string())],
+                        );
+                    }
+                }
+            }
+        }
+        true
+    }
+
+    /// What the recovery surface renders about the reconnect, or `None` when
+    /// the connection is live and there is nothing to say.
+    fn reconnect_projection(&self) -> Option<crate::D6ReconnectProjection> {
+        if self.connection == D6ConnectionState::Live || self.reconnect.attempts == 0 {
+            return None;
+        }
+        Some(crate::D6ReconnectProjection {
+            attempts: self.reconnect.attempts,
+            max_attempts: RECONNECT_BACKOFF_SECS.len() as u32 + 1,
+            next_attempt_in_ms: self.reconnect.next_attempt_at.map(|at| {
+                at.saturating_duration_since(Instant::now())
+                    .as_millis()
+                    .min(u128::from(u64::MAX)) as u64
+            }),
+            gave_up: self.reconnect.gave_up,
+            last_error: self.reconnect.last_error.clone(),
+        })
     }
 
     fn observe_pending(&mut self, event: &RuntimeEventEnvelope) -> bool {

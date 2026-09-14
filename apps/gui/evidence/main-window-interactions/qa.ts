@@ -405,6 +405,7 @@ const D6_STOPPED: D6RecoveryProjection = {
   usedTokens: null,
   hardTokenLimit: null,
   missingCapabilities: [],
+  reconnect: null,
   actions: [
     { kind: "reconnect", available: false, code: "GUI-CORE-003" },
     { kind: "inspect", available: true, code: "presentation_only" },
@@ -698,7 +699,7 @@ function mountCockpit(options: CockpitOptions): D1Controller {
       board: options.board ? { read: async () => options.board! } : undefined,
       // One fixed queue answer, so a follow-up sent in a capture cannot move
       // the frame after it settles.
-      queueFollowUp: options.queueFollowUp ? never : undefined,
+      queueFollowUp: options.queueFollowUp ? { send: never, poll: never } : undefined,
       // The revocation never resolves, so the control is live and the capture
       // cannot race a list that emptied itself — unless the state is about the
       // answer, in which case it resolves to the list Core holds afterwards.

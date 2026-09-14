@@ -3,6 +3,7 @@
 mod adapter;
 mod agent_content;
 mod board;
+mod connection_log;
 mod d1;
 mod d10;
 mod d12;
@@ -20,16 +21,19 @@ mod plan;
 mod presentation;
 mod projection;
 mod recent_work;
+pub mod shell;
 mod transcript_rows;
 mod ui_preferences;
 mod workspace_files;
 
-use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
 use std::{env, ffi::OsString, path::Path};
 
-pub use adapter::{D11Intent, D11IntentResult, GuiCoreAdapter, open_local_workspace};
+pub use adapter::{
+    D11Intent, D11IntentResult, GuiCoreAdapter, open_local_workspace,
+    open_local_workspace_with_session_home,
+};
 pub use agent_content::{agent_content_data_url, resolve_agent_content_reference};
 pub use board::{
     AGENT_SESSION_CONTROL_CAPABILITY, D16_CAPABILITY_ABSENT_CODE, D16_NO_CORE_FACT_CODE,
@@ -38,6 +42,7 @@ pub use board::{
     D16ControlProjection, D16ConversationProjection, D16DetailProjection, D16EvidenceProjection,
     D16Intent, D16IntentResult, D16LaneProjection, D16SessionProjection, D16SwitchModelProjection,
 };
+pub use connection_log::CONNECTION_LOG_PREFIX;
 pub use d1::{
     ComposerControlIntent, D1_OWNER_CAPABILITY, D1_OWNER_CARDINALITY_CODE,
     D1AgentSessionInputProjection, D1AgentSessionProjection, D1ChecklistItemProjection,
@@ -63,7 +68,8 @@ pub use d4::{
     D4SessionOutcomeProjection,
 };
 pub use d6::{
-    D6ActionProjection, D6ConnectionState, D6Intent, D6IntentResult, D6RecoveryProjection, D6State,
+    D6ActionProjection, D6ConnectionState, D6Intent, D6IntentResult, D6ReconnectProjection,
+    D6RecoveryProjection, D6State,
 };
 pub use d10::{
     D10_EVENT_TICKER_LIMIT, D10AgentProjection, D10EvidenceProjection, D10LaneMonitorProjection,
@@ -135,6 +141,7 @@ pub use projection::{
 pub use recent_work::{
     RECENT_WORK_CAPABILITY, RecentProjectProjection, RecentSessionProjection, RecentWorkResult,
 };
+pub use shell::{DesktopState, PumpRoundError, pump_core_events_once};
 pub use transcript_rows::{
     TRANSCRIPT_ROWS_CAPABILITY, TRANSCRIPT_ROWS_NO_OWNER_CODE, TRANSCRIPT_ROWS_PAGE_LIMIT,
     TranscriptRowProjection, TranscriptRowsProjection,
@@ -148,10 +155,6 @@ pub use workspace_files::{
     WorkspaceFileFactsProjection, WorkspaceFileProjection, WorkspaceFileRowProjection,
     WorkspaceFilesProjection,
 };
-
-struct DesktopState {
-    adapter: Mutex<Option<GuiCoreAdapter>>,
-}
 
 #[tauri::command]
 fn open_workspace(root: String, state: tauri::State<'_, DesktopState>) -> Result<(), String> {
@@ -724,18 +727,7 @@ fn run_operator_git_action(
     action: OperatorGitIntent,
     state: tauri::State<'_, DesktopState>,
 ) -> Result<OperatorGitProjection, String> {
-    state
-        .adapter
-        .lock()
-        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?
-        .as_mut()
-        .ok_or_else(|| "Core adapter is not connected".to_string())?
-        .run_operator_git_action_and_wait(
-            &command_id,
-            lane_id.as_deref(),
-            action,
-            Duration::from_millis(250),
-        )
+    shell::run_operator_git_action(&state, &command_id, lane_id.as_deref(), action)
 }
 
 /// Drains ordered Core events for an operator action still in flight.
@@ -748,13 +740,7 @@ fn operator_git_poll(
     lane_id: Option<String>,
     state: tauri::State<'_, DesktopState>,
 ) -> Result<OperatorGitProjection, String> {
-    state
-        .adapter
-        .lock()
-        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?
-        .as_mut()
-        .ok_or_else(|| "Core adapter is not connected".to_string())?
-        .poll_operator_git(lane_id.as_deref(), Duration::from_millis(250))
+    shell::operator_git_poll(&state, lane_id.as_deref())
 }
 
 /// The current operator-action projection with no Core traffic.
@@ -767,13 +753,7 @@ fn operator_git(
     lane_id: Option<String>,
     state: tauri::State<'_, DesktopState>,
 ) -> Result<OperatorGitProjection, String> {
-    Ok(state
-        .adapter
-        .lock()
-        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?
-        .as_ref()
-        .ok_or_else(|| "Core adapter is not connected".to_string())?
-        .operator_git(lane_id.as_deref()))
+    shell::operator_git(&state, lane_id.as_deref())
 }
 
 #[tauri::command]
@@ -849,12 +829,7 @@ fn d1_cockpit(
     selected_lane_id: Option<String>,
     state: tauri::State<'_, DesktopState>,
 ) -> Option<D1CockpitProjection> {
-    state
-        .adapter
-        .lock()
-        .ok()?
-        .as_ref()?
-        .d1_cockpit(selected_lane_id.as_deref())
+    shell::d1_cockpit(&state, selected_lane_id.as_deref())
 }
 
 #[tauri::command]
@@ -863,13 +838,7 @@ fn d1_send_intent(
     intent: D1Intent,
     state: tauri::State<'_, DesktopState>,
 ) -> Result<D1IntentResult, String> {
-    state
-        .adapter
-        .lock()
-        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?
-        .as_mut()
-        .ok_or_else(|| "Core adapter is not connected".to_string())?
-        .send_d1_intent_and_wait(&command_id, intent, Duration::from_millis(250))
+    shell::d1_send_intent(&state, &command_id, intent)
 }
 
 /// Releases the one D1 command slot from an unanswered adapter probe.
@@ -879,13 +848,7 @@ fn d1_send_intent(
 /// other pending command's answer is the only record of whether it ran.
 #[tauri::command]
 fn d1_abandon_probe(state: tauri::State<'_, DesktopState>) -> Result<D1IntentResult, String> {
-    state
-        .adapter
-        .lock()
-        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?
-        .as_mut()
-        .ok_or_else(|| "Core adapter is not connected".to_string())?
-        .abandon_pending_probe(Duration::from_millis(250))
+    shell::d1_abandon_probe(&state)
 }
 
 /// Queues one follow-up behind a turn that is already running.
@@ -902,13 +865,20 @@ fn d1_queue_follow_up(
     content: String,
     state: tauri::State<'_, DesktopState>,
 ) -> Result<D1IntentResult, String> {
-    state
-        .adapter
-        .lock()
-        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?
-        .as_mut()
-        .ok_or_else(|| "Core adapter is not connected".to_string())?
-        .queue_follow_up_and_wait(&command_id, &lane_id, &content, Duration::from_millis(250))
+    shell::d1_queue_follow_up(&state, &command_id, &lane_id, &content)
+}
+
+/// Drains ordered Core events while a follow-up is still queued.
+///
+/// E3d defect 36. The send returns while Core has published nothing, and a
+/// client that treated that as queued retired the operator's text on a command
+/// nobody had acknowledged. This is the route back to the queue's own pending.
+#[tauri::command]
+fn d1_queue_follow_up_poll(
+    lane_id: String,
+    state: tauri::State<'_, DesktopState>,
+) -> Result<D1IntentResult, String> {
+    shell::d1_queue_follow_up_poll(&state, &lane_id)
 }
 
 #[tauri::command]
@@ -917,19 +887,7 @@ fn d1_poll(
     wait_for_event: bool,
     state: tauri::State<'_, DesktopState>,
 ) -> Result<D1IntentResult, String> {
-    let mut guard = state
-        .adapter
-        .lock()
-        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?;
-    let adapter = guard
-        .as_mut()
-        .ok_or_else(|| "Core adapter is not connected".to_string())?;
-    let timeout = if wait_for_event {
-        Duration::from_millis(250)
-    } else {
-        Duration::ZERO
-    };
-    adapter.poll_d1(selected_lane_id.as_deref(), timeout)
+    shell::d1_poll(&state, selected_lane_id.as_deref(), wait_for_event)
 }
 
 /// Routes one composer control through the shared adapter boundary and
@@ -1008,13 +966,7 @@ fn permission_send_intent(
     intent: PermissionIntent,
     state: tauri::State<'_, DesktopState>,
 ) -> Result<PermissionIntentResult, String> {
-    state
-        .adapter
-        .lock()
-        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?
-        .as_mut()
-        .ok_or_else(|| "Core adapter is not connected".to_string())?
-        .send_permission_intent_and_wait(&command_id, intent, Duration::from_millis(250))
+    shell::permission_send_intent(&state, &command_id, intent)
 }
 
 /// The standing `Always` rules in force (`runtime.approval_scopes`, C15).
@@ -1051,13 +1003,7 @@ fn revoke_standing_approval(
 fn permission_poll(
     state: tauri::State<'_, DesktopState>,
 ) -> Result<PermissionIntentResult, String> {
-    state
-        .adapter
-        .lock()
-        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?
-        .as_mut()
-        .ok_or_else(|| "Core adapter is not connected".to_string())?
-        .poll_permission(Duration::ZERO)
+    shell::permission_poll(&state)
 }
 
 /// The Agent Board projection (`runtime.agent_session_control`, C14).
@@ -1339,17 +1285,7 @@ fn d2_decisions(
     selected_id: Option<String>,
     state: tauri::State<'_, DesktopState>,
 ) -> Result<Option<D2DecisionsProjection>, String> {
-    let guard = state
-        .adapter
-        .lock()
-        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?;
-    let adapter = guard
-        .as_ref()
-        .ok_or_else(|| "Core adapter is not connected".to_string())?;
-    Ok(match selected_id {
-        Some(id) => adapter.d2_decisions_for(&id),
-        None => adapter.d2_decisions(),
-    })
+    shell::d2_decisions(&state, selected_id.as_deref())
 }
 
 #[tauri::command]
@@ -1371,15 +1307,7 @@ fn d2_send_intent(
 
 #[tauri::command]
 fn d6_recover(state: tauri::State<'_, DesktopState>) -> Result<D6RecoveryProjection, String> {
-    let mut guard = state
-        .adapter
-        .lock()
-        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?;
-    let adapter = guard
-        .as_mut()
-        .ok_or_else(|| "Core adapter is not connected".to_string())?;
-    adapter.recover().map_err(|error| error.to_string())?;
-    Ok(adapter.d6_recovery())
+    shell::d6_recover(&state)
 }
 
 #[tauri::command]
@@ -1388,13 +1316,7 @@ fn d6_send_intent(
     intent: D6Intent,
     state: tauri::State<'_, DesktopState>,
 ) -> Result<D6IntentResult, String> {
-    state
-        .adapter
-        .lock()
-        .map_err(|_| "GUI Core adapter lock is unavailable".to_string())?
-        .as_mut()
-        .ok_or_else(|| "Core adapter is not connected".to_string())?
-        .send_d6_intent_and_wait(&command_id, intent, Duration::from_millis(250))
+    shell::d6_send_intent(&state, &command_id, intent)
 }
 
 pub fn run() {
@@ -1412,9 +1334,7 @@ pub fn run() {
 pub fn run_with_adapter(adapter: Option<GuiCoreAdapter>) {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .manage(DesktopState {
-            adapter: Mutex::new(adapter),
-        })
+        .manage(DesktopState::new(adapter))
         .invoke_handler(tauri::generate_handler![
             open_workspace,
             resolved_preferences,
@@ -1459,6 +1379,7 @@ pub fn run_with_adapter(adapter: Option<GuiCoreAdapter>) {
             d1_send_intent,
             d1_abandon_probe,
             d1_queue_follow_up,
+            d1_queue_follow_up_poll,
             d1_poll,
             set_work_mode,
             set_permission_level,
@@ -1508,24 +1429,25 @@ pub const CORE_EVENT_WAKE: &str = "viden://core-advanced";
 ///
 /// The adapter lock is held only for the bounded drain, never across an emit,
 /// so a command issued from the UI thread cannot be blocked behind a wake.
+/// `pump_core_events_once` owns the fairness rule this loop depends on — it
+/// tries the lock rather than waiting for it, and leaves it free for
+/// `shell::PUMP_YIELD` after every round — because a pump that could hold the
+/// adapter against the operator's own gesture is E3d defect 35.
 fn spawn_core_event_pump(app: tauri::AppHandle) {
     thread::spawn(move || {
         loop {
             let advanced = {
                 use tauri::Manager;
                 let state = app.state::<DesktopState>();
-                let Ok(mut guard) = state.adapter.lock() else {
-                    break;
-                };
-                match guard.as_mut() {
-                    Some(adapter) => adapter.pump_events(Duration::from_millis(250)),
+                match pump_core_events_once(&state, shell::PUMP_DRAIN) {
+                    Ok(Some(advanced)) => advanced,
                     // No workspace is bound yet; wait for one without burning
                     // the CPU on an empty lock.
-                    None => {
-                        drop(guard);
+                    Ok(None) => {
                         thread::sleep(Duration::from_millis(250));
                         continue;
                     }
+                    Err(_) => break,
                 }
             };
             if advanced {

@@ -142,6 +142,26 @@ export interface D6RecoveryProjection {
   hardTokenLimit: number | null;
   missingCapabilities: string[];
   actions: D6ActionProjection[];
+  /**
+   * The host's own bounded reconnect, or `null` when the connection is live or
+   * nothing has been attempted (E3d defect 37).
+   *
+   * Not a Core fact: Core publishes no reconnect command, which is why the
+   * `reconnect` action stays disabled and labelled `GUI-CORE-003`. This is the
+   * host re-running the handshake and snapshot it already owns, and saying how
+   * many attempts it has made, when the next one is, and whether it stopped —
+   * because `CONNECTING` with no end is what E3d sat in.
+   */
+  reconnect: D6ReconnectProjection | null;
+}
+
+export interface D6ReconnectProjection {
+  attempts: number;
+  maxAttempts: number;
+  /** Milliseconds until the next attempt, or `null` while one runs or after it gave up. */
+  nextAttemptInMs: number | null;
+  gaveUp: boolean;
+  lastError: string | null;
 }
 
 /**

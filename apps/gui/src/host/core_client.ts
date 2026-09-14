@@ -324,6 +324,16 @@ export interface CoreClient {
     content: string,
   ): Promise<D1IntentResult>;
   /**
+   * Drains ordered Core events while a follow-up is still queued (E3d
+   * defect 36).
+   *
+   * The send resolves while Core has published nothing at all, so a client
+   * that read it as "queued" retired the operator's text on a command nobody
+   * had acknowledged. Only Core's own `InputQueued` settles the queue, and
+   * this is the route that reads it back.
+   */
+  d1QueueFollowUpPoll(laneId: string): Promise<D1IntentResult>;
+  /**
    * Stops waiting for an unanswered `ProbeAgentAdapter` and frees Core's one
    * command slot (defects 14, 15).
    *

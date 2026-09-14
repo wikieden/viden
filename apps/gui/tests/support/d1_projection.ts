@@ -148,6 +148,7 @@ export const D1_PROJECTION: D1CockpitProjection = {
     usedTokens: null,
     hardTokenLimit: null,
     missingCapabilities: [],
+    reconnect: null,
     actions: [],
   },
   unavailableFeatures: [

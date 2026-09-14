@@ -1959,3 +1959,111 @@ README"）、一个五行 125 字节的 `README.md`、一个覆盖 `.viden/` 与
   主张在 GUI 上**仍未满足**，如今是因为暂存这一步上的一个阻断原因，而不是 E3c 指出
   的那三个。退出标准 1 就"候选版已被原生驱动"、"Lane 的回合"、以及"Lane 的工作落在
   Lane 里"而言是满足的；就完整任务而言并不满足，本文也不假装满足。
+
+## 缺陷 35–38 —— H7（2026-09-14，位于 `claude/gui-shell-regressions-h7`）
+
+分支 `claude/gui-shell-regressions-h7`，工作树 `.worktrees/gui-shell-regressions-h7`，
+基线为 `claude/int-0.3.5` 的 `1963f8d1`（合入 E3d 证据的那次提交）。
+
+本批次获准进行的那次范围狭窄的原生确认**已经进行**。第一次检查时屏幕是锁着的
+（`time=2026-09-14T08:23:46Z CGSSessionScreenIsLocked=1 onConsole=1`），运行开始
+前已解锁（`time=2026-09-14T08:31:04Z CGSSessionScreenIsLocked=0`），从
+`08:31:30Z` 到 `08:58:20Z` 的每一次按键与点击批次前读到的都是
+`CGSSessionScreenIsLocked=0`，`09:02:25Z` 再次锁定，原生驱动即在那里停止。按顺序
+启动的 PID：22821、29999；两个都由本批次杀掉，没有一个自行退出。两次启动的
+`VIDEN_HOME` 都指向本次运行的暂存目录，因此本仓库自己的 `.viden/` 从未被读写。
+
+**本批次的要点：H6 并没有引入缺陷 35，其他任何批次也没有——桌面事件泵一直攥着
+适配器互斥锁、挡在操作者自己的手势前面，而 E3d 是终于因此丢掉一条命令的那次运
+行。** H6 的测试之所以通过，是因为它们拿模拟端口驱动驾驶舱、并直接调用适配器。
+这两层都没有事件泵。出厂路径是 webview -> `main.ts` 端口 -> Tauri `invoke` ->
+`lib.rs` 命令 -> 适配器；每条命令都跑在并非事件泵的线程上；两者要拿同一把
+`DesktopState` 适配器互斥锁。`spawn_core_event_pump` 在 250 毫秒的阻塞接收期间
+一直持有那把锁，放开的一瞬又立刻拿回，而 `std::sync::Mutex` 不承诺公平性——于是
+一条命令可以无限期地排在后台排空之后。
+
+### 测试装置，以及它在任何修复之前发现的东西
+
+`apps/gui/tests/h7_shell_path.rs` 驱动的是出厂命令函数体——现在位于
+`apps/gui/src-tauri/src/shell.rs`，每个 `#[tauri::command]` 一个函数体、每条命令
+都委托给它——对着真实的 `LocalCoreHost`、临时会话主目录与临时 Git 夹具，旁边在同
+一个 `DesktopState` 上跑着一条真实的事件泵线程。其中没有任何东西读写本仓库的
+`.viden/`。
+
+在基线上它不是失败，而是**挂住**。四十次只拿适配器锁、不产生任何流量的
+`operator_git` 读取，在 120 秒内没有完成，看门狗中止了二进制（`signal: 6,
+SIGABRT`）。对卡住进程的 `sample` 毫不含糊：
+
+| 线程 | 位置，按采样数 |
+| --- | --- |
+| 命令线程 | `shell::d1_poll` -> `with_adapter_mut` -> `Mutex::lock`，**1384 中的 1359** |
+| 事件泵线程 | `pump_core_events_once` -> `pump_events` -> `receive_event`，持有那把锁，**1384 中的 1382** |
+
+E3d 为 35、37、38 记录的每一个症状，都是一次从未得到回答的读取，而进程在其中始终
+存活。
+
+### 判定
+
+| # | 判定 | 提交 | 位置 | 测试 |
+| --- | --- | --- | --- | --- |
+| 35 | **已修复，并已原生确认。** 既不是 Lane 作用域的问题，也不是 H6 的问题：暂存之所以没有离开客户端，是因为承载它的 `invoke` 从未到达适配器。`pump_core_events_once` 现在**尝试**拿锁而不是等待——持有锁的命令正在回答一个手势，这一轮没有排空的事件仍在队列里——并且在锁被空出 `PUMP_YIELD` 之前不返回。排空窗口从 250 毫秒降到 `PUMP_DRAIN`。在事件泵运行的外壳路径上，Lane 作用域的暂存以 Core 自己的 `stage` 动词上线，Core 的 `git_add` 审批抵达坐席，批准即完成。原生：`Stage all` 在决策中心引发 `git_add`，批准后文件被暂存，整轮运行两次写入 `source.stage` | `22eb5af4` | `apps/gui/src-tauri/src/shell.rs`、`apps/gui/src-tauri/src/lib.rs:1447` | `the_desktop_pump_leaves_the_adapter_lock_free_for_the_operators_own_command`、`a_lane_scoped_stage_reaches_the_permission_dock_through_the_shell` |
+| 25 | **仍然开放，但已越过暂存这堵墙。** 在进程内，E3b 第 19–21 步端到端跑通。原生：暂存与两次提交都带着 Core 自己的审批与持久审计行通过，而 `git_push` 那一半随后完全没有引发审批——与 E3b 第 22 步撞上的是同一堵墙。仍然开放，且不在暂存路径的客户端一侧 | `22eb5af4` | 同上 | `the_commit_and_push_pair_runs_through_the_shell_with_a_lane_selected` |
+| 36 | **客户端一半已修复并已原生确认；这条后续项在 Core 上仍未满足，且现已指名。** 客户端把一条它只是*发送*出去的草稿退了场。驾驶舱现在在发送时不标记任何提交，通过新的 `d1_queue_follow_up_poll` 路由轮询队列自己的挂起项，只在由 Core 的 `InputQueued` 支撑的 `confirmed` 结果上让文本退场，否则渲染一条 `role=alert` 说明这条追加消息已发出但未被确认——文本仍在框里。**另一半属于 Core**：它对 `RuntimeCommand::QueueFollowUp` 的受理路径带有 `owner.lane_id.is_none()` 守卫（`crates/runtime/src/runtime_supervisor.rs:1612`） | `a324ade6` | `apps/gui/src/screens/d1_cockpit.ts:3479`、`apps/gui/src-tauri/src/shell.rs:182`、`apps/gui/src-tauri/src/lib.rs:877` | `a_follow_up_submitted_during_a_turn_is_never_reported_as_queued_unless_core_said_so`；`tests/h7_shell_regressions.spec.ts` "defect 36" |
+| 37 | **已加入日志与重试；掉线本身是归因，不是证明。** `RUST_LOG=info` 之所以产出零字节，是因为这个工作区里没有任何 `log` 或 `tracing` 订阅者。`connection_log` 对每一次**状态迁移**无条件向 stderr 写一行，绝不按轮询写。Core 不发布重连命令（`GUI-CORE-003`），所以重试是主机重跑它本就拥有的握手与快照——`maintain_connection`，每个事件泵轮次一次，退避有界为 1/2/4/8/16 秒，尝试次数、倒计时、逐字的传输错误与放弃状态都由 `D6RecoveryProjection.reconnect` 承载并渲染在 `CONNECTING` 旁边。**掉线本身的成因不作断言** | `0a5d55ec` | `apps/gui/src-tauri/src/connection_log.rs`、`apps/gui/src-tauri/src/adapter.rs:6737` 与 `:6767`、`apps/gui/src-tauri/src/d6.rs`、`apps/gui/src/screens/d6_recovery.ts` | `a_severed_core_connection_is_logged_and_retried_with_a_visible_countdown`；`tests/h7_shell_regressions.spec.ts` "defect 37" |
+| 38 | **在进程内未复现。不宣称修复。** 第一个 Lane 的执行通过恢复面板自身的 `close_lane` 控件停止，第二个 Lane 在它旁边创建，原生运行发现失灵的两半在这里都成立 | `8f194708` | `apps/gui/src-tauri/src/shell.rs`（`d6_send_intent`） | `a_lane_created_beside_a_stopped_lane_keeps_its_owner` |
+
+### 原生确认
+
+一个位于本次运行暂存目录下的全新临时 Git 仓库，一次提交 `895cdd9`，一个
+`.viden/config.toml` 选定 `provider = "fallback"` / `model = "test-local"`。Core
+铸出 `prj_1789374856626993000`。一个 Lane：`lane_1789375075442733000`。绑定在启动
+时通过 `VIDEN_GUI_WORKSPACE` 完成。每一帧都按窗口 id 拍两次、保留第二次，并且列出
+之前都已查看。
+
+| # | 步骤 | 是否到达 | 结果 | 帧 |
+| --- | --- | --- | --- | --- |
+| 1 | `+ New Lane`、内置智能体、TASK、`Create lane ↵`、Core 的 `lane_create` 审批、`Y · Once` | 是 | `lane_1789375075442733000`，`⎇ 1 worktree` | — |
+| 2 | 输入区 `tool edit_file path=README.md old=H7 new=Edited` | 是 | `Approve edit_file · edit_file`，`Medium risk`，输入区标签切换为 `Queue follow-up` | [`01`](../../../apps/gui/evidence/main-window-interactions/h7-01-followup-sent-not-acknowledged.png) |
+| 3 | **缺陷 36 —— 在该轮次等待审批期间提交一条追加消息** | 是，**客户端一半已闭合** | 输入区**保住了文本**，下方渲染 `Sent, but Core has not acknowledged the follow-up. Your message is kept.`，没有画出排队行，`EVENTS` 停在 `#49`。E3d 的沉默没有了，E3c 的诚实回来了 | [`01`](../../../apps/gui/evidence/main-window-interactions/h7-01-followup-sent-not-acknowledged.png) |
+| 4 | 对 `edit_file` 按 `Y · Once` | 是 | ` M README.md`、`# Edited Fixture` —— 产品自己的编辑，落在 **Lane 工作树** | — |
+| 5 | **缺陷 35 —— 选中 Lane 时的 `Stage all`** | 是，**已闭合** | 决策中心读到 **`1 awaiting you`**，卡片为 `Approve git_add prj_… · lane_… · pending · low`。E3d 读到的是 `0 awaiting you` 且没有任何 `git_*` 行 | [`02`](../../../apps/gui/evidence/main-window-interactions/h7-02-stage-raises-git-add.png) |
+| 6 | 对 `git_add` 按 `Approve once` | 是 | ` M README.md` -> `M  README.md`，提交栏渲染 `Stage completed · viden/lane_… ↑0 ↓0 · uncommitted changes remain`。`audit.jsonl` 中持久留下 `source.stage` 的 `authorized` 与 `completed` | [`03`](../../../apps/gui/evidence/main-window-interactions/h7-03-stage-completed.png) |
+| 7 | **在自己的审批下提交** | 是 | `ad8b445 Edit the fixture README heading in the Lane`，工作树转为干净。`audit.jsonl`：`source.commit` 的 `authorized` 与 `completed` | — |
+| 8 | **`Commit & Push ⇡` 的提交一半** | 是 | 第二处改动走同一对命令：`d798e8a Add the push-leg line`，另有四条持久行 | — |
+| 9 | `git_push` 那一半、`NoUpstream`、设置上游、推送被接受 | **否** | 提交栏停在 `Push is waiting for approval in the permission dock.`，决策中心读到 `0 awaiting you`，**从未出现 `git_push` 审批，也从未出现 `source.push` 行** —— 观察 60 秒。**这就是缺陷 25，原封不动，仍然开放** | [`04`](../../../apps/gui/evidence/main-window-interactions/h7-04-push-half-no-approval.png) |
+
+**所以墙正好挪了一步。** E3d 无法暂存；这次运行完成了暂存与提交，而且做了两遍，
+带着 Core 自己的审批与 Core 自己的持久审计行。它仍然做不到的是推送。缺陷 35 已闭
+合；缺陷 25 没有。
+
+### 观察，不是缺陷
+
+- **一次审批只有五分钟的寿命，这次运行为此丢了一次。** 第一次 `git_add` 审批被正
+  确引发，随后在本次运行读取状态期间过期；其后的那次暂存停在
+  `Stage sent · waiting for Core.` 且完全没有审批，只有重启才清除——因此**一次操作
+  者 Git 动作的审批过期后，可能让下一次无法引发自己的审批**，此处记录而不编号。
+- **权限坐席不渲染 Lane 作用域的 `git` 审批；决策中心渲染。** 两次 `git_add` 审批
+  都出现在 D2 而不在 D1 坐席里，E3b 当时也是在那里找到它们的。未作调查，也不宣称
+  为缺陷。
+- **连接日志在出厂包里是活的。** 两次启动都在无任何配置的情况下向进程 stderr 写出
+  了 `viden-gui core-connection state ...`。
+
+### 静态那一半
+
+`apps/gui/tests/shell_port_contract.spec.ts` 走查源码，检查出厂路径上三个在运行期
+按名字匹配、一旦漂移就沉默的接缝。它在本批次自己的工作里发现了一处缺口——一条没有
+任何端口调用的 `d6_recovery` 命令——那条命令已被删除（`9766e279`）。
+
+### 对兼容性后续项 16 的判定
+
+| # | 对候选版的判定 |
+| --- | --- |
+| 16 | **在 GUI 上仍未满足，但不再沉默。** 输入区保住操作者的文本，说明这条追加消息已发出而未被确认，绝不报告一个 Core 没有确认过的排队。要满足这条后续项，需要 Core 在受理路径上像接受会话作用域那样接受 Lane 作用域的 `QueueFollowUp`；没有任何 GUI 改动可以替代，本批次也没有尝试替代 |
+
+### 仍然欠下的
+
+- **E3e，原生：** `Commit & Push` 的 `git_push` 那一半、`NoUpstream`、上游与推送
+  —— 缺陷 25，本次运行唯一没能到达的一步；缺陷 31 的 `Always`/撤销这条腿与规划工
+  作台这条腿，自 E3c 起仍未驱动；以及上面那条审批过期的观察。
+- **在 Core 上：** Lane 作用域的 `QueueFollowUp` 受理路径（缺陷 36 的另一半，兼容
+  性后续项 16），以及让 `git_push` 那一半无法引发审批的原因（缺陷 25）。

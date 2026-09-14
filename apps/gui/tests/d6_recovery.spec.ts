@@ -19,6 +19,7 @@ const BASE: D6RecoveryProjection = {
   usedTokens: null,
   hardTokenLimit: null,
   missingCapabilities: [],
+  reconnect: null,
   actions: [
     { kind: "reconnect", available: false, code: "GUI-CORE-003" },
     { kind: "inspect", available: true, code: "presentation_only" },

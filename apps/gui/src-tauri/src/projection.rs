@@ -1533,6 +1533,9 @@ impl RuntimeProjection {
                 // restore the runtime cannot perform.
                 D6ActionProjection::untargeted("checkpoint", false, "GUI-CORE-003"),
             ],
+            // The host's own reconnect is not a Core fact and is filled in by
+            // the adapter, which is the only thing that knows it (defect 37).
+            reconnect: None,
         })
     }
 

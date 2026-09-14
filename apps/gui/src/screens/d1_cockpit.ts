@@ -148,6 +148,24 @@ export type { D1CockpitProjection } from "../models/workspace";
 const LANE_PEEK_CLOSE_MS = 700;
 
 /**
+ * How long the composer waits for Core's own `InputQueued` before it says the
+ * follow-up was not acknowledged (E3d defect 36).
+ *
+ * Bounded on purpose. Core answers `QueueFollowUp` on its accept path, so an
+ * acknowledgement that has not arrived in a couple of seconds is not late — it
+ * is not coming, and telling the operator so while their text is still in the
+ * box is the whole point.
+ */
+const QUEUE_CONFIRM_ATTEMPTS = 20;
+const QUEUE_CONFIRM_INTERVAL_MS = 100;
+
+/// One bounded wait, as a promise, so the queue's confirm loop reads in order.
+const nextFrame = (ms: number): Promise<void> =>
+  new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+
+/**
  * The centre view's own title, taken from the rail slot that opens it.
  *
  * One label per destination, shared between the rail and the view head: a
@@ -422,7 +440,18 @@ export interface D1RenderOptions {
    * queue can actually be sent, because a label that promises a queue and then
    * refuses is the defect itself.
    */
-  queueFollowUp?: (laneId: string, content: string) => Promise<D1IntentResult>;
+  queueFollowUp?: {
+    send: (laneId: string, content: string) => Promise<D1IntentResult>;
+    /**
+     * The queue's own pending, drained without sending anything.
+     *
+     * E3d defect 36. `send` resolves while Core has published nothing at all,
+     * so its answer says only that the command left this client. Only Core's
+     * `InputQueued` settles the queue, and this is how the composer waits for
+     * it instead of assuming it.
+     */
+    poll: (laneId: string) => Promise<D1IntentResult>;
+  };
   operatorGit?: {
     read: (laneId: string | null) => Promise<OperatorGitProjection>;
     run: (
@@ -878,6 +907,14 @@ export function renderD1Cockpit(
    */
   let slotBusyRefusal: { kind: string; age: string; abandonable: boolean } | null = null;
   let submittedDraft: string | null = null;
+  /**
+   * A follow-up this client sent that Core never acknowledged (E3d defect 36).
+   *
+   * Distinct from `errorMessage`, which carries Core's own refusal, and from
+   * `slotBusyRefusal`, which is about this client's occupied slot. This one
+   * says the honest third thing: the command left, and nothing came back.
+   */
+  let queueUnconfirmed: { laneId: string } | null = null;
   let composerDispatchQueued = false;
   /**
    * The unanswered `QueueFollowUp`, if one is out.
@@ -3459,39 +3496,66 @@ export function renderD1Cockpit(
     }
     queueInFlight = true;
     slotBusyRefusal = null;
+    queueUnconfirmed = null;
     errorMessage = null;
-    submittedDraft = content;
+    // Deliberately *not* `submittedDraft`: nothing has been submitted yet. The
+    // text stays in the composer until Core says it took it (E3d defect 36).
     render(true);
-    void port(laneId, content)
-      .then((result) => {
+    void (async () => {
+      try {
+        let result = await port.send(laneId, content);
         if (disposed) return;
-        queuePending = result.pendingCommand ?? null;
         // Core's facts, applied through the same funnel every other answer
         // uses. The queue's pending is deliberately *not* published as the D1
         // slot: the submit still holds that one.
+        queuePending = result.pendingCommand ?? null;
         controller.applyProjection(result.projection);
-        if (result.outcome.state === "rejected") {
-          errorMessage = result.outcome.reason ?? "Core rejected the follow-up.";
-          draft = content;
-          submittedDraft = null;
+        // Core answers `QueueFollowUp` with its own `InputQueued`, and the
+        // send returns long before that: it returns as soon as the command
+        // left this client. So the queue is polled for its own pending until
+        // Core settles it — a bounded wait, because a wait with no end is the
+        // thing this whole batch is about.
+        for (
+          let attempt = 0;
+          attempt < QUEUE_CONFIRM_ATTEMPTS && result.outcome.state === "pending";
+          attempt += 1
+        ) {
+          await nextFrame(QUEUE_CONFIRM_INTERVAL_MS);
+          if (disposed) return;
+          result = await port.poll(laneId);
+          queuePending = result.pendingCommand ?? null;
+          controller.applyProjection(result.projection);
+        }
+        if (result.outcome.state === "confirmed") {
+          // Core queued it. Only now is there a submission to retire.
+          if (draft === content) draft = "";
+          queueUnconfirmed = null;
           return;
         }
-        if (draft === submittedDraft) draft = "";
-        submittedDraft = null;
-      })
-      .catch((error: unknown) => {
+        draft = content;
+        if (result.outcome.state === "rejected") {
+          errorMessage = result.outcome.reason ?? "Core rejected the follow-up.";
+          return;
+        }
+        // Sent, unacknowledged, and the operator is owed that sentence rather
+        // than a cleared box. Core's own accept path for `QueueFollowUp` is
+        // session-scoped (`runtime_supervisor.rs`), so a Lane-scoped follow-up
+        // sent while that Lane's turn is unanswered reaches no acknowledgement
+        // at all: compatibility follow-up 16, still unmet for a Lane.
+        queueUnconfirmed = { laneId };
+      } catch (error: unknown) {
         if (disposed) return;
         // A host failure is this client's error, never Core's refusal, and it
         // never eats the text.
         root.dataset.d1Error = String(error);
         errorMessage = String(error);
         draft = content;
-        submittedDraft = null;
-      })
-      .finally(() => {
+      } finally {
         queueInFlight = false;
+        submittedDraft = null;
         if (!disposed) render(true);
-      });
+      }
+    })();
   };
 
   const sendComposerIntent = (intent: D1Intent, onRejected?: () => void): void => {
@@ -5310,6 +5374,16 @@ export function renderD1Cockpit(
         });
         composerRegion.append(held);
       }
+    }
+    if (queueUnconfirmed) {
+      // Sent and unacknowledged is its own claim: not a Core refusal, and not
+      // this client's occupied slot. The text is still in the composer above
+      // it, which is the half E3d lost (defect 36).
+      const unconfirmed = document.createElement("p");
+      unconfirmed.dataset.d1QueueUnconfirmed = "true";
+      unconfirmed.setAttribute("role", "alert");
+      unconfirmed.textContent = translate(locale, "d1.queueUnconfirmed", {});
+      composerRegion.append(unconfirmed);
     }
     if (mutationBlock) {
       const blocked = document.createElement("p");
