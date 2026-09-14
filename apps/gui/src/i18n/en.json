@@ -266,6 +266,7 @@
   "d1.review.commitTooLong": "Commit message is {bytes} bytes; Core's bound is {limit}.",
   "d1.review.actionUnavailable": "Operator source-control actions are unavailable: Core publishes no {capability}.",
   "d1.review.actionNoOwner": "No Lane is selected, so this client has no Core owner to act as.",
+  "d1.review.actionOwnerUnread": "The selected Lane's Core owner has not been read yet.",
   "d1.review.actionBusy": "A source-control action is already running.",
   "d1.review.actionAwaitingApproval": "Waiting for the permission decision.",
   "d1.review.actionAwaitingApprovalDetail": "{action} is waiting for approval in the permission dock.",

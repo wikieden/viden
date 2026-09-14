@@ -272,6 +272,7 @@ export const MESSAGE_ARGUMENT_NAMES = {
   "d1.review.commitTooLong": ["bytes", "limit"],
   "d1.review.actionUnavailable": ["capability"],
   "d1.review.actionNoOwner": [],
+  "d1.review.actionOwnerUnread": [],
   "d1.review.actionBusy": [],
   "d1.review.actionAwaitingApproval": [],
   "d1.review.actionAwaitingApprovalDetail": ["action"],

@@ -46,6 +46,10 @@ name = "h5_native_defects"
 path = "../tests/h5_native_defects.rs"
 
 [[test]]
+name = "h6_native_defects"
+path = "../tests/h6_native_defects.rs"
+
+[[test]]
 name = "composer_controls"
 path = "../tests/composer_controls.rs"
 

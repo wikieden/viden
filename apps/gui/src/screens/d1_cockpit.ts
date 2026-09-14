@@ -817,6 +817,24 @@ export function renderD1Cockpit(
 ): D1Controller {
   let projection = initial;
   let selectedLaneId = initial.selectedLaneId;
+  /**
+   * Moves the Lane selection and re-reads everything that is scoped to it.
+   *
+   * E3c defect 30. `selectLane` did this correctly; the selection also moves
+   * on three other paths — Core's own `selectedLaneId` arriving in a
+   * projection, the Lane a creation resumed into, and a retried Agent session
+   * — and each of those used to assign the field directly, leaving the commit
+   * bar holding the previous Lane's answer. One funnel means a path added
+   * later cannot reintroduce that: the assignment and the re-read are the same
+   * call. `changed` is what the richer `selectLane` needs to know before it
+   * resets the transcript.
+   */
+  const setSelectedLane = (laneId: string | null): boolean => {
+    if (selectedLaneId === laneId) return false;
+    selectedLaneId = laneId;
+    readOperatorGit();
+    return true;
+  };
   let focusedConversation = conversationForLane(initial, initial.selectedLaneId);
   let transcriptLaneId = initial.selectedLaneId;
   let projectionKey = JSON.stringify(initial);
@@ -1097,6 +1115,23 @@ export function renderD1Cockpit(
    * action this client may not be able to send.
    */
   let operatorGitState: OperatorGitProjection = IDLE_OPERATOR_GIT;
+  /**
+   * Which Lane `operatorGitState` was read for, or `null` before any read
+   * answered.
+   *
+   * E3c defect 30. The owner an operator action may act as is a fact about one
+   * Lane, so an answer read for a different Lane is not a weaker answer — it is
+   * an answer to another question. The native run showed one Lane's
+   * `D1-OPERATOR-GIT-OWNER` refusal while the status bar, the titlebar and the
+   * dock all named the other, because the selection had moved through a path
+   * that never re-read. The scope is recorded beside the answer so the render
+   * can tell "Core says no owner for the Lane you selected" from "nobody has
+   * asked about the Lane you selected yet", which are different sentences.
+   * `{ laneId: null }` is the workspace target and is a real scope, so the
+   * wrapper — not a bare `string | null` — is what distinguishes it from
+   * "unread".
+   */
+  let operatorGitScope: { laneId: string | null } | null = null;
   /**
    * The commit message draft.
    *
@@ -1695,7 +1730,7 @@ export function renderD1Cockpit(
       const nextKey = JSON.stringify(next);
       if (nextKey === projectionKey) return;
       projection = next;
-      if (!selectedLaneId) selectedLaneId = next.selectedLaneId;
+      if (!selectedLaneId) setSelectedLane(next.selectedLaneId);
       if (
         selectedLaneId &&
         next.lanes.length === 0 &&
@@ -1703,7 +1738,7 @@ export function renderD1Cockpit(
       ) {
         // The whole project is back to zero Lanes; a stale selection would
         // pin the composer on a fail-closed notice forever.
-        selectedLaneId = next.selectedLaneId;
+        setSelectedLane(next.selectedLaneId);
       }
       focusedConversation = conversationForLane(next, selectedLaneId);
       noteRedirectAgainst(next);
@@ -1746,7 +1781,7 @@ export function renderD1Cockpit(
       const projectionChanged = nextKey !== projectionKey;
       if (projectionChanged) {
         projection = result.projection;
-        if (!selectedLaneId) selectedLaneId = result.projection.selectedLaneId;
+        if (!selectedLaneId) setSelectedLane(result.projection.selectedLaneId);
         {
           const next = result.projection;
           if (
@@ -1756,7 +1791,7 @@ export function renderD1Cockpit(
           ) {
             // The whole project is back to zero Lanes; a stale selection would
             // pin the composer on a fail-closed notice forever.
-            selectedLaneId = next.selectedLaneId;
+            setSelectedLane(next.selectedLaneId);
           }
         }
         focusedConversation = conversationForLane(result.projection, selectedLaneId);
@@ -2125,11 +2160,17 @@ export function renderD1Cockpit(
   /// sending anything. Every action control reads the answer.
   const readOperatorGit = (): void => {
     if (!options.operatorGit) return;
+    // The question is asked about the selection as it is now. A later
+    // selection asks its own, and the answer that comes back out of order is
+    // dropped rather than painted over the newer question (defect 30).
+    const laneId = selectedLaneId ?? null;
+    operatorGitScope = null;
     void options.operatorGit
-      .read(selectedLaneId)
+      .read(laneId)
       .then((state) => {
-        if (disposed) return;
+        if (disposed || laneId !== (selectedLaneId ?? null)) return;
         operatorGitState = state;
+        operatorGitScope = { laneId };
         render(false);
       })
       .catch(() => {
@@ -2137,6 +2178,27 @@ export function renderD1Cockpit(
         // Leaving the last known state keeps the controls disabled without
         // claiming a reason that may not be true.
       });
+  };
+
+  /**
+   * The action state for the Lane that is selected *now* (defect 30).
+   *
+   * An answer read for another Lane says nothing about this one, so nothing
+   * from it is carried over except the capability, which is a fact about this
+   * Core build rather than about any Lane. Every control stays visible and
+   * disabled, labelled with a sentence that names the selection instead of
+   * another Lane — the honesty rule the commit bar already follows for an
+   * absent capability and an absent owner.
+   */
+  const operatorGitForSelection = (): OperatorGitProjection => {
+    if (operatorGitScope && operatorGitScope.laneId === (selectedLaneId ?? null)) {
+      return operatorGitState;
+    }
+    return {
+      ...IDLE_OPERATOR_GIT,
+      capabilityAvailable: operatorGitState.capabilityAvailable,
+      ownerUnavailableReason: translate(locale, "d1.review.actionOwnerUnread", {}),
+    };
   };
 
   /**
@@ -2156,6 +2218,7 @@ export function renderD1Cockpit(
       .then((state) => {
         if (disposed) return;
         operatorGitState = state;
+        operatorGitScope = { laneId: laneId ?? null };
       })
       .catch((error: unknown) => {
         if (disposed) return;
@@ -2249,6 +2312,7 @@ export function renderD1Cockpit(
       .then((state) => {
         if (disposed) return;
         operatorGitState = state;
+        operatorGitScope = { laneId: laneId ?? null };
       })
       .catch(() => undefined)
       .finally(() => {
@@ -3459,7 +3523,9 @@ export function renderD1Cockpit(
     // exact confirmed Lane and releases the command slot, while retaining its
     // sole Agent task locally.
     pendingLaneStart = null;
-    selectedLaneId = pending.laneId;
+    // The Lane a creation resumed into is a selection like any other: the
+    // commit bar must ask about *this* Lane before it can refuse for it.
+    setSelectedLane(pending.laneId);
     if (pending.agentId === null) {
       focusedConversation = { kind: "native", laneId: pending.laneId };
       submittedDraft = pending.task;
@@ -3872,15 +3938,12 @@ export function renderD1Cockpit(
   /// across Lanes, and the focused conversation is re-derived from the Lane
   /// owner Core published.
   function selectLane(laneId: string): void {
-    selectedLaneId = laneId;
+    // The funnel owns the assignment and the owner re-read; everything below
+    // is the rest of what an in-cockpit selection means.
+    setSelectedLane(laneId);
     transcriptLaneId = null;
     transcript.reset([]);
     focusedConversation = conversationForLane(projection, laneId);
-    // The owner an operator action may act as is the *selected* Lane's, so a
-    // selection change re-reads it. Without this the commit bar would keep the
-    // previous Lane's availability — and, worse, could look enabled for a Lane
-    // Core published no binding for.
-    readOperatorGit();
     // The ordered transcript is owner-scoped, so a selection change is a
     // different conversation and is re-read rather than filtered locally.
     readTranscriptRows();
@@ -4325,6 +4388,8 @@ export function renderD1Cockpit(
       focusedAcp !== null &&
       focusedAcp !== undefined &&
       ["starting", "running", "waiting_approval", "completed"].includes(focusedAcp.status);
+    // One read of the action state per frame, scoped to the Lane on screen.
+    const operatorGitSelection = operatorGitForSelection();
     const showRecovery =
       !["live", "gate_queue_clear", "empty"].includes(projection.recovery.state) &&
       !(projection.recovery.state === "agent_stopped" && focusedAcpOwnsLiveSurface);
@@ -4367,7 +4432,7 @@ export function renderD1Cockpit(
                 : { type: "fetch", remote: null },
             )
         : undefined,
-      syncState: operatorGitState,
+      syncState: operatorGitSelection,
       onOpenProjectPicker: projectPickerAvailable
         ? () => openProjectPicker("titlebar")
         : undefined,
@@ -4467,7 +4532,7 @@ export function renderD1Cockpit(
         selectLane(laneId);
       },
       onRetryAgent: (sessionId, laneId) => {
-        selectedLaneId = laneId;
+        setSelectedLane(laneId);
         focusedConversation = conversationForLane(projection, laneId);
         sendIntent({ type: "retry_agent_session", laneId, sessionId });
       },
@@ -4569,7 +4634,7 @@ export function renderD1Cockpit(
           actions: !options.operatorGit
             ? undefined
             : {
-                state: operatorGitState,
+                state: operatorGitSelection,
                 message: commitMessage,
                 pairStopped: commitPairStopped,
                 onMessageChange: (next) => {
@@ -5172,15 +5237,15 @@ export function renderD1Cockpit(
         // commit against.
         available:
           !!options.operatorGit &&
-          operatorGitState.capabilityAvailable &&
-          operatorGitState.ownerAvailable &&
+          operatorGitSelection.capabilityAvailable &&
+          operatorGitSelection.ownerAvailable &&
           !!contextDockProjection.contextDock.source,
         reason: !options.operatorGit
           ? translate(locale, "d1.dock.unbound", {})
-          : !operatorGitState.capabilityAvailable
+          : !operatorGitSelection.capabilityAvailable
             ? "runtime.operator_git"
-            : !operatorGitState.ownerAvailable
-              ? (operatorGitState.ownerUnavailableReason ??
+            : !operatorGitSelection.ownerAvailable
+              ? (operatorGitSelection.ownerUnavailableReason ??
                 translate(locale, "d1.topbar.sync.noOwner", {}))
               : !contextDockProjection.contextDock.source
                 ? translate(locale, "d1.context.noSource", {})

@@ -7407,6 +7407,185 @@ mod tests {
         std::fs::remove_dir_all(project).expect("remove temporary project");
     }
 
+    /// E3c defect 30, against live Core: the same pair as above, but with a
+    /// **Lane selected**, which is the shape the native run could never reach.
+    ///
+    /// H5's probe used the workspace target and found the `git_push` approval
+    /// arriving correctly, so defect 25 stayed open with the Lane-scoped
+    /// routing named as its remaining suspect. E3c observed that suspect: the
+    /// commit bar refused against a Lane that was not the selection, so no
+    /// entry point to the push ever became reachable. This drives the Lane
+    /// target end to end — Core creates the Lane, Core binds its execution
+    /// owner, the client acts *as* that owner on that Lane's worktree — and
+    /// asserts the second half reaches the dock and settles with Core's own
+    /// typed outcome. The native confirmation is E3d's; this is the client
+    /// cause closed.
+    #[test]
+    fn the_push_half_of_commit_and_push_reaches_a_decidable_surface_with_a_lane_selected() {
+        let session_home = temp_dir("lane-pair-session-home");
+        let project = temp_dir("lane-pair-project");
+        initialize_git_repository(&project);
+        let host = LocalCoreHost::with_session_home(&session_home);
+        let mut adapter = open_workspace_with_host(&host, &project).expect("open local workspace");
+
+        let preview = adapter
+            .send_d1_intent_and_wait(
+                "lane-pair-preview",
+                crate::D1Intent::PreviewDefaultLane {
+                    preset: "coder".to_string(),
+                },
+                Duration::from_millis(250),
+            )
+            .expect("preview default Lane through live Core")
+            .projection
+            .starter_lane_previews
+            .into_iter()
+            .next()
+            .expect("Core publishes a starter Lane preview");
+
+        let create = adapter
+            .send_d1_intent_and_wait(
+                "lane-pair-create",
+                crate::D1Intent::CreateStarterLane {
+                    lane_id: preview.lane_id.clone(),
+                    preset: "coder".to_string(),
+                    branch: preview.branch.clone(),
+                    preview_id: preview.preview_id.clone(),
+                    content_sha256: preview.content_sha256.clone(),
+                },
+                Duration::from_millis(250),
+            )
+            .expect("request starter Lane creation through live Core");
+        let request_id = create
+            .projection
+            .permission_dock
+            .request
+            .expect("Core requests approval before creating a worktree")
+            .id;
+        adapter
+            .send_permission_intent_and_wait(
+                "lane-pair-create-allow",
+                PermissionIntent::Respond {
+                    request_id,
+                    choice: PermissionChoice::Once,
+                    feedback: None,
+                    revised_input: None,
+                },
+                Duration::from_millis(250),
+            )
+            .expect("allow starter Lane creation once");
+        for _ in 0..8 {
+            if !adapter.pump_events(Duration::from_millis(250)) {
+                break;
+            }
+        }
+        adapter
+            .poll_d1(Some(&preview.lane_id), Duration::from_millis(250))
+            .expect("observe the created Lane");
+
+        let lane_id = preview.lane_id.as_str();
+        // The owner the commit bar resolves *is* the selected Lane's, which is
+        // the assertion defect 30 is about. Without it the pair below could
+        // not be sent at all.
+        let selected = adapter.operator_git(Some(lane_id));
+        assert!(
+            selected.owner_available,
+            "Core bound an execution owner for the Lane it just created: {:?}",
+            selected.owner_unavailable_reason
+        );
+
+        // Core's own record of where this Lane's tree lives. The pair acts on
+        // that worktree, not on the workspace root.
+        let worktree = adapter
+            .projection
+            .view()
+            .and_then(|view| view.lane_sources.get(lane_id).cloned())
+            .and_then(|source| source.worktree)
+            .map(PathBuf::from)
+            .expect("Core publishes the Lane's worktree");
+        std::fs::write(worktree.join("README.md"), "# Edited in the Lane\n")
+            .expect("dirty the Lane worktree");
+
+        adapter
+            .run_operator_git_action_and_wait(
+                "lane-pair-stage",
+                Some(lane_id),
+                OperatorGitIntent::Stage { paths: Vec::new() },
+                Duration::from_millis(250),
+            )
+            .expect("stage is sent for the Lane target");
+        decide_operator_git_approval(&mut adapter, "lane-pair-stage-allow");
+
+        adapter
+            .run_operator_git_action_and_wait(
+                "lane-pair-commit",
+                Some(lane_id),
+                OperatorGitIntent::Commit {
+                    message: "Edit the Lane README".to_string(),
+                },
+                Duration::from_millis(250),
+            )
+            .expect("commit is sent for the Lane target");
+        decide_operator_git_approval(&mut adapter, "lane-pair-commit-allow");
+        let committed = adapter.operator_git(Some(lane_id));
+        assert_eq!(
+            committed.outcome.state, "confirmed",
+            "the commit half settles before the push is sent: {:?}",
+            committed.outcome
+        );
+
+        // The second half, exactly as `advanceCommitPair` sends it.
+        adapter
+            .run_operator_git_action_and_wait(
+                "lane-pair-push",
+                Some(lane_id),
+                OperatorGitIntent::Push {
+                    remote: None,
+                    set_upstream: false,
+                },
+                Duration::from_millis(250),
+            )
+            .expect("push is sent for the Lane target");
+        for _ in 0..8 {
+            if !adapter.pump_events(Duration::from_millis(250)) {
+                break;
+            }
+        }
+        let pushing = adapter.operator_git(Some(lane_id));
+        let dock = adapter.permission_dock();
+        assert!(
+            pushing.awaiting_approval,
+            "the second approval of the pair is pending on Core, not missing: outcome={:?}",
+            pushing.outcome
+        );
+        assert!(
+            dock.as_ref().is_some_and(|dock| dock
+                .request
+                .as_ref()
+                .is_some_and(|request| request.tool_name == "git_push")),
+            "the permission dock renders the `git_push` request itself"
+        );
+
+        decide_operator_git_approval(&mut adapter, "lane-pair-push-allow");
+        let settled = adapter.operator_git(Some(lane_id));
+        assert_eq!(
+            settled.outcome.state, "confirmed",
+            "the push settles once its approval is answered"
+        );
+        let result = settled.result.as_ref().expect("Core answered the push");
+        assert_eq!(result.action, "push");
+        assert_eq!(
+            result.failure_class,
+            Some("no_upstream"),
+            "the fixture has no remote, so Core's typed refusal is NoUpstream"
+        );
+
+        drop(adapter);
+        drop(host);
+        std::fs::remove_dir_all(session_home).expect("remove temporary session home");
+        std::fs::remove_dir_all(project).expect("remove temporary project");
+    }
+
     /// Answers whatever approval the last operator-git action raised, the way
     /// the permission dock does.
     fn decide_operator_git_approval(adapter: &mut GuiCoreAdapter, command_id: &str) {
