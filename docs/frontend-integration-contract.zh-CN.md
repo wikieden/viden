@@ -397,10 +397,16 @@ turn 中的任何字段。新 worker spawn 后，Core 先发布 `LaneCommandAcce
 `LaneRuntimeOwnerBound`，之后 worker 才能发布该 command 驱动的 Lane state。同一
 runtime stream 内，snapshot 与 replay 保留精确 binding。
 
-进程重启会建立新 stream，并且刻意不从 hydrated Lane record 恢复 runtime owner。第一条
-被接受且会 spawn 新 live worker 的 owner-scoped command 才发布 fresh binding。owner
-mismatch、Lane 缺失或已终止、Plan mode 拒绝、hydration failure，或任何没有创建 live
-worker 的路径都不发布 binding。
+进程重启会建立新 stream，并且在 hydration 时把每一条被恢复的非终态 Lane 重新绑定到新
+进程的 session：Core 发布指名该 session 的 `LaneRuntimeOwnerBound`，并把该 Lane 持久的
+Lane-agent 记录重新盖章到它上面，于是 Lane 拥有的提交会被接受，而不是被已死的 session
+拒绝。因此被恢复的 Lane 重新拥有恰好一个 Core 执行 owner，客户端推导它的方式与以往完全
+相同。由于一条 Lane 的第一个合法 owner 在视图生命周期内具有权威性，之后 spawn 的 live
+worker 会发布自己的 binding 但不会取代 hydration 的那一个；客户端从未触碰过的 Lane 则
+一直保留它。Core 绝不从 selection、显示文案或 frontend default 重建该 owner —— session
+是 Core 自己的。由外部 agent 拥有的 Lane 不在此处重新绑定：它的 Agent session 本身就是
+持久的，并会用该 session 自己的 owner 重新发布。owner mismatch、Lane 缺失或已终止、
+Plan mode 拒绝、hydration failure，或任何没有创建 live worker 的路径都不发布 binding。
 
 Frontend cancel 必须 fail-closed。client 先 discover
 `runtime.lane_owner_projection` extension capability，再要求所选 active Lane 恰好一条
@@ -874,6 +880,15 @@ active job，因此 `CancelActiveTurn` 能停下它；它经由同一条路径�
 的 supervisor 只有一个 worker，在回合运行期间发送的 `QueueFollowUp` 在该回合结束时
 仍在途中：一次已完成的会话作用域回合会「武装」排空，因此这样的后续输入在入队时即刻
 运行。Lane 自己的队列属于 Lane worker，未作改动。
+
+**回合的工具在哪里运行。** owner 携带 `lane_id` 的回合在该 Lane 的 worktree 中执行它的
+工具：相对路径在那里解析，`shell` 命令在那里运行，审批预览在那里读取并哈希文件，编辑后
+的诊断也在那里报告。不属于任何 Lane 的回合，以及没有 worktree 的 Lane —— 非 Git 工作区
+中，工作区根目录*就是*该 Lane 的执行作用域 —— 使用工作区根目录。作用域在回合打开时一次
+性确定，因此同一回合中的每一次工具调用都在同一棵树里运行。这是 Core 自己的解析，没有对应
+字段：客户端既不发送该目录，也不会被告知它，并且不得为了解释 Core 发布的某个路径而自行
+计算 Lane 的 worktree。归档的 `patch` 行与工具调用路径仍相对于该调用运行所在的那棵树，
+这正是让证据路径标签与它所指的文件保持一致的原因。
 
 **崩溃安全。** 回合永远不会跨重启恢复，也不留下任何持久痕迹：两条事实都不持久化，
 因为一条被存储的 `TurnStarted`，若其进程在 `TurnFinished` 之前死亡，重放时就会变成

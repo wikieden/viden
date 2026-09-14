@@ -36,7 +36,7 @@
 //! a session-scoped turn: that is what makes a composer edit unable to satisfy
 //! a Lane's merge gate.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use sha2::{Digest, Sha256};
@@ -91,6 +91,14 @@ pub(crate) type PermissionReceiptSlot = Arc<Mutex<Option<String>>>;
 pub(crate) struct NativeTurnContext {
     pub(crate) owner: RuntimeOwner,
     pub(crate) permission_receipt: PermissionReceiptSlot,
+    /// The directory this turn's tool calls resolve relative paths against and
+    /// run their shells in (E3c defect 28).
+    ///
+    /// Resolved once, when the turn opens, rather than per tool call: the Lane
+    /// record lives in the durable lane log and a turn must not re-read it
+    /// between two calls of the same turn, or a Lane archived mid-turn would
+    /// move the second call's working directory out from under the first.
+    pub(crate) tool_root: PathBuf,
 }
 
 /// Everything [`native_patch_evidence`] needs that is not the store.
@@ -390,6 +398,7 @@ impl crate::SessionEngine {
     /// are the two ways the archive lies about who changed a file.
     pub(crate) fn begin_native_turn(&mut self, owner: RuntimeOwner) -> PermissionReceiptSlot {
         let permission_receipt: PermissionReceiptSlot = Arc::new(Mutex::new(None));
+        let tool_root = self.native_turn_tool_root(&owner);
         // The same window, written into the durable log so the read side can
         // attribute the rows this turn is about to append
         // (`runtime.transcript_rows`). In memory the window is what a patch row
@@ -399,8 +408,68 @@ impl crate::SessionEngine {
         self.active_native_turn = Some(NativeTurnContext {
             owner,
             permission_receipt: Arc::clone(&permission_receipt),
+            tool_root,
         });
         permission_receipt
+    }
+
+    /// Where the tools of a turn owned by `owner` must run (E3c defect 28).
+    ///
+    /// A turn whose owner names a Lane executes inside that Lane's worktree:
+    /// the worktree is the Lane's whole reason to exist, and a Lane-owned tool
+    /// that wrote the workspace root would put one Lane's work in another
+    /// scope's tree — which is what the `0.3.5` candidate did. Everything else
+    /// keeps the session's workspace root, including a Lane whose `worktree`
+    /// is `None`: a non-Git workspace has no second tree to run in, and the
+    /// root *is* that Lane's execution scope.
+    ///
+    /// The result is always inside the workspace root. `resolve_lane_target`
+    /// already refuses to create a worktree outside it, so this check only
+    /// restates that invariant at the consuming end — and it is load-bearing:
+    /// `PermissionEngine` normalizes a relative tool path against the *root*,
+    /// so a tool root outside it would let a path the gate judged in-scope
+    /// land outside the workspace. A worktree that is missing, unreadable, or
+    /// no longer contained falls back to the root rather than failing the
+    /// turn, because a Lane whose tree was removed under it is a recovery
+    /// case the Lane lifecycle reports, not a reason to refuse every tool.
+    fn native_turn_tool_root(&self, owner: &RuntimeOwner) -> PathBuf {
+        let Some(lane_id) = owner.lane_id.as_deref().filter(|id| !id.is_empty()) else {
+            return self.cwd.clone();
+        };
+        let Ok(lane_state) = self.workflows.load_lane_state() else {
+            return self.cwd.clone();
+        };
+        let Some(worktree) = lane_state
+            .lanes()
+            .get(lane_id)
+            .and_then(|lane| lane.worktree.as_deref())
+            .map(str::trim)
+            .filter(|worktree| !worktree.is_empty())
+        else {
+            return self.cwd.clone();
+        };
+        let candidate = if Path::new(worktree).is_absolute() {
+            PathBuf::from(worktree)
+        } else {
+            self.cwd.join(worktree)
+        };
+        let (Ok(root), Ok(resolved)) = (self.cwd.canonicalize(), candidate.canonicalize()) else {
+            return self.cwd.clone();
+        };
+        if resolved.is_dir() && resolved.starts_with(&root) {
+            resolved
+        } else {
+            self.cwd.clone()
+        }
+    }
+
+    /// The working directory the running native turn's tools use, or the
+    /// workspace root when no turn is open.
+    pub(crate) fn active_tool_root(&self) -> PathBuf {
+        self.active_native_turn
+            .as_ref()
+            .map(|turn| turn.tool_root.clone())
+            .unwrap_or_else(|| self.cwd.clone())
     }
 
     /// Closes it. Called on every exit of the turn, including the failing and

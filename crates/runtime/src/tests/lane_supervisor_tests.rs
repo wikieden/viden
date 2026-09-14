@@ -273,8 +273,12 @@ fn lane_runtime_owner_create_publishes_exact_binding_to_snapshot_and_replay() {
     }));
 }
 
+/// A Lane hydrated from disk is bound to this process's session at startup
+/// (E3c defect 34), and the first live worker spawned for it does not add a
+/// second binding: a Lane has exactly one Core execution owner, and the
+/// hydration one is authoritative for the life of the view.
 #[test]
-fn lane_runtime_owner_hydrated_start_publishes_fresh_exact_binding() {
+fn lane_runtime_owner_hydrated_start_binds_this_session_and_stays_exact() {
     let cwd = temp_dir("lane_runtime_owner_start_cwd");
     let home = temp_dir("lane_runtime_owner_start_home");
     persist_lane(&home, &cwd, autonomous_lane("lane-owner-start"));
@@ -283,17 +287,26 @@ fn lane_runtime_owner_hydrated_start_publishes_fresh_exact_binding() {
     engine
         .set_permission_mode(viden_types::PermissionMode::DontAsk)
         .unwrap();
+    let hydrated_owner = RuntimeOwner {
+        lane_id: Some("lane-owner-start".to_string()),
+        session_id: Some(engine.session_id().to_string()),
+        ..RuntimeOwner::default()
+    };
     let supervisor = RuntimeSupervisor::start_with_lane_effects_for_test(
         engine,
         Arc::new(RecordingLaneEffects::default()) as Arc<dyn LaneEffectExecutor>,
     );
-    assert!(
+    assert_eq!(
         supervisor
             .snapshot_envelope()
             .unwrap()
             .view
-            .lane_runtime_owners
-            .is_empty()
+            .lane_runtime_owners,
+        vec![LaneRuntimeOwnerBinding {
+            lane_id: "lane-owner-start".to_string(),
+            owner: hydrated_owner.clone(),
+        }],
+        "the restored Lane is bound to this process's session before any command"
     );
     let exact_owner = owner("lane-owner-start");
 
@@ -360,6 +373,9 @@ fn lane_runtime_owner_hydrated_start_publishes_fresh_exact_binding() {
         .cursor
         .sequence;
     assert!(binding_sequence < running_sequence);
+    // The worker spawn published its own binding event, and the reducer kept
+    // the hydration one: the first valid owner is authoritative, so a Lane
+    // never acquires a second.
     assert_eq!(
         supervisor
             .snapshot_envelope()
@@ -368,7 +384,7 @@ fn lane_runtime_owner_hydrated_start_publishes_fresh_exact_binding() {
             .lane_runtime_owners,
         vec![LaneRuntimeOwnerBinding {
             lane_id: "lane-owner-start".to_string(),
-            owner: exact_owner,
+            owner: hydrated_owner,
         }]
     );
 }
@@ -720,8 +736,11 @@ fn cancel_active_native_turn_keeps_its_lane_routable() {
     );
 }
 
+/// A restart never republishes the *previous* process's owner, and never
+/// leaves the Lane with none: hydration binds it to the new session
+/// (E3c defect 34), and a live worker spawned afterwards does not replace it.
 #[test]
-fn lane_runtime_owner_restart_has_no_stale_binding_and_rebinds_on_live_worker_spawn() {
+fn lane_runtime_owner_restart_binds_the_new_session_and_never_the_stale_one() {
     let cwd = temp_dir("lane_runtime_owner_restart_cwd");
     let home = temp_dir("lane_runtime_owner_restart_home");
     let exact_owner = owner("lane-owner-restart");
@@ -773,13 +792,29 @@ fn lane_runtime_owner_restart_has_no_stale_binding_and_rebinds_on_live_worker_sp
     engine
         .set_permission_mode(viden_types::PermissionMode::DontAsk)
         .unwrap();
+    let hydrated_owner = RuntimeOwner {
+        lane_id: Some("lane-owner-restart".to_string()),
+        session_id: Some(engine.session_id().to_string()),
+        ..RuntimeOwner::default()
+    };
     let supervisor = RuntimeSupervisor::start_with_lane_effects_for_test(
         engine,
         Arc::new(RecordingLaneEffects::default()) as Arc<dyn LaneEffectExecutor>,
     );
     let restarted = supervisor.snapshot_envelope().unwrap();
     assert_ne!(restarted.cursor.stream_id, first_stream);
-    assert!(restarted.view.lane_runtime_owners.is_empty());
+    assert_eq!(
+        restarted.view.lane_runtime_owners,
+        vec![LaneRuntimeOwnerBinding {
+            lane_id: "lane-owner-restart".to_string(),
+            owner: hydrated_owner.clone(),
+        }],
+        "the restored Lane names the new session, never the dead one"
+    );
+    assert_ne!(
+        hydrated_owner.session_id, exact_owner.session_id,
+        "the two owners are distinguishable, which is what makes the check above mean anything"
+    );
 
     supervisor
         .send_command_from_owner(
@@ -841,6 +876,8 @@ fn lane_runtime_owner_restart_has_no_stale_binding_and_rebinds_on_live_worker_sp
         .cursor
         .sequence;
     assert!(rebound_sequence < done_sequence);
+    // `AcceptLaneOutput` drove the Lane to `Done`, and a terminal Lane drops
+    // its execution owner: there is nothing left to act on.
     assert!(
         supervisor
             .snapshot_envelope()
@@ -2873,6 +2910,20 @@ fn lane_supervisor_hydrates_persisted_lane_for_restart_commands() {
             .iter()
             .any(|lane| lane.id == "lane-restart")
     );
+    // Drain the hydration facts, including the execution owner the restart
+    // republishes for the restored Lane (E3c defect 34), so the owner-scoping
+    // assertion below covers only what the command itself produced.
+    collect_envelopes_until(&supervisor, |events| {
+        events.iter().any(|envelope| {
+            matches!(
+                &envelope.event,
+                RuntimeWireEvent::Known(RuntimeEvent {
+                    kind: RuntimeEventKind::LaneRuntimeOwnerBound { binding },
+                    ..
+                }) if binding.lane_id == "lane-restart"
+            )
+        })
+    });
     supervisor
         .send_command_from_owner(
             owner.clone(),

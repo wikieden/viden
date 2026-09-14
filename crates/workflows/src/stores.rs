@@ -270,6 +270,54 @@ impl WorkflowStore {
         Ok(binding)
     }
 
+    /// Re-stamps a Lane's durable execution identity onto a new session of the
+    /// *same* agent, by appending a superseding row (E3c defect 34).
+    ///
+    /// `bind_lane_agent_once` is the right rule while a process lives: a Lane
+    /// has one execution identity and a second claimant is refused. Across a
+    /// restart it is the wrong rule, because the session it names is dead and
+    /// the new process mints a different one — which is what left a restored
+    /// Lane read-only forever. This is the one sanctioned way past it, and it
+    /// is deliberately narrow: the agent may not change, only the session, so
+    /// a Lane bound to an external agent can never be re-bound to the built-in
+    /// runtime (or the reverse) by calling this.
+    ///
+    /// The earlier row stays on disk. The log is append-only; the reducer
+    /// reads the last row for a lane as its current session.
+    pub fn rebind_lane_agent_session(
+        &self,
+        lane_id: &str,
+        agent_id: &str,
+        session_id: &str,
+        timestamp: u64,
+    ) -> Result<LaneAgentBinding, String> {
+        let _lock = self.lock_lane_agent_bindings_exclusive()?;
+        let bindings = self.load_lane_agent_binding_records_unlocked()?;
+        let state = reduce_lane_agent_bindings(&bindings)?;
+        if let Some(existing) = state.get(lane_id) {
+            if existing.agent_id != agent_id {
+                return Err(format!(
+                    "lane `{lane_id}` is bound to agent `{}`; cannot rebind it to agent `{agent_id}`",
+                    existing.agent_id
+                ));
+            }
+            if existing.session_id == session_id {
+                return Ok(existing.clone());
+            }
+        }
+        let binding = LaneAgentBinding {
+            // Distinct from the first bind's id so the two rows are separable
+            // in the log a reviewer reads.
+            event_id: format!("lane-agent-rebound:{lane_id}:{session_id}"),
+            lane_id: lane_id.to_string(),
+            agent_id: agent_id.to_string(),
+            session_id: session_id.to_string(),
+            timestamp,
+        };
+        append_json_line(&self.lane_agent_bindings_log(), &binding)?;
+        Ok(binding)
+    }
+
     pub fn load_lane_agent_bindings(&self) -> Result<BTreeMap<String, LaneAgentBinding>, String> {
         let _lock = self.lock_lane_agent_bindings_shared()?;
         reduce_lane_agent_bindings(&self.load_lane_agent_binding_records_unlocked()?)
@@ -381,18 +429,22 @@ impl WorkflowStore {
     }
 }
 
+/// Reduces the append-only binding log to one identity per Lane.
+///
+/// Two different *agents* claiming one Lane is still a conflict and still
+/// fails the whole read: that is the invariant the log exists to protect, and
+/// a silent last-writer-wins there would let one agent take over another's
+/// Lane. A later row for the same agent is a session re-stamp
+/// (`rebind_lane_agent_session`, E3c defect 34) and supersedes the earlier
+/// one, because the earlier session belonged to a process that is gone.
 fn reduce_lane_agent_bindings(
     bindings: &[LaneAgentBinding],
 ) -> Result<BTreeMap<String, LaneAgentBinding>, String> {
     let mut state: BTreeMap<String, LaneAgentBinding> = BTreeMap::new();
     for binding in bindings {
-        if let Some(existing) = state.get(&binding.lane_id) {
-            if existing == binding
-                || (existing.agent_id == binding.agent_id
-                    && existing.session_id == binding.session_id)
-            {
-                continue;
-            }
+        if let Some(existing) = state.get(&binding.lane_id)
+            && existing.agent_id != binding.agent_id
+        {
             return Err(format!(
                 "lane `{}` has conflicting durable agent identities: agent `{}` session `{}` versus agent `{}` session `{}`",
                 binding.lane_id,

@@ -1230,6 +1230,11 @@ impl RuntimeSupervisor {
                 lane_agent_bindings.insert(session.lane_id.clone(), recovered);
             }
         }
+        // The Lanes the snapshot prefix just rebuilt from the durable lane log.
+        // Captured before the view moves onto the bus, because each of them
+        // needs an execution owner republished under *this* process's session
+        // (E3c defect 34).
+        let restored_lanes = live_view.lanes.clone();
         let event_bus = RuntimeEventBus {
             sender: event_sender,
             state: Arc::new(Mutex::new(RuntimeEventState {
@@ -1250,6 +1255,7 @@ impl RuntimeSupervisor {
         for diagnostic in standing_diagnostics {
             emit_error(&event_bus, RuntimeOwner::default(), diagnostic);
         }
+        rebind_restored_lanes_to_this_session(&event_bus, &engine, &restored_lanes);
 
         let lane_repo = engine.cwd().to_path_buf();
         let lane_persistence = lane_persistence.unwrap_or_else(|| {
@@ -3705,6 +3711,130 @@ fn lane_agent_session_binding(
         .lane_agent_bindings
         .insert(lane_id, durable.clone());
     Ok(Some(durable))
+}
+
+/// The agent id the built-in runtime binds a Lane to when it runs that Lane's
+/// own native turns. An external adapter binds under its own id, and the two
+/// are never interchangeable.
+const BUILT_IN_LANE_AGENT_ID: &str = "viden";
+
+/// Gives every Lane restored from disk an execution owner in this process
+/// (E3c defect 34).
+///
+/// The durable Lane record survives a restart; the process-local owner that
+/// could act on it does not, and until now nothing replaced it. The snapshot
+/// prefix republished `LaneUpdated` for each Lane and published no owner, so
+/// every client predicate that requires exactly one exact Core owner found
+/// none: the Lane rendered, and the composer, the pills and the commit bar
+/// were all disabled for the rest of that Lane's life.
+///
+/// **The contract this chooses.** Core re-emits `LaneRuntimeOwnerBound` for
+/// every restored non-terminal Lane at hydration, naming this process's
+/// session, *and* re-stamps the durable `lane-agent-bindings` row onto the
+/// same session. Both halves are needed and neither is sufficient: the event
+/// is what a client derives the owner from, and the durable row is what
+/// `run_supervised_input` reserves against — a submit carrying the new owner
+/// against a row still naming the dead session is refused as already bound.
+/// The old row stays in the append-only log and the new row supersedes it.
+///
+/// A Lane an external agent owns is skipped, both halves. Its ACP session is
+/// itself durable and is republished by
+/// `publish_reactivated_agent_session_owner` with the session's own owner; a
+/// hydration owner pre-empting that would make the Lane's exactly-one owner
+/// the wrong one and break every restored ACP continuation.
+///
+/// Failures here are published, not fatal: a Lane whose row could not be
+/// re-stamped gets no hydration owner rather than an owner no command can use.
+fn rebind_restored_lanes_to_this_session(
+    event_bus: &RuntimeEventBus,
+    engine: &SessionEngine,
+    restored: &[AgentLaneRecord],
+) {
+    let session_id = engine.session_id().to_string();
+    let (workspace_id, project_id) = engine
+        .workspace_owner()
+        .map(|owner| (owner.workspace_id.clone(), owner.project_id.clone()))
+        .unwrap_or_default();
+    let store = event_bus
+        .state
+        .lock()
+        .ok()
+        .and_then(|state| state.lane_agent_store.clone());
+    for lane in restored {
+        if matches!(
+            lane.status,
+            viden_types::LaneStatus::Done
+                | viden_types::LaneStatus::Failed
+                | viden_types::LaneStatus::Cancelled
+                | viden_types::LaneStatus::Archived
+        ) {
+            continue;
+        }
+        let bound = event_bus
+            .state
+            .lock()
+            .ok()
+            .and_then(|state| state.lane_agent_bindings.get(&lane.id).cloned());
+        if bound
+            .as_ref()
+            .is_some_and(|bound| bound.agent_id != BUILT_IN_LANE_AGENT_ID)
+        {
+            continue;
+        }
+        if let Some(bound) = bound.filter(|bound| bound.session_id != session_id) {
+            let Some(store) = store.as_ref() else {
+                continue;
+            };
+            match store.rebind_lane_agent_session(
+                &lane.id,
+                BUILT_IN_LANE_AGENT_ID,
+                &session_id,
+                now_timestamp(),
+            ) {
+                Ok(rebound) => {
+                    if let Ok(mut state) = event_bus.state.lock() {
+                        state.lane_agent_bindings.insert(
+                            lane.id.clone(),
+                            LaneAgentExecutionBinding {
+                                lane_id: rebound.lane_id,
+                                agent_id: rebound.agent_id,
+                                session_id: rebound.session_id,
+                            },
+                        );
+                    }
+                }
+                Err(error) => {
+                    emit_error(
+                        event_bus,
+                        RuntimeOwner::default(),
+                        format!(
+                            "lane `{}` kept its previous execution identity agent `{}` session `{}`: {error}",
+                            lane.id, bound.agent_id, bound.session_id
+                        ),
+                    );
+                    continue;
+                }
+            }
+        }
+        let owner = RuntimeOwner {
+            workspace_id: workspace_id.clone(),
+            project_id: project_id.clone(),
+            lane_id: Some(lane.id.clone()),
+            session_id: Some(session_id.clone()),
+            task_id: None,
+            turn_id: None,
+        };
+        emit_event(
+            event_bus,
+            owner.clone(),
+            RuntimeEventKind::LaneRuntimeOwnerBound {
+                binding: LaneRuntimeOwnerBinding {
+                    lane_id: lane.id.clone(),
+                    owner,
+                },
+            },
+        );
+    }
 }
 
 fn reserve_lane_agent_session_binding(

@@ -458,11 +458,21 @@ For a newly spawned worker, Core publishes `LaneCommandAccepted`, then
 state. Snapshot and replay preserve the exact binding within the same runtime
 stream.
 
-A process restart creates a new stream and deliberately restores no runtime
-owner from hydrated Lane records. The first accepted owner-scoped command that
-spawns a new live worker publishes a fresh binding. Owner mismatch, missing or
-terminal Lane, Plan-mode denial, hydration failure, or any path that does not
-create a live worker publishes no binding.
+A process restart creates a new stream, and at hydration Core re-binds every
+restored non-terminal Lane to the new process's session: it publishes
+`LaneRuntimeOwnerBound` naming that session, and re-stamps the Lane's durable
+Lane-agent record onto it, so a Lane-owned submit is accepted rather than
+refused against the dead session. A restored Lane therefore has exactly one
+Core execution owner again, and a client derives it the same way it always
+did. Since a Lane's first valid owner is authoritative for the life of the
+view, a live worker spawned afterwards publishes its own binding and does not
+displace the hydration one; a Lane the client never touches keeps it. Core
+never reconstructs the owner from selection, display text, or frontend
+defaults — the session is Core's own. A Lane owned by an external agent is not
+re-bound here: its Agent session is itself durable and is republished with that
+session's own owner. Owner mismatch, missing or terminal Lane, Plan-mode
+denial, hydration failure, or any path that does not create a live worker
+publishes no binding.
 
 Frontend cancel is fail-closed. A client must first discover the
 `runtime.lane_owner_projection` extension capability, then require exactly one
@@ -1060,6 +1070,19 @@ supervisor is a single worker, a `QueueFollowUp` sent while a turn is running is
 still in flight when that turn ends: a completed session-scoped turn arms the
 drain, and such a follow-up runs as soon as it is queued. A Lane's own queue is
 the Lane worker's and is unchanged.
+
+**Where a turn's tools run.** A turn whose owner carries a `lane_id` executes
+its tools in that Lane's worktree: relative paths resolve there, a `shell`
+command runs there, the approval preview reads and hashes the file there, and
+post-edit diagnostics report on it there. A turn owned by no Lane, and a Lane
+that has no worktree — a non-Git workspace, where the workspace root *is* that
+Lane's execution scope — use the workspace root. The scope is settled once when
+the turn opens, so every tool call in one turn runs in the same tree. This is
+Core's own resolution and there is no field for it: a client neither sends the
+directory nor is told it, and must not compute a Lane's worktree to interpret a
+path Core published. Archived `patch` rows and tool-call paths stay relative to
+the tree the call ran in, which is what keeps an evidence path label and the
+file it names in agreement.
 
 **Crash safety.** A turn is never resumed across a restart and leaves no durable
 trace: neither fact is persisted, because a stored `TurnStarted` whose process
