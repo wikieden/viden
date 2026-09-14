@@ -13,6 +13,7 @@ import {
   type OperatorGitProjection,
 } from "../models/operator_git";
 import "./diff_review.css";
+import { verbatimField } from "../ui/verbatim_field";
 
 /**
  * DiffReview — the in-cockpit per-file review of the working tree.
@@ -700,7 +701,7 @@ function renderCommitBar(
   commitBar.className = "commitbar";
   commitBar.dataset.reviewCommit = "true";
 
-  const input = document.createElement("input");
+  const input = verbatimField(document.createElement("input"));
   input.type = "text";
   input.className = "msg-in";
   input.dataset.reviewCommitMessage = "true";

@@ -17,6 +17,7 @@ import {
 import { recentAgeLabel } from "../components/project_picker";
 import "./d11_intake.css";
 import type { D4StarterSeed } from "./d4_lane_create";
+import { verbatimField } from "../ui/verbatim_field";
 
 export interface D11ConfigPreview {
   previewId: string;
@@ -278,7 +279,7 @@ export function renderD11Intake(
   pathLabel.textContent = translate(locale, "d11.projectPath", {});
   const repoBar = document.createElement("div");
   repoBar.className = "repobar";
-  const pathInput = document.createElement("input");
+  const pathInput = verbatimField(document.createElement("input"));
   pathInput.dataset.projectPath = "true";
   pathInput.autocomplete = "off";
   pathInput.value = draft.projectPath;
@@ -309,7 +310,7 @@ export function renderD11Intake(
 
   const configLabel = document.createElement("label");
   configLabel.textContent = "viden.toml";
-  const configDraft = document.createElement("textarea");
+  const configDraft = verbatimField(document.createElement("textarea"));
   configDraft.dataset.configDraft = "true";
   configDraft.value = draft.configContents;
   configDraft.addEventListener("input", () => {

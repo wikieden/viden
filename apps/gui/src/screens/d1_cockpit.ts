@@ -132,6 +132,7 @@ import {
 } from "../models/operator_git";
 import { renderD6Recovery, type SendD6Intent } from "./d6_recovery";
 import "./d1_cockpit.css";
+import { verbatimField } from "../ui/verbatim_field";
 
 export type { D1Intent } from "../models/composer";
 export { BoundedTranscript } from "../models/transcript";
@@ -5158,7 +5159,7 @@ export function renderD1Cockpit(
     composerLabel.textContent = queueFollowUpAvailable()
       ? translate(locale, "d1.composer.queue", {})
       : translate(locale, "d1.composer.prompt", {});
-    const composer = document.createElement("textarea");
+    const composer = verbatimField(document.createElement("textarea"));
     composer.dataset.composer = "true";
     composer.rows = 3;
     composer.value = draft;

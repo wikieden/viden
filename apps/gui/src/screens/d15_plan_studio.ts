@@ -17,6 +17,7 @@ import {
   type D15PlanStudioProjection,
 } from "../models/plan";
 import "./d15_plan_studio.css";
+import { verbatimField } from "../ui/verbatim_field";
 
 /**
  * D15 Plan Studio — the cockpit's centre-pane view over `runtime.plan_documents`.
@@ -582,7 +583,7 @@ export function renderD15PlanStudio(
       label.className = "d15-reason-label";
       label.htmlFor = "d15-reason-field";
       label.textContent = t("d15.reject.reason", {});
-      const field = document.createElement("textarea");
+      const field = verbatimField(document.createElement("textarea"));
       field.id = "d15-reason-field";
       field.className = "d15-reason-field";
       field.dataset.d15ReasonField = "true";

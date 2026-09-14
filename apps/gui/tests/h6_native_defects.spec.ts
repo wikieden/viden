@@ -20,6 +20,9 @@ import {
   type D1Intent,
   type D1IntentResult,
 } from "../src/screens/d1_cockpit";
+import { renderPermissionDock } from "../src/components/permission_dock";
+import { renderDiffReview } from "../src/screens/diff_review";
+import { VERBATIM_FIELD_ATTRIBUTES, verbatimField } from "../src/ui/verbatim_field";
 import { D1_PROJECTION } from "./support/d1_projection";
 
 const LANE_A = "lane-core";
@@ -410,5 +413,139 @@ describe("defect 31 — a revoked standing rule leaves the settings list", () =>
       panel().querySelector<HTMLElement>("[data-settings-standing-outcome='rejected']")?.textContent,
     ).toContain("Core refused the revoke.");
     controller.dispose();
+  });
+});
+
+/* ---- defect 32: no automatic text substitution on an operator input ---- */
+
+describe("defect 32 — operator inputs are verbatim", () => {
+  const expectVerbatim = (field: HTMLElement | null, name: string): void => {
+    expect(field, name).not.toBeNull();
+    for (const [attribute, value] of VERBATIM_FIELD_ATTRIBUTES) {
+      expect(field!.getAttribute(attribute), `${name} · ${attribute}`).toBe(value);
+    }
+  };
+
+  test("the composer carries every switch this page owns", async () => {
+    const view = projection();
+    const { root, controller } = mount(view, {});
+    await flush();
+    expectVerbatim(root.querySelector<HTMLElement>("[data-composer]"), "composer");
+    controller.dispose();
+  });
+
+  test("the Lane task field carries them", async () => {
+    const view = projection();
+    const { root, controller } = mount(view, { newLaneDraft: { task: "", agentId: null } });
+    await flush();
+    expectVerbatim(root.querySelector<HTMLElement>("[data-lane-task]"), "lane task");
+    controller.dispose();
+  });
+
+  test("the commit message carries them", () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    renderDiffReview(
+      host,
+      {
+        outcome: { state: "confirmed", reason: null },
+        targetLaneId: null,
+        source: null,
+        entries: [],
+        truncated: false,
+        loaded: true,
+        pendingCommandId: null,
+        capabilityAvailable: true,
+        stale: false,
+      },
+      "en",
+      undefined,
+    );
+    expectVerbatim(
+      host.querySelector<HTMLElement>("[data-review-commit-message]"),
+      "commit message",
+    );
+  });
+
+  test("the approval Edit field carries them", () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    renderPermissionDock(
+      host,
+      {
+        workMode: "build",
+        permissionLevel: "ask",
+        standing: { capabilityAvailable: true, rules: [] },
+        request: {
+          editable: true,
+          revisedFrom: null,
+          // Core's own typed tool input, which is what the Edit field revises
+          // and what Core compares the revision against, byte for byte.
+          inputFields: [{ key: "path", value: "README.md" }],
+          editBlock: null,
+          id: "approval-edit",
+          toolName: "edit_file",
+          title: "Approve edit_file",
+          message: "edit_file requires approval",
+          inputPreview: "path: README.md",
+          isMutating: true,
+          reason: "edit_file requires approval",
+          risk: "medium",
+          target: { kind: "repo_path", display: "README.md", canonicalRef: null },
+          policyReasonKey: "permission.requires_approval",
+          policyReasonArgs: {},
+          expiresAt: 1_700_001_100,
+          defaultAction: "deny",
+          auditId: "audit-edit",
+          blockedByPlan: false,
+          decisionContext: null,
+          actions: [
+            { kind: "once", available: true, sessionId: null, paths: [], code: null },
+            { kind: "deny", available: true, sessionId: null, paths: [], code: null },
+          ],
+        },
+      },
+      async () => undefined,
+      "en",
+    );
+    expectVerbatim(
+      host.querySelector<HTMLElement>("[data-permission-edit-field='path']"),
+      "approval edit field",
+    );
+  });
+
+  /**
+   * The rule, not a list of the fields that happened to be fixed.
+   *
+   * E3c defect 32 was found in the composer and would have been found in the
+   * next field just as easily, so the guard is over the whole client: a text
+   * field an operator types into is created through `verbatimField`, or this
+   * fails and names the file. Checkboxes carry no text and are exempt.
+   */
+  test("every operator text field in the client is created verbatim", async () => {
+    const { readdirSync, readFileSync, statSync } = await import("node:fs");
+    const { resolve } = await import("node:path");
+    const walk = (dir: string): string[] =>
+      readdirSync(dir).flatMap((entry) => {
+        const path = `${dir}/${entry}`;
+        if (statSync(path).isDirectory()) return walk(path);
+        return path.endsWith(".ts") ? [path] : [];
+      });
+    const offenders: string[] = [];
+    // Vitest runs with `apps/gui` as the root, so the client source is one
+    // relative step away and needs no URL gymnastics.
+    for (const path of walk(resolve(process.cwd(), "src"))) {
+      const source = readFileSync(path, "utf8");
+      const lines = source.split("\n");
+      lines.forEach((line, index) => {
+        if (!/document\.createElement\("(input|textarea)"\)/.test(line)) return;
+        if (line.includes("verbatimField(")) return;
+        // A checkbox or radio carries no text to substitute.
+        const next = lines.slice(index + 1, index + 3).join("\n");
+        if (/type = "(checkbox|radio)"/.test(next)) return;
+        offenders.push(`${path.slice(process.cwd().length + 1)}:${index + 1}`);
+      });
+    }
+    expect(offenders).toEqual([]);
   });
 });

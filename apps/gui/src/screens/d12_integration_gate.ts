@@ -3,6 +3,7 @@ import { translate, type Locale } from "../i18n/catalog";
 import type { ConflictContentProjection } from "../models/conflict";
 import type { D14AuditScope } from "./d14_audit_timeline";
 import "./d12_integration_gate.css";
+import { verbatimField } from "../ui/verbatim_field";
 
 /// D12 integration gate.
 ///
@@ -489,7 +490,7 @@ export function renderD12IntegrationGate(
     // The design bounces *with a reason*: the reason field sits in the action
     // bar next to the bounce control, because Core stores it as the gate
     // decision and the origin Lane's agent works from it.
-    const reason = document.createElement("input");
+    const reason = verbatimField(document.createElement("input"));
     reason.type = "text";
     reason.className = "d12-reason";
     reason.dataset.d12Reason = "true";

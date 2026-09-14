@@ -1,5 +1,6 @@
 import { translate, type Locale } from "../i18n/catalog";
 import "./d4_lane_create.css";
+import { verbatimField } from "../ui/verbatim_field";
 
 export type D4Preset = "coder" | "reviewer" | "tester";
 
@@ -385,7 +386,7 @@ export function renderD4LaneCreate(
 
     const laneLabel = document.createElement("label");
     laneLabel.textContent = translate(locale, "d4.laneId", {});
-    const laneId = document.createElement("input");
+    const laneId = verbatimField(document.createElement("input"));
     laneId.dataset.laneId = "true";
     laneId.value = state.draft.laneId;
     laneId.autocomplete = "off";
@@ -397,7 +398,7 @@ export function renderD4LaneCreate(
 
     const branchLabel = document.createElement("label");
     branchLabel.textContent = translate(locale, "d4.branch", {});
-    const branch = document.createElement("input");
+    const branch = verbatimField(document.createElement("input"));
     branch.dataset.branch = "true";
     branch.value = state.draft.branch ?? "";
     branch.autocomplete = "off";
