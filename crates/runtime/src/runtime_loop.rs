@@ -576,6 +576,10 @@ impl SessionEngine {
         progress.carry(self.store_entry(TranscriptEntry::Message {
             message: assistant_tool_call,
         }))?;
+        // Resolved once for the whole call, before the gate runs: the preview
+        // an operator approves and the directory the tool then executes in
+        // must be the same place (E3c defect 28).
+        let tool_root = self.active_tool_root();
         // Decide -> ask -> apply flows through the shared permission gate;
         // this closure only carries the call site's task and approval-boundary
         // bookkeeping around obtaining the operator response.
@@ -592,8 +596,13 @@ impl SessionEngine {
                 // ordered boundary replayed below — instead of the input
                 // being threaded through four call chains. Read-only: see
                 // `decision_context`.
+                // The turn's own tool root, not the workspace root: a
+                // Lane-owned turn previews the file its tool will actually
+                // touch inside the Lane worktree (E3c defect 28). A preview
+                // computed against the root would hash and render a different
+                // file than the one the approval releases.
                 prompt.decision_context = crate::decision_context::tool_decision_context(
-                    &self.cwd,
+                    &tool_root,
                     &call.name,
                     &call.input,
                 );
@@ -685,7 +694,12 @@ impl SessionEngine {
                 self.upsert_agent_task(task.clone());
                 let mut result = match self.tools.execute(
                     &call,
-                    &ToolExecutionContext::local(self.cwd.clone()).with_semantic(Arc::new(
+                    // The running turn's tool root. For a session-scoped turn
+                    // this is the workspace root; for a Lane-owned turn it is
+                    // that Lane's worktree, so `edit_file path=README.md` and
+                    // `shell command=pwd` both resolve inside the Lane
+                    // (E3c defect 28).
+                    &ToolExecutionContext::local(tool_root.clone()).with_semantic(Arc::new(
                         LspToolAdapter {
                             runtime: Arc::clone(&self.lsp_runtime),
                         },
@@ -824,14 +838,18 @@ impl SessionEngine {
             return None;
         }
         let path = std::path::Path::new(call.input.get("path")?);
-        let diagnostics = self.lsp_runtime.diagnostics(&self.cwd, path).ok()?;
+        // The tree the edit landed in, so a Lane-owned turn reports diagnostics
+        // for the worktree file it changed rather than the root's copy of it
+        // (E3c defect 28).
+        let root = self.active_tool_root();
+        let diagnostics = self.lsp_runtime.diagnostics(&root, path).ok()?;
         if diagnostics.is_empty() {
             return None;
         }
         Some(format!(
             "Post-edit LSP diagnostics after `{}`:\n{}",
             call.name,
-            render_lsp_diagnostics(&self.cwd, &diagnostics)
+            render_lsp_diagnostics(&root, &diagnostics)
         ))
     }
 

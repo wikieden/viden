@@ -240,6 +240,11 @@ fn a_lane_owned_turns_tools_run_in_the_lane_worktree() {
         "the real effect executor created the worktree at {}",
         worktree.display()
     );
+    // The two copies are made to differ so the preview's `base_sha256` can
+    // only match one of them: identical trees would prove nothing about which
+    // file Core read.
+    fs::write(repo.join("README.md"), "root readme\nroot only\n").unwrap();
+    let worktree_base_sha = sha256_of(&worktree.join("README.md"));
 
     supervisor
         .send_command_from_owner(
@@ -265,7 +270,7 @@ fn a_lane_owned_turns_tools_run_in_the_lane_worktree() {
     );
     assert_eq!(
         fs::read_to_string(repo.join("README.md")).unwrap(),
-        "root readme\n",
+        "root readme\nroot only\n",
         "the workspace root's README is untouched by a Lane-owned turn"
     );
 
@@ -297,9 +302,8 @@ fn a_lane_owned_turns_tools_run_in_the_lane_worktree() {
         .as_ref()
         .and_then(|context| context.base_sha256.clone())
         .expect("the preview hashed the file it read");
-    let worktree_sha = sha256_of(&worktree.join("README.md"));
     assert_eq!(
-        base, worktree_sha,
+        base, worktree_base_sha,
         "the preview hashed the Lane worktree's file, not the workspace root's"
     );
 
