@@ -1721,3 +1721,241 @@ GUI 驱动的 Core 行为，作用在一次真实改动上；只有这一次改�
   打开中间视图，以及撤销之后的设置列表。
 - **C17，在 Core 上：** 缺陷 28 的工具工作目录，以及缺陷 34 里决定重启后的 Lane
   视图携带哪条绑定的那一半。
+
+## 原生 GUI 运行 —— 2026-09-14（`0.3.5` 候选版 `71d5156a`，E3d）
+
+这是 E3d：在 C17 与 H6 之后，于 `0.3.5` 候选版上通过原生驾驶舱驱动剩余的 Lane
+步骤。分支 `claude/evidence-e3d`，位于 `.worktrees/evidence-e3d`，基线为集成分支
+`claude/int-0.3.5` 的 `71d5156ac489a83c041a7e82b98e336932a0a276` —— 即 E3c 的证据
+加上 C17（Lane 拥有的回合中的工具在 Lane 工作树里运行；恢复的 Lane 在水合时重新
+绑定）与 H6（operator-git 属主跟随选中项、回合期间排队、常驻规则列表、逐字输入
+字段、在恢复界面之上打开中间视图）。
+
+主机屏幕处于解锁状态，并在**每一批**按键或点击之前读取
+`CGSessionCopyCurrentDictionary()`；从 `2026-09-14T05:35:58Z` 到
+`2026-09-14T07:07:31Z`，每一次的 `CGSSessionScreenIsLocked` 都是 `0`。
+
+**本批次的头条：智能体现在能在 Lane 内部真正干活，而 Lane 的源码控制这一半被挡在
+比以前更早的一步上。** C17 的两处修复在原生环境下完整成立 —— Lane 拥有的回合中
+调用的工具写入的是 **Lane 工作树**，工作区根目录毫发无损（缺陷 28）；跨重启恢复的
+Lane 拥有执行属主并能跑起一个回合（缺陷 34）。H6 的选中项漏斗同样成立：选中一个
+Lane 时，提交栏是**可达的**，不再携带指向另一个 Lane 的拒绝语，并且只指名被选中的
+那个 Lane（缺陷 30）。这次运行没能完成的是提交与推送本身，因为 `Stage all` 从未
+抵达任何可决断的界面：客户端停在
+`Stage is waiting for approval in the permission dock.`，而权限坞里什么都没有，
+`audit.jsonl` 中从未写入任何 `git_*` 行，状态栏读作 `REQ 0 req / 0 err`（缺陷
+35）。因此裸 `origin` 被创建但从未使用，**缺陷 25 仍然开着**。
+
+本批次没有采取任何阻断性修复。就现有证据而言，缺陷 35 无法仅从客户端一侧判定归属
+（见其条目），而对一个本次运行无法定位的界面做投机性修复，会比这条发现本身更糟。
+
+### 被测应用
+
+`npm ci` 添加了 97 个包，并在 4 秒内审计了 98 个包。
+`npx tauri build --bundles app` 通过 ——
+`Finished \`release\` profile [optimized] target(s) in 1m 08s` —— 并产出
+`target/release/bundle/macos/Viden.app`：
+
+| 事实 | 取值 |
+| --- | --- |
+| `CFBundleShortVersionString` | `0.1.0-rc.5` |
+| `CFBundleIdentifier` | `dev.viden.gui` |
+| `CFBundleExecutable` | `viden-gui` |
+| 架构 | `Mach-O 64-bit executable arm64` |
+| 可执行文件大小 | 42,891,264 字节 |
+| 包体大小 | 42 MB |
+| 签名 | ad-hoc、linker-signed、`TeamIdentifier=not set`、`Sealed Resources=none` |
+
+包体仍带着 `0.1.0-rc.5`；计划的目标是 `0.1.0-rc.6`，尚无批次执行该提升，归 R1
+所有。应用是从包体直接启动的，从未安装、从未用身份签名、从未公证、从未分发。每次
+启动都把 `VIDEN_HOME` 指向暂存目录，因此本仓库自身的 `.viden/` 从未被读写。按顺序
+启动的 PID：39630、40297、49594、58246。四个都由本批次结束；没有一个自行退出。
+
+### 夹具
+
+运行暂存目录下一个全新的临时 Git 仓库，含一个提交 `2b1b3e3`（"Add the fixture
+README"）、一个五行 125 字节的 `README.md`、一个覆盖 `.viden/` 与 `.worktrees/`
+的 `.gitignore`，以及一个选择 `provider = "fallback"` / `model = "test-local"`
+的 `.viden/config.toml`。Core 在引导时于 `ws_8f05f137b4ef25a8` 中铸出
+`prj_1789364819298232000`。暂存目录里创建了一个裸 `origin`，并且**从未使用**，因为
+没有任何推送入口变得可达（缺陷 35）。创建了两个 Lane：
+`lane_1789365083535959000` 与 `lane_1789366692288148000`。
+
+### 与脚本任务的两处偏离，以及原因
+
+**绑定是在启动时通过 `VIDEN_GUI_WORKSPACE` 完成的，而不是通过 `⌘O`。** `⌘O` 面板
+确实打开了，并被驱动到它的 `⌘⇧G`"前往"子表单：路径字段通过辅助功能设值器逐字设置，
+屏幕上也把路径解析成了 `… › e3d › fixture` —— 但无论在主机的拼音输入源还是 ABC 上，
+`Return` 与点击已解析行都无法提交它。发给该进程的按键能抵达主窗口（`⌘O` 与 `⌘L`
+都奏效），却**抵达不了**面板的子窗口，而该面板全程渲染为非活动态。E3c 的面包屑规则
+在造成任何损害之前抓住了后果：面板恢复的是 **E3c** 的夹具（`README.md 186 bytes`），
+若继续下去绑定的会是它，而不是本次运行的（`125 bytes`）。启动时绑定与 E3c 第 27 步
+驱动的是同一条产品路径，因此被测驾驶舱是按 Core 自己的方式绑定的；不同的只是操作者
+手势，这里如实记录而非一笔带过。
+
+**源码控制这一半从未抵达，因此提交之下游的一切都没有被驱动。** 这不是走捷径：这就是
+缺陷 35，作为阻断项记录在案。
+
+### 逐步记录
+
+每一帧都按窗口 id 拍摄两次并保留第二次，且列出的每个 PNG 在列出之前都已被查看。帧
+位于 `native-0.3.5/` 下，前缀为 `e3d-`。
+
+| # | 步骤 | 是否抵达 | 结果 / 原因 | 帧 |
+| --- | --- | --- | --- | --- |
+| 1 | 欢迎页 | 是 | `Welcome to Viden`、`Your local-first agent workspace`、`Open project ⌘ O`、`No project open`、`Core adapter is not connected`；`MODE — · PERM — · CONTEXT — · EVENTS #0 · LANE — · LATENCY — · TOKENS — · DIAG 0× · REQ —` | [`01`](native-0.3.5/e3d-01-welcome.png) |
+| 2 | **已绑定的驾驶舱** | 是 | 上下文坞 `Provider fallback`、`Model test-local`、`Mode build`、`Permission ask`、`Tokens 0`；`Lines +0 −0` / `No changes`；`Showing Workspace root`、`Branch main`、夹具路径作为 `Worktree`、`Ahead 0`、`Behind 0`、`Working tree Clean`；`MODE build · PERM ask · EVENTS #7 · LANE — · DIAG 0× · REQ 0 req / 0 err`。绑定路径即上文记录的偏离 | [`02`](native-0.3.5/e3d-02-cockpit-bound.png) |
+| 3 | **`⌘L` 新建 Lane、内置智能体、TASK** | 是 | 选中 `Viden Agent built-in`；Codex、Claude Agent 与 Kiro CLI 禁用，先是在 `Checking ACP agents… each probe is given up to 15s.` 之下，随后是在 `Probe did not answer within 15s.` 之下，旁边配有 `Retry ACP check` —— 探测有界限并且自己说明了这一点。填入 TASK 后，`Create lane ↵` 读作 `enabled=true`，分支变为 `⌁ vd/edit-the-fixture-readme-he`。**缺陷 14 与 15，在没有 ACP 二进制的主机上，再次于原生环境成立** | [`03`](native-0.3.5/e3d-03-new-lane-popover.png)、[`04`](native-0.3.5/e3d-04-new-lane-task-set.png) |
+| 4 | **一个带 C15 完整档位列表的 Core `lane_create` 审批** | 是 | `Approve lane_create · lane_create`、`Medium risk`、`branch: viden/lane_1789365083535959000 path: …/.worktrees/lane_…`、`Reason: lane mutation policy requires approval`、`Default: Deny`、`Audit: audit_1789365099211250000`，其上是 `Y · Once` / `Allow repo paths` / **`Shift+A · Always · scope_not_offered`** / **`E · Edit · not_editable`** / `N · Deny`。两个被禁用的档位都携带 **Core 自己的拒绝措辞** —— **登记项 019，在 GUI 侧再次实时闭合** | [`05`](native-0.3.5/e3d-05-lane-create-approval.png) |
+| 5 | **Lane，以及弹出框 TASK 变成一个回合 —— 缺陷 22** | 是 | `Y · Once` 放行。标签条 `lane_1789365083535959000 coder starter…`，标题栏 `1 worktree`，上下文坞 `Showing Lane worktree`，`LANE OUTPUT` 携带 Core 自己的 `HEAD is now at 2b1b3e3 Add the fixture README` / `Preparing worktree (new branch 'viden/lane_…')`。带外核验：工作树存在，`git branch` 列出 `viden/lane_1789365083535959000`。输入框释放且**没有 `Cancel active turn`**，`EVENTS #46`，`REQ 1 req / 0 err`。在暂存会话 JSONL 中逐字节核验：`turn_owner` 带 `lane_id: lane_1789365083535959000` 与 `turn_id: turn_1789365157674412000`、用户消息 `Edit the fixture README heading in the Lane`、一条 `outcome: success` 的成本行（`fallback` / `test-local`）、助手回复，随后 `turn_owner` 被清空。**H5 的修复在原生环境下依然成立** | [`06`](native-0.3.5/e3d-06-lane-created-turn.png) |
+| 6 | **输入框 `tool edit_file path=README.md old=Fixture new=Edited`** | 是 | Core 抬起 `Approve edit_file · edit_file`、`Medium risk`、`TOOL INPUT PREVIEW new: Edited old: Fixture path: README.md`、**Core 的定型 C1 差异块** `@@ -1,5 +1,5 @@` 含 `-# E3d Fixture`，其上是 `Y · Once` / `Allow repo paths` / `Shift+A · Always`（**启用**）/ `E · Edit · not_editable` / `N · Deny`。`Core is working; no owner-scoped status is available. typed`、`Cancel turn · Esc`，输入框标签切换为 `Queue follow-up`。上下文坞此时已切到 `Showing Lane worktree`，带着该 Lane 的分支与工作树 | [`07`](native-0.3.5/e3d-07-edit-file-approval.png) |
+| 7 | **缺陷 28 —— 工具在 LANE 工作树中运行** | 是，**已闭合** | `Y · Once`。Core 自己的工具结果：`edit_file completed` / `path: …/scratchpad/e3d/fixture/.worktrees/lane_1789365083535959000/README.md` / `size: 124 B` / `effect: edited 5 lines`。磁盘上带外核验：**工作区根目录**干净，仍是 125 字节的 `# E3d Fixture`；**Lane 工作树**为 ` M README.md`、`# E3d Edited`、124 字节、`@@ -1,4 +1,4 @@` `-# E3d Fixture` / `+# E3d Edited`。而且产品自己就这么说：同一个 Lane 中的 `tool shell command=pwd` 打印出 `…/fixture/.worktrees/lane_1789365083535959000` —— 即 Lane 工作树，而 E3c 打印的是工作区根目录。**C17 的修复在原生环境下双向成立** | [`09`](native-0.3.5/e3d-09-lane-worktree-tool-root.png) |
+| 8 | **后续项 16 / 缺陷 29 —— 回合期间排队一条后续输入** | **否**，且比 E3c 更糟 | 在 Core 报告回合、标签读作 `Queue follow-up` 的情况下提交了 `Summarise what you just changed`。它**没有**被拒绝 —— E3c 那条诚实的 `Not sent…` 提示根本没有出现 —— 输入框被清空，没有画出任何排队行，`EVENTS` 也没有前进（提交前后都是 `#49`）。随后回合正常跑完，而这段文字**从未抵达 Core**：会话 JSONL 中不存在这样的消息，该字符串在 `VIDEN_HOME` 下任何位置都不出现。驱动了两次，分属两个回合。见缺陷 36 | [`08`](native-0.3.5/e3d-08-followup-queued.png) |
+| 9 | **缺陷 33 —— 在已停止的 Lane 上打开中间视图** | 是，**已闭合** | 在中间区绘制 `AGENT STOPPED` / `Core reports that execution has stopped.` 并覆盖 Core 的事实控件（`Reconnect · GUI-CORE-003`、`Inspect facts`、`Restart agent · no_retryable_session`、`Close Lane`、`Restore checkpoint · GUI-CORE-003`，每个无支撑的都被禁用并标注）的情况下，`Diff review` **切换了中间区**：恢复界面完全离开辅助功能树，DiffReview 在其位置渲染。回到 `Conversation` 又把恢复界面带回来，这正是 H6 的作用域划分 —— 它在自己该待的槽位里依然可达 | [`10`](native-0.3.5/e3d-10-defect33-diffreview-over-stopped.png) |
+| 10 | **在 Lane 的脏树上做 DiffReview，而且是被产品弄脏的** | 是 | `CHANGES 1 files · +1 −1`、`M README.md +1 −1`、`README.md`、`@@ -1,4 +1,4 @@`、`-# E3d Fixture` / `+# E3d Edited` 带逐行编号；上下文坞 `Lines +1 −1`、`M README.md +1 −1`、`Showing Lane worktree`、被选中 Lane 的分支与工作树、`Working tree Dirty`。总数、文件列表与 `Local` 标记彼此一致 —— **缺陷 20，在原生环境下成立**。与 E3a、E3b、E3c 不同，**这处改动是产品自己做的**，由 `edit_file` 在其审批之下完成 | [`10`](native-0.3.5/e3d-10-defect33-diffreview-over-stopped.png) |
+| 11 | **第二个 Lane，以及 D2 决断它的创建** | 是 | 新建 Lane 弹出框来自标签条的 `+ New Lane`；在非转录中间视图下 `⌘L` 打不开它。它的 `lane_create` 审批落在决策中心而非转录区，在那里 `Approve once` 放行了它：`lane_1789366692288148000`、第二个工作树、标题栏 `2 worktrees`。**缺陷 16 的前一半，再次于原生环境成立** | [`11`](native-0.3.5/e3d-11-two-lanes-lane2-selected.png) |
+| 12 | **缺陷 30 —— operator-git 属主跟随选中项** | 是，**已闭合** | 重启后选中 `lane_1789365083535959000` 时，`Open the commit bar` 是**启用**的，提交栏渲染出来（`Commit message` 启用、`Stage all` 启用、`Commit` 与 `Commit & Push ⇡` 在暂存之前禁用），**整个视图里任何位置都没有出现 `D1-OPERATOR-GIT-OWNER` 拒绝语**，且全视图指名的唯一 Lane 就是 `viden/lane_1789365083535959000` —— 被选中的那个。E3c 当时 `Open the commit bar` 是禁用的，携带的拒绝语指名的是*另一个* Lane | [`13`](native-0.3.5/e3d-13-commit-bar-lane-selected.png) |
+| 13 | 暂存、提交、`Commit & Push ⇡`、`git_push` 那一半、`NoUpstream`、设置上游、推送被接受 | **否** | `Stage all` 是启用的，按下也很干净，然后什么都没发生。中间区渲染 `Stage is waiting for approval in the permission dock.`；权限坞里是 `0 awaiting you` / `Core is holding no decision for you.`；在 60 秒的持续观察中 Lane 工作树一直是 ` M README.md`（未暂存）；`audit.jsonl` 中从未追加任何 `git_*` 行；状态栏读作 `DIAG 0× · REQ 0 req / 0 err` —— 连一个在途请求都没有。在全新进程与全新 Core 连接上复现，且解析出的 Lane 正确。因此 `Commit` 与 `Commit & Push ⇡` 从未启用，没有任何推送入口可达，裸 `origin` 从未被使用。见缺陷 35 | [`15`](native-0.3.5/e3d-15-defect35-stage-never-decidable.png) |
+| 14 | **缺陷 34 —— 跨重启恢复的 Lane** | 是，**已闭合** | 退出并针对同一工作区与 `VIDEN_HOME` 重启。`lane-agent-bindings.jsonl` 接收了 C17 的接替行 —— **两个** Lane 各一条 `lane-agent-rebound:lane_…:session_1789367410385273000`，仅追加的旧行原样保留。驾驶舱中恢复的 Lane 被选中，拒绝语 `The selected Lane has no sole Core execution owner.` **不存在**，输入框启用，并且一次提交**跑起了一个回合**：`turn_owner` 带 `lane_id: lane_1789365083535959000` 与 `session_id: session_1789367410385273000` —— 新会话 —— 且用户消息进入新会话的 JSONL。它的提交栏是启用的（第 12 步）。转录区还跨重启读回了持久审计行：`lane-approval_1789365099211245000 · decision allow_once`、`approval_1789365849889072000 · decision allow_once`、`approval_1789366009927556000 · decision allow_once`，每条都带 `Open audit trail` | [`12`](native-0.3.5/e3d-12-relaunch-restored-lane.png)、[`17`](native-0.3.5/e3d-17-esc-return.png) |
+| 15 | **缺陷 32 —— 用真实按键键入的 `"`** | 是，**已闭合** | 仅为这一段把输入源切到 `com.apple.keylayout.ABC`，之后恢复（记录见下）。`A"b"c` 作为五个真实 HID 按键事件投递到 `cghidEventTap` —— 与键盘进入的是同一个事件 tap —— 并逐字节读回：`41 22 62 22 63`，与期望字符串完全相同。**两个引号都是 `U+0022`。** E3c 的 `A”b"c`（`U+201D`）**不复现**：H6 的 `verbatimField` 属性在真实按键下成立，因此 E3c 保留判断的那项剩余设置并不需要 | [`14`](native-0.3.5/e3d-14-defect32-verbatim-quotes.png) |
+| 16 | Plan Studio：D15 中的 `update_plan` 提案、接受、计划模式下拒绝移交、切到构建模式、移交、D13 的 DAG | **否** | 未驱动。缺陷 32 对键入 JSON 的阻断已经消失（第 15 步），因此 E3c 无法录入载荷的那个原因已被移除 —— 但本次运行的会话被源码控制这一半与缺陷 37 消耗殆尽，这一段没有开始。仍然欠着，此处也不对其作任何方向的结论 | — |
+| 17 | 缺陷 31：`Always`、被自动放行的重复、撤销、以及该行离开设置列表 | **否** | 未驱动，原因同第 16 步。H6 的修复在原生环境下未经检验。仍然欠着 | — |
+| 18 | Agent Board 控件 | **否**，且不是缺陷 | 内置 `Viden Agent` 跑的是供应商回合，不是 `runtime.agent_session_control` 的 Agent 会话，而本主机没有安装任何 ACP 适配器 —— 新建 Lane 弹出框中三个 ACP 智能体都读作 `Probe did not answer within 15s.`（第 3 步）。不可能存在可暂停、终止或重试的 Agent 会话行。只说一次，不作伪 | [`03`](native-0.3.5/e3d-03-new-lane-popover.png) |
+| 19 | **专注模式 `⌘.` 与 `Esc` 返回** | 是 | 该控件隐藏了上下文坞，把整个窗口宽度交给中间区，同时保留标题栏、导轨、输入框与状态栏。`Esc` 把导轨退回 `Conversation`，保留其余外框且专注模式仍然开着，这与 `0.3.4` 和 E3c 的记录一致。`⌘.` 本身没有触发；标题栏控件触发了。见下方工装说明 | [`16`](native-0.3.5/e3d-16-focus-mode.png)、[`17`](native-0.3.5/e3d-17-esc-return.png) |
+
+### E3d 发现的缺陷与缺口
+
+编号接上文三十四条继续。每一条都是复现出来的，而非推断出来的。本批次没有修复任何
+一条。
+
+35. **Lane 作用域的 `Stage all` 从未抵达可决断界面，提交栏在等待一个并不存在的
+    审批**（对整个源码控制这一半构成阻断；就本证据而言无法判定归属哪一侧）。在选中
+    `lane_1789365083535959000`、其工作树已被产品自己的 `edit_file` 弄脏、且提交栏
+    可达并作用域正确（缺陷 30 已闭合）的情况下，`Stage all` 按下很干净，然后什么都
+    没发生。中间区渲染 Core 自己的
+    `Stage is waiting for approval in the permission dock.`；决策中心渲染
+    `0 awaiting you` 与 `Core is holding no decision for you.`；Lane 工作树在
+    60 秒内一直是 ` M README.md`；**`audit.jsonl` 中从未追加任何 `git_*` 行**
+    （整次运行仅有的四行是两个 `lane_create` 审批、一个 `edit_file` 和一个
+    `shell`）；状态栏读作 `REQ 0 req / 0 err` —— 根本没有在途请求。在全新进程、
+    全新 Core 连接上复现。`Commit` 与 `Commit & Push ⇡` 从未启用，因此**没有任何
+    推送入口变得可达，裸 `origin` 从未被使用 —— 缺陷 25 仍然开着**，只是如今挡在
+    一堵不同且更早的墙后面。
+    有两个站点与此有关，本次运行无法在它们之间做出选择。客户端一侧，
+    `run_operator_git_action_and_wait`
+    （`apps/gui/src-tauri/src/adapter.rs:3146`）发出命令后通过自己的
+    `poll_operator_git`（`:3209`）排空 250 毫秒；此后提交栏"在驾驶舱的有序 Core
+    唤醒上轮询它，而不是自己持一个定时器"（`operator_git_poll`,
+    `apps/gui/src-tauri/src/lib.rs:747-757`），因此在安静的 Core 上不会再有后续
+    唤醒到来 —— 这与 H6 为缺陷 31 修复的失败形状*完全一致*，那里是"撤销自己的排空
+    消费掉了 `StandingApprovalRevoked`，而安静的 Core 不会产生更晚的唤醒"。Core
+    一侧，`run_supervised_project_mutation`
+    （`crates/runtime/src/runtime_supervisor.rs:3012`）是
+    `RuntimeCommand::RunOperatorGitAction` 走的路径
+    （`crates/runtime/src/runtime_supervisor.rs:2768`），其第一道闸门会在该属主已
+    持有活动作业时发出 `CommandRejected`。该分支*作为一个静默分支*已被排除，因为
+    `PendingOperatorGit::observe`
+    （`apps/gui/src-tauri/src/adapter.rs:1526`）会按命令 id 匹配 `CommandRejected`
+    并渲染出拒绝语。没有被排除的是：Core 接受了命令却没有发布审批，而客户端自己的
+    发送排空消费掉了请求事件。**已编号并就此打住；没有编辑任何 `crates/**` 文件，
+    也没有尝试任何 GUI 修复，因为本证据无法把故障定位到客户端。**
+36. **回合期间提交的输入框后续消息被静默丢弃**（GUI，对后续项 16 构成阻断，并且在
+    诚实性上相对 E3c 是倒退）。H6 通过把繁忙输入框的提交路由到
+    `RuntimeCommand::QueueFollowUp` 闭合了缺陷 29，并承诺它会"由 Core 自己的
+    `InputQueued` 确认"。在原生环境下，这些都观察不到，而且文字丢失了。在 Core
+    报告回合、标签读作 `Queue follow-up` 的情况下，提交被接受 —— **没有渲染任何
+    拒绝语**，因此 E3c 那条诚实的 `Not sent. … Your message is kept.` 提示消失了
+    —— 输入框被清空，**没有画出排队行**，`EVENTS` 也没有前进（提交前 `#49`，提交后
+    `#49`）。随后回合正常完成，而这条后续消息**从未抵达 Core**：会话 JSONL 中不存在
+    带该内容的消息，字符串 `Summarise what you just changed` 在 `VIDEN_HOME` 下
+    任何位置都不出现。驱动了两次，分属两个独立回合。E3c 至少还告诉操作者消息被保留
+    了；这个候选版什么都不告诉他们，并且把它丢掉。**因此兼容性后续项 16 在 GUI 上
+    仍未满足**，而且失败方式从响亮变成了静默。
+37. **Core 连接在会话中途断开且再不恢复**（GUI 或适配器的传输层；发生时构成阻断）。
+    在同一进程中驱动约四十分钟后，驾驶舱回落到 `◌ CONNECTING` /
+    `Establishing the versioned Core connection.` / `Core connection pending`，
+    伴随 `DIAG 1×`、一个读作 `No Lanes yet` 的 `LANES` 面板，以及无响应的输入框。
+    进程仍然存活，窗口也仍在辅助功能树中；该状态在 60 秒内的六次检查中都没有清除，
+    只有终止并重启才恢复。在 `RUST_LOG=info` 下该进程的标准输出/标准错误没有写入
+    任何内容 —— 整个会话的日志文件是零字节 —— 因此本批次无法说明传输层做了什么。
+    按观察如实记录，并附上 Core 自己状态栏显示的诊断计数。
+38. **在另一个 Lane 的智能体已停止时创建的 Lane 得不到执行属主，且选中项无法从它
+    移开**（GUI 或 Core；观察到一次）。`lane_1789366692288148000` 刚创建之后，状态
+    栏、标题栏与上下文坞都指名它，输入框携带
+    `The selected Lane has no sole Core execution owner.`，恢复界面的控件读作
+    `Close Lane · no_exact_lane`，上下文坞读作
+    `Waiting for the selected Lane context.`。点击**另一个** Lane 的侧栏行并没有
+    移动选中项：在两次尝试与一次稳定后的重读中，状态栏、标题栏与上下文坞都停留在新
+    Lane 上。在创建过程中的一小段时间里，上下文坞还显示着**第一个** Lane 的分支、
+    工作树与 `+1 −1`，而其他每个界面都指名第二个 —— 这是一种自行解决的陈旧作用域，
+    因此记为陈旧而非缺陷 30 的第二个实例。第 14 步的重启把这一切都清除了：C17 的
+    水合给**两个** Lane 都赋予了属主。仅观察到一次，且发生在后来丢失 Core 连接的
+    那个进程里（缺陷 37），两者可能同源。
+
+### 对缺陷 25–34 的裁定
+
+| # | 对该候选版的裁定 |
+| --- | --- |
+| 25 | **仍然开着，而且如今被挡得更早。** 它在客户端一侧的两个成因都已消失 —— 选中一个 Lane 时提交栏可达且作用域限定于该 Lane（缺陷 30，已闭合）—— 但 `Stage all` 从未抵达可决断界面（缺陷 35），因此 `Commit & Push ⇡` 从未启用、`git_push` 那一半从未发出、没有看到 `NoUpstream` 拒绝、裸 `origin` 也从未被使用 |
+| 26 | **再次未复现。** 三次针对持有 Lane 的 home 的启动时绑定，每次都渲染出完整驾驶舱 |
+| 27 | **已闭合，原生环境确认。** 输入框控件弹出框能打开并结算；本次运行中从未出现因 `set_work_mode` 槽位被占而被拒绝的提交 |
+| 28 | **已闭合，原生环境双向确认。** C17 的修复成立：工具结果指名 Lane 工作树、Lane 工作树携带该改动、工作区根目录毫发无损，且产品自己在 Lane 中的 `pwd` 打印的就是该工作树 |
+| 29 | **未闭合；形状变得更糟。** 见缺陷 36 |
+| 30 | **已闭合，原生环境确认。** 选中一个 Lane 时提交栏可达、不携带 `D1-OPERATOR-GIT-OWNER` 拒绝语，且只指名被选中的 Lane |
+| 31 | **未重新驱动。** 本次运行没有抵达 `Always` / 撤销这一段。H6 的修复在原生环境下仍未确认 |
+| 32 | **已闭合，用真实按键在原生环境确认。** 在 ABC 输入源上以 HID 按键事件键入的 `A"b"c` 读回 `41 22 62 22 63`；两个引号都是 `U+0022` |
+| 33 | **已闭合，原生环境确认。** 在已停止的 Lane 上按下 `Diff review` 会切换中间区，而恢复界面在对话槽位中依然可达 |
+| 34 | **已闭合，原生环境确认。** C17 的水合为每个恢复的非终态 Lane 追加一条接替绑定；恢复的 Lane 拥有属主、接受提交、在新会话下跑起回合，且其提交栏是启用的 |
+
+### 对兼容性后续项 16 的裁定
+
+| # | 对该候选版的裁定 |
+| --- | --- |
+| 16 | **在 GUI 上仍未满足，而且如今是静默失败。** 输入框在回合期间宣称 `Queue follow-up`，接受提交却不给拒绝语，清空草稿，不发布 `InputQueued` 也不推进 `EVENTS`，而文字从未抵达 Core。见缺陷 36 |
+
+### 观察，而非缺陷
+
+- **按键能抵达主窗口，却抵达不了它的子面板。** `⌘O` 与 `⌘L` 对 Viden 窗口都奏效，
+  而它们抬起的 `NSOpenPanel` 根本收不到任何按键事件 —— 既不是 `⌘⇧G`（除非先用点击
+  进入面板把它打开），也不是在已解析的"前往"行上按 `Return`，两种输入源下都如此。
+  点击能抵达它；该面板全程渲染为非活动态。绑定改在启动时完成，而 E3c 的面包屑规则
+  在任何东西被绑定之前就抓到了：面板恢复的是 E3c 的夹具。
+- **窗口离开辅助功能树的频率远高于 E3b 或 E3c 的记录。** 本次运行中约十余次
+  `-1719` 应答，每次都紧跟在引发中间视图切换、审批决断或 Lane 选择的点击之后，每次
+  都在进程存活的情况下于 3–15 秒内恢复。它让本次运行付出了一个审批的代价：第一个
+  `edit_file` 请求在按下无法送达期间**按它自己的 `Expires: 1789365601` 过期**，
+  Core 写下了 `decision: "deny"`、`reason: "RequiresApproval"`、
+  `message: "User denied the permission request"`。此后本批次的每一次决断都走一个
+  等待窗口重新进入树的重试循环。性质上与 E3b 的读数无异；就本批次的证据而言，缺陷
+  18 仍然不是一次自我终止。
+- **审批有五分钟寿命，工装必须尊重它。** 审批卡片打印的 `Expires` 字段是真实且被
+  强制执行的。任何把审批窗口花在别处的步骤，都会因超时拒绝而失去该审批。
+- **某些快捷键受上下文约束。** `⌘L` 从转录区能打开新建 Lane 弹出框，从 DiffReview
+  则毫无反应；在 `+ New Lane` 弹出按钮刚被按过之后 `⌘.` 完全不触发，而标题栏自己的
+  专注模式控件立刻奏效。未作调查，也不主张其为缺陷。
+- **按窗口 id 的截图可能拍到过渡态。** 本次运行中有两帧是在中间视图切换尚在绘制时
+  拍下的，显示的是将要离开的视图；片刻之后读取的辅助功能树显示的是进来的那个，该帧
+  随即重拍。截图与树不一致，是截图的过错而非产品的，且树才是记录在案的状态。
+- **包体仍是 `0.1.0-rc.5`。** 计划在本里程碑的目标是 `rc.6`，尚无批次执行该提升。
+
+### 这对计划目标 4 意味着什么（按界面）
+
+`docs/release-0.3.3-plan.md` 的目标 4，在 `0.3.4` 中作为目标 6 延续 —— "一个真实
+的本地优先开发任务通过 GUI 完成，从接入到一次已提交的改动，并记录审计与证据"：
+
+- **通过 TUI —— 端到端满足**，与 2026-09-12 的记录一致。
+- **通过 `0.3.5` 候选版的原生 GUI 窗口 —— 智能体这一半在 Lane 内部已经完整。**
+  E3c 打开了 Lane 的回合；E3d 闭合了会让那个回合的工作落错地方、或在重启后消失的
+  两件事。Lane 拥有的回合中调用的工具如今编辑的是 Lane 工作树并且不碰工作区根目录，
+  产品自己的 `pwd` 就这么说，而跨重启恢复的 Lane 重新拥有自己并能再跑一个回合。有
+  了这些，驾驶舱就能在 Lane 里做真实工作并把它留住。
+- **驾驶舱仍然做不到的是提交这份工作。** 提交栏第一次变得可达且作用域正确（缺陷
+  30 已闭合），紧接着 `Stage all` 抵达不了任何可决断的东西（缺陷 35）。其下游的一切
+  —— 提交、`Commit & Push ⇡`、`git_push` 那一半、`NoUpstream`、上游、推送 —— 都没有
+  被驱动，本文也不对其中任何一项作出主张。
+- **诚实的总账：** E3c 所证的每一个 `0.3.5` 信任界面依然成立，而 E3d 补上了 Lane
+  的*工作*这一半 —— 正确的工具作用域、正确的重启归属、逐字的操作者输入、在已停止的
+  Lane 上可达的中间视图，以及一条终于指名操作者所选 Lane 的提交栏。目标 4 的端到端
+  主张在 GUI 上**仍未满足**，如今是因为暂存这一步上的一个阻断原因，而不是 E3c 指出
+  的那三个。退出标准 1 就"候选版已被原生驱动"、"Lane 的回合"、以及"Lane 的工作落在
+  Lane 里"而言是满足的；就完整任务而言并不满足，本文也不假装满足。
