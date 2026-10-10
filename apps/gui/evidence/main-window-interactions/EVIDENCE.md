@@ -1574,3 +1574,27 @@ under "Defects 35–38 — H7".
 | `h7-02-stage-raises-git-add.png` | Defect 35, closed. `Stage all` with the Lane selected raises Core's own `git_add`: the Decision Center reads `1 awaiting you`, the card names the project and the Lane, `TOOL INPUT PREVIEW all: true`, and the audit id the decision will be written to. E3d had `0 awaiting you` and no `git_*` row at all |
 | `h7-03-stage-completed.png` | The same action settled: `Stage completed · viden/lane_… ↑0 ↓0 · uncommitted changes remain`, over Core's own unified hunk `-# H7 Fixture` / `+# Edited Fixture`, with `Commit` and `Commit & Push ⇡` live |
 | `h7-04-push-half-no-approval.png` | Defect 25, still open. After two commits landed through the pair, the `git_push` half stands on `Push is waiting for approval in the permission dock.` with `Commit & Push ⇡` disabled, and no `git_push` approval and no `source.push` row ever arrive |
+
+## H8 captures (native, 2026-09-14)
+
+Window-id captures from a `0.1.0-rc.5` bundle built on
+`claude/gui-push-half-h8`, driven natively while the host screen was unlocked
+(`CGSSessionScreenIsLocked=0` before every input batch). The fixture is a fresh
+temporary Git repository under the run's scratch directory with one commit and
+`provider = "fallback"` / `model = "test-local"`; the bare `origin` was added
+out of band only *after* the first push was refused, which is the order E3b
+intended and never reached. The run's own record is in
+[`docs/release-evidence/gui-trusted-delivery/checkpoints.md`](../../../../docs/release-evidence/gui-trusted-delivery/checkpoints.md)
+under "Defect 25 — H8".
+
+Every frame was viewed before it was listed.
+
+| Frame | What it shows |
+| --- | --- |
+| `h8-01-push-approval-on-the-dock.png` | **Defect 25, closed.** The `git_push` half of `Commit & Push ⇡`, sent by the client from the commit's own answer: the bar reads `Push is waiting for approval in the permission dock.` **and the dock below it holds `Approve git_push · git_push`, High risk**, with `remote: origin` in the tool input, `Y · Once` / `A · Session` / `Allow repo paths` / `N · Deny` live, the rail's decision badge at `1` and the status bar at `1 awaiting you`. E3b step 22, E3d and H7 step 9 all had this same sentence beside an empty dock and `0 awaiting you` |
+| `h8-02-no-upstream-and-set-upstream.png` | The approval decided `allow once`, and Core's own typed refusal: `Push failed. This branch has no upstream, so ahead and behind would be unknowable. Push once with set-upstream to create one.` over git's own `the current branch has no upstream branch; push with set_upstream to create one`, with the `Push and set upstream` recovery the `no_upstream` class names |
+| `h8-03-set-upstream-raises-its-own-approval.png` | The recovery pressed after a bare `origin` was added out of band. It is a second action and it raises **its own** `git_push` approval — `remote: origin set_upstream: true` in the tool input, `1 awaiting you` again — rather than riding the authorization the refused push already spent |
+| `h8-04-push-completed.png` | `Push completed · viden/lane_1789379401566830000 ↑0 ↓0 · working tree clean`, with Core's collapsed `Git output`. The branch is really in the bare repository at `4092adc`, and `audit.jsonl` carries four `source.push` rows: `phase: authorized, tool: git_push` then `class: no_upstream, phase: failed`, and `phase: authorized` then `phase: completed` |
+
+No PNG here is under 30 KB — the smallest of the four is
+`h8-04-push-completed` at 430,374 bytes.
