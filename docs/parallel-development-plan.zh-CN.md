@@ -481,6 +481,26 @@ Lane** 完成的一次提交与一次被接受的 push，以及一次被排空�
 `docs/release-evidence/gui-trusted-delivery/checkpoints.zh-CN.md` 与
 `docs/release-0.3.4-report.zh-CN.md`。
 
+### 0.3.5 可信交付与发布门禁候选
+
+2026-10-10 修订。上一节作为 `0.3.4` 的历史保留；`0.3.4` 已在 `edcc7b3d` 合入 `main`。
+当前的本地候选是集成分支 `claude/int-0.3.5`，位于
+`d522e4f38f7643d0e1dd37d70af5e84c43f59765`（截至 C19 与 E3e 的每一个 `0.3.5` 批次），
+发布步骤（R1）的记账提交位于 `claude/release-gate-r1`，待合并到其上；它组合 Core
+`0.3.8`（契约 checkpoint `d522e4f38f7643d0e1dd37d70af5e84c43f59765`，schema `1`，
+33 项 extension capability）、TUI `0.3.6` 与 GUI `0.1.0-rc.6`。三条线各自独立推进：
+Core 是因为 C13 到 C15 新增了四个能力，两个客户端是因为它们在 G8、G9、G9b 与 T4 中完成
+采纳。
+
+**状态：候选位于 `claude/int-0.3.5` @`d522e4f3`，等待推送。** `main` 已于 2026-10-10
+作为计划中途的快照快进到 `0dcfaa66`，没有版本提升；候选未合入该处，未打 tag，未发布。
+完整工作区套件以并行方式、不排除任何 crate 运行通过，本地 gate 集合与版本为
+`0.1.0-rc.6` 的 macOS arm64 `.app` 全绿。真实任务已在 E3e 中通过 GUI 驾驶舱原生完成，
+附带报告中写明的三项限定。GUI 仍为 `rc.6`，因为生产门禁没有完整通过：设计保真门的
+原生环节没有运行，只构建了 macOS arm64，并且没有任何对外发布步骤 —— live provider、
+签名、公证、工作流分发、tag、GitHub Release、Homebrew —— 获得授权。记录与退出标准表见
+`docs/release-0.3.5-report.zh-CN.md`。
+
 ## 明确不做
 
 - 不从当前 dirty、落后的本地 `main` 直接创建三个实现分支。

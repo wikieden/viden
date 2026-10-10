@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-OUT_DIR="${1:-"$ROOT/target/tui-regression/0.3.5"}"
+OUT_DIR="${1:-"$ROOT/target/tui-regression/0.3.6"}"
 SCREENSHOT_DIR="$OUT_DIR/screenshots"
 VERSION="${VIDEN_TUI_SCREENSHOT_VERSION:-}"
 if [[ -z "$VERSION" ]]; then

@@ -9378,8 +9378,8 @@ mod tests {
             .parse::<toml::Value>()
             .expect("release manifest TOML");
 
-        assert_eq!(env!("CARGO_PKG_VERSION"), "0.3.5");
-        assert!(manifest.contains("version = \"0.3.5\""));
+        assert_eq!(env!("CARGO_PKG_VERSION"), "0.3.6");
+        assert!(manifest.contains("version = \"0.3.6\""));
         assert!(manifest.contains(
             "tokens_css = \"2d80baa92bc7b83a188257a08dec27cb1fc143fc27237a02dfdbb61eee8b941a\""
         ));

@@ -1,0 +1,185 @@
+component = "viden-gui"
+component_version = "0.1.0-rc.6"
+release_channel = "rc"
+status = "trusted-delivery-beta-candidate"
+selected_framework = "tauri"
+
+[core]
+component = "viden-core"
+minimum_version = "0.3.5"
+base_checkpoint = "f7fe1b31dfb237e4062209767a7051c2b2c68b93"
+code_checkpoint = "d522e4f38f7643d0e1dd37d70af5e84c43f59765"
+contract_payload_sha = "e989fa7cd3ccd9664196309586e5d135e3115693"
+canonical_d1_fixture = "crates/types/tests/fixtures/frontend-contract-v1/d1-main-cockpit.json"
+extension_fixture_sha256 = "05ac25909beaa84942a0468d2ae2d8058e7348bd0bd2b7bc86d6fd344fe69439"
+supported_schema_versions = [1]
+required_capabilities = [
+  "runtime.agent_dag",
+  "runtime.approvals",
+  "runtime.commands",
+  "runtime.context",
+  "runtime.cost",
+  "runtime.events",
+  "runtime.evidence",
+  "runtime.merge_gate",
+  "runtime.queued_input",
+  "runtime.replay",
+  "runtime.snapshot",
+  "runtime.transcript_page",
+  "runtime.typed_lanes",
+  "runtime.typed_tasks",
+  "ui.preferences",
+]
+feature_capabilities = [
+  "core.workspace_host",
+  "runtime.agent_adapters",
+  "runtime.agent_permission_bridge",
+  "runtime.agent_session_control",
+  "runtime.agent_session_input",
+  "runtime.agent_sessions",
+  "runtime.approval_scopes",
+  "runtime.audit",
+  "runtime.cockpit_context_v1",
+  "runtime.conflict_content",
+  "runtime.credential_handles",
+  "runtime.credential_staging",
+  "runtime.durable_work_evidence",
+  "runtime.evidence_reads",
+  "runtime.lane_lifecycle",
+  "runtime.lane_owner_projection",
+  "runtime.operator_git",
+  "runtime.plan_documents",
+  "runtime.project_onboarding",
+  "runtime.recent_work",
+  "runtime.starter_lane_agent",
+  "runtime.starter_lane_preview",
+  "runtime.structured_diff",
+  "runtime.transcript_rows",
+  "runtime.trust_loop",
+  "runtime.turn_lifecycle",
+  "runtime.workspace_eligibility",
+  "runtime.workspace_file_reads",
+  "runtime.workspace_files",
+  "runtime.workspace_owner",
+  "ui.layout_preferences",
+  "ui.preference_persistence",
+]
+
+[fixtures]
+corpus = "crates/types/tests/fixtures/frontend-contract-v1"
+schema_version = 1
+required_ids = [
+  "interaction-closed-loop",
+  "stream-tool",
+  "approval-allow-deny",
+  "queued-follow-up",
+  "dag-blocker",
+  "multi-lane",
+  "merge-gate",
+  "context-pressure-cost-blind",
+  "plan-denial",
+  "d1-vertical-slice",
+  "d1-main-cockpit",
+  "structured-diff",
+  "operator-git",
+  "conflict-content",
+  "evidence-reads",
+]
+
+[locales]
+built_in = ["en", "zh-CN"]
+source_files = [
+  "docs/viden-design/Viden/i18n.js",
+  "docs/viden-design/Viden/i18n-dict.js",
+]
+catalog_revision_sha256 = "65dc527f6a66b12985491a3c51d75b076e624e7b809e91987d6d64a9e0f37f25"
+revision_algorithm = "sha256(path + NUL + bytes + NUL for listed files in order)"
+
+[appearance]
+skins = ["aurora", "ice", "mono", "amber", "phosphor"]
+valid_skin_mode_pairs = [
+  "aurora/dark",
+  "aurora/light",
+  "ice/dark",
+  "ice/light",
+  "mono/dark",
+  "mono/light",
+  "amber/dark",
+  "phosphor/dark",
+]
+densities = ["compact", "regular", "comfy"]
+motion = ["system", "reduced", "full"]
+token_source = "docs/viden-design/Viden/tokens.css"
+token_revision_sha256 = "2d80baa92bc7b83a188257a08dec27cb1fc143fc27237a02dfdbb61eee8b941a"
+
+[design]
+hierarchy = [
+  "docs/viden-design/Viden/index.html",
+  "docs/viden-design/Viden/GUI/Viden - 设计稿索引 (GUI).html",
+  "docs/viden-design/Viden/GUI/Viden - 组件库 (GUI).html",
+  "docs/viden-design/Viden/GUI/Viden - 桌面驾驶舱 (GUI).html",
+]
+subordinate_pages = [
+  "docs/viden-design/Viden/GUI/pages/Viden - D11 首启与项目接入 (GUI).html",
+  "docs/viden-design/Viden/GUI/pages/Viden - D4 Lane创建流程 (GUI).html",
+  "docs/viden-design/Viden/GUI/pages/Viden - D6 空态与错误态 (GUI).html",
+]
+semantic_sources = [
+  "docs/viden-design/Viden/docs/DESIGN-REF.md",
+  "docs/viden-design/Viden/GUI/gui-kit.css",
+  "docs/viden-design/Viden/GUI/gui-icons.jsx",
+  "docs/viden-design/Viden/GUI/gui-titlebar.jsx",
+  "docs/viden-design/Viden/GUI/gui-statusbar.jsx",
+  "docs/viden-design/Viden/GUI/gui-inbox.jsx",
+  "docs/viden-design/Viden/GUI/gui-settings.jsx",
+]
+design_source_revision_sha256 = "3dd53e2fa8632575bb77106e8a86fc4f4e17cd624d42f89da5c55051dc88c210"
+revision_algorithm = "sha256(path + NUL + bytes + NUL for hierarchy, subordinate_pages, and semantic_sources in order)"
+
+[evidence]
+# Deliberately still the rc.3 tree. rc.4 added DiffReview and EvidenceView,
+# rc.5 the navigation shell, the cockpit centre, the context dock tabs, the
+# in-cockpit secondary views, and the 0.3.4 Core consumers, and rc.6 Plan
+# Studio (D15), the Agent Board (D16), the Always/Edit dock and the D4 agent
+# binding; every one of those has deterministic captures under
+# `apps/gui/evidence/` per surface rather than per version, and rc.6's
+# design-fidelity record is `apps/gui/evidence/fidelity-gate/` (G10). No
+# `0.1.0-rc.4`, `0.1.0-rc.5` or `0.1.0-rc.6` acceptance tree was produced by
+# any of those checkpoints, and naming one that does not exist would be worse
+# than naming the one that does.
+root = "apps/gui/evidence/0.1.0-rc.3"
+matrix_tests = "apps/gui/tests/visual"
+accessibility = "apps/gui/evidence/0.1.0-rc.3/accessibility.json"
+performance = "apps/gui/evidence/0.1.0-rc.3/performance.json"
+browser_screenshots = [
+  "apps/gui/evidence/0.1.0-rc.3/d1-design-reference-canonical.png",
+  "apps/gui/evidence/0.1.0-rc.3/d1-main-dark.png",
+  "apps/gui/evidence/0.1.0-rc.3/d1-main-light.png",
+  "apps/gui/evidence/0.1.0-rc.3/d1-main-zh-CN.png",
+  "apps/gui/evidence/0.1.0-rc.3/d1-responsive-1280x800-dark.png",
+  "apps/gui/evidence/0.1.0-rc.3/d1-responsive-960x640-dark-drawer.png",
+  "apps/gui/evidence/0.1.0-rc.3/d1-context-dock-bottom-1280x800.png",
+  "apps/gui/evidence/0.1.0-rc.3/d1-compact-readable.png",
+  "apps/gui/evidence/0.1.0-rc.3/d1-design-reference-vs-actual.png",
+]
+design_reference = "apps/gui/evidence/0.1.0-rc.3/d1-design-reference.html"
+design_reference_capture = "apps/gui/evidence/0.1.0-rc.3/d1-design-reference-canonical.png"
+design_reference_capture_sha256 = "f9209057b5538278da861e04bb43b891438802d9a41dcb5f1476b341b93dc11c"
+context_dock_bottom_capture = "apps/gui/evidence/0.1.0-rc.3/d1-context-dock-bottom-1280x800.png"
+context_dock_bottom_capture_sha256 = "0179f20ac53a484dfb0194392d206d7e182eae1d33d0fd0e94f43c1e2fcc6c30"
+same_state_comparison = "apps/gui/evidence/0.1.0-rc.3/d1-design-reference-vs-actual.png"
+same_state_comparison_sha256 = "d27302d81afaeadfc156513eed30d251ff09194b1b3392010baeac5602ced5e8"
+accepted_target = "apps/gui/evidence/0.1.0-rc.3/accepted-target-dark-cockpit.png"
+accepted_target_sha256 = "d4c97aa4ebe603eddd290785a0e632fd41b72a94de5e7ccb6206352bb0f37e36"
+accepted_target_role = "historical visual reference only; not same-state acceptance evidence"
+design_qa = "apps/gui/design-qa.md"
+
+[contract_requests]
+# 013, 018, 021, 023, 026, 031, 032, 033, 036. Since rc.5, 019, 030 and 037
+# closed on both sides and 034 and 035 opened and closed inside 0.3.5; 036 is
+# closed on the Core and GUI sides and stays open as a TUI adoption item (the
+# TUI's edit draft is still seeded empty). 029 is written down as a
+# reservation for the D5 gallery review, re-dated to 0.3.6 by H3; it is not a
+# request and is not counted.
+open_count = 9
+source = "apps/gui/contract-requests.md"

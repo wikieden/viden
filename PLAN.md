@@ -220,9 +220,19 @@ Next release planning (`0.2.x` and `0.3.x`):
 - `0.3.5`: Trusted-delivery hardening, Plan Studio, Agent Board, the
   design-fidelity gate, and the production release gate (the last three moved
   from `0.3.4` on 2026-09-12). Batches, gates, and exit criteria are in
-  `docs/release-0.3.5-plan.md`; the Core contract increment behind them will
-  be `docs/release-0.3.5-contract-design.md`. Status 2026-09-13: plan
-  written, nothing implemented.
+  `docs/release-0.3.5-plan.md`; the Core contract increment behind them is
+  `docs/release-0.3.5-contract-design.md`. Status 2026-10-10: **candidate on
+  `claude/int-0.3.5` @`d522e4f38f7643d0e1dd37d70af5e84c43f59765`, awaiting
+  push**, with the release step's (R1) bookkeeping commits on
+  `claude/release-gate-r1` to be merged onto it. Core `0.3.8` immutable
+  checkpoint `d522e4f3` (33 extension capabilities, schema `1`), TUI `0.3.6`,
+  GUI `0.1.0-rc.6` (not promoted to `0.1.0`: the production gate did not pass
+  in full). `main` was fast-forwarded to `0dcfaa66` on 2026-10-10 as a
+  mid-plan snapshot. The real task is evidenced natively through the GUI
+  (E3e, with three stated qualifications); the local gate set is green; every
+  external release step — live provider, signing, notarization, dispatch, tag,
+  GitHub Release, Homebrew — is not run for missing authorization, and a
+  release version must be chosen first. See `docs/release-0.3.5-report.md`.
 - Keep Mode/Permission, provider/model, plan-mode, daily-loop, and live
   DeepSeek token/cost smoke in the release gate for future releases.
 - GUI implementation starts only after the contract freeze, but then runs in

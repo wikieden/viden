@@ -43,7 +43,7 @@ fn production_crate_has_an_explicit_version_and_only_core_as_a_viden_dependency(
         .parse()
         .expect("parse production GUI manifest");
 
-    assert_eq!(manifest["package"]["version"].as_str(), Some("0.1.0-rc.5"));
+    assert_eq!(manifest["package"]["version"].as_str(), Some("0.1.0-rc.6"));
     let mut internal = Vec::new();
     for section in ["dependencies", "dev-dependencies", "build-dependencies"] {
         if let Some(table) = manifest.get(section).and_then(toml::Value::as_table) {
@@ -76,8 +76,17 @@ fn rust_web_and_tauri_packages_share_the_explicit_rc_version() {
     )
     .expect("parse Tauri configuration");
 
-    assert_eq!(package["version"].as_str(), Some("0.1.0-rc.5"));
-    assert_eq!(tauri["version"].as_str(), Some("0.1.0-rc.5"));
+    assert_eq!(package["version"].as_str(), Some("0.1.0-rc.6"));
+    assert_eq!(tauri["version"].as_str(), Some("0.1.0-rc.6"));
+    // Tauri's WiX bundler accepts a pre-release only when it is one numeric
+    // segment, so `rc.6` cannot be an MSI version. The Windows installer
+    // carries the plain release triple instead; every other bundle keeps the
+    // pre-release. See docs/release-0.3.5-packaging.md, "The Windows MSI
+    // pre-release constraint".
+    assert_eq!(
+        tauri["bundle"]["windows"]["wix"]["version"].as_str(),
+        Some("0.1.0")
+    );
 }
 
 #[test]
@@ -136,11 +145,31 @@ fn root_workspace_contains_only_the_selected_tauri_production_crate() {
     assert_eq!(members, vec!["apps/gui/src-tauri"]);
 }
 
+/// A shipped snapshot is a record of what that version claimed, so it is never
+/// rewritten. The rc.5 snapshot was edited once after it shipped — DS2 moved
+/// its token digest to keep it byte-equal to the active manifest — and R1
+/// restored the bytes `bcf3d64c` shipped. Each digest below is of the bytes
+/// the snapshot's own release commit wrote.
+#[test]
+fn shipped_rc_snapshots_keep_the_bytes_they_shipped_with() {
+    let manifests = gui_root().join("manifests");
+    let snapshot = fs::read(manifests.join("0.1.0-rc.5.toml")).expect("read the rc.5 snapshot");
+    assert_eq!(
+        format!("{:x}", Sha256::digest(&snapshot)),
+        "b2177792cfd3a5f699b9bde57f22d7d5d0c37db74ba2c64a3c9aad4feeae7092",
+        "manifests/0.1.0-rc.5.toml must stay byte-identical to `git show bcf3d64c:<path>`"
+    );
+    let text = String::from_utf8(snapshot).expect("rc.5 snapshot is UTF-8");
+    assert!(text.contains(
+        "token_revision_sha256 = \"826826ee6ddab845897472701add67ee9f55aff25af539651e6089553b7e6398\""
+    ));
+}
+
 #[test]
 fn rc_release_manifest_is_an_immutable_byte_equivalent_snapshot() {
     let gui_root = gui_root();
     let active_path = gui_root.join("release-manifest.toml");
-    let snapshot_path = gui_root.join("manifests/0.1.0-rc.5.toml");
+    let snapshot_path = gui_root.join("manifests/0.1.0-rc.6.toml");
     let active = fs::read(&active_path).expect("read active GUI release manifest");
     let snapshot = fs::read(&snapshot_path).expect("read immutable beta release manifest");
 
@@ -152,7 +181,7 @@ fn rc_release_manifest_is_an_immutable_byte_equivalent_snapshot() {
         .expect("release manifest must be UTF-8")
         .parse()
         .expect("parse GUI release manifest");
-    assert_eq!(manifest["component_version"].as_str(), Some("0.1.0-rc.5"));
+    assert_eq!(manifest["component_version"].as_str(), Some("0.1.0-rc.6"));
     assert_eq!(manifest["release_channel"].as_str(), Some("rc"));
     assert_eq!(
         manifest["status"].as_str(),

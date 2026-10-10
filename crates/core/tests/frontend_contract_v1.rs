@@ -155,11 +155,11 @@ fn frontend_contract_v1_capability_source_is_frozen_and_sorted() {
     assert!(advertised.contains(&CapabilityId("runtime.credential_handles".to_string())));
     let extension_manifest = include_str!("../frontend-contract-extensions.toml");
     assert!(extension_manifest.contains("base_component_version = \"0.3.0\""));
-    assert!(extension_manifest.contains("candidate_component_version = \"0.3.7\""));
+    assert!(extension_manifest.contains("candidate_component_version = \"0.3.8\""));
     assert!(extension_manifest.contains("compatibility = \"additive_capability_gated\""));
     assert!(extension_manifest.contains("[runtime_trust_loop]\ncommand_count = 8"));
-    assert_eq!(CORE_CLIENT_VERSION, "0.3.7");
-    assert_eq!(local_core_handshake().core_version, "0.3.7");
+    assert_eq!(CORE_CLIENT_VERSION, "0.3.8");
+    assert_eq!(local_core_handshake().core_version, "0.3.8");
 }
 
 #[test]
@@ -274,7 +274,7 @@ fn frontend_host_capabilities_are_schema_one_core_0_3_6_and_additive() {
     ];
 
     assert_eq!(FRONTEND_SCHEMA_V1, SchemaVersion(1));
-    assert_eq!(CORE_CLIENT_VERSION, "0.3.7");
+    assert_eq!(CORE_CLIENT_VERSION, "0.3.8");
     assert_eq!(CORE_CLIENT_CAPABILITIES, frozen_base);
     assert_eq!(CORE_EXTENSION_CAPABILITIES, extensions);
     assert!(
@@ -303,7 +303,7 @@ fn frontend_host_capabilities_are_schema_one_core_0_3_6_and_additive() {
         .expect("missing optional extensions must not block a frozen-base client");
 
     let extension_manifest = include_str!("../frontend-contract-extensions.toml");
-    assert!(extension_manifest.contains("candidate_component_version = \"0.3.7\""));
+    assert!(extension_manifest.contains("candidate_component_version = \"0.3.8\""));
     assert!(extension_manifest.contains("schema_version = 1"));
     assert!(extension_manifest.contains("runtime.cockpit_context_v1"));
     assert!(!extension_manifest.contains("runtime.workspace_facts"));
@@ -517,16 +517,31 @@ fn interaction_closed_loop_fixture_replays_identically_after_a_gap() {
     assert_eq!(full_view.lane_recoveries.len(), 1);
 
     let release_manifest = include_str!("../release-manifest.toml");
-    assert!(release_manifest.contains("component_version = \"0.3.7\""));
+    assert!(release_manifest.contains("component_version = \"0.3.8\""));
     assert!(release_manifest.contains("runtime.cockpit_context_v1"));
     assert!(!release_manifest.contains("runtime.workspace_facts"));
-    // The Core 0.3.7 contract checkpoint: the `claude/int-0.3.4` tip every
-    // 0.3.4 Core batch had landed on. Declared once by the release step (E2)
-    // rather than per batch, because a checkpoint named while the contract is
-    // still moving names a contract that does not exist.
+    // The Core 0.3.8 contract checkpoint: the `claude/int-0.3.5` tip every
+    // 0.3.5 batch had landed on (C19 and E3e last). Declared once by the
+    // release step (R1) rather than per batch, because a checkpoint named
+    // while the contract is still moving names a contract that does not exist.
     assert!(release_manifest.contains(
-        "contract_implementation_checkpoint = \"39ed155dcc1847b915965f49626e6779b8b538d7\""
+        "contract_implementation_checkpoint = \"d522e4f38f7643d0e1dd37d70af5e84c43f59765\""
     ));
+    // The checkpoint advertises exactly the extension set the handshake does.
+    // Each 0.3.5 Core batch added its capability to the extension manifest and
+    // the constant and left this line to the release step, so between C13 and
+    // R1 it named 30 of the 33 — derive it rather than trust it was copied.
+    let advertised_extensions = CORE_EXTENSION_CAPABILITIES
+        .iter()
+        .map(|capability| format!("\"{capability}\""))
+        .collect::<Vec<_>>()
+        .join(", ");
+    assert_eq!(CORE_EXTENSION_CAPABILITIES.len(), 33);
+    assert!(
+        release_manifest.contains(&format!("\ncapabilities = [{advertised_extensions}]\n")),
+        "the release manifest must advertise exactly CORE_EXTENSION_CAPABILITIES"
+    );
+    assert!(release_manifest.contains("capability_count = \"15 frozen base + 33 extensions\""));
 
     // The manifest's fixture digests are pinned by *recomputation*, not by a
     // literal. A literal pin only has to be edited by hand once — or missed
@@ -546,17 +561,30 @@ fn interaction_closed_loop_fixture_replays_identically_after_a_gap() {
         "the release manifest must pin the interaction fixture's replayed view digest"
     );
 
-    // The 0.3.3 contract increment's four extension fixtures are recorded in
-    // the same checkpoint that advertises their capabilities, and by the same
-    // derivation.
+    // The 0.3.3, 0.3.4, and 0.3.5 contract increments' extension fixtures are
+    // recorded in the same checkpoint that advertises their capabilities, and
+    // by the same derivation. The 0.3.5 rows were the gap R1 found: C15's
+    // `approval-scopes` and `starter-lane-agent` were registered in the
+    // extension manifest but never pinned here, and only the 0.3.3 four were
+    // checked, so nothing noticed.
     let root = fixture_root();
     for name in [
         "structured-diff.json",
         "operator-git.json",
         "conflict-content.json",
         "evidence-reads.json",
+        "workspace-owner.json",
+        "ui-layout-preferences.json",
+        "turn-lifecycle.json",
+        "durable-work-evidence.json",
+        "transcript-rows.json",
+        "workspace-file-reads.json",
+        "plan-documents.json",
+        "agent-session-control.json",
+        "approval-scopes.json",
+        "starter-lane-agent.json",
     ] {
-        let bytes = fs::read(root.join(name)).expect("read 0.3.3 extension fixture bytes");
+        let bytes = fs::read(root.join(name)).expect("read extension fixture bytes");
         let payload = format!("{:x}", Sha256::digest(&bytes));
         let fixture = read_fixture(&root, name);
         let (_, cursor, digest) = replay_fixture(&fixture);

@@ -62,12 +62,12 @@ login shell or embedding a machine-specific absolute path.
 
 | Field | Value |
 | --- | --- |
-| GUI component version | `0.1.0-rc.5` |
+| GUI component version | `0.1.0-rc.6` |
 | Minimum Core version | `0.3.5` |
 | Supported frontend schemas | `[1]` |
 | Common branch base | `3a7740ea72e58f4a22248a80f9e7324c49bb0f73` |
 | Core final checkpoint | `f7fe1b31dfb237e4062209767a7051c2b2c68b93` |
-| Core code checkpoint | `39ed155dcc1847b915965f49626e6779b8b538d7` |
+| Core code checkpoint | `d522e4f38f7643d0e1dd37d70af5e84c43f59765` (Core `0.3.8`) |
 | Contract payload | `5bd2b80b0953f4194d082940a7b9164c7231ca2d` |
 | Canonical D1 fixture | `d1-main-cockpit.json`, SHA-256 `05ac25909beaa84942a0468d2ae2d8058e7348bd0bd2b7bc86d6fd344fe69439` |
 | Required Core capabilities | 15 frozen values plus additive extension capabilities, including `runtime.cockpit_context_v1` |
@@ -75,10 +75,28 @@ login shell or embedding a machine-specific absolute path.
 | Appearance | 5 skins, 8 valid skin/mode pairs, 3 densities, 3 motion policies |
 
 The active machine-readable manifest is
-[release-manifest.toml](release-manifest.toml). Its immutable rc.5 snapshot is
-[manifests/0.1.0-rc.5.toml](manifests/0.1.0-rc.5.toml); both files must
+[release-manifest.toml](release-manifest.toml). Its immutable rc.6 snapshot is
+[manifests/0.1.0-rc.6.toml](manifests/0.1.0-rc.6.toml); both files must
 remain byte-equivalent for this release checkpoint. Earlier alpha, beta, rc.2,
-rc.3, and rc.4 snapshots remain historical evidence and are not rewritten.
+rc.3, rc.4, and rc.5 snapshots remain historical evidence and are not rewritten.
+That rule was broken once and is now tested: DS2's token change moved the
+`tokens.css` digest from `826826ee…` to `2d80baa9…` and, to keep the active
+manifest byte-equal to its snapshot, edited the shipped rc.5 snapshot too. The
+rc.6 bump restored `manifests/0.1.0-rc.5.toml` to the bytes `bcf3d64c` shipped
+(`826826ee…`), wrote the new digest into the rc.6 snapshot instead, and
+`tests/architecture_boundary.rs` now pins the rc.5 snapshot's own SHA-256.
+`rc.6` adds Plan Studio (G8), the Agent Board (G9), the Always/Edit dock (G9),
+the D4 agent binding (G9b), the design-fidelity fixes (G10), and the native
+defect fixes H4–H8 and E3e; `[core].feature_capabilities` gains the four
+`0.3.5` capabilities it consumes — `runtime.plan_documents`,
+`runtime.agent_session_control`, `runtime.approval_scopes`, and
+`runtime.starter_lane_agent`. `[core].minimum_version` stays `0.3.5`, because
+every one of them is an independently negotiated feature gate and none blocks
+a base schema-1 client from starting. `[contract_requests].open_count` moves
+10 -> 9 (013, 018, 021, 023, 026, 031, 032, 033, 036), and the comment no
+longer says 029 is unwritten. The Windows installer carries
+`bundle.windows.wix.version = "0.1.0"`, because Tauri's WiX bundler rejects a
+pre-release identifier with a dot; every other bundle keeps `0.1.0-rc.6`.
 `rc.4` added the DiffReview and EvidenceView surfaces and the four `0.3.3` Core
 capabilities. `rc.5` brings the cockpit level with the accepted D1 design — the
 rail-as-router navigation shell with in-cockpit secondary views (G3), the Lane
@@ -2096,6 +2114,47 @@ completed commit whose push never left gets its own sentence — `The commit
 completed, but the push was not sent. Send it with Push.` — and a `Push`
 control beside it, because the completed line on its own reads as a published
 branch.
+
+### E3e fixes — two blockers the native run found and fixed red-first
+
+The native run E3e (2026-10-10) drove the whole real task through the cockpit
+and stopped twice on a GUI blocker; each was fixed in that batch, red-first, in
+its own commit. The record is in
+`docs/release-evidence/gui-trusted-delivery/checkpoints.md`, "Native GUI Run —
+2026-10-10 (0.3.5 candidate `3c652fa8`, E3e)", defects 38 and 41.
+
+**Defect 38 — a Lane selection never re-read the cockpit on a quiet Core
+(`5afb01b0`).** *Cause:* the desktop wires `onCoreWake`, so `schedulePoll`
+never runs and the cockpit projection — which the host scopes to the Lane it is
+asked about — is re-read only by `drainOnce` on a pump wake. A selection is not
+a Core event; `selectLane` re-read the transcript and the commit bar's owner and
+never the projection, so on a quiet Core the new Lane's projection was never
+read: the titlebar stayed on the old Lane, the composer said `The selected Lane
+has no sole Core execution owner.`, and DiffReview drew the old Lane's change
+under the new Lane's name. *Fix:* a selection owes the cockpit one read through
+the same `drainOnce`, and a drain whose selection moved while it was out reads
+again for the new Lane. *Test:* `tests/e3e_lane_selection.spec.ts`, against the
+shipped `renderD1Cockpit` with `onCoreWake` wired and no wake fired. Confirmed
+natively on the rebuilt bundle.
+
+**Defect 41 — Plan Studio's and the Agent Board's intents were refused by the
+host's field names (`4c92b511`).** *Cause:* `models/plan.ts` sends `planId` /
+`contentSha256` and `models/board.ts` sends `sessionId`, while `D15Intent`
+(`src-tauri/src/plan.rs`) and `D16Intent` (`src-tauri/src/board.rs`) declared
+`rename_all = "snake_case"` without `rename_all_fields`, so Tauri refused every
+Accept, Reject, Hand off, Pause, Resume and Kill before the adapter saw it —
+``invalid args `intent` for command `d15_send_intent`: missing field `plan_id` ``.
+The D15 and D16 tests built the intent in Rust and never crossed the wire.
+*Fix:* both intents read the webview's camelCase field names. *Tests:*
+`tests/d15_plan_studio.rs`
+`the_intent_the_webview_sends_is_the_intent_the_host_reads` and
+`tests/d16_agent_board.rs`
+`the_board_intent_the_webview_sends_is_the_intent_the_host_reads`. Confirmed
+natively for D15; D16 is unreachable on a host with no usable ACP agent.
+
+Still open on the candidate after E3e, numbered in the same record: GUI
+defects 39, 40, 43, 44, 45 and 46, and Core defect 42.
+
 
 
 ## Agent Board (G9)

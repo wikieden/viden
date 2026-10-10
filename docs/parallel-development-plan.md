@@ -555,6 +555,31 @@ the exit-criteria table are in
 `docs/release-evidence/gui-trusted-delivery/checkpoints.md` and
 `docs/release-0.3.4-report.md`.
 
+### 0.3.5 Trusted Delivery And Release Gate Candidate
+
+Amendment 2026-10-10. The section above is kept as the `0.3.4` history; `0.3.4`
+merged to `main` at `edcc7b3d`. The current local candidate is the integration
+branch `claude/int-0.3.5` at `d522e4f38f7643d0e1dd37d70af5e84c43f59765` (every
+`0.3.5` batch through C19 and E3e), with the release step's (R1) bookkeeping
+commits on `claude/release-gate-r1` to be merged onto it, combining Core
+`0.3.8` (contract checkpoint `d522e4f38f7643d0e1dd37d70af5e84c43f59765`,
+schema `1`, 33 extension capabilities), TUI `0.3.6`, and GUI `0.1.0-rc.6`. The
+three lines moved independently: Core for the four capabilities C13 to C15
+added, the clients for adopting them in G8, G9, G9b and T4.
+
+**Status: candidate on `claude/int-0.3.5` @`d522e4f3`, awaiting push.** `main`
+was fast-forwarded to `0dcfaa66` on 2026-10-10 as a mid-plan snapshot with no
+version bump; the candidate is not merged there, not tagged, and not released.
+The full workspace suite ran in parallel with no crate excluded, and the local
+gate set and the macOS arm64 `.app` at `0.1.0-rc.6` are green. The real task
+completed natively through the GUI cockpit at E3e, with three qualifications
+the report states. The GUI stays `rc.6` because the production gate did not
+pass in full: the design-fidelity gate's native legs did not run, only macOS
+arm64 is built, and no external release step — live provider, signing,
+notarization, workflow dispatch, tag, GitHub Release, Homebrew — was
+authorized. The record and the exit-criteria table are in
+`docs/release-0.3.5-report.md`.
+
 ## Explicit Non-Goals
 
 - Do not create implementation branches from the current dirty, stale local `main`.

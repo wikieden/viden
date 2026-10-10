@@ -1,4 +1,13 @@
-// Generated source metadata. Run apps/gui/tools/check-generated-tokens.sh after token changes.
+// Token source metadata. TOKEN_SOURCE_SHA256 is the sha256 of
+// docs/viden-design/Viden/tokens.css (`shasum -a 256 <path>`). When the design
+// package changes that file, recompute it and update every live pin together:
+// this constant, `[appearance].token_revision_sha256` in
+// apps/gui/release-manifest.toml (a new GUI version's frozen snapshot copies
+// it; shipped snapshots keep the digest they shipped with),
+// `[source_revisions].tokens_css` in apps/tui/release-manifest.toml, and the
+// literal its manifest test asserts in apps/tui/src/tui/app.rs.
+// `scripts/tui-regression.sh` recomputes the TUI pin; nothing recomputes this
+// one automatically, so it is checked by hand in the same change.
 export const TOKEN_SOURCE_PATH = "docs/viden-design/Viden/tokens.css";
 export const TOKEN_SOURCE_SHA256 = "2d80baa92bc7b83a188257a08dec27cb1fc143fc27237a02dfdbb61eee8b941a";
 export const SEMANTIC_TOKEN_ROLES = [

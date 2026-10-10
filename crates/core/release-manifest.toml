@@ -1,12 +1,12 @@
 schema_version = 1
 component = "viden-core"
-component_version = "0.3.7"
+component_version = "0.3.8"
 status = "immutable_checkpoint"
 frontend_schema_version = 1
 base_contract_checkpoint = "5bd2b80b0953f4194d082940a7b9164c7231ca2d"
-contract_implementation_checkpoint = "39ed155dcc1847b915965f49626e6779b8b538d7"
+contract_implementation_checkpoint = "d522e4f38f7643d0e1dd37d70af5e84c43f59765"
 compatibility = "additive_capability_gated"
-capabilities = ["core.workspace_host", "runtime.agent_adapters", "runtime.agent_conversation", "runtime.agent_permission_bridge", "runtime.agent_session_input", "runtime.agent_sessions", "runtime.audit", "runtime.cockpit_context_v1", "runtime.conflict_content", "runtime.credential_handles", "runtime.credential_staging", "runtime.durable_work_evidence", "runtime.evidence_reads", "runtime.lane_lifecycle", "runtime.lane_owner_projection", "runtime.operator_git", "runtime.plan_documents", "runtime.project_onboarding", "runtime.recent_work", "runtime.starter_lane_preview", "runtime.structured_diff", "runtime.transcript_rows", "runtime.trust_loop", "runtime.turn_lifecycle", "runtime.workspace_eligibility", "runtime.workspace_file_reads", "runtime.workspace_files", "runtime.workspace_owner", "ui.layout_preferences", "ui.preference_persistence"]
+capabilities = ["core.workspace_host", "runtime.agent_adapters", "runtime.agent_conversation", "runtime.agent_permission_bridge", "runtime.agent_session_control", "runtime.agent_session_input", "runtime.agent_sessions", "runtime.approval_scopes", "runtime.audit", "runtime.cockpit_context_v1", "runtime.conflict_content", "runtime.credential_handles", "runtime.credential_staging", "runtime.durable_work_evidence", "runtime.evidence_reads", "runtime.lane_lifecycle", "runtime.lane_owner_projection", "runtime.operator_git", "runtime.plan_documents", "runtime.project_onboarding", "runtime.recent_work", "runtime.starter_lane_agent", "runtime.starter_lane_preview", "runtime.structured_diff", "runtime.transcript_rows", "runtime.trust_loop", "runtime.turn_lifecycle", "runtime.workspace_eligibility", "runtime.workspace_file_reads", "runtime.workspace_files", "runtime.workspace_owner", "ui.layout_preferences", "ui.preference_persistence"]
 
 [cockpit_context]
 capability = "runtime.cockpit_context_v1"
@@ -107,7 +107,9 @@ final_cursor = 10
 
 # The 0.3.5 contract increment's first batch (C13,
 # docs/release-0.3.5-contract-design.md section 1). 29 -> 30 extension
-# capabilities; C14 takes it to 31 and C15 to 33 inside this milestone.
+# capabilities; C14 took it to 31 and C15 to 33 inside this milestone, and R1
+# declared the Core 0.3.8 checkpoint and `component_version` above once every
+# batch had landed on `claude/int-0.3.5`.
 [fixtures.plan_documents]
 path = "../types/tests/fixtures/frontend-contract-v1/plan-documents.json"
 payload_sha256 = "c476eba39b579b9ff41231b55dba9d918104cdeac0003e8a3cb32c270e512112"
@@ -123,13 +125,33 @@ payload_sha256 = "19fda086d830ebf6d7cc3bb4f6a16515d875f02a5d9d3a4ac4a1acbe3139fc
 view_sha256 = "7b9ece0d1673adf67ccbc1f1c1cd83c84c2149f12082bd6dfa1b50b95868da0d"
 final_cursor = 24
 
+# The 0.3.5 contract increment's last batch (C15): `runtime.approval_scopes`
+# (GUI-CORE-019) and `runtime.starter_lane_agent` (GUI-CORE-030), extension
+# capabilities 32 and 33. C15 registered both fixtures in
+# `frontend-contract-extensions.toml` and left these rows and the capability
+# line above to the release step, which is where R1 found them missing: until
+# R1 this manifest advertised 30 of the 33. `approval-scopes` carries C16's
+# refresh (GUI-CORE-036, `ApprovalRequestView.input`); its view digest did not
+# move. `frontend_contract_v1.rs` now derives every row from the fixture bytes.
+[fixtures.approval_scopes]
+path = "../types/tests/fixtures/frontend-contract-v1/approval-scopes.json"
+payload_sha256 = "1f984cd7228572f6e45fc867ee8f10eb6315a93190c1b1dc32e4ca847dd87a14"
+view_sha256 = "ff20cf15a8a8b857a4d3de9a677eff6bc6ad1bf2c57490709803917d770f453d"
+final_cursor = 24
+
+[fixtures.starter_lane_agent]
+path = "../types/tests/fixtures/frontend-contract-v1/starter-lane-agent.json"
+payload_sha256 = "171ebd5a6770119df91bc0477e630dec4406e4b0150cdaadd06e0cfe01e0dd81"
+view_sha256 = "e5ca0bbf8698731316f37def929f35370102296e320a2f35ebba8763ec424267"
+final_cursor = 9
+
 [verification]
-date = "2026-09-12"
+date = "2026-10-10"
 core_gates = "passed"
 workspace_gate = "passed"
-workspace_baseline = "39ed155dcc1847b915965f49626e6779b8b538d7"
-base_fixture_bytes = "nine frozen frontend-contract-v1 fixtures byte-identical to `git show 25072a0a:<path>` and to their apps/tui/release-manifest.toml digests"
+workspace_baseline = "d522e4f38f7643d0e1dd37d70af5e84c43f59765"
+base_fixture_bytes = "nine frozen frontend-contract-v1 fixtures byte-identical to `git show edcc7b3d:<path>` and to their apps/tui/release-manifest.toml digests; every 0.3.4 extension fixture byte-identical except interaction-closed-loop (C12's recorded refresh, view digest unchanged)"
 capability_count = "15 frozen base + 33 extensions"
-integration_branch = "claude/int-0.3.4"
+integration_branch = "claude/int-0.3.5"
 on_main = false
 tag_authorized = false

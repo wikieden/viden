@@ -3,7 +3,7 @@
 English version: [core-0.3-compatibility.md](core-0.3-compatibility.md)
 
 本文是冻结的 Core 0.3.0 `frontend-contract-v1` payload 及其向后兼容扩展线的人类
-可读兼容清单 —— 该扩展线当前的不可变声明是下文的 Core 0.3.7
+可读兼容清单 —— 该扩展线当前的不可变声明是下文的 Core 0.3.8
 checkpoint —— 记录前端 schema、handshake capabilities、
 migration 顺序、确定性 fixture corpus、UI 偏好契约和设计入口层级。
 
@@ -891,6 +891,49 @@ step 构造一个 `AgentDagTaskSpec` —— role 默认 `Coder`，objective 取 
 GUI 的 Plan View 属于 G8，TUI 的计划透镜属于 T4。在各自落地之前，对应客户端把
 「未提出计划」渲染为缺席，而不是从转录文本推断出一份计划。
 
+### Core 0.3.8 契约 checkpoint
+
+由 `0.3.5` 发布步骤（R1）在 2026-10-10 一次性声明，时间点是该增量的所有 Core、客户端、
+加固与证据批次都已落到 `claude/int-0.3.5` 之后 —— 最后落地的是 C19 与 E3e：
+
+```text
+component = viden-core
+component_version = 0.3.8
+status = immutable_checkpoint
+supported_schema_versions = [1]
+active_schema_version = 1
+base_contract_checkpoint = 5bd2b80b0953f4194d082940a7b9164c7231ca2d
+contract_implementation_checkpoint = d522e4f38f7643d0e1dd37d70af5e84c43f59765
+capabilities = 15 个冻结基础 + 33 个扩展
+```
+
+它冻结的 payload 是 schema-1 协议，加上 33 个对外通告的能力，以及
+`crates/core/release-manifest.toml` 记录的 fixture 摘要。该增量新增的四个能力是
+`runtime.plan_documents`（C13）、`runtime.agent_session_control`（C14），以及
+`runtime.approval_scopes` 与 `runtime.starter_lane_agent`（C15）。GUI 在 G8、G9 与
+G9b 中采纳了它们，TUI 在 T4 中采纳 —— 例外是 TUI 的 `Edit` 草稿仍以空值起始，而不是由
+`ApprovalRequestView.input`（C16）填充，这正是 GUI-CORE-036 仍作为 TUI 采纳项保持开放
+的原因。`CORE_CLIENT_VERSION` 是 `env!("CARGO_PKG_VERSION")`，因此
+`crates/core/Cargo.toml` 与清单一同移动，`local_core_handshake().core_version` 回答
+`0.3.8`。
+
+有三条性质值得明说而不是默认。第一，九个冻结的 `frontend-contract-v1` 基础 fixture 与
+`git show edcc7b3d:<path>` 逐字节一致，每一个 `0.3.4` 扩展 fixture 也一样，唯一例外是
+`interaction-closed-loop` —— C12 依兼容性后续项 13 刷新了它的字节，而其视图摘要不变
+（见「Canonical Digest」）。第二，发布步骤发现清单**落后于契约**：每个 `0.3.5` Core 批次都把自己
+的能力加进了 `frontend-contract-extensions.toml` 与 `CORE_EXTENSION_CAPABILITIES`，但
+`release-manifest.toml` 仍只通告 33 个中的 30 个，也没有为 C15 的 `approval-scopes` 与
+`starter-lane-agent` fixture 钉住任何行；没有测试察觉，因为 `frontend_contract_v1.rs` 只
+检查 `0.3.3` 的四行。R1 补上了这三个能力和两行，测试现在从
+`CORE_EXTENSION_CAPABILITIES` 推导能力行，并从 fixture 字节及其重放推导每一条 `0.3.3`、
+`0.3.4` 与 `0.3.5` 扩展行，因此落后于契约的清单会让 checkpoint 失败。第三，这个
+checkpoint 指名的是一个**本地集成分支**上的提交：`main` 已于 2026-10-10 作为计划中途的
+快照快进到 `0dcfaa66`；如果 `claude/int-0.3.5` 在合并前被 rebase，这个 checkpoint 必须
+针对新的 SHA 重新声明，而不能假定它自动存续。
+
+这项声明关乎契约，不关乎分发。本文中的任何内容都不授权创建 tag、推送、发布或改动
+Homebrew。
+
 ### Core 0.3.7 契约 checkpoint
 
 由 `0.3.4` 发布步骤（E2）在 2026-09-12 一次性声明，时间点是该增量的所有 Core 与
@@ -1397,6 +1440,24 @@ E2 的第四项发现属于客户端侧，记录在它该在的地方而不是�
    `lane_supervisor_tests` 用例原先断言「被恢复的 Lane 没有绑定」的旧行为，现在断言这条
    契约，并以能说明这一点的名字重命名。
 
+2026-10-10 由 `0.3.5` 发布步骤（R1）依据 E3e 原生 GUI 运行
+（`docs/release-evidence/gui-trusted-delivery/checkpoints.md`，缺陷 42）新增的后续项。
+只记录，不修复：在声明 checkpoint 的步骤里修复一个 Core 行为，会让该 checkpoint 失效。
+
+22. **已提出的计划在 Core 重启后不复存在**（Core，E3e 期间发现，2026-10-10）。一份通过
+   `update_plan` 为某条 Lane 提出的计划曾出现在视图与规划工作台中；对着同一个
+   `VIDEN_HOME` 重新启动后，该 Lane 的规划工作台显示 `No plan proposed` /
+   `Core holds no plan for this owner.`，而项目的 `workflows/projects/…/agents.jsonl`
+   仍保有该计划的 `plan_document_updated` 事件。GUI 的 D15 投影只过滤
+   `RuntimeViewState::plan_documents` 所携带的内容，因此缺口在 Core hydrate 出的内容里，
+   不在客户端。这与本文上文自己的 `runtime.plan_documents` 规则相矛盾 —— 每一条
+   `PlanDocumentUpdated`「都是持久的 workflow 投影并随快照前缀一同发布，因此重启后回答的
+   是操作者已经接受过的那份计划」—— 至少对仍处于 `Proposed` 的计划如此；已接受的计划
+   能否存续未被驱动验证。关闭它意味着先写一个重启测试：提出一份计划，在同一个 home 上
+   重启 supervisor，并在 hydrate 出的视图中找到带有其修订号与摘要的记录，然后才改动任何
+   生产者。E3e 与 R1 都没有编辑任何 `crates/**` 文件。`0.3.6`。
+
+
 `context-budgets` fixture 为 `ContextScope` 与 `ContextBudgetRecord` 的 frontend-neutral
 facade 导出提供依据。Budget 只能通过该 Lane 精确绑定的 runtime owner 所指名的 typed task
 scope 归属到 Lane；"取最近一条 budget" 永远不是有效归属，fixture 中两个 scope 刻意互不相交。
@@ -1444,7 +1505,7 @@ optional event 只推进 cursor，不修改该 state。
 交互闭环 fixture 包含 18 个有序 event，并只使用 locale-neutral fact key。重连测试会
 刻意观察一次 cursor gap，重放缺失的连续 batch，并证明 normalized final
 `RuntimeViewState`、cursor 与 digest 和不中断 replay 完全一致。
-`crates/core/release-manifest.toml` 记录两份 fixture payload 与 Core 0.3.7 contract
+`crates/core/release-manifest.toml` 记录两份 fixture payload 与 Core 0.3.8 contract
 implementation checkpoint，但不授权创建 tag。
 
 每个 JSON fixture envelope 包含：

@@ -4,7 +4,7 @@ Chinese version: [core-0.3-compatibility.zh-CN.md](core-0.3-compatibility.zh-CN.
 
 This document is the human-readable compatibility manifest for the frozen Core
 0.3.0 `frontend-contract-v1` payload and its backward-compatible extension
-line, whose current immutable declaration is the Core 0.3.7 checkpoint below. It records the frontend schema, handshake capabilities,
+line, whose current immutable declaration is the Core 0.3.8 checkpoint below. It records the frontend schema, handshake capabilities,
 migration order, deterministic fixture corpus, UI preference contract, and
 design-entry hierarchy.
 
@@ -1181,6 +1181,58 @@ the GUI's Plan View is G8 and the TUI's plan lens is T4. Until each lands, the
 corresponding client renders "no plan proposed" as absence rather than
 inferring a plan from transcript text.
 
+### Core 0.3.8 Contract Checkpoint
+
+Declared 2026-10-10 by the `0.3.5` release step (R1), once, after every Core,
+client, hardening and evidence batch of the increment had landed on
+`claude/int-0.3.5` — C19 and E3e last:
+
+```text
+component = viden-core
+component_version = 0.3.8
+status = immutable_checkpoint
+supported_schema_versions = [1]
+active_schema_version = 1
+base_contract_checkpoint = 5bd2b80b0953f4194d082940a7b9164c7231ca2d
+contract_implementation_checkpoint = d522e4f38f7643d0e1dd37d70af5e84c43f59765
+capabilities = 15 frozen base + 33 extensions
+```
+
+The payload it freezes is the schema-1 protocol plus the 33 advertised
+capabilities and the fixture digests `crates/core/release-manifest.toml`
+records. The four capabilities the increment added are
+`runtime.plan_documents` (C13), `runtime.agent_session_control` (C14), and
+`runtime.approval_scopes` and `runtime.starter_lane_agent` (C15). The GUI
+adopted them in G8, G9 and G9b, and the TUI in T4 — except that the TUI's
+`Edit` draft is still seeded empty rather than from `ApprovalRequestView.input`
+(C16), which is why GUI-CORE-036 stays open as a TUI adoption item.
+`CORE_CLIENT_VERSION` is `env!("CARGO_PKG_VERSION")`, so
+`crates/core/Cargo.toml` moved with the manifest and
+`local_core_handshake().core_version` answers `0.3.8`.
+
+Three properties are worth stating rather than assuming. First, the nine
+frozen `frontend-contract-v1` base fixtures are byte-identical to
+`git show edcc7b3d:<path>`, and so is every `0.3.4` extension fixture except
+`interaction-closed-loop`, whose bytes C12 refreshed under compatibility
+follow-up 13 with its view digest unchanged (see "Canonical Digest"). Second,
+the release step found the manifest **behind the contract**: each `0.3.5` Core
+batch had added its capability to `frontend-contract-extensions.toml` and to
+`CORE_EXTENSION_CAPABILITIES`, but `release-manifest.toml` still advertised 30
+of the 33 and pinned no row for C15's `approval-scopes` and
+`starter-lane-agent` fixtures, and no test noticed because
+`frontend_contract_v1.rs` checked only the four `0.3.3` rows. R1 added the
+three capabilities and the two rows, and the test now derives the capability
+line from `CORE_EXTENSION_CAPABILITIES` and every `0.3.3`, `0.3.4` and `0.3.5`
+extension row from the fixture bytes and their replay, so a manifest that lags
+the contract fails the checkpoint. Third, the checkpoint names a commit on a
+**local integration branch**: `main` was fast-forwarded to `0dcfaa66` on
+2026-10-10 as a mid-plan snapshot, and if `claude/int-0.3.5` is rebased before
+it merges, this checkpoint must be re-declared against the new SHA rather than
+assumed to have survived.
+
+This declaration is about the contract, not about distribution. Nothing in this
+document authorizes a tag, a push, a publish, or a Homebrew change.
+
 ### Core 0.3.7 Contract Checkpoint
 
 Declared 2026-09-12 by the `0.3.4` release step (E2), once, after every Core and
@@ -1835,6 +1887,30 @@ and 34):
    `lane_supervisor_tests` cases asserted the old "a restored Lane has no
    binding" behaviour and now assert this contract under names that say so.
 
+Follow-up added 2026-10-10 by the `0.3.5` release step (R1), from the E3e
+native GUI run (`docs/release-evidence/gui-trusted-delivery/checkpoints.md`,
+defect 42). Recorded, not fixed: fixing a Core behaviour in the step that
+declares the checkpoint would invalidate the checkpoint.
+
+22. **A proposed plan does not survive a Core restart** (Core, found during
+   E3e, 2026-10-10). A plan proposed through `update_plan` for a Lane was in
+   the view and in Plan Studio; after a relaunch against the same
+   `VIDEN_HOME`, Plan Studio for that Lane read `No plan proposed` /
+   `Core holds no plan for this owner.`, while the project's
+   `workflows/projects/…/agents.jsonl` still held the `plan_document_updated`
+   event for that plan. The GUI's D15 projection only filters what
+   `RuntimeViewState::plan_documents` carries, so the gap is in what Core
+   hydrates, not in the client. It contradicts this document's own
+   `runtime.plan_documents` rule above — every `PlanDocumentUpdated` "is a
+   durable workflow projection and rides the snapshot prefix, so a restart
+   answers with the plan the operator already accepted" — at least for a
+   plan still `Proposed`; whether an accepted plan survives was not driven.
+   Closing it means a restart test that proposes a plan, restarts the
+   supervisor over the same home, and finds the record in the hydrated view
+   with its revision and digest, before any producer change. No `crates/**`
+   file was edited in E3e or R1. `0.3.6`.
+
+
 
 The `context-budgets` fixture backs the frontend-neutral facade export of
 `ContextScope` and `ContextBudgetRecord`. A budget belongs to a Lane only
@@ -1906,7 +1982,7 @@ Its reconnect test deliberately observes a cursor gap, replays the missing
 contiguous batch, and proves that the normalized final `RuntimeViewState`,
 cursor, and digest equal uninterrupted replay. The manifest at
 `crates/core/release-manifest.toml` records both fixture payloads and the Core
-0.3.7 contract implementation checkpoint; it does not authorize a tag.
+0.3.8 contract implementation checkpoint; it does not authorize a tag.
 
 Each JSON fixture envelope contains:
 
