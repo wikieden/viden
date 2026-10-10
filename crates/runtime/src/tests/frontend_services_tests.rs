@@ -211,15 +211,26 @@ fn frontend_status_git_totals_cover_all_rows_without_a_row_cap() {
 
     let cwd = temp_dir("frontend_status_complete_git_totals");
     let fake_git = cwd.join("fake-git");
+    // Every fake-git call leaves an empty marker named after its subcommand
+    // once its output is written. That is the signal this test owns. SIGPIPE
+    // is ignored so a reader that stops at the output cap cannot kill the
+    // script before the marker lands; a missing marker therefore means the
+    // sampler's deadline killed that call, and `Truncated` with every marker
+    // present can only be the output cap or a row cap — what this test is
+    // about.
+    let finished = cwd.join("finished");
+    fs::create_dir_all(&finished).unwrap();
     fs::write(
         &fake_git,
-        r#"#!/bin/sh
+        format!(
+            r#"#!/bin/sh
+trap '' PIPE
 [ "$GIT_OPTIONAL_LOCKS" = "0" ] || exit 9
 case "$*" in
-  *"rev-parse --show-toplevel"*) printf '%s\n' "$PWD" ;;
-  *"symbolic-ref --quiet --short HEAD"*) printf 'main\n' ;;
-  *"status --porcelain=v1"*) printf ' M README.md\n' ;;
-  *"rev-list --left-right --count"*) printf '2 3\n' ;;
+  *"rev-parse --show-toplevel"*) printf '%s\n' "$PWD"; call=rev-parse ;;
+  *"symbolic-ref --quiet --short HEAD"*) printf 'main\n'; call=symbolic-ref ;;
+  *"status --porcelain=v1"*) printf ' M README.md\n'; call=status ;;
+  *"rev-list --left-right --count"*) printf '2 3\n'; call=rev-list ;;
   *"diff --no-ext-diff --no-textconv --numstat"*)
     i=0
     while [ "$i" -lt 75 ]; do
@@ -230,19 +241,46 @@ case "$*" in
       fi
       i=$((i + 1))
     done
+    call=diff
     ;;
   *) exit 8 ;;
 esac
+# An empty marker, never a printf: a printf after a failed stdout write
+# would flush the stale stdout buffer into whatever it is redirected to.
+: > "{finished}/$call"
 "#,
+            finished = finished.display(),
+        ),
     )
     .unwrap();
     let mut permissions = fs::metadata(&fake_git).unwrap().permissions();
     permissions.set_mode(0o755);
     fs::set_permissions(&fake_git, permissions).unwrap();
 
-    let source = sample_workspace_source_with_git(&cwd, &fake_git, Duration::from_secs(3));
+    // The per-call budget is a liveness ceiling, not a check: this test is
+    // about row caps, and the markers above tell a deadline kill apart. On
+    // macOS the first exec of a just-written executable can stall ~3 s
+    // before it runs a line while the full suite runs. C19 measured the
+    // fake-git child sitting at 0 CPU and exiting by itself at 3.01-3.02 s,
+    // while `/bin/sh <a fresh file>` and a re-exec of the same script took
+    // 3-6 ms. The old 3 s budget raced the operating system, not the sampler.
+    let source = sample_workspace_source_with_git(&cwd, &fake_git, Duration::from_secs(30));
 
-    assert_eq!(source.status, WorkspaceSourceStatus::Ready);
+    let unfinished = ["rev-parse", "symbolic-ref", "status", "rev-list", "diff"]
+        .into_iter()
+        .filter(|call| !finished.join(call).exists())
+        .collect::<Vec<_>>();
+    assert!(
+        unfinished.is_empty(),
+        "fake-git calls {unfinished:?} never finished (the sampler stops at \
+         the first one its deadline killed); that is not a row cap \
+         (source: {source:?})"
+    );
+    assert_eq!(
+        source.status,
+        WorkspaceSourceStatus::Ready,
+        "all five Git calls finished, so `Truncated` here is an output or row cap"
+    );
     assert_eq!(source.ahead, 2);
     assert_eq!(source.behind, 3);
     assert_eq!(source.added, 1_000_075);
