@@ -1567,6 +1567,48 @@ Core 自己的 `git_add`，批准它就完成暂存，提交在 `git_commit` 下
 `Push is waiting for approval in the permission dock.`，而审批从未被引发，这与
 E3b 第 22 步和 E3d 的记录完全一致。缺陷 35 已关闭；缺陷 25 没有。
 
+### H8 —— 推送那一半发出去了，而它等待的那块屏幕是冻住的
+
+批次 H8（2026-09-14）在进程内关闭了 E3b 缺陷 25：`Commit & Push ⇡` 的 `git_push`
+那一半到不了任何可决策的界面。记录在
+`docs/release-evidence/gui-trusted-delivery/checkpoints.zh-CN.md`；下面是发生
+改变的行为。
+
+**外壳路径从来不是问题所在。** `h7_shell_path.rs` 现在按 `advanceCommitPair`
+发送推送的方式发送它——就在承载了提交自身 `Completed` 的那一次轮询内部，中间没有
+任何一轮落定——并且第一次运行就通过：Core 收到 `RunOperatorGitAction`，引发它自己
+的 `git_push` 审批，坐席持有该审批，动作随后落定。第二个测试驱动了此前从未有任何
+一次运行到达过的那条腿，用的是测试夹具自己创建的一个裸仓库：Core 自己带类型的
+`no_upstream`，接着 `Push（设置 upstream）` 引发它自己的第二个 `git_push` 审批，
+再接着 Lane 的分支真的出现在那个仓库里。所以推送并没有丢在客户端与 Core 之间。
+
+**它丢在客户端内部，丢在桌面端使用、而测试没有使用的那套排空模型里。**
+`main.ts` 接上了 `onCoreWake`，于是驾驶舱置 `coreWakeActive`，`schedulePoll` 立即
+返回：驾驶舱投影只在后台事件泵发出唤醒时才重读，而事件泵只为**它自己**排空掉的
+事件唤醒。每一条 operator-git 命令都在 `GuiCoreAdapter::poll_operator_git` 内部
+自行排空有序事件，因此 Core 针对 `git_push` 的 `ApprovalRequested` 是在
+`run_operator_git_action` 内部被消费掉的，事件泵根本没看见它。此后在有人应答那个
+审批之前，Core 不会再发布任何东西，于是也不会再有后续唤醒。提交栏知道了这次询问，
+因为动作投影就是该命令自己的返回值；权限坐席、决策中心和活动栏气泡则停留在它之前
+的那份投影上。`Push is waiting for approval in the permission dock.` 与
+`0 awaiting you` 并排——一块冻住的屏幕上唯一一句活着的话。
+
+暂存与提交是靠运气躲过去的。它们是彼此独立的手势，两次手势之间事件泵有好几秒的
+其他 Core 流量可供唤醒。推送是从 `advanceCommitPair` 内部发出的，而它引发的审批是
+Core 最后要说的一句话。
+
+**一条取走了 Core 事件的命令，欠屏幕其余部分一次重读。**
+`refreshCockpitAfterOperatorGit` 在每一次 operator-git 应答之后运行 `drainOnce`
+——与唤醒所运行的是同一个排空，因此驾驶舱不会有第二种刷新方式——并以该应答自身的
+签名设界，于是没有变化的轮询不花任何代价。没有这个界限它就是个死循环：驾驶舱自己
+的 `queueMicrotask(noteOperatorGitPending)` 会以 Core 能应答的最快速度去轮询它。
+
+**两条诚实规则随之落地。** 操作者的提交草稿只在推送确实离开客户端之后才被清除，
+并且 `runOperatorGit` 会报告它到底有没有发出去，因此一个发不出去的第二半不可能被
+无声丢弃。提交已完成而推送从未发出，会得到属于它自己的一句话——「提交已完成，但推送
+未发送。请使用“推送”发送。」——以及旁边一个「推送」控件，因为仅凭那行完成提示，读起来
+就像分支已经发布。
+
 
 ## Agent 看板（G9）
 

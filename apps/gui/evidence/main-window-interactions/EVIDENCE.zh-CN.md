@@ -1361,3 +1361,26 @@ zh-CN/浅色那一帧是输入框标签的语言与皮肤证据，这也是 H6 �
 
 这里没有任何 PNG 小于 30 KB —— 最小的是 140,924 字节的
 `h6-recovery-conversation-1440x1180-dark-en`。
+
+## H8 采集（原生，2026-09-14）
+
+按窗口 id 采集，来自在 `claude/gui-push-half-h8` 上构建的 `0.1.0-rc.5` 包，在宿主
+屏幕解锁状态下原生驱动（每一批输入之前都先读到
+`CGSSessionScreenIsLocked=0`）。夹具是本次运行 scratch 目录下一个全新的临时 Git
+仓库，只有一次提交，`provider = "fallback"` / `model = "test-local"`；裸 `origin`
+是在第一次推送被拒之**后**才带外加入的——这正是 E3b 本来打算走、却从未走到的顺序。
+本次运行自身的记录在
+[`docs/release-evidence/gui-trusted-delivery/checkpoints.zh-CN.md`](../../../../docs/release-evidence/gui-trusted-delivery/checkpoints.zh-CN.md)
+的「缺陷 25 —— H8」一节。
+
+每一帧都在列出之前被查看过。
+
+| 帧 | 它展示了什么 |
+| --- | --- |
+| `h8-01-push-approval-on-the-dock.png` | **缺陷 25，已关闭。** `Commit & Push ⇡` 的 `git_push` 那一半，由客户端从提交自身的应答里发出：提交栏写着 `Push is waiting for approval in the permission dock.`，**而它下面的坐席确实持有 `Approve git_push · git_push`，高风险**，工具入参里是 `remote: origin`，`Y · Once` / `A · Session` / `Allow repo paths` / `N · Deny` 均可用，活动栏决策气泡为 `1`，状态条为 `1 awaiting you`。E3b 第 22 步、E3d 和 H7 第 9 步都只有同一句话，旁边是空坐席和 `0 awaiting you` |
+| `h8-02-no-upstream-and-set-upstream.png` | 审批以 `allow once` 决策之后，Core 自己带类型的拒绝：`Push failed. This branch has no upstream, so ahead and behind would be unknowable. Push once with set-upstream to create one.`，其下是 git 自己的 `the current branch has no upstream branch; push with set_upstream to create one`，以及 `no_upstream` 这一类别所指定的 `Push and set upstream` 恢复控件 |
+| `h8-03-set-upstream-raises-its-own-approval.png` | 带外加入裸 `origin` 之后按下该恢复控件。它是第二个动作，因此引发**它自己**的 `git_push` 审批——工具入参是 `remote: origin set_upstream: true`，再次 `1 awaiting you`——而不是搭上已被拒绝的那次推送花掉的授权 |
+| `h8-04-push-completed.png` | `Push completed · viden/lane_1789379401566830000 ↑0 ↓0 · working tree clean`，并带 Core 自己折叠起来的 `Git output`。分支确实进了裸仓库，位于 `4092adc`，`audit.jsonl` 里有四条 `source.push`：`phase: authorized, tool: git_push` 然后 `class: no_upstream, phase: failed`，以及 `phase: authorized` 然后 `phase: completed` |
+
+这里没有任何 PNG 小于 30 KB —— 四帧中最小的是 430,374 字节的
+`h8-04-push-completed`。

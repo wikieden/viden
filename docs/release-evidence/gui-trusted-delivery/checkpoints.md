@@ -1536,6 +1536,13 @@ inferred. None was fixed here.
     `RuntimeProjection::permission_dock_for_owner` — not the command slot.
     The surviving shape of defect 16 for the *second* approval of a
     two-approval action stands as E3b recorded it.
+
+    **Resolved by H8 (2026-09-14), in process and natively** — see "Defect
+    25 — H8" at the end of this file. Neither suspect above was the cause:
+    the push was sent and Core raised its approval every time, but the
+    command's own drain consumed the `ApprovalRequested`, so the desktop
+    pump never woke the webview and the dock, the Decision Center and the
+    rail badge stayed on a projection from before it.
 26. **Relaunching against a `VIDEN_HOME` that already holds a created Lane
     leaves the window blank** (GUI, blocking for restart). With
     `VIDEN_GUI_WORKSPACE` set and a home carrying one Lane, the process started,
@@ -2504,3 +2511,115 @@ emits it without a `TurnStarted` naming the entry.
 
 **Still owed:** native confirmation at E3e. Nothing here was driven through the
 real GUI.
+
+## Defect 25 — H8 (2026-09-14, on `claude/gui-push-half-h8`)
+
+Branch `claude/gui-push-half-h8` in `.worktrees/gui-push-half-h8`, base
+`claude/int-0.3.5` at `b2aacbe1` (H7 merged). No `crates/**` change, no GUI
+version bump, nothing under `apps/gui/manifests/` or `docs/viden-design/**`.
+
+**Verdict: defect 25 is closed — in process, and natively on the built
+bundle.** The `git_push` half of `Commit & Push ⇡` now reaches the dock and
+the Decision Center, Core's typed `no_upstream` refusal renders with its
+`Push and set upstream` recovery, that recovery raises its own second
+`git_push` approval, and the accepted push puts the Lane's branch in a bare
+`origin` with four `source.push` rows in `audit.jsonl`.
+
+### What was ruled out first
+
+The shell path was driven exactly as the client drives it, in
+`apps/gui/tests/h7_shell_path.rs`
+(`the_push_half_sent_from_the_commits_own_observation_reaches_a_decidable_surface`):
+the push is sent from inside the poll that carried the commit's own
+`Completed`, with no settle round in between — `advanceCommitPair`'s timing,
+which no earlier test used. It was **green on the first run**. Core receives
+the `RunOperatorGitAction`, raises `git_push`, the dock holds it, and the
+action settles. None of the brief's three suspects — the in-flight slot, the
+selection-tagged read, `runOperatorGit` re-entrancy — reproduces, so none of
+them is the cause.
+
+### The cause
+
+RED, from `apps/gui/tests/h8_push_half.spec.ts` before the fix:
+
+```text
+AssertionError: the bar says `Push is waiting for approval in the
+permission dock.` while the permission dock holds nothing to decide —
+E3b defect 25, a push that is waiting on an approval the operator cannot
+reach: expected '' to contain 'git_push'
+```
+
+The test's own assertion that the push was sent passes; only the surface
+fails. The desktop host wires `onCoreWake`, so `renderD1Cockpit` sets
+`coreWakeActive` and `schedulePoll` returns at once
+(`apps/gui/src/screens/d1_cockpit.ts:3328` at the base): the cockpit
+projection is re-read only on a pump wake, and the pump wakes only for events
+*it* drained. `GuiCoreAdapter::poll_operator_git`
+(`apps/gui/src-tauri/src/adapter.rs:3259`) drains inside the command, so the
+push's `ApprovalRequested` is consumed there and the pump never sees it — and
+Core then says nothing more until that approval is answered. The commit bar
+knew (its projection is the command's own return value); the dock, the
+Decision Center and the rail badge did not. Stage and commit survived by
+timing: between two separate gestures the pump had other traffic to wake on.
+The push is sent from inside `advanceCommitPair`, and its approval is the last
+thing Core publishes.
+
+### The fix
+
+`refreshCockpitAfterOperatorGit` in `apps/gui/src/screens/d1_cockpit.ts`,
+called from `runOperatorGit` and `noteOperatorGitPending`, runs the same
+`drainOnce` the wake runs after every operator-git answer, bounded by that
+answer's signature so an unchanged poll does not loop. Two honesty rules land
+with it: the commit draft is retired only once the push has left the client
+(`runOperatorGit` now reports whether it did), and a completed commit whose
+push never left renders `d1.review.actionPushNotSent` with a `Push` control
+(`onPush`).
+
+| Commit | What |
+| --- | --- |
+| `6c82f69b` | Shell harness: the client's push timing, the `no_upstream` → set-upstream → bare-`origin` leg, and `settle` waiting on Core's D1 slot instead of eight fixed rounds (it failed 3/3 with eight tests in parallel, and is 3/3 green on the slot wait) |
+| `c7ef4bf0` | The fix and the webview tests, with the RED text above |
+
+### The native confirmation
+
+Taken. The host screen read `CGSSessionScreenIsLocked=0` before every
+keystroke and click batch, from `time=2026-09-14T09:41:19Z` (the first check)
+through `time=2026-09-14T10:09:53Z` (the last input). Bundle
+`target/release/bundle/macos/Viden.app` built from `c7ef4bf0`; `VIDEN_HOME`
+and a fresh one-commit fixture under the run's scratch directory; bind through
+`VIDEN_GUI_WORKSPACE`. Launched PIDs 34026 and 4319, both killed by this
+batch. Frames are window-id captures, each viewed before it was listed, in
+`apps/gui/evidence/main-window-interactions/` (see its `EVIDENCE.md`).
+
+| # | Step | Reached | Result | Frame |
+| --- | --- | --- | --- | --- |
+| 1 | `+ New Lane`, built-in agent, `lane_create` approval, `Y · Once` | yes | `lane_1789379401566830000`, `⎇ 1 worktree` | — |
+| 2 | Lane worktree `README.md` changed out of band, `Stage all`, `git_add`, `Y · Once` | yes | `Stage completed · viden/lane_… ↑0 ↓0 · uncommitted changes remain` | — |
+| 3 | `Commit & Push ⇡` with `Add the push-leg line`, `git_commit`, `Y · Once` | yes | The commit lands; the working tree goes clean | — |
+| 4 | **The `git_push` half** | **yes — defect 25 closed** | `Push is waiting for approval in the permission dock.` **with `Approve git_push · git_push` on the dock beneath it**, `remote: origin`, the rail badge at `1`, the status bar at `1 awaiting you` | [`h8-01`](../../../apps/gui/evidence/main-window-interactions/h8-01-push-approval-on-the-dock.png) |
+| 5 | `Y · Once` on the push, no remote configured | yes | Core's typed `no_upstream`: `Push failed. This branch has no upstream…` with git's own line and the `Push and set upstream` control | [`h8-02`](../../../apps/gui/evidence/main-window-interactions/h8-02-no-upstream-and-set-upstream.png) |
+| 6 | Bare `origin` added out of band, `Push and set upstream` | yes | Its **own** second `git_push` approval, `set_upstream: true`, `1 awaiting you` | [`h8-03`](../../../apps/gui/evidence/main-window-interactions/h8-03-set-upstream-raises-its-own-approval.png) |
+| 7 | `Y · Once` | yes | `Push completed · viden/lane_1789379401566830000 ↑0 ↓0 · working tree clean`; the bare repository holds `viden/lane_1789379401566830000` at `4092adc` | [`h8-04`](../../../apps/gui/evidence/main-window-interactions/h8-04-push-completed.png) |
+
+`audit.jsonl` ends with four `source.push` rows: `phase: authorized, tool:
+git_push`; `class: no_upstream, phase: failed`; `phase: authorized`;
+`phase: completed` — the first `source.push` rows any run has written.
+
+### Observations, not defects
+
+- **The first launch froze after a coordinate click into the commit-message
+  box followed by `⌘V`**: the centre went to `CONNECTING / Establishing the
+  versioned Core connection.`, the rail went disabled and `REQ 1 req` stood
+  still, while the connection log stayed on `to=live`. A relaunch recovered
+  the bound Lane with its staged change intact, and the second launch drove
+  every step above. Not reproduced and not claimed as a defect; it is the
+  shape defect 37 named — a read that never answered — and is left for E3e.
+- **Synthetic keystrokes did not reach the webview's text fields on this
+  host**: the active input method turned `keystroke` into Chinese candidates
+  in the New Lane `TASK` box, and backspace/paste into the commit-message box
+  were dropped. The commit message was therefore set through the
+  Accessibility value of the field, which fires the field's own `input` event.
+  The `TASK` text of the Lane is not what was intended; nothing downstream
+  reads it.
+- No frame was taken for steps 1–3; they are the stage-and-commit half H7
+  already recorded natively.

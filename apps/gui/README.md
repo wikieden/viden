@@ -2045,6 +2045,58 @@ half stands on `Push is waiting for approval in the permission dock.` and no
 approval is ever raised, which is E3b step 22 and E3d unchanged. Defect 35 is
 closed; defect 25 is not.
 
+### H8 — the push half was sent, and the screen it was waiting on was frozen
+
+Batch H8 (2026-09-14) closed E3b defect 25 in process: the `git_push` half of
+`Commit & Push ⇡` reaching no decidable surface. The record is in
+`docs/release-evidence/gui-trusted-delivery/checkpoints.md`; what follows is
+the behaviour that changed.
+
+**The shell path was never the problem.** `h7_shell_path.rs` now sends the push
+the way `advanceCommitPair` sends it — from inside the poll that carried the
+commit's own `Completed`, with no settle round in between — and it goes
+through on the first run: Core receives the `RunOperatorGitAction`, raises its
+`git_push` approval, the dock holds it, and the action settles. A second test
+drives the leg no run had ever reached, with a bare repository the harness
+creates: Core's typed `no_upstream`, then `Push (set upstream)` raising its own
+second `git_push` approval, then the Lane's branch actually arriving in that
+repository. So the push was not being lost between the client and Core.
+
+**It was lost inside the client, in the drain model the desktop uses and the
+tests did not.** `main.ts` wires `onCoreWake`, so the cockpit sets
+`coreWakeActive` and `schedulePoll` returns immediately: the cockpit projection
+is re-read only when the background pump emits a wake, and the pump wakes only
+for events *it* drained. Every operator-git command drains ordered events
+itself inside `GuiCoreAdapter::poll_operator_git`, so Core's `ApprovalRequested`
+for `git_push` is consumed inside `run_operator_git_action` and the pump never
+sees it. Core then publishes nothing further until somebody answers that
+approval, so no later wake arrives either. The commit bar learned about the ask,
+because the action projection is the command's own return value; the permission
+dock, the Decision Center and the rail badge stayed on the projection from
+before it. `Push is waiting for approval in the permission dock.` beside
+`0 awaiting you` was one live sentence on a frozen screen.
+
+Stage and commit escaped it by luck. They are separate gestures, and between
+two of them the pump has seconds of other Core traffic to wake on. The push is
+sent from inside `advanceCommitPair`, and the approval it raises is the last
+thing Core has to say.
+
+**A command that takes Core's events owes the rest of the screen a read.**
+`refreshCockpitAfterOperatorGit` runs `drainOnce` — the same drain the wake
+runs, so the cockpit has no second way to refresh — after every operator-git
+answer, bounded by that answer's own signature so an unchanged poll costs
+nothing. Without the bound it is a loop: the cockpit's own
+`queueMicrotask(noteOperatorGitPending)` would poll Core as fast as Core can
+answer.
+
+**Two honesty rules land with it.** The operator's commit draft is retired only
+once the push has actually left the client, and `runOperatorGit` reports whether
+it did, so a second half that could not be sent cannot be dropped in silence. A
+completed commit whose push never left gets its own sentence — `The commit
+completed, but the push was not sent. Send it with Push.` — and a `Push`
+control beside it, because the completed line on its own reads as a published
+branch.
+
 
 ## Agent Board (G9)
 

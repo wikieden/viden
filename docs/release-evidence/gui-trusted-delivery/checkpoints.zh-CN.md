@@ -1298,6 +1298,11 @@ runtime 测试证明。收据是在 Core 发布*之后*丢失的，丢在桌面�
     疑落在 Lane 作用域的路由上 —— `GuiCoreAdapter::operator_git_owner` 与
     `RuntimeProjection::permission_dock_for_owner` —— 而不是命令槽。缺陷 16 在两
     审批动作的*第二个*审批上残存的形状，仍如 E3b 所记录。
+
+    **已由 H8（2026-09-14）在进程内并以原生方式解决** —— 见本文件末尾「缺陷
+    25 —— H8」。上面两个嫌疑都不是原因：推送每次都发出了，Core 每次也都引发了
+    审批，但命令自身的排空消费掉了 `ApprovalRequested`，于是桌面事件泵从未唤醒
+    webview，权限坞、决策中心和活动栏气泡都停在它之前的投影上。
 26. **针对已持有已创建 Lane 的 `VIDEN_HOME` 重新启动会留下空白窗口**（GUI，对
     重启构成阻塞）。在设置了 `VIDEN_GUI_WORKSPACE` 且 home 中带有一个 Lane 时，
     进程启动、绘制出窗口框架、在 web 区域中不放任何内容 —— 可访问性树中只有窗口
@@ -2087,3 +2092,97 @@ E3d 为 35、37、38 记录的每一个症状，都是一次从未得到回答�
 该条目的 `TurnStarted`。
 
 **仍然欠下的：** E3e 的原生确认。这里没有任何一项经过真实 GUI 驱动。
+
+## 缺陷 25 —— H8（2026-09-14，位于 `claude/gui-push-half-h8`）
+
+分支 `claude/gui-push-half-h8`，工作树 `.worktrees/gui-push-half-h8`，基线
+`claude/int-0.3.5` 的 `b2aacbe1`（已合入 H7）。没有改动 `crates/**`，没有提升
+GUI 版本，没有碰 `apps/gui/manifests/` 或 `docs/viden-design/**`。
+
+**结论：缺陷 25 已关闭 —— 在进程内，也在构建出的包上以原生方式。**
+`Commit & Push ⇡` 的 `git_push` 那一半现在能到达权限坞与决策中心；Core 带类型的
+`no_upstream` 拒绝连同其 `Push and set upstream` 恢复控件一起渲染；该恢复引发它
+自己的第二个 `git_push` 审批；被接受的推送把 Lane 的分支推进裸 `origin`，
+`audit.jsonl` 中留下四条 `source.push`。
+
+### 先被排除的
+
+外壳路径按客户端的方式驱动，见 `apps/gui/tests/h7_shell_path.rs`
+（`the_push_half_sent_from_the_commits_own_observation_reaches_a_decidable_surface`）：
+推送在承载提交自身 `Completed` 的那次轮询内部发出，中间没有落定轮 ——
+`advanceCommitPair` 的时序，此前没有任何测试用过。它**第一次运行就通过**：Core
+收到 `RunOperatorGitAction`，引发 `git_push`，坐席持有它，动作落定。简报列出的三
+个嫌疑 —— 在途槽、带选中标签的读取、`runOperatorGit` 重入 —— 都无法复现，因此都
+不是原因。
+
+### 原因
+
+RED，修复之前来自 `apps/gui/tests/h8_push_half.spec.ts`：
+
+```text
+AssertionError: the bar says `Push is waiting for approval in the
+permission dock.` while the permission dock holds nothing to decide —
+E3b defect 25, a push that is waiting on an approval the operator cannot
+reach: expected '' to contain 'git_push'
+```
+
+测试自己关于「推送已发出」的断言是通过的；失败的只有界面。桌面宿主接上了
+`onCoreWake`，于是 `renderD1Cockpit` 置 `coreWakeActive`，`schedulePoll` 立即返回
+（基线上 `apps/gui/src/screens/d1_cockpit.ts:3328`）：驾驶舱投影只在事件泵唤醒时
+重读，而事件泵只为**它自己**排空的事件唤醒。`GuiCoreAdapter::poll_operator_git`
+（`apps/gui/src-tauri/src/adapter.rs:3259`）在命令内部排空，于是推送的
+`ApprovalRequested` 在那里被消费，事件泵根本看不到 —— 而在该审批被应答之前 Core
+不会再说任何话。提交栏知道（它的投影就是命令的返回值）；权限坞、决策中心和活动栏
+气泡不知道。暂存和提交靠时序幸存：两次独立手势之间事件泵有别的流量可唤醒。推送是
+从 `advanceCommitPair` 内部发出的，它的审批是 Core 发布的最后一件事。
+
+### 修复
+
+`apps/gui/src/screens/d1_cockpit.ts` 中的 `refreshCockpitAfterOperatorGit`，由
+`runOperatorGit` 与 `noteOperatorGitPending` 调用，在每一次 operator-git 应答之后
+运行与唤醒相同的 `drainOnce`，并以该应答的签名设界，未变化的轮询不会循环。两条
+诚实规则随之落地：提交草稿只在推送确实离开客户端之后才清除（`runOperatorGit`
+现在报告它是否发出）；提交已完成而推送未发出时，渲染
+`d1.review.actionPushNotSent` 并附「推送」控件（`onPush`）。
+
+| 提交 | 内容 |
+| --- | --- |
+| `6c82f69b` | 外壳测试夹具：客户端的推送时序、`no_upstream` → 设置 upstream → 裸 `origin` 这条腿，以及 `settle` 改为等待 Core 的 D1 槽而不是固定八轮（八个测试并行时 3/3 失败，改为等槽后 3/3 通过） |
+| `c7ef4bf0` | 修复与 webview 测试，提交信息中带上面的 RED 文本 |
+
+### 原生确认
+
+已执行。每一批按键与点击之前宿主屏幕都读到 `CGSSessionScreenIsLocked=0`，从
+`time=2026-09-14T09:41:19Z`（第一次检查）到 `time=2026-09-14T10:09:53Z`（最后一次
+输入）。包 `target/release/bundle/macos/Viden.app` 构建自 `c7ef4bf0`；`VIDEN_HOME`
+与一个只有一次提交的全新夹具都在本次运行的 scratch 目录下；通过
+`VIDEN_GUI_WORKSPACE` 绑定。启动的 PID 为 34026 与 4319，均由本批次结束。各帧按窗口
+id 采集，列出之前都已查看，位于 `apps/gui/evidence/main-window-interactions/`（见其
+`EVIDENCE.zh-CN.md`）。
+
+| # | 步骤 | 到达 | 结果 | 帧 |
+| --- | --- | --- | --- | --- |
+| 1 | `+ New Lane`、内置 agent、`lane_create` 审批、`Y · Once` | 是 | `lane_1789379401566830000`，`⎇ 1 worktree` | — |
+| 2 | 带外修改 Lane 工作树的 `README.md`，`Stage all`，`git_add`，`Y · Once` | 是 | `Stage completed · viden/lane_… ↑0 ↓0 · uncommitted changes remain` | — |
+| 3 | `Commit & Push ⇡`，消息 `Add the push-leg line`，`git_commit`，`Y · Once` | 是 | 提交落地，工作树变干净 | — |
+| 4 | **`git_push` 那一半** | **是 —— 缺陷 25 关闭** | `Push is waiting for approval in the permission dock.` **其下坞中确有 `Approve git_push · git_push`**，`remote: origin`，活动栏气泡为 `1`，状态条为 `1 awaiting you` | [`h8-01`](../../../apps/gui/evidence/main-window-interactions/h8-01-push-approval-on-the-dock.png) |
+| 5 | 对推送 `Y · Once`，尚无远端 | 是 | Core 带类型的 `no_upstream`：`Push failed. This branch has no upstream…`，附 git 原话与 `Push and set upstream` 控件 | [`h8-02`](../../../apps/gui/evidence/main-window-interactions/h8-02-no-upstream-and-set-upstream.png) |
+| 6 | 带外加入裸 `origin`，按 `Push and set upstream` | 是 | 它**自己的**第二个 `git_push` 审批，`set_upstream: true`，`1 awaiting you` | [`h8-03`](../../../apps/gui/evidence/main-window-interactions/h8-03-set-upstream-raises-its-own-approval.png) |
+| 7 | `Y · Once` | 是 | `Push completed · viden/lane_1789379401566830000 ↑0 ↓0 · working tree clean`；裸仓库在 `4092adc` 持有 `viden/lane_1789379401566830000` | [`h8-04`](../../../apps/gui/evidence/main-window-interactions/h8-04-push-completed.png) |
+
+`audit.jsonl` 以四条 `source.push` 结尾：`phase: authorized, tool: git_push`；
+`class: no_upstream, phase: failed`；`phase: authorized`；`phase: completed` —— 这是
+所有运行中第一次写出 `source.push`。
+
+### 观察，不是缺陷
+
+- **第一次启动在一次坐标点击提交消息框并按 `⌘V` 之后冻结**：中间区变成
+  `CONNECTING / Establishing the versioned Core connection.`，活动栏被禁用，
+  `REQ 1 req` 不再变化，而连接日志一直停在 `to=live`。重新启动后恢复了已绑定的
+  Lane 及其已暂存的改动，第二次启动驱动了上面每一步。未复现，不作为缺陷声明；它
+  是缺陷 37 所描述的那种形状 —— 一次从未应答的读取 —— 留给 E3e。
+- **在这台主机上，合成按键到不了 webview 的文本框**：当前输入法把 `keystroke`
+  变成了 New Lane `TASK` 框里的中文候选，提交消息框里的退格与粘贴被丢弃。因此提交
+  消息是通过该字段的辅助功能值设置的，这会触发字段自己的 `input` 事件。该 Lane 的
+  `TASK` 文本不是预期的那句；下游没有任何东西读取它。
+- 第 1–3 步没有截帧；它们是 H7 已经以原生方式记录过的暂存与提交那一半。

@@ -188,11 +188,58 @@ impl ShellHarness {
     }
 
     /// Lets the pump advance and re-reads, the way the webview does on a wake.
+    ///
+    /// The wait is on Core's one D1 command slot rather than on a fixed number
+    /// of rounds: the slot is what the *next* gesture needs, and a fixed count
+    /// is a guess that gets shorter as the machine gets busier — which is how a
+    /// harness starts reporting `command ... is still pending` for a Lane that
+    /// was created perfectly well.
     fn settle(&self, lane_id: Option<&str>) {
-        for _ in 0..8 {
-            thread::sleep(Duration::from_millis(30));
-            let _ = shell::d1_poll(self.state(), lane_id, false);
+        let deadline = Instant::now() + Duration::from_secs(20);
+        loop {
+            if let Ok(result) = shell::d1_poll(self.state(), lane_id, false)
+                && result.pending_command_id.is_none()
+            {
+                return;
+            }
+            if Instant::now() >= deadline {
+                return;
+            }
+            thread::sleep(Duration::from_millis(25));
         }
+    }
+
+    /// Creates a bare repository and points the fixture's `origin` at it.
+    ///
+    /// H8. E3b created one of these natively and never reached a push to use
+    /// it. A push needs somewhere to go before `no_upstream` is the *only*
+    /// thing in the way, and a bare repository on the filesystem is a real
+    /// remote: the branch either arrives in it or it does not.
+    fn add_bare_origin(&self) -> PathBuf {
+        let origin = temp_dir("bare-origin");
+        for (args, cwd) in [
+            (
+                vec!["init", "--bare", "--initial-branch=main"],
+                origin.clone(),
+            ),
+            (
+                vec![
+                    "remote",
+                    "add",
+                    "origin",
+                    origin.to_str().expect("UTF-8 origin path"),
+                ],
+                self.project.clone(),
+            ),
+        ] {
+            let status = std::process::Command::new("git")
+                .args(args)
+                .current_dir(&cwd)
+                .status()
+                .expect("run the bare-origin fixture command");
+            assert!(status.success(), "bare-origin fixture command must succeed");
+        }
+        origin
     }
 
     /// Core's own record of where a Lane's tree lives.
@@ -227,6 +274,125 @@ impl ShellHarness {
             if Instant::now() >= deadline {
                 return state;
             }
+            thread::sleep(Duration::from_millis(25));
+        }
+    }
+
+    /// Sends the push the way `advanceCommitPair` sends it, and only that way.
+    ///
+    /// The client polls the operator action on the cockpit's own wake, and the
+    /// instant one of those answers reports a `Completed` commit it calls
+    /// `runOperatorGit({ type: "push" })` from inside that very drain — no
+    /// second settle round, no fresh gesture, no wake in between. Every
+    /// in-process test of the pair so far settled the commit first and sent the
+    /// push afterwards, which is the one timing the shipped client never uses.
+    fn push_from_the_commits_own_observation(
+        &self,
+        lane_id: &str,
+        command_id: &str,
+    ) -> OperatorGitProjection {
+        let deadline = Instant::now() + Duration::from_secs(20);
+        loop {
+            let observed = shell::operator_git_poll(self.state(), Some(lane_id))
+                .expect("poll the commit half through the shell");
+            if observed.outcome.state != "pending" {
+                assert_eq!(
+                    observed.outcome.state, "confirmed",
+                    "the commit half must settle before the pair may send the push: {:?}",
+                    observed.outcome
+                );
+                let result = observed.result.as_ref().expect("Core answered the commit");
+                assert_eq!(
+                    (result.kind, result.action),
+                    ("completed", "commit"),
+                    "the pair sends the push only on a `Completed` commit: {result:?}"
+                );
+                // `advanceCommitPair`, exactly here: still inside the
+                // observation that carried the commit's answer.
+                return shell::run_operator_git_action(
+                    self.state(),
+                    command_id,
+                    Some(lane_id),
+                    OperatorGitIntent::Push {
+                        remote: None,
+                        set_upstream: false,
+                    },
+                )
+                .unwrap_or_else(|error| {
+                    panic!(
+                        "the push the pair owes never left the shell: {error}. A second half the \
+                         client cannot send is the half the operator is told is waiting"
+                    )
+                });
+            }
+            assert!(
+                Instant::now() < deadline,
+                "the commit half never settled: {:?}",
+                observed.outcome
+            );
+            thread::sleep(Duration::from_millis(25));
+        }
+    }
+
+    /// Waits for the in-flight operator action's own approval and answers it,
+    /// holding the bar to what it is allowed to say while it waits.
+    ///
+    /// This is the assertion defect 25 is made of. `awaiting_approval` is what
+    /// renders `... is waiting for approval in the permission dock.`
+    /// (`d1.review.actionAwaitingApprovalDetail`), and the client may render
+    /// that sentence only while an approval the operator can actually reach
+    /// exists. A `pending` action with `awaiting_approval` set and nothing in
+    /// the dock or the Decision Center is the lie the native runs recorded.
+    fn await_operator_git_approval(&self, lane_id: &str, command_id: &str) -> String {
+        let deadline = Instant::now() + Duration::from_secs(30);
+        loop {
+            let cockpit = self.cockpit(Some(lane_id));
+            let decisions = shell::d2_decisions(self.state(), None)
+                .expect("the Decision Center reads back through the shell");
+            let dock = cockpit.permission_dock.request.clone();
+            let decidable = dock.is_some()
+                || decisions
+                    .as_ref()
+                    .is_some_and(|decisions| decisions.pending_total > 0);
+
+            let action = shell::operator_git(self.state(), Some(lane_id))
+                .expect("the no-traffic operator-git read answers through the shell");
+            if action.outcome.state == "pending" && action.awaiting_approval {
+                assert!(
+                    decidable,
+                    "the bar says `{} is waiting for approval in the permission dock.` while the \
+                     dock holds nothing and the Decision Center reads 0 awaiting: {action:?}",
+                    action.pending_action.unwrap_or("the action")
+                );
+            }
+            if action.outcome.state != "pending" {
+                panic!(
+                    "the push settled without ever raising an approval the operator could \
+                     decide: {:?} / {:?}",
+                    action.outcome, action.result
+                );
+            }
+            if let Some(request) = dock {
+                let tool_name = request.tool_name.clone();
+                shell::permission_send_intent(
+                    self.state(),
+                    command_id,
+                    PermissionIntent::Respond {
+                        request_id: request.id,
+                        choice: PermissionChoice::Once,
+                        feedback: None,
+                        revised_input: None,
+                    },
+                )
+                .expect("answer the approval the dock is holding");
+                return tool_name;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "no approval for the in-flight `{}` reached a decidable surface within 30s, and \
+                 the bar stood on `waiting for approval` the whole time — E3b defect 25",
+                action.pending_action.unwrap_or("operator action")
+            );
             thread::sleep(Duration::from_millis(25));
         }
     }
@@ -718,4 +884,183 @@ fn a_lane_created_beside_a_stopped_lane_keeps_its_owner() {
         back.lanes.iter().any(|lane| lane.id == second),
         "and the second Lane is still in the list it was read beside"
     );
+}
+
+/* ---- H8 / defect 25: the `git_push` half of `Commit & Push` ---- */
+
+/// The client's own `Commit & Push` sequence, which no test had driven.
+///
+/// E3b step 22, E3d and H7 step 9 all found the same thing natively: the
+/// commit half goes through under its own approval, and then the bar stands on
+/// `Push is waiting for approval in the permission dock.` with `Commit & Push`
+/// disabled, `0 awaiting you` in the Decision Center, and no `git_push`
+/// approval and no `source.push` audit row, ever.
+///
+/// Every in-process test that "covered" the pair sent the push on a fresh
+/// call after settling the commit. The shipped client does not: `Commit &
+/// Push` sets `pushAfterCommit`, and `advanceCommitPair`
+/// (`apps/gui/src/screens/d1_cockpit.ts:2358`) sends the push from inside the
+/// drain that observed the commit's own answer. That is the timing here, and
+/// it is the only difference.
+#[test]
+fn the_push_half_sent_from_the_commits_own_observation_reaches_a_decidable_surface() {
+    let harness = ShellHarness::launch("push-half");
+    let lane = harness.create_starter_lane("push-lane");
+    let worktree = harness.lane_worktree(&lane);
+    std::fs::write(worktree.join("README.md"), "# H8 push half\n")
+        .expect("dirty the Lane worktree");
+
+    shell::run_operator_git_action(
+        harness.state(),
+        "gui-git-stage",
+        Some(&lane),
+        OperatorGitIntent::Stage { paths: Vec::new() },
+    )
+    .expect("the shell sends the stage");
+    harness.decide_dock_approval("gui-git-stage-allow", Some(&lane));
+    let staged = harness.settle_operator_git(Some(&lane));
+    assert_eq!(staged.outcome.state, "confirmed", "{:?}", staged.outcome);
+
+    // `Commit & Push` presses: the client sends only the commit, and arms the
+    // pair. Nothing else is sent until Core answers this one.
+    shell::run_operator_git_action(
+        harness.state(),
+        "gui-git-commit",
+        Some(&lane),
+        OperatorGitIntent::Commit {
+            message: "Add the push-leg line".to_string(),
+        },
+    )
+    .expect("the shell sends the commit half");
+    harness.decide_dock_approval("gui-git-commit-allow", Some(&lane));
+
+    let sent = harness.push_from_the_commits_own_observation(&lane, "gui-git-push");
+    assert_eq!(
+        sent.pending_action,
+        Some("push"),
+        "the push the pair owes is on the wire as Core's own audit verb: {sent:?}"
+    );
+
+    // The honesty rule, checked on every read rather than once at the end: the
+    // bar may say "waiting for approval" only while there is an approval to
+    // decide. "Waiting" beside an empty dock is the defect itself.
+    let decided = harness.await_operator_git_approval(&lane, "gui-git-push-allow");
+    assert_eq!(
+        decided, "git_push",
+        "the push raises its own `git_push` approval on the surface the operator is looking at"
+    );
+
+    let pushed = harness.settle_operator_git(Some(&lane));
+    assert_eq!(
+        pushed.outcome.state, "confirmed",
+        "the push settles once its approval is answered: {:?}",
+        pushed.outcome
+    );
+    let result = pushed.result.as_ref().expect("Core answered the push");
+    assert_eq!(result.action, "push");
+    assert_eq!(
+        result.failure_class,
+        Some("no_upstream"),
+        "this fixture has no upstream, so Core's typed refusal is the answer: {result:?}"
+    );
+}
+
+/// H8, the leg no run has ever reached: `NoUpstream`, the upstream, the push.
+///
+/// E3b created a bare `origin` and never used it; E3c and E3d never reached a
+/// push entry point at all; H7 reached the push and lost it. This drives the
+/// whole of it through the shell with a Lane selected: the pair's own push
+/// refuses with Core's typed `no_upstream`, the `Push (set upstream)` recovery
+/// raises **its own** `git_push` approval rather than riding the refused one,
+/// and the accepted push puts the Lane's branch in the bare repository.
+#[test]
+fn the_no_upstream_refusal_then_set_upstream_pushes_to_a_bare_origin() {
+    let harness = ShellHarness::launch("push-upstream");
+    let origin = harness.add_bare_origin();
+    let lane = harness.create_starter_lane("upstream-lane");
+    let worktree = harness.lane_worktree(&lane);
+    std::fs::write(worktree.join("README.md"), "# H8 upstream\n").expect("dirty the Lane worktree");
+
+    shell::run_operator_git_action(
+        harness.state(),
+        "gui-git-stage",
+        Some(&lane),
+        OperatorGitIntent::Stage { paths: Vec::new() },
+    )
+    .expect("the shell sends the stage");
+    harness.decide_dock_approval("gui-git-stage-allow", Some(&lane));
+    harness.settle_operator_git(Some(&lane));
+
+    shell::run_operator_git_action(
+        harness.state(),
+        "gui-git-commit",
+        Some(&lane),
+        OperatorGitIntent::Commit {
+            message: "Add the upstream-leg line".to_string(),
+        },
+    )
+    .expect("the shell sends the commit half");
+    harness.decide_dock_approval("gui-git-commit-allow", Some(&lane));
+
+    // The pair's own push, sent from the commit's observation, and answered.
+    harness.push_from_the_commits_own_observation(&lane, "gui-git-push");
+    assert_eq!(
+        harness.await_operator_git_approval(&lane, "gui-git-push-allow"),
+        "git_push"
+    );
+    let refused = harness.settle_operator_git(Some(&lane));
+    let result = refused.result.as_ref().expect("Core answered the push");
+    assert_eq!(
+        (result.action, result.failure_class),
+        ("push", Some("no_upstream")),
+        "a branch with no upstream is Core's own typed refusal, not a generic failure: {result:?}"
+    );
+
+    // `Push (set upstream)` — `onPushSetUpstream`. A second action, and it
+    // raises a second approval: a recovery that rode the refused action's
+    // authorization would be a push nobody approved.
+    shell::run_operator_git_action(
+        harness.state(),
+        "gui-git-push-upstream",
+        Some(&lane),
+        OperatorGitIntent::Push {
+            remote: None,
+            set_upstream: true,
+        },
+    )
+    .expect("the shell sends the set-upstream push");
+    assert_eq!(
+        harness.await_operator_git_approval(&lane, "gui-git-push-upstream-allow"),
+        "git_push",
+        "the second push raises its own `git_push` approval"
+    );
+
+    let pushed = harness.settle_operator_git(Some(&lane));
+    let result = pushed
+        .result
+        .as_ref()
+        .expect("Core answered the second push");
+    assert_eq!(
+        (result.kind, result.action),
+        ("completed", "push"),
+        "the accepted push completes against the bare origin: {result:?}"
+    );
+    assert!(
+        !result.audit_id.is_empty(),
+        "a completed push carries Core's own audit id, which is the `source.push` row"
+    );
+
+    // And the branch is really in the bare repository, which is the only
+    // evidence a push actually happened.
+    let branches = std::process::Command::new("git")
+        .args(["--git-dir", origin.to_str().expect("origin path is UTF-8")])
+        .args(["branch", "--format=%(refname:short)"])
+        .output()
+        .expect("list the bare origin's branches");
+    let branches = String::from_utf8_lossy(&branches.stdout);
+    assert!(
+        branches.contains(&format!("viden/{lane}")),
+        "the Lane's branch reached the bare origin; it holds {branches:?}"
+    );
+    let _ = std::fs::remove_dir_all(&origin);
 }
