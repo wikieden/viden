@@ -187,7 +187,14 @@ pub struct D15PlanStudioProjection {
 /// they are the pin, and a host that resolved them fresh would turn every stale
 /// decision into a silent accept of a revision nobody read.
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
+// The webview sends `models/plan.ts`'s camelCase fields (`planId`,
+// `contentSha256`); without `rename_all_fields` Tauri refused every decision
+// with `missing field \`plan_id\`` before it reached the adapter (E3e).
+#[serde(
+    tag = "type",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase"
+)]
 pub enum D15Intent {
     Accept {
         plan_id: String,

@@ -442,3 +442,36 @@ fn d15_reports_cores_stale_refusal_verbatim() {
     // The view re-reads the record Core holds: still revision 2.
     assert_eq!(result.projection.plan.unwrap().revision, 2);
 }
+
+/// E3e: `Accept` pressed in the native window came back
+/// `invalid args \`intent\` for command \`d15_send_intent\`: missing field
+/// \`plan_id\`` — the webview sends `models/plan.ts`'s camelCase fields
+/// (`planId`, `contentSha256`) and the host deserialized snake_case ones, so
+/// no decision ever left the client. Every other intent here was built in Rust,
+/// which is why none of them saw it. This parses the exact bytes Tauri hands
+/// the command.
+#[test]
+fn the_intent_the_webview_sends_is_the_intent_the_host_reads() {
+    let accept: viden_gui::D15Intent = serde_json::from_str(
+        r#"{"type":"accept","planId":"plan_1","revision":1,"contentSha256":"93aaa047"}"#,
+    )
+    .expect("the webview's accept must deserialize");
+    assert_eq!(
+        accept,
+        viden_gui::D15Intent::Accept {
+            plan_id: "plan_1".to_string(),
+            revision: 1,
+            content_sha256: "93aaa047".to_string(),
+        }
+    );
+    let reject: viden_gui::D15Intent = serde_json::from_str(
+        r#"{"type":"reject","planId":"plan_1","revision":1,"contentSha256":"93aaa047","reason":"no"}"#,
+    )
+    .expect("the webview's reject must deserialize");
+    assert!(matches!(reject, viden_gui::D15Intent::Reject { .. }));
+    let hand_off: viden_gui::D15Intent = serde_json::from_str(
+        r#"{"type":"hand_off","planId":"plan_1","revision":1,"contentSha256":"93aaa047"}"#,
+    )
+    .expect("the webview's hand-off must deserialize");
+    assert!(matches!(hand_off, viden_gui::D15Intent::HandOff { .. }));
+}

@@ -421,3 +421,24 @@ fn d16_reports_no_lane_rather_than_an_invented_row() {
     assert!(projection.selected_session_id.is_none());
     assert!(projection.detail.is_none());
 }
+
+/// E3e, found beside D15's: `models/board.ts` sends `sessionId` and the host
+/// deserialized `session_id`, so every Agent Board control would have been
+/// refused by Tauri before reaching the adapter. No ACP binary was on the host,
+/// so this was never reachable natively; the wire shape is checked here.
+#[test]
+fn the_board_intent_the_webview_sends_is_the_intent_the_host_reads() {
+    let pause: viden_gui::D16Intent =
+        serde_json::from_str(r#"{"type":"pause","sessionId":"session_1"}"#)
+            .expect("the webview's pause must deserialize");
+    assert_eq!(
+        pause,
+        viden_gui::D16Intent::Pause {
+            session_id: "session_1".to_string()
+        }
+    );
+    let start: viden_gui::D16Intent =
+        serde_json::from_str(r#"{"type":"start","sessionId":"session_1","model":null}"#)
+            .expect("the webview's start must deserialize");
+    assert!(matches!(start, viden_gui::D16Intent::Start { .. }));
+}
