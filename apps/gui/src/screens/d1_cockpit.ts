@@ -1999,6 +1999,7 @@ export function renderD1Cockpit(
     if (disposed || pollInFlight || !document.contains(root)) return;
     if (sending || discoveryDispatching) return;
     pollInFlight = true;
+    const drainedLaneId = selectedLaneId;
     void poll(selectedLaneId ?? undefined, false)
       .then((result) => {
         if (!disposed) controller.applyResult(result);
@@ -2007,6 +2008,9 @@ export function renderD1Cockpit(
       .finally(() => {
         pollInFlight = false;
         if (disposed) return;
+        // The operator moved the selection while this read was out: its answer
+        // is the previous Lane's, so the new one is still owed a read.
+        if (selectedLaneId !== drainedLaneId) queueMicrotask(drainOnce);
         releaseCommandSlotWaiters();
         queueMicrotask(maybeResumeLaneStart);
         queueMicrotask(advanceAgentDiscovery);
@@ -4207,6 +4211,15 @@ export function renderD1Cockpit(
     // new selection would badge this Lane with another Lane's decision.
     rescopePlanDocuments();
     render(false);
+    // The cockpit projection is host-scoped to the Lane it is asked about, and
+    // with the desktop's pump wake it is re-read only when Core publishes
+    // something. A selection is not a Core event, so on a quiet Core nothing
+    // would ever read the new Lane's projection: the status bar would keep the
+    // previous Lane, the dock would wait for a context that never comes, and
+    // the composer would refuse for want of an owner (E3e, defect 38). The
+    // selection owes the cockpit one read, through the same drain the wake
+    // runs. Without the wake the drain timer already reads the selection.
+    if (coreWakeActive) queueMicrotask(drainOnce);
   }
 
   /// Where the palette portals to. Outside the frame, so a Core refresh that
