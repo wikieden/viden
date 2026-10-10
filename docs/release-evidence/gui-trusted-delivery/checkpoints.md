@@ -2623,3 +2623,325 @@ git_push`; `class: no_upstream, phase: failed`; `phase: authorized`;
   reads it.
 - No frame was taken for steps 1–3; they are the stage-and-commit half H7
   already recorded natively.
+
+## Native GUI Run — 2026-10-10 (0.3.5 candidate `3c652fa8`, E3e)
+
+This is E3e: the remaining Lane steps driven through the native cockpit after
+H7, C18 and H8. Branch `claude/evidence-e3e` in `.worktrees/evidence-e3e`,
+base the integration branch `claude/int-0.3.5` at
+`3c652fa8` — E3d's base plus H7 (the desktop pump no longer starves the
+operator's command, a follow-up is kept until Core's `InputQueued`, the Core
+connection is logged and retried), C18 (Core accepts, queues and drains a
+Lane-scoped `QueueFollowUp`) and H8 (the `git_push` half of `Commit & Push ⇡`
+reaches the dock).
+
+The host screen was unlocked and `CGSessionCopyCurrentDictionary()` was read
+before every keystroke and click batch; `CGSSessionScreenIsLocked` was `0` at
+every one of them (131 recorded checks), from `2026-10-10T08:11:26Z` to
+`2026-10-10T08:48:57Z`.
+
+**The batch's headline: the real task completes through the native GUI.** A
+Lane created under Core's approval took its TASK as a turn, the product's own
+`edit_file` changed the Lane worktree and nothing else, a follow-up queued
+during that turn was acknowledged by Core and drained into the Lane's next
+turn, and the Lane's work was staged, committed and pushed — `git_add`,
+`git_commit` and `git_push` each decided on the dock, Core's typed
+`no_upstream` answered with `Push and set upstream`, and the bare `origin`
+holds the Lane's branch. C15's `Always` and its revoke behave natively, and a
+plan went from `update_plan` through Plan Studio's Accept to a hand-off and
+D13's DAG.
+
+Two GUI blockers were found on the way and fixed in this batch, red-first,
+each in its own commit, under the launch authorization: defect 38 (a Lane
+selection never re-read the cockpit on a quiet Core —
+`5afb01b0 fix(gui): re-read the cockpit when the operator selects a Lane on a quiet Core`)
+and defect 41 (Plan Studio's and the Agent Board's intents were refused by
+the host's field names —
+`4c92b511 fix(gui): read the Plan Studio and Agent Board intents in the webview's field names`).
+One new finding is Core's and is numbered and stopped (42). No `crates/**`
+file was edited.
+
+### The application under test
+
+`npm ci` completed in 3 s (the `added N packages` line was not kept by this
+run's log tail). `npx tauri build --bundles app` PASSED — `Finished \`release\`
+profile [optimized] target(s) in 55.36s` — and produced
+`target/release/bundle/macos/Viden.app` at `2026-10-10T08:13:38Z`:
+
+| Fact | Value |
+| --- | --- |
+| `CFBundleShortVersionString` | `0.1.0-rc.5` |
+| `CFBundleIdentifier` | `dev.viden.gui` |
+| `CFBundleExecutable` | `viden-gui` |
+| Architecture | `Mach-O 64-bit executable arm64` |
+| Executable size | 42,875,296 bytes |
+| Bundle size | 42 MB |
+| Signature | ad-hoc, linker-signed, `TeamIdentifier=not set`, `Sealed Resources=none` |
+| Executable SHA-256 at `3c652fa8` | `8968dec5a4cdee3a22ab243e7f9495d591c8558019077808bc24ebf37481aa93` |
+
+The bundle was rebuilt twice, after each blocker fix, with the same toolchain
+and the same facts other than the digest: at `5afb01b0`
+(`Finished … in 18.23s`, SHA-256 `7c25570f…1d39`) and at `4c92b511`
+(SHA-256 `6b686c82…6e1a`). The bundle still carries `0.1.0-rc.5`; R1 owns the
+`rc.6` bump. It was launched from the bundle, never installed, signed with an
+identity, notarized or distributed. Every launch ran with `VIDEN_HOME` under
+the run's scratch directory, so this repository's own `.viden/` was never read
+or written. Launched PIDs, in order, with the bundle each ran:
+80448 (`3c652fa8`), 32732 and 18414 (`5afb01b0`), 46950 and 56638
+(`4c92b511`). All five were killed by this batch; none exited on its own.
+
+### Fixture
+
+One fresh temporary Git repository under the run's scratch directory, with one
+commit `497ba79` ("Add the fixture README"), a five-line 97-byte `README.md`, a
+`.gitignore` covering `.viden/` and `.worktrees/`, and a `.viden/config.toml`
+selecting `provider = "fallback"` / `model = "test-local"`. A bare repository
+created by this run was configured as the fixture's `origin` from the start,
+with no upstream on any branch, so Core's `no_upstream` refusal and the GUI's
+own set-upstream recovery are what the push leg exercises. Core minted
+`prj_1791620100850307000` in `ws_0c19e0480d6091d6`. Four Lanes were created:
+`lane_1791620201547372000` (Lane 1), `lane_1791620454348932000` (Lane 2),
+`lane_1791621924201135000` (Lane 3) and `lane_1791621962889570000` (Lane 4).
+
+### Two deviations from the scripted task, and why
+
+**The bind was taken at launch through `VIDEN_GUI_WORKSPACE`, not through
+`⌘O`**, exactly as E3d, H7 and H8 did, for E3d's recorded reason (the open
+panel's child window takes no key event on this host). The cockpit is bound
+the way Core binds it; only the operator gesture differs.
+
+**The push completed on a second `Commit & Push ⇡` pair, in a relaunched
+process.** The first pair (process 32732) reached the `git_push` approval on
+the dock — `Approve git_push · High risk`, `Push is waiting for approval in
+the permission dock.` — and before it was answered the window moved to another
+display, was zoomed, and its rail switched to `Lanes`, which rendered the
+pre-hydration `CONNECTING` shell (defect 43). No input of this run's own
+appears between the read that showed the approval and the read that showed
+`CONNECTING`; the run's log has a capture there and nothing else. The
+cockpit did not leave that shell over about 100 s of reads (the `Esc` that
+does leave it was found later, in step 21), so the process was killed, and the
+pending push died with its in-process Core: no `source.push` row was written
+for it. The relaunched process had no push affordance for a committed,
+unpushed branch with no upstream (observation below), so a second product
+edit was made and the whole pair re-run. Nothing on the second pair was done
+out of band: `origin` had been configured with the fixture.
+
+### Step by step
+
+Every frame was captured twice by window id and the second kept, every PNG
+listed was viewed before it was listed, and none is under 30 KB. Frames live
+under `native-0.3.5/` with the `e3e-` prefix. Two captured frames were
+dropped: one taken after the window had already left the state it was named
+for, and one byte-identical to `e3e-34` (the `Esc` return, which therefore is
+`34`). Where a frame cannot show a fact — Plan Studio's decision row is
+occluded at this window size (defect 44) — the Accessibility read is the
+record and is quoted.
+
+| # | Step | Reached | Result / reason | Frames |
+| --- | --- | --- | --- | --- |
+| 1 | **Bound cockpit** | yes | Dock `Provider fallback`, `Model test-local`, `Mode build`, `Permission ask`, `Tokens 0`; `Showing Workspace root`, `Branch main`, `Working tree Clean`; `MODE build · PERM ask · EVENTS #7 · LANE — · DIAG 0✕ · REQ 0 req / 0 err` | [`01`](native-0.3.5/e3e-01-cockpit-bound.png) |
+| 2 | **`⌘L` New Lane, built-in agent, TASK** | yes | `Viden Agent built-in` selected; Codex, Claude Agent and Kiro CLI disabled under `Checking ACP agents… each probe is given up to 15s.`; with the TASK set through the field's Accessibility value, `Create lane ↵` enabled and the branch read `⌁ vd/edit-the-fixture-readme-he` | [`02`](native-0.3.5/e3e-02-new-lane-task-set.png) |
+| 3 | **Core's `lane_create` approval** | yes | `Approve lane_create · lane_create`, `Medium risk`, the Lane's branch and worktree path, over `Y · Once` / `Allow repo paths` / `Shift+A · Always · scope_not_offered` / `E · Edit · not_editable` / `N · Deny` — register 019 still closed live | [`03`](native-0.3.5/e3e-03-lane-create-approval.png) |
+| 4 | **The Lane, and its TASK as a turn — defect 22, re-confirmed** | yes | `Y · Once`: tab `lane_1791620201547372000`, `⎇ 1 worktree`, `Showing Lane worktree`, Core's own `HEAD is now at 497ba79 Add the fixture README` / `Preparing worktree (new branch 'viden/lane_1791620201547372000')`, `EVENTS #45`, `REQ 1 req / 0 err`. Session JSONL: `turn_owner` `lane_id: lane_1791620201547372000`, `turn_id: turn_1791620215932178000`, the user message, a cost row `outcome: success` on `fallback` / `test-local`, the reply, `turn_owner` cleared | [`04`](native-0.3.5/e3e-04-lane-created-turn.png) |
+| 5 | **Defect 28 — the Lane's tool runs in the Lane worktree, re-confirmed** | yes, **closed** | `tool edit_file path=README.md old=Fixture new=Edited` raised `Approve edit_file`, `Medium risk`, Core's typed hunk `@@ -1,5 +1,5 @@` `-# E3e Fixture` / `+# E3e Edited`, `Shift+A · Always` enabled, the label `Queue follow-up`. After `Y · Once` Core's result read `edit_file completed` / `path: …/fixture/.worktrees/lane_1791620201547372000/README.md` / `size: 96 B`. Out of band: the workspace root is clean, `# E3e Fixture`, 97 bytes; the Lane worktree is ` M README.md`, `# E3e Edited`, 96 bytes. `tool shell command=pwd` in the Lane printed `…/fixture/.worktrees/lane_1791620201547372000` | [`05`](native-0.3.5/e3e-05-edit-file-approval-hunks.png), [`07`](native-0.3.5/e3e-07-followup-drained-lane-worktree-edit.png) |
+| 6 | **Follow-up 16 / defects 29 and 36 — a follow-up during a Lane turn, and C18's drain** | yes, **met** | With that `edit_file` turn parked on its approval, `Summarise what you just changed` was submitted. Core acknowledged it: the live-work strip drew **`1 queued · runs after the current turn`** with the row `Medium risk · Summarise what you just changed` under the Lane, `EVENTS` `#48 → #50`, and the composer was empty after the acknowledgement. (The interval between the send and Core's `InputQueued` was shorter than one Accessibility read, so "kept until acknowledged" is H7's test's claim and was not separately observed here.) `Y · Once` then completed the turn and Core drained the queue into a **new Lane-owned turn**: session JSONL `turn_owner` `lane_id: lane_1791620201547372000`, `turn_id: turn_1791620294134838000`, user message `Summarise what you just changed`. E3c refused it, E3d dropped it silently, H7 kept it unacknowledged; **E3e sees Core take it and run it** | [`06`](native-0.3.5/e3e-06-followup-queued.png), [`07`](native-0.3.5/e3e-07-followup-drained-lane-worktree-edit.png) |
+| 7 | Cancel a turn that has a queued follow-up | **no** | `tool shell command=ls` parked on its approval; `Held behind a cancelled turn` queued (`1 queued`, row drawn). `Cancel turn · Esc` in the live-work strip did nothing — no event (`EVENTS #158` throughout), no alert; the `Esc` key did nothing; `Cancel active turn` under the composer was **refused**: `Not sent. This client is still waiting for Core's answer to submit_user_input, asked 1s ago. Your message is kept.` The turn cannot be cancelled while it waits on an approval (defect 39). `N · Deny` then ended the turn, and Core drained the queued follow-up into Lane-owned `turn_1791620434365713000` — the queue survives a denied tool and runs, which is C18's completed-turn rule | [`08`](native-0.3.5/e3e-08-cancel-leg-queued.png), [`09`](native-0.3.5/e3e-09-cancel-refused-slot-held.png) |
+| 8 | **A second Lane** | yes | `⌘L`, TASK `Second Lane for the selection check`, `Create lane ↵`; the approval landed in the Decision Center (`GATE APPROVALS · 1`, `Approve lane_create prj_… · lane_1791620454348932000 · pending · medium`), `Approve once` released it, `⎇ 2 worktrees`, and its TASK ran as Lane-owned `turn_1791620478025146000`. While the creation was pending the centre drew `AGENT STOPPED` and the composer `The selected Lane has no sole Core execution owner.` | [`10`](native-0.3.5/e3e-10-lane2-pending-creation.png) |
+| 9 | **Defect 38 — reproduced natively, root-caused, fixed in this batch** | yes, **fixed** | With Lane 2 just created, pressing Lane 1's sidebar row — by Accessibility press and by a real HID click — moved nothing: titlebar and status bar stayed on Lane 2, the dock read `Waiting for the selected Lane context.`, the composer `The selected Lane has no sole Core execution owner.`, the recovery surface `Close Lane · no_exact_lane`, and `Diff review` drew **Lane 1's** `README.md` change under Lane 2's name. The connection log read `to=live` with no later transition, and a `sample` of the process showed the pump idle in `receive_event` and **no thread waiting on the adapter mutex** — so this is not H7's starvation. Cause: on the desktop the cockpit projection, which the host scopes to the Lane it is asked about, is re-read only on a pump wake, and a selection is not a Core event; `selectLane` re-read the transcript and the commit bar's owner and never the projection. Fixed in `5afb01b0`; see defect 38 below | [`11`](native-0.3.5/e3e-11-defect38-reproduced.png), [`12`](native-0.3.5/e3e-12-diffreview-stale-scope.png) |
+| 10 | **The fix, natively, and defect 34 re-confirmed** | yes | Relaunched on the fixed bundle against the same home: `lane-agent-bindings.jsonl` took `lane-agent-rebound:…:session_1791620855028201000` for **both** Lanes, and the selection now moves both ways — Lane 2's row puts `lane_1791620454348932000` in the titlebar and status bar, Lane 1's row puts `lane_1791620201547372000` back, the composer accepts, no owner refusal | [`13`](native-0.3.5/e3e-13-select-lane2-after-fix.png) |
+| 11 | **Defect 30 — the commit bar resolves the selected Lane** | yes, **closed** | Lane 2 selected: the bar reads `0 files · +0 −0`, `No changes in the working tree.`, the dock `viden/lane_1791620454348932000`, `Clean`. Lane 1 selected: `1 files · +1 −1`, `M README.md +1 −1`, Core's hunk, the dock `viden/lane_1791620201547372000`, `Dirty`. Each Lane's own facts, and no `D1-OPERATOR-GIT-OWNER` refusal anywhere. Before the bar is opened, though, the dock keeps the previous Lane's sample (defect 40) | [`14`](native-0.3.5/e3e-14-commit-bar-lane2-clean.png), [`15`](native-0.3.5/e3e-15-commit-bar-lane1-dirty.png) |
+| 12 | **Stage and commit with the Lane selected** | yes | `Stage all`: `Stage is waiting for approval in the permission dock.` **with `Approve git_add · git_add`, `Low risk`, `all: true`, `Target: Source control · git_add (lane:lane_1791620201547372000)` on the dock beneath it**; `Y · Once` → ` M` became `M  README.md` and `Stage completed · viden/lane_1791620201547372000 ↑0 ↓0 · uncommitted changes remain`. The message `Edit the fixture README heading in the Lane` set, `Commit & Push ⇡` raised `Approve git_commit`, `Medium risk`; `Y · Once` committed `b19a0da` | [`16`](native-0.3.5/e3e-16-stage-git-add-on-dock.png) |
+| 13 | **Defect 25 — the `git_push` half reaches the dock** | yes | Straight after the commit: `Push is waiting for approval in the permission dock.` over `Approve git_push · git_push`, `High risk`, `Target: Source control · git_push (lane:lane_1791620201547372000)`, `⏸ 1 awaiting you` (Accessibility read; no frame, because the state was left before the capture — see the deviation above and defect 43) | — |
+| 14 | **The push, end to end — defect 25 closed natively** | yes, **closed** | On the relaunched process: a second product `edit_file` in Lane 1 (into the Lane worktree), `git_add` once, message `Add the push-leg line`, `Commit & Push ⇡`, `git_commit` once, `git_push` once — Core's typed refusal: **`Push failed. This branch has no upstream, so ahead and behind would be unknowable. Push once with set-upstream to create one.`** with git's own `the current branch has no upstream branch; push with set_upstream to create one` and **`Push and set upstream`**. That control raised its **own** second `git_push` approval; `Y · Once` → **`Push completed · viden/lane_1791620201547372000 ↑0 ↓0 · working tree clean`**. Out of band: the bare `origin` holds `viden/lane_1791620201547372000` at `7dfbad5 Add the push-leg line` over `b19a0da` over `497ba79`, and the Lane branch tracks `origin/viden/lane_1791620201547372000`. `audit.jsonl` carries four `source.push` rows: `authorized` `git_push`; `class: no_upstream, phase: failed`; `authorized` `git_push`; `completed` | [`19`](native-0.3.5/e3e-19-no-upstream-refusal.png), [`20`](native-0.3.5/e3e-20-push-completed.png) |
+| 15 | **Defect 31 — `Always`, the auto-allowed repeat, the revoke, the row leaving the list** | yes, **closed** | `tool shell command=date`: `Shift+A · Always`; `audit.jsonl` took `approval.always` on `approval_1791621269740437000`. The identical input again: **no request, no new audit row** (25 rows before and after), and the session holds two `shell` completions. Settings → `Standing approvals`: `shell · command=date`, `granted 1791621273 in ws_0c19e0480d6091d6`, `Revoke`, `Open the audit trail`. `Revoke`: the list reads **`No standing rule is installed.`** at once (no `Save` needed), and still does after the panel is closed and reopened; `approval.revoke` is in `audit.jsonl`. The identical input then **asked again** — `Approve shell`, `1 awaiting you` — and was denied | [`21`](native-0.3.5/e3e-21-standing-approval-listed.png), [`22`](native-0.3.5/e3e-22-revoked-row-left-list.png), [`23`](native-0.3.5/e3e-23-identical-input-asks-again.png) |
+| 16 | **Plan mode, and an `update_plan` proposal in D15** | yes | The work-mode pill's popover: `Plan` → `MODE plan`, `PERM read_only` (defect 27 re-confirmed: the slot settled). `tool update_plan plan=[{"step":"Retitle-the-README",…},{"step":"Commit-the-retitle",…,"dependencies":["step_1"]}] title=E3e-handoff-plan goal=Prove-the-Plan-to-Build-handoff`, set through the composer's Accessibility value with both quotes read back `U+0022`, was accepted by Core: `Recorded the plan \`E3e-handoff-plan\`: 2 step(s)`. Plan Studio: `PLAN · READ ONLY`, `E3e-handoff-plan`, `plan_1791621401009792000`, owner `lane_1791620201547372000`, `Proposed`, `rev 1 · sha 93aaa047…7b3f`, both steps `PENDING`, `step_2 after step_1` | [`24`](native-0.3.5/e3e-24-plan-studio-proposal.png) |
+| 17 | **Accept — refused by the host, defect 41, fixed in this batch** | yes, **fixed** | `Accept ⌘⏎` came back `refused` / **``invalid args `intent` for command `d15_send_intent`: missing field `plan_id` ``** (Accessibility read; the decision row is occluded in the frame, defect 44). The webview sends camelCase `planId` and the host read snake_case. Fixed in `4c92b511`, with `D16Intent` (`sessionId`) fixed alongside | [`25`](native-0.3.5/e3e-25-plan-studio-decision-row-occluded.png) |
+| 18 | The proposed plan across a relaunch | **no** | On the fixed bundle, against the same home, Plan Studio read **`No plan proposed`** / `Core holds no plan for this owner.` for Lane 1, while `agents.jsonl` still carries the `plan_document_updated` for `plan_1791621401009792000`. Defect 42, Core's, numbered and stopped | [`26`](native-0.3.5/e3e-26-plan-gone-after-relaunch.png) |
+| 19 | **Accept, Hand off refused in Plan mode, Build, Hand off, D13's DAG** | yes | A new `update_plan` in Plan mode → `plan_1791621781419990000`. `Accept` → **`Accepted`**, `decided 2026-10-10 08:43:14 UTC · audit_1791621794526741000`. `Hand off` then disabled with Core's code **`plan_mode`**: `Handing a plan off starts agent work, which Core refuses while plan mode is active. Accept in Plan, switch to Build, then hand it off.` The pill → `Build`: `MODE build`, `PERM ask` — and Plan Studio kept the `plan_mode` refusal until it was closed and reopened (defect 45). Reopened: `Hand off` enabled; pressed: **`Handed off to dag_1791621840994851000 · 2 tasks · audit audit_1791621840994689000`**, status `Handed off`. `Open in Fleet & Workflow ↗` → D13: `E3e-handoff-plan · active`, `Retitle-the-README coder queued`, `Commit-the-retitle coder queued`, `depends on: plan_1791621781419990000-step_1`. **The Plan Studio hand-off is evidenced natively for the first time.** The refusal in Plan mode is the client's disabled control carrying Core's code; Core's own refusal was not provoked | [`27`](native-0.3.5/e3e-27-accepted-handoff-refused-plan-mode.png), [`28`](native-0.3.5/e3e-28-build-mode-handoff-still-refused.png), [`29`](native-0.3.5/e3e-29-handed-off-dag.png), [`30`](native-0.3.5/e3e-30-d13-dag.png) |
+| 20 | **Defect 33 — centre views over a stopped Lane, re-confirmed** | yes, **closed** | `tool edit_file path=README.md old=NoSuchText new=Whatever`, allowed, failed; the centre drew `AGENT STOPPED` / `Core reports that execution has stopped.` with `Reconnect · GUI-CORE-003`, `Inspect facts`, `Restart agent · no_retryable_session`, `Close Lane · no_exact_lane`, `Restore checkpoint · GUI-CORE-003`. `Diff review` switched the centre (the recovery surface left the tree, `CHANGES` rendered), `Plan Studio` switched it (`PLAN STUDIO` rendered), and `Conversation` brought the recovery surface back | [`31`](native-0.3.5/e3e-31-agent-stopped.png), [`32`](native-0.3.5/e3e-32-plan-studio-over-stopped.png) |
+| 21 | **Defect 38 — a Lane created beside a stopped Lane, twice** | yes, **closed** | With Lane 1 stopped: Lane 3 (`lane_1791621924201135000`) and Lane 4 (`lane_1791621962889570000`), each through `⌘L`, its TASK, and `Approve once` in the Decision Center. Each has an exact owner — the dock's `Lane Agent` names it, the composer is enabled with no owner refusal, its TASK ran as a turn in `session_1791621678660570000`, `lane-agent-bound` rows for both — and the selection moves between them. Both nevertheless drew Lane 1's `AGENT STOPPED` surface in their own conversation slot (defect 46), and the dock's `Local` kept Lane 1's branch (defect 40) | [`33`](native-0.3.5/e3e-33-lane3-beside-stopped-has-owner.png), [`34`](native-0.3.5/e3e-34-lane4-beside-stopped-has-owner.png) |
+| 22 | **Defect 37 — the connection log, across the whole run** | yes | All five processes wrote exactly `viden-gui core-connection state from=disconnected to=connecting` and `… from=connecting to=live`, and **nothing after** — no drop, no `reconnect-attempt`, so no D6 countdown was ever due. The one `CONNECTING` this run saw (deviation above) was not a transport state: the log stayed `to=live`, and it is reproducible on demand from the `Lanes` rail (defect 43) | [`18`](native-0.3.5/e3e-18-connecting-while-host-live.png), [`38`](native-0.3.5/e3e-38-lanes-rail-renders-connecting.png) |
+| 23 | Agent Board controls | **no**, and not a defect | No ACP binary is usable on this host: `Codex · ACP agent initialize probe failed; inspect local agent logs`, `Claude Agent · Probe did not answer within 15s.`, `Kiro CLI · Probe did not answer within 15s.` No Agent session row can exist to pause, kill or retry. Said once, not faked. (Defect 41's fix covers the board's intent shape at the wire only) | — |
+| 24 | **Focus mode `⌘.` and the `Esc` return** | yes | `⌘.` fired this time: `Focus mode ⌘.` `v=1`, the dock hidden, the centre given the window's width with the titlebar, rail, composer and status bar retained. `Esc`: `v=0`, chrome retained, and the window rendered byte-identical to the frame before `⌘.` | [`35`](native-0.3.5/e3e-35-focus-mode.png), [`34`](native-0.3.5/e3e-34-lane4-beside-stopped-has-owner.png) |
+| 25 | **Defect 32 — a typed `"` with real keystrokes, re-confirmed** | yes, **closed** | `A"b"c` typed as five HID key events into the composer reads back `41 22 62 22 63`. The input source read `com.apple.keylayout.ABC` before and after with Viden frontmost (recorded below) | [`37`](native-0.3.5/e3e-37-defect32-keystrokes.png) |
+
+### Defects And Gaps Found By E3e
+
+Numbering continues from the thirty-eight above. Each was reproduced, not
+inferred. Two were fixed here under the launch authorization (38, 41); the
+rest were numbered and stopped.
+
+38. **Reproduced natively, root-caused and fixed** (GUI). E3d observed it once
+    and H7 attributed it to lock starvation and could not reproduce it in
+    process, because H7's harness has no webview. E3e reproduced it on a live,
+    unstarved process (step 9). The desktop sets `coreWakeActive`, so
+    `schedulePoll` never runs and the cockpit projection — host-scoped to the
+    Lane it is asked about — is re-read only by `drainOnce` on a pump wake. A
+    selection is not a Core event; `selectLane`
+    (`apps/gui/src/screens/d1_cockpit.ts`) re-read the transcript and the
+    commit bar's owner and never the projection, so on a quiet Core the new
+    Lane's projection was never read and every symptom E3d listed followed.
+    **Fixed 2026-10-10 in this batch** (`5afb01b0 fix(gui): re-read the cockpit
+    when the operator selects a Lane on a quiet Core`): a selection owes the
+    cockpit one read through the same `drainOnce`, and a drain whose selection
+    moved while it was out reads again for the new Lane. RED, against the
+    shipped `renderD1Cockpit` with `onCoreWake` wired and no wake fired:
+    `no read of the newly selected Lane's projection was sent: on a quiet Core
+    the cockpit stays on the previous Lane's projection forever (E3e, defect
+    38): expected [] to include 'lane-review'` and `the answer for the
+    superseded Lane was the last read: expected 'lane-core' to be
+    'lane-review'`. Test: `apps/gui/tests/e3e_lane_selection.spec.ts`.
+    Confirmed natively on the rebuilt bundle (steps 10 and 21).
+39. **A turn parked on an approval cannot be cancelled from the cockpit**
+    (GUI; blocking for the cancel leg of follow-up 16). `Cancel active turn` is
+    refused with defect 23's alert — `Not sent. This client is still waiting
+    for Core's answer to submit_user_input, asked 1s ago. Your message is
+    kept.` — because the cancel goes through the one D1 command slot the
+    unanswered submit holds, the same shape H6 removed for the follow-up. The
+    live-work strip's `Cancel turn · Esc` and the `Esc` key do nothing at all,
+    with no alert. The only way out of the turn is to answer its approval.
+    Numbered and stopped; whether Core answers a cancel while the turn waits
+    is not established by this evidence, because the cancel never left the
+    client.
+40. **After a Lane selection the context dock keeps the previous Lane's
+    source sample** (GUI, honesty). With the fix for 38 in, the titlebar, the
+    status bar, the composer and the commit bar follow the selection, but the
+    dock's `Changes` and `Local` sections — and an already-open DiffReview
+    centre — keep the previous Lane's branch, worktree and `+1 −1` until
+    something re-reads the workspace diff (opening the commit bar does). Seen
+    with Lane 2 selected showing Lane 1's `viden/lane_1791620201547372000`
+    and `M README.md +1 −1`, and again with Lanes 3 and 4. The same
+    no-wake shape as 38, for the diff read instead of the projection.
+41. **Plan Studio's and the Agent Board's intents are refused by the host's
+    field names** (GUI, blocking for the hand-off). `Accept ⌘⏎` answered
+    ``invalid args `intent` for command `d15_send_intent`: missing field
+    `plan_id` ``: `models/plan.ts` sends `planId` / `contentSha256`, and
+    `D15Intent` (`apps/gui/src-tauri/src/plan.rs`) had `rename_all =
+    "snake_case"` without `rename_all_fields`, so Tauri refused every Accept,
+    Reject and Hand off before the adapter saw it. The D15 tests build the
+    intent in Rust and never crossed the wire. `D16Intent`
+    (`apps/gui/src-tauri/src/board.rs`) had the same shape against
+    `models/board.ts`'s `sessionId`. **Fixed 2026-10-10 in this batch**
+    (`4c92b511 fix(gui): read the Plan Studio and Agent Board intents in the
+    webview's field names`). RED: `the webview's accept must deserialize:
+    Error("missing field `plan_id`", line: 0, column: 0)` and `the webview's
+    pause must deserialize: Error("missing field `session_id`", line: 0,
+    column: 0)`. Tests: `apps/gui/tests/d15_plan_studio.rs`
+    `the_intent_the_webview_sends_is_the_intent_the_host_reads`,
+    `apps/gui/tests/d16_agent_board.rs`
+    `the_board_intent_the_webview_sends_is_the_intent_the_host_reads`.
+    Confirmed natively for D15 (step 19); D16 is unreachable on this host.
+42. **A proposed plan does not survive a Core restart** (Core; numbered and
+    stopped). After a relaunch against the same `VIDEN_HOME`, Plan Studio for
+    Lane 1 reads `No plan proposed` / `Core holds no plan for this owner.`,
+    and the client's D15 projection only filters what Core's
+    `RuntimeViewState::plan_documents` carries — while
+    `workflows/projects/…/agents.jsonl` still holds the
+    `plan_document_updated` event for `plan_1791621401009792000`. The
+    contract design calls the plan "a Core-owned durable fact"; on this
+    evidence the record is durable on disk and absent from the view a new
+    process hydrates. No `crates/**` file was edited.
+43. **The `Lanes` rail can render the pre-hydration `CONNECTING` shell over a
+    live Core connection** (GUI). The rail's `Lanes` item drew a `LANES`
+    sidebar reading `— 0 No Lanes yet` beside `◌ CONNECTING` / `Establishing
+    the versioned Core connection.` / `Core connection pending`, with
+    `Conversation`, `Plan Studio` (`unavailable: Core publishes no
+    runtime.plan_documents`), `Decisions` and `Settings` disabled, while the
+    connection log stayed `to=live` and the status bar kept the bound Lane.
+    Reproduced on demand as the first `Lanes` press after a relaunch (step 22,
+    frame `38`); later presses in the same process did not reproduce it; `Esc`
+    leaves it. In process 32732 it appeared with no input of this run's own
+    and cost that process its pending `git_push` approval, because the run
+    did not know about `Esc` then.
+44. **Plan Studio's decision row is occluded by the composer at the default
+    window size** (GUI). At 1280×800 `Accept ⌘⏎`, `Reject with reason`,
+    `Hand off`, the refusal note and `Handed off to dag_…` sit at the
+    composer's height and do not appear in any frame (`24`, `25`, `27`–`29`);
+    they were reachable by Accessibility and by `⌘⏎` only. An operator with a
+    pointer cannot see what they are deciding with.
+45. **Plan Studio keeps the `plan_mode` refusal after the work mode returns to
+    Build** (GUI). `MODE build`, `PERM ask` in the status bar and the pill,
+    and `Hand off` still disabled with the plan-mode sentence until Plan
+    Studio was closed and reopened.
+46. **A newly created, healthy Lane draws another Lane's `AGENT STOPPED`
+    surface** (GUI or Core; owning side not decided). After Lane 1's tool
+    failure, Lanes 3 and 4 — each with an exact owner and a completed TASK
+    turn — drew `AGENT STOPPED` / `Core reports that execution has stopped.`
+    with `Close Lane · no_exact_lane` in their own conversation slot. The
+    same surface also stood over Lane 2's pending creation (step 8).
+
+### Verdicts on defects 25–38
+
+| # | Verdict on the candidate |
+| --- | --- |
+| 25 | **Closed, confirmed natively, end to end.** The `git_push` half reaches the dock, Core's typed `no_upstream` renders with `Push and set upstream`, that raises its own approval, and the push lands in the bare `origin` with four `source.push` rows |
+| 26 | Not re-driven; five launch-time binds against a home holding Lanes each rendered the full cockpit |
+| 27 | **Closed, re-confirmed.** The work-mode pill settled twice (Plan, then Build); no submit met a held `set_work_mode` slot |
+| 28 | **Closed, re-confirmed in both directions** (step 5) |
+| 29 | **Closed by 36's and C18's fixes together.** The busy-composer submit is queued by Core and runs (step 6) |
+| 30 | **Closed, re-confirmed.** The commit bar names and acts on the selected Lane only (step 11) |
+| 31 | **Closed, confirmed natively.** The revoked row leaves the list at once and stays gone; the identical input asks again (step 15) |
+| 32 | **Closed, re-confirmed with real keystrokes** (step 25) |
+| 33 | **Closed, re-confirmed** (step 20) |
+| 34 | **Closed, re-confirmed** across four relaunches: `lane-agent-bindings.jsonl` took a superseding `lane-agent-rebound` row for every restored Lane each time, Lane 1 took turns in two relaunched processes, and its commit bar staged, committed and pushed in one of them |
+| 35 | **Closed, re-confirmed.** `Stage all` raises `git_add` on the dock every time it was pressed (steps 12 and 14) |
+| 36 | **Closed.** Core acknowledges the Lane's follow-up and drains it (step 6) |
+| 37 | **No drop observed in five processes.** The connection log is live and wrote only the two start-up transitions each time; the one `CONNECTING` seen is defect 43, not a transport state. H7's retry path was therefore never exercised natively |
+| 38 | **Fixed in this batch and confirmed natively.** Reproduced, root-caused (selection without a projection read on a quiet Core), fixed in `5afb01b0`, and two Lanes created beside a stopped Lane each have an exact owner |
+
+### Verdict on compatibility follow-up 16
+
+| # | Verdict on the candidate |
+| --- | --- |
+| 16 | **Met on the GUI, natively.** A follow-up submitted while the Lane's turn waits on its approval is acknowledged by Core (`1 queued · runs after the current turn`), and when the turn completes Core drains it into a new Lane-owned turn carrying the follow-up's text. A turn that ends in a denied tool drains it too. The cancel leg — cancel a turn with a queued follow-up and see nothing run — was **not reachable**, because a parked turn cannot be cancelled from the cockpit (defect 39) |
+
+### Observations, not defects
+
+- **The webview enters the Accessibility tree only while the app is
+  frontmost.** Every read and every batch fronted the process first and
+  asserted `front=Viden pid=<ours>` before sending anything; other
+  applications (`UserNotificationCenter`, `Google Chrome`) took the front
+  between batches several times, and the window was moved between this host's
+  three displays and zoomed once without an input from this run.
+- **A committed, unpushed branch with no upstream has no push control.** After
+  the relaunch the commit bar offered `Stage all`, `Commit` and
+  `Commit & Push ⇡` (both needing a message) and nothing that pushes the
+  existing commit; `↑0 ↓0` is all the sync chip can say without an upstream.
+  Whether the chip pushes when `ahead > 0` was not tested.
+- **The approval revision editor is drawn on requests that cannot be
+  revised.** `Revise the tool input… / Send the revision` renders under
+  `lane_create`, `edit_file` and `git_add` requests whose `E · Edit` tier is
+  disabled with `not_editable` (frames `03`, `05`, `16`). Not pressed, not
+  claimed.
+- **A Lane's conversation slot draws Core's own rows, not the turn's text.**
+  `LANE OUTPUT`, the inline `Modified README.md` diff and the permission
+  decisions render; the user and assistant messages the session JSONL holds
+  for each Lane turn do not. Not investigated.
+- **Input source.** `com.apple.inputmethod.SCIM.ITABC` (Pinyin) at
+  `08:14:56Z` with another application frontmost; `com.apple.keylayout.ABC`
+  with Viden frontmost at `08:46:43Z` and before and after the keystroke leg
+  at `08:47:08Z`. This run never called the input-source setter, so there was
+  nothing to restore; the difference is the host's per-application source.
+- **The bundle is still `0.1.0-rc.5`.**
+
+### What This Means For Plan Goal 4, Per Surface
+
+`docs/release-0.3.3-plan.md` goal 4, carried into `0.3.4` as goal 6 — "one real
+local-first development task completes through the GUI, from intake to a
+committed change, with audit and evidence recorded":
+
+- **Through the TUI — met, end to end**, unchanged from the 2026-09-12 record.
+- **Through the native GUI window on the `0.3.5` candidate — met.** A Lane is
+  created under Core's approval, its TASK runs as a turn, the agent's
+  `edit_file` lands in the Lane worktree and nowhere else, a follow-up queued
+  during the turn is run by Core afterwards, and the Lane's change is staged,
+  committed and pushed to `origin` with every step decided on the dock and
+  written to `audit.jsonl` — `source.stage`, `source.commit`, and the first
+  natively driven `source.push` set including Core's `no_upstream` recovery.
+  Plan Studio's Plan → Build hand-off reaches D13's DAG.
+- **With these qualifications, stated rather than smoothed:** the bind was taken
+  at launch, not through `⌘O`; the push completed on a second pair in a
+  relaunched process, the first pair's push having been lost when the window
+  fell into defect 43; and E3e's bundle includes two GUI fixes taken in this
+  batch (38, 41). Open on the candidate: GUI defects 39, 40 and 43–46, and
+  Core defect 42.

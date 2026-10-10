@@ -205,7 +205,13 @@ pub struct D16AgentBoardProjection {
 /// `Stop`) and then `Start`, each as its own intent with its own command id, so
 /// the operator's two decisions stay two facts in the audit log.
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
+// The webview sends `models/board.ts`'s camelCase `sessionId`; the fields are
+// read the way every other cockpit intent reads them (E3e).
+#[serde(
+    tag = "type",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase"
+)]
 pub enum D16Intent {
     Pause {
         session_id: String,
