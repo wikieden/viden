@@ -1686,6 +1686,22 @@ Open follow-ups added 2026-09-13 by the C12 review, from C12's own report:
    the same class H3 made deterministic in `viden-plugin-host` and
    `viden-agents` and should follow the rule `crates/AGENTS.md` now states.
    `0.3.5` hygiene if a slot exists, else `0.3.6`.
+   **Row-cap half closed 2026-10-10 by C19; the cause was the test's
+   budget, not the sampler.** Instrumenting `run_git_capped`
+   (`crates/runtime/src/frontend_status.rs:329`) showed every failure was
+   the first call, `rev-parse`: the fake-git child sat at 0 CPU before
+   running a line and, with the budget raised, exited by itself at
+   3.01-3.02 s. On this macOS host the first exec of a just-written
+   executable stalls about 3 s while the full suite runs; `/bin/sh <a fresh
+   file>` and a re-exec of the same script took 3-6 ms at the same moment.
+   The test's 3 s per-call budget raced that stall. The test
+   (`crates/runtime/src/tests/frontend_services_tests.rs:209`) now has each
+   fake-git call leave a marker once its output is written, reports a
+   missing marker as a deadline kill and `Truncated` with every marker as an
+   output or row cap, and keeps 30 s only as a liveness ceiling.
+   `MAX_GIT_OUTPUT_BYTES`, `GIT_COMMAND_TIMEOUT`, and the runner are
+   unchanged. The repeated-timeout test is also unchanged: its resample loop
+   already absorbs a stalled first call, and it passed in every C19 run.
 
 Follow-up added and closed 2026-09-13 by batch C16, from H4's native GUI re-run
 (`apps/gui/contract-requests.md`, GUI-CORE-035):
