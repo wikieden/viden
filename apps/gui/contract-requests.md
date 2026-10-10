@@ -212,6 +212,18 @@ and is asserted byte-identical to `manifests/0.1.0-rc.5.toml`, so the count
 moves at the rc.6 bump, not here — the same rule H3 and G9 recorded on
 2026-09-13.
 
+Status note 2026-10-10 (R1): the rc.6 bump took the count. The open register is
+unchanged — 013, 018, 021, 023, 026, 031, 032, 033 and 036, nine entries — and
+`apps/gui/release-manifest.toml` and its new frozen snapshot
+`manifests/0.1.0-rc.6.toml` now record `[contract_requests] open_count = 9`,
+with the comment saying what is true: 029 is written down as a reservation for
+the D5 gallery review, re-dated to `0.3.6`, and is not counted. The frozen
+`manifests/0.1.0-rc.5.toml` keeps the `10` it shipped with. No entry opened or
+closed in R1. E3e's Core finding (defect 42, a proposed plan absent from the
+view after a Core restart) is a Core behaviour that is wrong where it already
+exists, so it is compatibility follow-up 22 in `docs/core-0.3-compatibility.md`,
+not a register entry.
+
 ## GUI-CORE-008: Selected-Lane context scope — CLOSED
 
 History: Core `0.3.5` exposed `RuntimeViewState.context_budgets`, but the

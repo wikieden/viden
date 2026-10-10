@@ -3916,7 +3916,7 @@ dependencies = [
 
 [[package]]
 name = "viden-core"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "serde",
  "serde_json",
@@ -3930,7 +3930,7 @@ dependencies = [
 
 [[package]]
 name = "viden-gui"
-version = "0.1.0-rc.5"
+version = "0.1.0-rc.6"
 dependencies = [
  "base64 0.22.1",
  "serde",
@@ -4050,7 +4050,7 @@ dependencies = [
 
 [[package]]
 name = "viden-tui"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "crossterm",
  "serde",

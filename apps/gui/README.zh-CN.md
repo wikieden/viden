@@ -52,12 +52,12 @@ Agent 可用性探测与后续 ACP spawn 使用同一命令路径；整个过程
 
 | 字段 | 值 |
 | --- | --- |
-| GUI 组件版本 | `0.1.0-rc.5` |
+| GUI 组件版本 | `0.1.0-rc.6` |
 | 最低 Core 版本 | `0.3.5` |
 | 支持 frontend schema | `[1]` |
 | 共同分支基线 | `3a7740ea72e58f4a22248a80f9e7324c49bb0f73` |
 | Core 最终 checkpoint | `f7fe1b31dfb237e4062209767a7051c2b2c68b93` |
-| Core code checkpoint | `39ed155dcc1847b915965f49626e6779b8b538d7` |
+| Core code checkpoint | `d522e4f38f7643d0e1dd37d70af5e84c43f59765`（Core `0.3.8`） |
 | 合同 payload | `5bd2b80b0953f4194d082940a7b9164c7231ca2d` |
 | 规范 D1 fixture | `d1-main-cockpit.json`，SHA-256 `05ac25909beaa84942a0468d2ae2d8058e7348bd0bd2b7bc86d6fd344fe69439` |
 | 必需 Core capabilities | 15 项冻结能力加 additive extension capabilities，包括 `runtime.cockpit_context_v1` |
@@ -65,10 +65,24 @@ Agent 可用性探测与后续 ACP spawn 使用同一命令路径；整个过程
 | 外观系统 | 5 套 skin、8 组有效 skin/mode、3 档 density、3 种 motion |
 
 当前机器可读 manifest 是 [release-manifest.toml](release-manifest.toml)。
-不可变 rc.5 快照是
-[manifests/0.1.0-rc.5.toml](manifests/0.1.0-rc.5.toml)；此版本 checkpoint
-下两者必须逐字节一致。更早的 alpha、beta、rc.2、rc.3 与 rc.4 快照继续作为历史证据
-保留，不会被重写。`rc.4` 曾新增 DiffReview 与 EvidenceView 两个界面以及 `0.3.3` 的
+不可变 rc.6 快照是
+[manifests/0.1.0-rc.6.toml](manifests/0.1.0-rc.6.toml)；此版本 checkpoint
+下两者必须逐字节一致。更早的 alpha、beta、rc.2、rc.3、rc.4 与 rc.5 快照继续作为
+历史证据保留，不会被重写。这条规则曾被打破一次，现在有测试守护：DS2 的 token 改动把
+`tokens.css` 摘要从 `826826ee…` 移到 `2d80baa9…`，为了让当前 manifest 与快照保持
+逐字节一致，它连已发布的 rc.5 快照也一起改了。rc.6 版本升级把
+`manifests/0.1.0-rc.5.toml` 恢复为 `bcf3d64c` 发布时的字节（`826826ee…`），把新摘要
+写进 rc.6 快照，并且 `tests/architecture_boundary.rs` 现在钉住 rc.5 快照自身的
+SHA-256。`rc.6` 新增规划工作台（G8）、Agent 看板（G9）、始终/编辑 dock（G9）、D4
+Agent 绑定（G9b）、设计保真修复（G10），以及原生缺陷修复 H4–H8 与 E3e；
+`[core].feature_capabilities` 新增它消费的四项 `0.3.5` capability ——
+`runtime.plan_documents`、`runtime.agent_session_control`、
+`runtime.approval_scopes` 与 `runtime.starter_lane_agent`。`[core].minimum_version`
+仍为 `0.3.5`，因为它们都是独立协商的功能门，没有一项会阻止只具备基础 schema-1 的
+客户端启动。`[contract_requests].open_count` 由 10 变为 9（013、018、021、023、026、
+031、032、033、036），注释也不再说 029 尚未写下。Windows 安装包带有
+`bundle.windows.wix.version = "0.1.0"`，因为 Tauri 的 WiX 打包器拒绝带点号的预发布
+标识；其余所有安装包仍为 `0.1.0-rc.6`。`rc.4` 曾新增 DiffReview 与 EvidenceView 两个界面以及 `0.3.3` 的
 四项 Core capability。`rc.5` 把驾驶舱推到与已接受的 D1 设计齐平 —— 带舱内次级视图的
 rail-as-router 导航外壳（G3）、Lane 标签条、内联工具 diff 与聚焦模式（G4）、带页签的
 上下文 dock（G5）、D10/D13/D14 视图工作（G6）—— 并采纳了 `0.3.4` 增量发布的六项
@@ -1608,6 +1622,41 @@ Core 最后要说的一句话。
 无声丢弃。提交已完成而推送从未发出，会得到属于它自己的一句话——「提交已完成，但推送
 未发送。请使用“推送”发送。」——以及旁边一个「推送」控件，因为仅凭那行完成提示，读起来
 就像分支已经发布。
+
+### E3e 修复 —— 原生运行发现并先红后绿修复的两个阻塞
+
+原生运行 E3e（2026-10-10）通过驾驶舱驱动了完整的真实任务，途中两次被 GUI 阻塞拦下；
+每一个都在该批次内先红后绿修复，各自一个提交。记录见
+`docs/release-evidence/gui-trusted-delivery/checkpoints.md` 的「Native GUI Run —
+2026-10-10 (0.3.5 candidate `3c652fa8`, E3e)」，缺陷 38 与 41。
+
+**缺陷 38 —— 在安静的 Core 上选择 Lane 从不重读驾驶舱（`5afb01b0`）。** *成因：*
+桌面端接入了 `onCoreWake`，因此 `schedulePoll` 从不运行，而驾驶舱投影 —— 宿主按被
+询问的 Lane 设定其作用域 —— 只会在事件泵唤醒时由 `drainOnce` 重读。选择不是 Core
+事件；`selectLane` 重读了转录与提交栏的 owner，却从不重读投影，于是在安静的 Core 上
+新 Lane 的投影永远不会被读到：标题栏停在旧 Lane，输入框显示 `The selected Lane has
+no sole Core execution owner.`，DiffReview 在新 Lane 的名下画出旧 Lane 的改动。
+*修复：* 一次选择欠驾驶舱一次经由同一个 `drainOnce` 的读取；若一次排空在外出期间
+选择发生了变化，则为新 Lane 再读一次。*测试：* `tests/e3e_lane_selection.spec.ts`，
+针对接入了 `onCoreWake` 且未触发任何唤醒的已发布 `renderD1Cockpit`。已在重建的包上
+原生确认。
+
+**缺陷 41 —— 规划工作台与 Agent 看板的意图被宿主的字段名拒绝（`4c92b511`）。**
+*成因：* `models/plan.ts` 发送 `planId` / `contentSha256`，`models/board.ts` 发送
+`sessionId`，而 `D15Intent`（`src-tauri/src/plan.rs`）与 `D16Intent`
+（`src-tauri/src/board.rs`）声明了 `rename_all = "snake_case"` 却没有
+`rename_all_fields`，于是 Tauri 在适配器看到之前就拒绝了每一次接受、驳回、移交、暂停、
+恢复与终止 —— ``invalid args `intent` for command `d15_send_intent`: missing field
+`plan_id` ``。D15 与 D16 的测试在 Rust 中构造意图，从未经过线上传输。*修复：* 两个意图
+都按 webview 的 camelCase 字段名读取。*测试：* `tests/d15_plan_studio.rs` 的
+`the_intent_the_webview_sends_is_the_intent_the_host_reads` 与
+`tests/d16_agent_board.rs` 的
+`the_board_intent_the_webview_sends_is_the_intent_the_host_reads`。D15 已原生确认；
+在没有可用 ACP agent 的主机上 D16 无法到达。
+
+E3e 之后候选版上仍未关闭、编号见同一份记录：GUI 缺陷 39、40、43、44、45、46，以及
+Core 缺陷 42。
+
 
 
 ## Agent 看板（G9）

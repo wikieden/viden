@@ -162,6 +162,15 @@ G9 后续批次删掉解析器。
 `manifests/0.1.0-rc.5.toml` 逐字节相同，因此计数在 rc.6 版本号提升时才移动，不在这里
 —— 与 H3 和 G9 在 2026-09-13 记录的规则相同。
 
+2026-10-10（R1）状态说明：rc.6 版本提升接过了这个计数。开放登记不变 —— 013、018、
+021、023、026、031、032、033 与 036，共九条 —— `apps/gui/release-manifest.toml` 与它的
+新冻结快照 `manifests/0.1.0-rc.6.toml` 现在记录 `[contract_requests] open_count = 9`，
+注释也说出实情：029 已作为 D5 画廊评审的保留号写下、改期至 `0.3.6`，不计入。冻结的
+`manifests/0.1.0-rc.5.toml` 保留它发布时的 `10`。R1 中没有条目开启或关闭。E3e 的 Core
+发现（缺陷 42：Core 重启后视图中缺少已提出的计划）是一个已存在之处行为错误的 Core
+行为，因此记为 `docs/core-0.3-compatibility.zh-CN.md` 中的兼容性后续项 22，而不是
+登记条目。
+
 ## GUI-CORE-008：所选 Lane 的上下文作用域 — 已关闭
 
 历史：Core `0.3.5` 已暴露 `RuntimeViewState.context_budgets`，但 frontend-neutral

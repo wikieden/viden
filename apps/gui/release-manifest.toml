@@ -1,5 +1,5 @@
 component = "viden-gui"
-component_version = "0.1.0-rc.5"
+component_version = "0.1.0-rc.6"
 release_channel = "rc"
 status = "trusted-delivery-beta-candidate"
 selected_framework = "tauri"
@@ -8,7 +8,7 @@ selected_framework = "tauri"
 component = "viden-core"
 minimum_version = "0.3.5"
 base_checkpoint = "f7fe1b31dfb237e4062209767a7051c2b2c68b93"
-code_checkpoint = "39ed155dcc1847b915965f49626e6779b8b538d7"
+code_checkpoint = "d522e4f38f7643d0e1dd37d70af5e84c43f59765"
 contract_payload_sha = "e989fa7cd3ccd9664196309586e5d135e3115693"
 canonical_d1_fixture = "crates/types/tests/fixtures/frontend-contract-v1/d1-main-cockpit.json"
 extension_fixture_sha256 = "05ac25909beaa84942a0468d2ae2d8058e7348bd0bd2b7bc86d6fd344fe69439"
@@ -34,8 +34,10 @@ feature_capabilities = [
   "core.workspace_host",
   "runtime.agent_adapters",
   "runtime.agent_permission_bridge",
+  "runtime.agent_session_control",
   "runtime.agent_session_input",
   "runtime.agent_sessions",
+  "runtime.approval_scopes",
   "runtime.audit",
   "runtime.cockpit_context_v1",
   "runtime.conflict_content",
@@ -46,8 +48,10 @@ feature_capabilities = [
   "runtime.lane_lifecycle",
   "runtime.lane_owner_projection",
   "runtime.operator_git",
+  "runtime.plan_documents",
   "runtime.project_onboarding",
   "runtime.recent_work",
+  "runtime.starter_lane_agent",
   "runtime.starter_lane_preview",
   "runtime.structured_diff",
   "runtime.transcript_rows",
@@ -133,13 +137,16 @@ design_source_revision_sha256 = "3dd53e2fa8632575bb77106e8a86fc4f4e17cd624d42f89
 revision_algorithm = "sha256(path + NUL + bytes + NUL for hierarchy, subordinate_pages, and semantic_sources in order)"
 
 [evidence]
-# Deliberately still the rc.3 tree. rc.4 added DiffReview and EvidenceView and
-# rc.5 adds the navigation shell, the cockpit centre, the context dock tabs, the
-# in-cockpit secondary views, and the 0.3.4 Core consumers; every one of those
-# has deterministic captures under `apps/gui/evidence/` per surface rather than
-# per version. No `0.1.0-rc.4` or `0.1.0-rc.5` acceptance tree was produced by
-# either checkpoint, and naming one that does not exist would be worse than
-# naming the one that does.
+# Deliberately still the rc.3 tree. rc.4 added DiffReview and EvidenceView,
+# rc.5 the navigation shell, the cockpit centre, the context dock tabs, the
+# in-cockpit secondary views, and the 0.3.4 Core consumers, and rc.6 Plan
+# Studio (D15), the Agent Board (D16), the Always/Edit dock and the D4 agent
+# binding; every one of those has deterministic captures under
+# `apps/gui/evidence/` per surface rather than per version, and rc.6's
+# design-fidelity record is `apps/gui/evidence/fidelity-gate/` (G10). No
+# `0.1.0-rc.4`, `0.1.0-rc.5` or `0.1.0-rc.6` acceptance tree was produced by
+# any of those checkpoints, and naming one that does not exist would be worse
+# than naming the one that does.
 root = "apps/gui/evidence/0.1.0-rc.3"
 matrix_tests = "apps/gui/tests/visual"
 accessibility = "apps/gui/evidence/0.1.0-rc.3/accessibility.json"
@@ -168,8 +175,11 @@ accepted_target_role = "historical visual reference only; not same-state accepta
 design_qa = "apps/gui/design-qa.md"
 
 [contract_requests]
-# 013, 018, 019, 021, 023, 026, 030, 031, 032, 033. G7 closed 009, 027, and 028
-# on the client side and numbered the four prose-only G4/G5 gaps; 029 stays
-# reserved for the D5 gallery review and is not yet written.
-open_count = 10
+# 013, 018, 021, 023, 026, 031, 032, 033, 036. Since rc.5, 019, 030 and 037
+# closed on both sides and 034 and 035 opened and closed inside 0.3.5; 036 is
+# closed on the Core and GUI sides and stays open as a TUI adoption item (the
+# TUI's edit draft is still seeded empty). 029 is written down as a
+# reservation for the D5 gallery review, re-dated to 0.3.6 by H3; it is not a
+# request and is not counted.
+open_count = 9
 source = "apps/gui/contract-requests.md"
