@@ -522,3 +522,154 @@ run.
    credentials and a `notarytool` step.
 5. `.dmg` output is not byte-reproducible; decide whether R1 requires it.
 6. The GitHub Release and Homebrew tap remain unvalidated as one release unit.
+
+## R1 — The rc.6 Bump, The Rebuilt Bundle, And The Decisions P1 And P2 Left
+
+Added 2026-10-10 by batch R1 (the production release gate) on
+`claude/release-gate-r1`, base `claude/int-0.3.5` at
+`d522e4f38f7643d0e1dd37d70af5e84c43f59765`, which is also the Core `0.3.8`
+contract checkpoint. The versions in [Provenance](#provenance) above are P1's
+and stay as written; this section records what R1 changed and rebuilt.
+
+### Versions the rebuilt bundle carries
+
+| Line | Version |
+| --- | --- |
+| Workspace / CLI | `0.1.30` (unchanged; see the release-identity finding below) |
+| Core | `0.3.8`, checkpoint `d522e4f3` |
+| TUI | `0.3.6` |
+| GUI | `0.1.0-rc.6` (`tauri.conf.json`, `package.json`, `src-tauri/Cargo.toml`, `release-manifest.toml`, frozen `manifests/0.1.0-rc.6.toml`) |
+
+### The Windows MSI version mapping
+
+The prediction in [The Windows MSI pre-release constraint](#the-windows-msi-pre-release-constraint)
+is acted on rather than left for a failed dispatch: `apps/gui/src-tauri/tauri.conf.json`
+now declares `bundle.windows.wix.version = "0.1.0"`. The mapping is:
+
+| Bundle | Version it carries |
+| --- | --- |
+| macOS `.app` / `.dmg`, Windows NSIS `-setup.exe`, Linux `.deb` / `.AppImage` | `0.1.0-rc.6` |
+| Windows `.msi` (WiX `ProductVersion`) | `0.1.0` |
+
+So an `.msi` built from rc.6 and one built later from a promoted `0.1.0` carry
+the same WiX version, and Windows Installer will treat the second as the same
+product version rather than an upgrade. That is acceptable for a release
+candidate that is not distributed through the MSI channel; if `0.1.0` is
+promoted, the override is removed (the plain triple is then the version itself)
+or moved to `0.1.1` for the next candidate. `tests/architecture_boundary.rs`
+asserts the override, so removing it is a deliberate edit. Which of the two
+versions the bundler puts in the `.msi` filename is unverified until a Windows
+dispatch runs; the upload glob does not depend on it.
+
+### The rc.5 snapshot, restored
+
+DS2's token change moved the `tokens.css` digest from `826826ee…` to
+`2d80baa9…` and, because the boundary test then asserted the active manifest
+equal to `manifests/0.1.0-rc.5.toml`, edited the shipped rc.5 snapshot as well.
+R1 restored that file byte-for-byte to `git show bcf3d64c:apps/gui/manifests/0.1.0-rc.5.toml`
+(SHA-256 `b2177792cfd3a5f699b9bde57f22d7d5d0c37db74ba2c64a3c9aad4feeae7092`,
+`token_revision_sha256 = 826826ee…`), wrote the new digest into the new frozen
+`manifests/0.1.0-rc.6.toml`, and the boundary test now compares the active
+manifest with the rc.6 snapshot and pins the rc.5 snapshot's own SHA-256.
+
+### The rebuilt macOS bundle
+
+`npm --prefix apps/gui ci` then `npm --prefix apps/gui run tauri -- build
+--bundles app`, exit 0 in 56 s (``Finished `release` profile [optimized]
+target(s) in 50.85s``), on macOS 27.0.1 (26A434), Xcode 27.0 (27A266a),
+`rustc` 1.95.0 (Homebrew), Node v24.16.0 / npm 11.13.0. `rustup` is still
+absent, so x86_64 is still CI-only.
+
+| Fact | Value |
+| --- | --- |
+| Path | `target/release/bundle/macos/Viden.app` (in the R1 worktree) |
+| `CFBundleShortVersionString` / `CFBundleVersion` | `0.1.0-rc.6` / `0.1.0-rc.6` |
+| `CFBundleIdentifier` / `CFBundleExecutable` | `dev.viden.gui` / `viden-gui` |
+| Files | 3 — `Info.plist` 964 B, `MacOS/viden-gui` 42,877,136 B, `Resources/icon.icns` 699,879 B (43,577,979 B in all) |
+| Architecture | `Mach-O 64-bit executable arm64` |
+| **Binary SHA-256 (the build identity)** | `efff125904239b9b7c7e4cf687a59af6278dda592a258651ac2021126d31c53a` |
+| `Info.plist` SHA-256 | `1585343fecb1ea88dc01524f0044c55fdfebbb306fe9bf488679ddc8ab1b8aa1` |
+| `icon.icns` SHA-256 | `e7cfb70caf2180b0f7173aad3adb97938e270de78b7427d7d1d0f93258b93efc` (unchanged since P1) |
+| `.app` zip (`ditto -c -k --sequesterRsrc --keepParent`, per-build identifier) | 14,430,604 B, `e95b97fb141d2044cc97eb702cffcfdf90feb9970f21ec5a3db5b01f04c04dd6` |
+| Signature | ad-hoc, `flags=0x20002(adhoc,linker-signed)`, `Info.plist=not bound`, `TeamIdentifier=not set`, `Sealed Resources=none` |
+
+No `.dmg` was built in R1: the brief's rebuild is `--bundles app`, and a `.dmg`
+checksum is a per-build identifier, not evidence (below). The bundle was not
+launched.
+
+### Decisions R1 records
+
+1. **The build identity is the `.app` binary's SHA-256.** The `.dmg` and the
+   `.app` zip are not byte-reproducible (P1); their checksums identify one
+   build and are published beside the artifacts, never compared across builds.
+   The `SHA256SUMS-gui-<target>` line naming `Viden.app/Contents/MacOS/viden-gui`
+   that P2 added is the line to compare.
+2. **Binary digests are compared only within one build path.** P1 and P2
+   showed the binary digest moves with the checkout's absolute path (and with
+   `--target`). R1 does not add `--remap-path-prefix`; a digest is therefore
+   comparable between two runs of the same CI job, or two builds in the same
+   worktree, and not between this local build (`efff1259…`) and a CI build.
+3. **`.rpm` stays out of the Linux bundle list for `0.3.5`.** The plan's Linux
+   row is `.deb` and `.AppImage`; adding `.rpm` would add a format no host here
+   can build or launch, to a matrix whose Linux row has not run once. It is a
+   `0.3.6` candidate if a Fedora/RHEL user asks for it.
+
+### A release-identity finding the gate cannot resolve by itself
+
+Read-only `gh` calls on 2026-10-10 (`gh auth status` is now authenticated as
+`wikieden` with `repo` and `workflow` scopes — P1's "not authenticated" no
+longer holds):
+
+- the latest GitHub Release is **`v0.1.30`, titled "RoboCode v0.1.30"**,
+  published 2026-06-11, whose assets are `robocode-v0.1.30-<target>.tar.gz`
+  plus `.sha256`;
+- `wikieden/homebrew-tap` holds only `Formula/robocode.rb`, whose URLs point at
+  `github.com/wikieden/robocode/releases/download/v0.1.30/robocode-v0.1.30-…`;
+- `origin/main` is `0dcfaa66`; no `release.yml` run has used a `0.3.5` ref.
+
+`scripts/release-gate.sh` takes the workspace/CLI version (`0.1.30`), and its
+postpublish legs expect assets prefixed `viden-v` / `Viden` and a
+`wikieden/tap/viden` formula. Against the state above, **postpublish at
+`0.1.30` would fail both legs** — the tag already exists under the old name,
+and the tap has no `viden` formula. A `0.3.5` release therefore needs a version
+decision first (a new workspace version such as `0.1.31`, or a different tag
+scheme for the three lines) and a tap change that adds or renames the formula.
+Both are user decisions and both are external mutations; R1 makes neither.
+
+### The prepublish gate
+
+`scripts/release-gate.sh --version 0.1.30 --phase prepublish` **refused**, exit
+2: `DEEPSEEK_API_KEY is required for release prepublish gate`. The key is
+absent and no "go" was given, so the gate as a whole did not run. Its
+`--dry-run` lists seven commands; every leg that needs no key and no external
+mutation was then run by hand, in that order, at `a9d8e51c` (the commit that
+declares the checkpoint), with evidence under the batch scratch directory:
+
+| Leg, in `release-gate.sh` order | Ran? | Result |
+| --- | --- | --- |
+| `scripts/check-task10-guards-test.sh` | yes | PASS, `Task 10 guard fixture tests passed.` |
+| `scripts/check-dependency-boundaries.sh` | yes | PASS |
+| `scripts/check-doc-pairs.sh` over the gate's twelve files | yes | PASS |
+| `scripts/check-doc-links.sh` over the gate's four files | yes | PASS |
+| `scripts/context-engine-benchmark.sh` deterministic, 3 runs | yes | PASS, `Result: passed`, median input tokens off `1000` / on `750` (`25.00%` reduction) |
+| `scripts/release-smoke.sh --version 0.1.30 --target aarch64-apple-darwin`, without `--deepseek` | yes, 393 s | **17 PASS, 5 SKIP**: `cargo-fmt`, `tdd-testing-contract-smoke`, `tui-turn-controller-smoke`, `rc-tui-stability-contract-smoke`, `final-zero-bug-contract-smoke`, `cargo-clippy` (`-D warnings`), `viden-terminal-entry-tests`, `workspace-tests` (serial), `tui-regression`, `fallback-cli-smoke`, `plan-mode-smoke`, `daily-loop-smoke`, `codex-app-server-protocol-fixture`, `codex-app-server-write-guard`, `lane-operator-loop-smoke`, `rc-tui-stability-smoke`, `package-smoke` (`viden-v0.1.30-aarch64-apple-darwin.tar.gz`, 10,268,799 B, SHA-256 `ef9e3fa32c41fa781e162c80240a542c9fd103f6cb21e24e7b8665e6e13e3182`, binary reports `viden 0.1.30`) |
+| ↳ `deepseek-dev-scenario-smoke` (the gate passes `--deepseek`) | **refused** | not run — authorization missing: no `DEEPSEEK_API_KEY`, no "go" |
+| ↳ `provider-live-smoke`, `github-actions-release-validation`, `github-release-assets-validation`, `homebrew-validation` | skipped by flag | not prepublish legs of this gate; the last three are external and unauthorized |
+| `scripts/final-zero-bug-smoke.sh` (required because the version is `0.1.30`) | yes | **FAIL, exit 2**: `VIDEN_TUI_MANUAL_EVIDENCE_DIR is required for the final zero-bug gate`. The leg wants at least one human-taken macOS Terminal and one iTerm2 screenshot of the TUI; none exists for this candidate and an agent cannot take one on a locked screen. An evidence gap, not an authorization gap |
+| `scripts/context-engine-benchmark.sh --provider deepseek` (live A/B) | **refused** | not run — authorization missing: no `DEEPSEEK_API_KEY`, no "go" |
+| Migration (the contract's migration-before-replay test) | yes | PASS, 1 test, and inside both workspace runs |
+| Full workspace | yes | PASS twice: parallel (2343 passed) and serial inside `release-smoke` |
+
+So the prepublish gate is **not passed**: two legs are refused for missing
+authorization and one fails for missing manual evidence. Every other leg passes.
+
+### Gaps carried, R1's disposition
+
+| P1 gap | After R1 |
+| --- | --- |
+| 1. macOS x86_64 | unchanged — needs an authorized dispatch on a pushed ref |
+| 2. Windows/Linux CLI archives | unchanged — same |
+| 3. Windows/Linux GUI bundles | the `.msi` version blocker is removed (WiX override); still needs an authorized dispatch on a pushed ref |
+| 4. Signing and notarization | unchanged — no identity, no credentials, no authorization |
+| 5. `.dmg` reproducibility | decided: not required; the binary SHA-256 is the identity |
+| 6. GitHub Release + Homebrew as one unit | unvalidated, and now known to need a version decision and a tap formula change first (above) |

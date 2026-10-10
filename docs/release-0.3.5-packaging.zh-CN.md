@@ -468,3 +468,141 @@ Homebrew 开关均关闭。16 项通过，6 项按开关跳过：
    entitlements；公证需要凭据与 `notarytool` 步骤。
 5. `.dmg` 输出不是逐字节可复现的；R1 需决定是否要求这一点。
 6. GitHub Release 与 Homebrew tap 作为同一发布单元仍未验证。
+
+## R1 —— rc.6 版本提升、重建的产物，以及 P1 与 P2 留下的决定
+
+由批次 R1（生产发布门禁）于 2026-10-10 在 `claude/release-gate-r1` 上新增，基线为
+`claude/int-0.3.5` 的 `d522e4f38f7643d0e1dd37d70af5e84c43f59765`，它同时也是 Core
+`0.3.8` 契约 checkpoint。上文[来源](#来源)中的版本是 P1 的，保持原样；本节记录 R1
+改动与重建的内容。
+
+### 重建产物所携带的版本
+
+| 产品线 | 版本 |
+| --- | --- |
+| Workspace / CLI | `0.1.30`（未变；见下文的发布身份发现） |
+| Core | `0.3.8`，checkpoint `d522e4f3` |
+| TUI | `0.3.6` |
+| GUI | `0.1.0-rc.6`（`tauri.conf.json`、`package.json`、`src-tauri/Cargo.toml`、`release-manifest.toml`、冻结的 `manifests/0.1.0-rc.6.toml`） |
+
+### Windows MSI 版本映射
+
+[Windows MSI 的预发布版本限制](#windows-msi-的预发布版本限制)中的预测已被落实，而不是
+留给一次失败的分发：`apps/gui/src-tauri/tauri.conf.json` 现在声明
+`bundle.windows.wix.version = "0.1.0"`。映射如下：
+
+| 产物 | 携带的版本 |
+| --- | --- |
+| macOS `.app` / `.dmg`、Windows NSIS `-setup.exe`、Linux `.deb` / `.AppImage` | `0.1.0-rc.6` |
+| Windows `.msi`（WiX `ProductVersion`） | `0.1.0` |
+
+因此由 rc.6 构建的 `.msi` 与日后由提升后的 `0.1.0` 构建的 `.msi` 携带相同的 WiX 版本，
+Windows Installer 会把后者视为同一产品版本而不是升级。对于一个不经由 MSI 渠道分发的
+候选版本，这是可以接受的；若提升到 `0.1.0`，就移除该覆盖（此时这个三段式版本本身就是
+版本），或者为下一个候选改为 `0.1.1`。`tests/architecture_boundary.rs` 断言了该覆盖，
+因此移除它必须是一次刻意的修改。打包器会把两个版本中的哪一个写进 `.msi` 文件名，在
+Windows 分发运行之前仍未验证；上传的 glob 不依赖于此。
+
+### 恢复 rc.5 快照
+
+DS2 的 token 改动把 `tokens.css` 摘要从 `826826ee…` 移到 `2d80baa9…`，并且由于边界测试
+当时断言当前 manifest 与 `manifests/0.1.0-rc.5.toml` 相等，它连已发布的 rc.5 快照也一并
+改了。R1 把该文件逐字节恢复为
+`git show bcf3d64c:apps/gui/manifests/0.1.0-rc.5.toml`（SHA-256
+`b2177792cfd3a5f699b9bde57f22d7d5d0c37db74ba2c64a3c9aad4feeae7092`，
+`token_revision_sha256 = 826826ee…`），把新摘要写进新的冻结快照
+`manifests/0.1.0-rc.6.toml`；边界测试现在把当前 manifest 与 rc.6 快照比较，并钉住 rc.5
+快照自身的 SHA-256。
+
+### 重建的 macOS 产物
+
+`npm --prefix apps/gui ci` 之后执行 `npm --prefix apps/gui run tauri -- build
+--bundles app`，56 秒内以退出码 0 完成（``Finished `release` profile [optimized]
+target(s) in 50.85s``），环境为 macOS 27.0.1 (26A434)、Xcode 27.0 (27A266a)、`rustc`
+1.95.0（Homebrew）、Node v24.16.0 / npm 11.13.0。`rustup` 仍然缺席，因此 x86_64 仍只能
+由 CI 构建。
+
+| 事实 | 值 |
+| --- | --- |
+| 路径 | `target/release/bundle/macos/Viden.app`（位于 R1 worktree 中） |
+| `CFBundleShortVersionString` / `CFBundleVersion` | `0.1.0-rc.6` / `0.1.0-rc.6` |
+| `CFBundleIdentifier` / `CFBundleExecutable` | `dev.viden.gui` / `viden-gui` |
+| 文件 | 3 个 —— `Info.plist` 964 B、`MacOS/viden-gui` 42,877,136 B、`Resources/icon.icns` 699,879 B（合计 43,577,979 B） |
+| 架构 | `Mach-O 64-bit executable arm64` |
+| **二进制 SHA-256（构建身份）** | `efff125904239b9b7c7e4cf687a59af6278dda592a258651ac2021126d31c53a` |
+| `Info.plist` SHA-256 | `1585343fecb1ea88dc01524f0044c55fdfebbb306fe9bf488679ddc8ab1b8aa1` |
+| `icon.icns` SHA-256 | `e7cfb70caf2180b0f7173aad3adb97938e270de78b7427d7d1d0f93258b93efc`（自 P1 起未变） |
+| `.app` zip（`ditto -c -k --sequesterRsrc --keepParent`，单次构建标识） | 14,430,604 B，`e95b97fb141d2044cc97eb702cffcfdf90feb9970f21ec5a3db5b01f04c04dd6` |
+| 签名 | ad-hoc，`flags=0x20002(adhoc,linker-signed)`、`Info.plist=not bound`、`TeamIdentifier=not set`、`Sealed Resources=none` |
+
+R1 没有构建 `.dmg`：任务要求的重建是 `--bundles app`，而 `.dmg` 校验和只是单次构建的
+标识，不是证据（见下文）。该产物没有被启动。
+
+### R1 记录的决定
+
+1. **构建身份是 `.app` 二进制的 SHA-256。** `.dmg` 与 `.app` zip 不能逐字节复现
+   （P1）；它们的校验和只标识一次构建，随产物一同发布，但从不跨构建比较。P2 新增的
+   `SHA256SUMS-gui-<target>` 中指名 `Viden.app/Contents/MacOS/viden-gui` 的那一行才是
+   用来比较的。
+2. **二进制摘要只在同一构建路径内比较。** P1 与 P2 已表明二进制摘要会随 checkout 的
+   绝对路径（以及 `--target`）而变化。R1 不添加 `--remap-path-prefix`；因此摘要只在同一
+   CI 作业的两次运行之间、或同一 worktree 的两次构建之间可比，而不能在本地构建
+   （`efff1259…`）与 CI 构建之间比较。
+3. **`0.3.5` 的 Linux 产物列表继续不含 `.rpm`。** 计划中的 Linux 行是 `.deb` 与
+   `.AppImage`；加入 `.rpm` 会给一个 Linux 行一次都没跑过的矩阵增加一种此处没有任何宿主机
+   能构建或启动的格式。若有 Fedora/RHEL 用户提出需求，它是 `0.3.6` 的候选项。
+
+### 门禁自身无法解决的发布身份发现
+
+2026-10-10 的只读 `gh` 调用（`gh auth status` 现已以 `wikieden` 身份认证，具备 `repo`
+与 `workflow` scope —— P1 记录的「未认证」已不再成立）：
+
+- 最新的 GitHub Release 是 **`v0.1.30`，标题为 "RoboCode v0.1.30"**，发布于
+  2026-06-11，其资产为 `robocode-v0.1.30-<target>.tar.gz` 及 `.sha256`；
+- `wikieden/homebrew-tap` 只有 `Formula/robocode.rb`，其 URL 指向
+  `github.com/wikieden/robocode/releases/download/v0.1.30/robocode-v0.1.30-…`；
+- `origin/main` 位于 `0dcfaa66`；没有任何 `release.yml` 运行使用过 `0.3.5` 的 ref。
+
+`scripts/release-gate.sh` 接收的是 workspace/CLI 版本（`0.1.30`），其 postpublish 环节
+期望资产以 `viden-v` / `Viden` 为前缀，并期望存在 `wikieden/tap/viden` formula。对照上述
+状态，**在 `0.1.30` 上运行 postpublish 两个环节都会失败** —— 该 tag 已以旧名称存在，
+而 tap 中没有 `viden` formula。因此 `0.3.5` 发布需要先做一个版本决定（新的 workspace
+版本，例如 `0.1.31`，或为三条产品线采用另一种 tag 方案），以及一次新增或重命名 formula
+的 tap 改动。两者都是用户的决定，也都是对外变更；R1 两者都不做。
+
+### Prepublish 门禁
+
+`scripts/release-gate.sh --version 0.1.30 --phase prepublish` **拒绝运行**，退出码 2：
+`DEEPSEEK_API_KEY is required for release prepublish gate`。密钥不存在，也没有收到
+「go」，因此门禁整体没有运行。它的 `--dry-run` 列出七条命令；随后在 `a9d8e51c`（声明
+checkpoint 的提交）处按该顺序手动运行了所有既不需要密钥、也不涉及对外变更的环节，证据位于
+批次的 scratch 目录下：
+
+| 环节，按 `release-gate.sh` 顺序 | 是否运行 | 结果 |
+| --- | --- | --- |
+| `scripts/check-task10-guards-test.sh` | 是 | 通过，`Task 10 guard fixture tests passed.` |
+| `scripts/check-dependency-boundaries.sh` | 是 | 通过 |
+| `scripts/check-doc-pairs.sh`，覆盖门禁指定的十二个文件 | 是 | 通过 |
+| `scripts/check-doc-links.sh`，覆盖门禁指定的四个文件 | 是 | 通过 |
+| `scripts/context-engine-benchmark.sh` 确定性，3 次运行 | 是 | 通过，`Result: passed`，输入 token 中位数 off `1000` / on `750`（减少 `25.00%`） |
+| `scripts/release-smoke.sh --version 0.1.30 --target aarch64-apple-darwin`，不带 `--deepseek` | 是，393 秒 | **17 通过，5 跳过**：`cargo-fmt`、`tdd-testing-contract-smoke`、`tui-turn-controller-smoke`、`rc-tui-stability-contract-smoke`、`final-zero-bug-contract-smoke`、`cargo-clippy`（`-D warnings`）、`viden-terminal-entry-tests`、`workspace-tests`（串行）、`tui-regression`、`fallback-cli-smoke`、`plan-mode-smoke`、`daily-loop-smoke`、`codex-app-server-protocol-fixture`、`codex-app-server-write-guard`、`lane-operator-loop-smoke`、`rc-tui-stability-smoke`、`package-smoke`（`viden-v0.1.30-aarch64-apple-darwin.tar.gz`，10,268,799 B，SHA-256 `ef9e3fa32c41fa781e162c80240a542c9fd103f6cb21e24e7b8665e6e13e3182`，二进制报告 `viden 0.1.30`） |
+| ↳ `deepseek-dev-scenario-smoke`（门禁会传 `--deepseek`） | **拒绝** | 未运行 —— 缺少授权：没有 `DEEPSEEK_API_KEY`，没有「go」 |
+| ↳ `provider-live-smoke`、`github-actions-release-validation`、`github-release-assets-validation`、`homebrew-validation` | 按参数跳过 | 不属于本门禁的 prepublish 环节；后三项是未获授权的对外步骤 |
+| `scripts/final-zero-bug-smoke.sh`（因版本为 `0.1.30` 而必需） | 是 | **失败，退出码 2**：`VIDEN_TUI_MANUAL_EVIDENCE_DIR is required for the final zero-bug gate`。该环节要求至少一张由人拍摄的 macOS Terminal 与一张 iTerm2 的 TUI 截图；本候选没有，而 agent 无法在锁定的屏幕上拍摄。这是证据缺口，不是授权缺口 |
+| `scripts/context-engine-benchmark.sh --provider deepseek`（live A/B） | **拒绝** | 未运行 —— 缺少授权：没有 `DEEPSEEK_API_KEY`，没有「go」 |
+| 迁移（契约的先迁移后重放测试） | 是 | 通过，1 个测试，且包含在两次工作区运行中 |
+| 完整工作区 | 是 | 两次通过：并行（2343 通过）与 `release-smoke` 内的串行 |
+
+因此 prepublish 门禁**没有通过**：两个环节因缺少授权被拒绝，一个环节因缺少人工证据而失败。
+其余每个环节都通过。
+
+### 带入的缺口与 R1 的处置
+
+| P1 缺口 | R1 之后 |
+| --- | --- |
+| 1. macOS x86_64 | 未变 —— 需要在已推送的 ref 上获得授权分发 |
+| 2. Windows/Linux CLI 归档 | 未变 —— 同上 |
+| 3. Windows/Linux GUI 产物 | `.msi` 版本阻塞已解除（WiX 覆盖）；仍需在已推送的 ref 上获得授权分发 |
+| 4. 签名与公证 | 未变 —— 没有身份、没有凭据、没有授权 |
+| 5. `.dmg` 可复现性 | 已决定：不要求；二进制 SHA-256 即身份 |
+| 6. GitHub Release + Homebrew 作为同一单元 | 未验证，且现已知需要先做版本决定与 tap formula 改动（见上文） |
