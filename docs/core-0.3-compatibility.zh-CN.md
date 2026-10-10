@@ -1286,6 +1286,17 @@ E2 的第四项发现属于客户端侧，记录在它该在的地方而不是�
    在高负载主机上一起失败过一次，每次重跑都通过。它们与 H3 在 `viden-plugin-host` 和
    `viden-agents` 中改为确定性的测试属同一类，应遵循 `crates/AGENTS.md` 现在陈述的规则。
    有空位则在 `0.3.5` 卫生批次处理，否则 `0.3.6`。
+   **行上限这一半已于 2026-10-10 由 C19 关闭；原因是测试的时间预算，而不是采样器。**
+   对 `run_git_capped`（`crates/runtime/src/frontend_status.rs:329`）插桩后可见，每次失败
+   都发生在第一个调用 `rev-parse`：伪 git 子进程在执行任何一行之前以 0 CPU 停住，预算调大后
+   它在 3.01-3.02 秒自行退出。在这台 macOS 主机上，全量测试运行期间，刚写入的可执行文件
+   第一次 exec 会停顿约 3 秒；同一时刻 `/bin/sh <新文件>` 与再次 exec 同一脚本只需 3-6 毫秒。
+   测试每次调用 3 秒的预算与这次停顿赛跑。该测试
+   （`crates/runtime/src/tests/frontend_services_tests.rs:209`）现在让每个伪 git 调用在写完
+   输出后留下一个标记：缺标记报告为截止时间杀死，标记齐全而仍为 `Truncated` 则报告为输出或
+   行上限，30 秒只作为存活上限保留。`MAX_GIT_OUTPUT_BYTES`、`GIT_COMMAND_TIMEOUT` 与运行器
+   均未改动。重复超时测试同样未改动：它的重采样循环已能吸收停顿的第一次调用，并在 C19 的每次
+   运行中通过。
 
 2026-09-13 由批次 C16 依据 H4 的原生 GUI 复跑新增并同时关闭的后续项
 （`apps/gui/contract-requests.zh-CN.md`，GUI-CORE-035）：
